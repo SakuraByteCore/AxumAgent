@@ -1,0 +1,8 @@
+[package]
+name = "sagent-policy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+sagent-types = { path = "../sagent-types" }
+async-trait = "0.1.89"

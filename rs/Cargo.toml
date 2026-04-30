@@ -1,0 +1,15 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/sagent-types",
+  "crates/sagent-runtime",
+  "crates/sagent-policy",
+  "crates/sagent-tools",
+  "crates/sagent-server", "crates/sagent-llm",
+  "crates/sagent-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
