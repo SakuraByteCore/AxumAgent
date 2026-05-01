@@ -1,9 +1,11 @@
 mod api;
 mod cli;
 mod output;
+mod server;
 mod types;
 
 use cli::{Cli, Command, RunsCommand};
+use server::ManagedServer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -23,7 +25,16 @@ async fn dispatch(
     match &cli.command {
         Command::Ping => output::ping(client, base_url, cli.json).await,
         Command::Health => output::health(client, base_url, cli.json).await,
-        Command::Run { task, max_steps } => output::run(client, base_url, task, *max_steps, cli.json).await,
+        Command::Run { task, max_steps, spawn } => {
+            let server = ManagedServer::maybe_start(client, spawn).await?;
+            let effective_url = server.as_ref().map(|s| s.base_url.as_str()).unwrap_or(base_url);
+            output::run(client, effective_url, task, *max_steps, cli.json).await
+        }
+        Command::Validate { spawn } => {
+            let server = ManagedServer::maybe_start(client, spawn).await?;
+            let effective_url = server.as_ref().map(|s| s.base_url.as_str()).unwrap_or(base_url);
+            output::validate(client, effective_url, cli.json).await
+        }
         Command::Runs { command } => dispatch_runs(client, base_url, command, cli.json).await,
     }
 }

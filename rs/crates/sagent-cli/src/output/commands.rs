@@ -35,6 +35,92 @@ pub async fn health(
     }
     Ok(())
 }
+
+pub async fn validate(
+    client: &reqwest::Client,
+    base_url: &str,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    validate_checks(client, base_url).await?;
+    print_validate_ok(json)?;
+    Ok(())
+}
+
+async fn validate_checks(
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    require_health(client, base_url).await?;
+    let run_id = create_validate_run(client, base_url).await?;
+    require_terminal_events(client, base_url, &run_id).await?;
+    require_terminal_status(client, base_url, &run_id).await?;
+    require_no_events_after(client, base_url, &run_id).await?;
+    Ok(())
+}
+
+async fn require_health(
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let ok = client.get(format!("{base_url}/health")).send().await?.error_for_status().is_ok();
+    if ok {
+        Ok(())
+    } else {
+        Err("health_check_failed".into())
+    }
+}
+
+async fn create_validate_run(
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let created = api::create_run(client, base_url, "validate_cli", None).await?;
+    Ok(created.run_id)
+}
+
+async fn require_terminal_events(
+    client: &reqwest::Client,
+    base_url: &str,
+    run_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let saw_terminal = api::stream_events(client, base_url, run_id, 1, |_| Ok(())).await?;
+    if saw_terminal {
+        Ok(())
+    } else {
+        Err("no_terminal_event".into())
+    }
+}
+
+async fn require_terminal_status(
+    client: &reqwest::Client,
+    base_url: &str,
+    run_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let run = api::get_run(client, base_url, run_id).await?;
+    if run.status == "done" || run.status == "error" {
+        Ok(())
+    } else {
+        Err("unexpected_status".into())
+    }
+}
+
+async fn require_no_events_after(
+    client: &reqwest::Client,
+    base_url: &str,
+    run_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let _ = api::stream_events(client, base_url, run_id, i64::MAX, |_| Err("unexpected_event".into())).await?;
+    Ok(())
+}
+
+fn print_validate_ok(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if json {
+        println!("{}", serde_json::to_string(&serde_json::json!({ "ok": true }))?);
+    } else {
+        println!("ok");
+    }
+    Ok(())
+}
 pub async fn run(
     client: &reqwest::Client,
     base_url: &str,

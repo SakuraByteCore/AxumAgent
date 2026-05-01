@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 const DEFAULT_URL: &str = "http://127.0.0.1:3001";
 
@@ -23,6 +23,12 @@ pub enum Command {
         task: String,
         #[arg(long)]
         max_steps: Option<u32>,
+        #[command(flatten)]
+        spawn: SpawnServerOptions,
+    },
+    Validate {
+        #[command(flatten)]
+        spawn: SpawnServerOptions,
     },
     Runs {
         #[command(subcommand)]
@@ -47,6 +53,27 @@ pub enum RunsCommand {
     },
 }
 
+#[derive(Args, Clone)]
+pub struct SpawnServerOptions {
+    #[arg(long)]
+    pub spawn_server: bool,
+
+    #[arg(long, default_value = "sagent-server")]
+    pub server_bin: String,
+
+    #[arg(long = "server-arg")]
+    pub server_args: Vec<String>,
+
+    #[arg(long)]
+    pub db_path: Option<String>,
+
+    #[arg(long)]
+    pub port: Option<u16>,
+
+    #[arg(long, default_value_t = 10_000)]
+    pub startup_timeout_ms: u64,
+}
+
 impl Cli {
     pub fn parse() -> Self {
         <Self as Parser>::parse()
@@ -56,4 +83,3 @@ impl Cli {
         self.url.trim_end_matches('/').to_string()
     }
 }
-
