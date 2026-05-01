@@ -33,6 +33,7 @@ impl ManagedServer {
         let base_url = format!("http://127.0.0.1:{port}");
 
         let (bin, args) = resolve_server_command(spawn);
+        let bin = ensure_server_bin(&bin, spawn).await?;
         let mut cmd = Command::new(bin);
         cmd.args(args);
         cmd.env("PORT", port.to_string());
@@ -59,6 +60,12 @@ fn resolve_server_bin(bin: &str) -> String {
     if bin != "sagent-server" {
         return bin.to_string();
     }
+    if Path::new("target/release/sagent-server").exists() {
+        return "target/release/sagent-server".to_string();
+    }
+    if Path::new("rs/target/release/sagent-server").exists() {
+        return "rs/target/release/sagent-server".to_string();
+    }
     if Path::new("target/debug/sagent-server").exists() {
         return "target/debug/sagent-server".to_string();
     }
@@ -66,6 +73,41 @@ fn resolve_server_bin(bin: &str) -> String {
         return "rs/target/debug/sagent-server".to_string();
     }
     bin.to_string()
+}
+
+async fn ensure_server_bin(
+    resolved_bin: &str,
+    spawn: &SpawnServerOptions,
+) -> Result<String, Box<dyn std::error::Error>> {
+    if spawn.server_bin != "sagent-server" {
+        return Ok(resolved_bin.to_string());
+    }
+    if resolved_bin != "sagent-server" {
+        return Ok(resolved_bin.to_string());
+    }
+    if Path::new("rs/Cargo.toml").exists() {
+        let _ = build_server().await?;
+        let exe = if cfg!(windows) { ".exe" } else { "" };
+        let candidate = format!("rs/target/release/sagent-server{exe}");
+        if Path::new(&candidate).exists() {
+            return Ok(candidate);
+        }
+    }
+    Ok(resolved_bin.to_string())
+}
+
+async fn build_server() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new("cargo");
+    cmd.args(["build", "-q", "-p", "sagent-server", "--release"]);
+    if Path::new("rs/Cargo.toml").exists() {
+        cmd.current_dir("rs");
+    }
+    let status = cmd.status().await?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("server_build_failed".into())
+    }
 }
 
 fn pick_port() -> u16 {

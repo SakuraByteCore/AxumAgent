@@ -12,14 +12,14 @@ pub async fn ping(
     let ok = client.get(format!("{base_url}/health")).send().await?.error_for_status().is_ok();
     if json {
         let out = PingOutput { ok, url: base_url.to_string(), latency_ms: started.elapsed().as_millis() };
-        println!("{}", serde_json::to_string(&out)?);
+        print::line(&serde_json::to_string(&out)?)?;
         return Ok(());
     }
     if ok {
-        println!("ok {}ms", started.elapsed().as_millis());
+        print::line(&format!("ok {}ms", started.elapsed().as_millis()))?;
         return Ok(());
     }
-    println!("error");
+    print::line("error")?;
     std::process::exit(1);
 }
 pub async fn health(
@@ -29,9 +29,9 @@ pub async fn health(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let body = client.get(format!("{base_url}/health")).send().await?.error_for_status()?.text().await?;
     if json {
-        println!("{}", serde_json::to_string(&serde_json::json!({ "ok": body.trim() == "ok", "body": body }))?);
+        print::line(&serde_json::to_string(&serde_json::json!({ "ok": body.trim() == "ok", "body": body }))?)?;
     } else {
-        println!("{}", body.trim());
+        print::line(body.trim())?;
     }
     Ok(())
 }
@@ -115,9 +115,9 @@ async fn require_no_events_after(
 
 fn print_validate_ok(json: bool) -> Result<(), Box<dyn std::error::Error>> {
     if json {
-        println!("{}", serde_json::to_string(&serde_json::json!({ "ok": true }))?);
+        print::line(&serde_json::to_string(&serde_json::json!({ "ok": true }))?)?;
     } else {
-        println!("ok");
+        print::line("ok")?;
     }
     Ok(())
 }
@@ -130,9 +130,9 @@ pub async fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let created = api::create_run(client, base_url, task, max_steps).await?;
     if json {
-        println!("{}", serde_json::to_string(&serde_json::json!({ "run_id": created.run_id, "status": created.status }))?);
+        print::line(&serde_json::to_string(&serde_json::json!({ "run_id": created.run_id, "status": created.status }))?)?;
     } else {
-        println!("run_id {}", created.run_id);
+        print::line(&format!("run_id {}", created.run_id))?;
     }
     let saw_terminal = api::stream_events(client, base_url, &created.run_id, 1, |ev| print::event(&ev, json)).await?;
     if saw_terminal {
@@ -150,9 +150,9 @@ pub async fn runs_create(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let created = api::create_run(client, base_url, task, max_steps).await?;
     if json {
-        println!("{}", serde_json::to_string(&created)?);
+        print::line(&serde_json::to_string(&created)?)?;
     } else {
-        println!("{} {}", created.run_id, created.status);
+        print::line(&format!("{} {}", created.run_id, created.status))?;
     }
     Ok(())
 }
@@ -164,9 +164,9 @@ pub async fn runs_get(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let res = api::get_run(client, base_url, run_id).await?;
     if json {
-        println!("{}", serde_json::to_string(&res)?);
+        print::line(&serde_json::to_string(&res)?)?;
     } else {
-        println!("{} {}", res.run_id, res.status);
+        print::line(&format!("{} {}", res.run_id, res.status))?;
     }
     Ok(())
 }
