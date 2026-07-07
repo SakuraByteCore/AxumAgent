@@ -14,6 +14,7 @@
   ],
   "scripts": {
     "build": "go build -o dist/sagent ./cmd/sagent",
+    "prepare": "node -e \"\"",
     "test": "go test ./..."
   },
   "engines": {
