@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AxumAgent</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0f14; --panel:#121821; --line:#263241; --text:#e6edf3; --muted:#8b949e; --accent:#58a6ff; --bad:#ff7b72; --ok:#7ee787; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:15px/1.5 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width:min(960px, calc(100vw - 32px)); margin:0 auto; padding:32px 0; }
+    h1 { margin:0 0 6px; font-size:28px; letter-spacing:-.03em; }
+    p { margin:0; color:var(--muted); }
+    section { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px; margin:16px 0; }
+    label { display:block; margin-bottom:8px; color:var(--muted); }
+    textarea, input { width:100%; border:1px solid var(--line); background:#0f141c; color:var(--text); border-radius:10px; padding:12px; font:inherit; outline:none; }
+    textarea { min-height:132px; resize:vertical; }
+    textarea:focus, input:focus { border-color:var(--accent); }
+    .row { display:flex; gap:12px; align-items:center; margin-top:12px; }
+    .row > * { flex:1; }
+    button { flex:none; border:0; border-radius:10px; background:var(--accent); color:#07111f; padding:11px 16px; font-weight:700; cursor:pointer; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    .status { color:var(--muted); }
+    .status.ok { color:var(--ok); }
+    .status.bad { color:var(--bad); }
+    pre { margin:0; white-space:pre-wrap; word-break:break-word; font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .event { border-top:1px solid var(--line); padding:12px 0; }
+    .event:first-child { border-top:0; padding-top:0; }
+    .kind { color:var(--accent); font-weight:700; }
+    .meta { color:var(--muted); font-size:12px; }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>AxumAgent</h1>
+      <p>Go binary agent core with CLI + plain HTML/JS web control.</p>
+    </header>
+    <section>
+      <label for="task">Task</label>
+      <textarea id="task" placeholder="Ask the local Go agent to do something…"></textarea>
+      <div class="row">
+        <input id="maxSteps" type="number" min="1" max="64" value="8" aria-label="Max steps">
+        <button id="runBtn">Run</button>
+      </div>
+      <p id="status" class="status">Ready. Only one active run is allowed.</p>
+    </section>
+    <section><pre id="events">No events yet.</pre></section>
+  </main>
+  <script>
+    const taskEl = document.querySelector('#task');
+    const maxStepsEl = document.querySelector('#maxSteps');
+    const runBtn = document.querySelector('#runBtn');
+    const statusEl = document.querySelector('#status');
+    const eventsEl = document.querySelector('#events');
+    let source = null;
+
+    function setStatus(text, cls = '') { statusEl.textContent = text; statusEl.className = `status ${cls}`.trim(); }
+    function escapeHtml(value) { return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
+    function appendEvent(event) {
+      if (eventsEl.textContent === 'No events yet.') eventsEl.textContent = '';
+      const block = document.createElement('div');
+      block.className = 'event';
+      const payload = JSON.stringify(event.payload, null, 2);
+      block.innerHTML = `<div><span class="kind">${escapeHtml(event.type)}</span> <span class="meta">#${event.seq} · ${new Date(event.ts_ms).toLocaleTimeString()}</span></div><pre>${escapeHtml(payload)}</pre>`;
+      eventsEl.appendChild(block);
+      block.scrollIntoView({ block: 'end' });
+    }
+    async function createRun() {
+      const task = taskEl.value.trim();
+      if (!task) return setStatus('Task is required.', 'bad');
+      if (source) source.close();
+      runBtn.disabled = true;
+      eventsEl.textContent = 'No events yet.';
+      setStatus('Creating run…');
+      try {
+        const resp = await fetch('/api/runs', { method:'POST', headers:{'content-type':'application/json'}, body:JSON.stringify({ task, max_steps:Number(maxStepsEl.value || 8) }) });
+        if (!resp.ok) {
+          const text = await resp.text();
+          throw new Error(resp.status === 409 ? 'Another run is already active.' : text || `HTTP ${resp.status}`);
+        }
+        const created = await resp.json();
+        setStatus(`Run ${created.run_id} ${created.status}. Streaming events…`, 'ok');
+        streamRun(created.run_id);
+      } catch (err) {
+        runBtn.disabled = false;
+        setStatus(err.message || String(err), 'bad');
+      }
+    }
+    function streamRun(runId) {
+      source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events?from_seq=1`);
+      source.addEventListener('event', (msg) => {
+        const event = JSON.parse(msg.data);
+        appendEvent(event);
+        if (event.type === 'done' || event.type === 'error') {
+          source.close(); source = null; runBtn.disabled = false;
+          setStatus(event.type === 'done' ? 'Done.' : 'Run failed.', event.type === 'done' ? 'ok' : 'bad');
+        }
+      });
+      source.onerror = () => { if (source) source.close(); source = null; runBtn.disabled = false; setStatus('Event stream disconnected.', 'bad'); };
+    }
+    runBtn.addEventListener('click', createRun);
+    taskEl.addEventListener('keydown', (event) => { if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') createRun(); });
+  </script>
+</body>
+</html>

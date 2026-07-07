@@ -1,8 +1,31 @@
 {
-  "name": "agentcli",
+  "name": "axumagent",
   "version": "0.1.0",
+  "description": "Go binary local agent core with CLI and plain web control.",
   "license": "MIT",
   "bin": {
     "sagent": "bin/sagent.js"
-  }
+  },
+  "files": [
+    "bin/sagent.js",
+    "cmd/",
+    "internal/",
+    "go.mod"
+  ],
+  "scripts": {
+    "build": "go build -o dist/sagent ./cmd/sagent",
+    "test": "go test ./..."
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
 }
