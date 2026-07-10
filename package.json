@@ -4,5 +4,8 @@
   "license": "MIT",
   "bin": {
     "sagent": "bin/sagent.js"
+  },
+  "scripts": {
+    "test": "node --check bin/sagent.js"
   }
 }

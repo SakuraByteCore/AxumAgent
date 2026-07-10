@@ -4,7 +4,7 @@ use sagent_types::{Action, AgentError, Decision, NotifyLevel, ToolAction};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
-use std::time::Duration;
+use std::{fs, path::PathBuf, time::Duration};
 
 #[derive(Debug, Clone)]
 pub struct PlannerContext<'a> {
@@ -29,19 +29,88 @@ pub struct OpenAiCompatiblePlanner {
     allow_mock: bool,
 }
 
-impl OpenAiCompatiblePlanner {
-    pub fn from_env() -> Option<Self> {
-        let base_url = std::env::var("OPENAI_BASE_URL").ok()?;
-        let api_key = std::env::var("OPENAI_API_KEY").ok()?;
-        let model = std::env::var("OPENAI_MODEL").ok()?;
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAiPlannerConfig {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    #[serde(default = "default_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default)]
+    pub allow_mock: bool,
+}
+
+fn default_timeout_ms() -> u64 {
+    60_000
+}
+
+fn truthy(value: &str) -> bool {
+    matches!(value, "1" | "true" | "yes" | "on")
+}
+
+pub fn config_path() -> PathBuf {
+    if let Ok(path) = std::env::var("SAGENT_CONFIG") {
+        let trimmed = path.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(".sagent").join("config.json");
+    }
+    PathBuf::from(".sagent").join("config.json")
+}
+
+pub fn load_openai_config_from_file() -> Option<OpenAiPlannerConfig> {
+    let path = config_path();
+    let raw = fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let openai = value.get("openai").cloned().unwrap_or(value);
+    serde_json::from_value(openai).ok()
+}
+
+pub fn load_openai_config() -> Option<OpenAiPlannerConfig> {
+    let env_base_url = std::env::var("OPENAI_BASE_URL").ok();
+    let env_api_key = std::env::var("OPENAI_API_KEY").ok();
+    let env_model = std::env::var("OPENAI_MODEL").ok();
+
+    if let (Some(base_url), Some(api_key), Some(model)) = (env_base_url, env_api_key, env_model) {
         let timeout_ms = std::env::var("OPENAI_TIMEOUT_MS")
             .ok()
             .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(60_000);
+            .unwrap_or_else(default_timeout_ms);
         let allow_mock = std::env::var("OPENAI_ALLOW_MOCK")
             .ok()
-            .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "yes"));
-        Some(Self::new(base_url, api_key, model, Duration::from_millis(timeout_ms), allow_mock))
+            .is_some_and(|v| truthy(v.as_str()));
+        return Some(OpenAiPlannerConfig { base_url, api_key, model, timeout_ms, allow_mock });
+    }
+
+    load_openai_config_from_file()
+}
+
+pub fn save_openai_config(config: &OpenAiPlannerConfig) -> Result<PathBuf, std::io::Error> {
+    let path = config_path();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let body = serde_json::json!({ "openai": config });
+    fs::write(&path, serde_json::to_vec_pretty(&body)?)?;
+    Ok(path)
+}
+
+impl OpenAiCompatiblePlanner {
+    pub fn from_env() -> Option<Self> {
+        Self::from_config(load_openai_config()?)
+    }
+
+    pub fn from_config(config: OpenAiPlannerConfig) -> Option<Self> {
+        let base_url = config.base_url.trim().to_string();
+        let api_key = config.api_key.trim().to_string();
+        let model = config.model.trim().to_string();
+        if base_url.is_empty() || api_key.is_empty() || model.is_empty() {
+            return None;
+        }
+        Some(Self::new(base_url, api_key, model, Duration::from_millis(config.timeout_ms), config.allow_mock))
     }
 
     pub fn new(base_url: String, api_key: String, model: String, timeout: Duration, allow_mock: bool) -> Self {
@@ -57,6 +126,8 @@ impl OpenAiCompatiblePlanner {
 enum PlanError {
     #[error("http_error")]
     Http,
+    #[error("http_status_{status}: {body}")]
+    HttpStatus { status: u16, body: String },
     #[error("invalid_response")]
     InvalidResponse,
     #[error("missing_content")]
@@ -220,7 +291,9 @@ impl Planner for OpenAiCompatiblePlanner {
             .map_err(|_| AgentError::Other(PlanError::Http.to_string()))?;
 
         if !resp.status().is_success() {
-            return Err(AgentError::Other(PlanError::Http.to_string()));
+            let status = resp.status().as_u16();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(AgentError::Other(PlanError::HttpStatus { status, body }.to_string()));
         }
 
         let parsed: ChatCompletionResponse = resp.json().await.map_err(|_| AgentError::Other(PlanError::InvalidResponse.to_string()))?;

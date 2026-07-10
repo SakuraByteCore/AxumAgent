@@ -17,6 +17,10 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     Ping,
     Health,
     Run {
@@ -34,6 +38,27 @@ pub enum Command {
         #[command(subcommand)]
         command: RunsCommand,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ConfigCommand {
+    Openai {
+        #[arg(long)]
+        base_url: String,
+
+        #[arg(long)]
+        api_key: String,
+
+        #[arg(long)]
+        model: String,
+
+        #[arg(long, default_value_t = 60_000)]
+        timeout_ms: u64,
+
+        #[arg(long)]
+        allow_mock: bool,
+    },
+    Show,
 }
 
 #[derive(Subcommand)]

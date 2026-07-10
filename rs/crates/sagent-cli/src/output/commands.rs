@@ -36,6 +36,80 @@ pub async fn health(
     Ok(())
 }
 
+pub async fn config_openai(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    timeout_ms: u64,
+    allow_mock: bool,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let config = sagent_llm::OpenAiPlannerConfig {
+        base_url: base_url.trim().trim_end_matches('/').to_string(),
+        api_key: api_key.trim().to_string(),
+        model: model.trim().to_string(),
+        timeout_ms,
+        allow_mock,
+    };
+    if config.base_url.is_empty() {
+        return Err("base_url_required".into());
+    }
+    if config.api_key.is_empty() {
+        return Err("api_key_required".into());
+    }
+    if config.model.is_empty() {
+        return Err("model_required".into());
+    }
+    let path = sagent_llm::save_openai_config(&config)?;
+    if json {
+        print::line(&serde_json::to_string(&serde_json::json!({
+            "ok": true,
+            "path": path,
+            "openai": {
+                "base_url": config.base_url,
+                "api_key": mask_secret(&config.api_key),
+                "model": config.model,
+                "timeout_ms": config.timeout_ms,
+                "allow_mock": config.allow_mock
+            }
+        }))?)?;
+    } else {
+        print::line(&format!("saved {}", path.display()))?;
+        print::line(&format!("openai chat {} model={} key={}", config.base_url, config.model, mask_secret(&config.api_key)))?;
+    }
+    Ok(())
+}
+
+pub async fn config_show(json: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let path = sagent_llm::config_path();
+    let config = sagent_llm::load_openai_config();
+    if json {
+        let openai = config.map(|c| serde_json::json!({
+            "base_url": c.base_url,
+            "api_key": mask_secret(&c.api_key),
+            "model": c.model,
+            "timeout_ms": c.timeout_ms,
+            "allow_mock": c.allow_mock
+        }));
+        print::line(&serde_json::to_string(&serde_json::json!({ "path": path, "openai": openai }))?)?;
+    } else if let Some(c) = config {
+        print::line(&format!("config {}", path.display()))?;
+        print::line(&format!("openai chat {} model={} key={}", c.base_url, c.model, mask_secret(&c.api_key)))?;
+    } else {
+        print::line(&format!("config {}", path.display()))?;
+        print::line("openai chat not configured")?;
+    }
+    Ok(())
+}
+
+fn mask_secret(secret: &str) -> String {
+    let value = secret.trim();
+    if value.len() <= 10 {
+        return "***".to_string();
+    }
+    format!("{}…{}", &value[..6], &value[value.len() - 4..])
+}
+
 pub async fn validate(
     client: &reqwest::Client,
     base_url: &str,
