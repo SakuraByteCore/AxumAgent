@@ -1,0 +1,12 @@
+[package]
+name = "axum-runtime"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum-types = { path = "../axum-types" }
+async-trait = "0.1.89"
+tokio = { version = "1.47.0", features = ["time"] }
+
+[dev-dependencies]
+tokio = { version = "1.47.0", features = ["macros", "rt"] }

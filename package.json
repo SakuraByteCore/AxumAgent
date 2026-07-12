@@ -1,11 +1,11 @@
 {
-  "name": "agentcli",
+  "name": "axum",
   "version": "0.1.0",
   "license": "MIT",
   "bin": {
-    "sagent": "bin/sagent.js"
+    "axum": "bin/axum.js"
   },
   "scripts": {
-    "test": "node --check bin/sagent.js"
+    "test": "node --check bin/axum.js"
   }
 }

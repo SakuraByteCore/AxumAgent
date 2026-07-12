@@ -1,0 +1,11 @@
+[package]
+name = "axum-policy"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum-types = { path = "../axum-types" }
+async-trait = "0.1.89"
+
+[dev-dependencies]
+tokio = { version = "1.47.0", features = ["macros", "rt"] }

@@ -5,7 +5,7 @@ yarn-error.log*
 pnpm-debug.log*
 .DS_Store
 
-sagent
+axum
 rs/target
 rs/data/*.db
 rs/data/*.db-*

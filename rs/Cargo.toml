@@ -1,12 +1,12 @@
 [workspace]
 resolver = "3"
 members = [
-  "crates/sagent-types",
-  "crates/sagent-runtime",
-  "crates/sagent-policy",
-  "crates/sagent-tools",
-  "crates/sagent-server", "crates/sagent-llm",
-  "crates/sagent-cli",
+  "crates/axum-types",
+  "crates/axum-runtime",
+  "crates/axum-policy",
+  "crates/axum-tools",
+  "crates/axum-server", "crates/axum-llm",
+  "crates/axum-cli",
 ]
 
 [workspace.package]

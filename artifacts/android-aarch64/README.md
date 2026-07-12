@@ -1,53 +1,14 @@
-# AxumAgent Termux / Android aarch64 binaries
+# Android aarch64 artifacts
 
-These binaries are built for Termux on Android aarch64 devices. They do not require Rust or Cargo on the device.
+Android binaries are not checked in after the Axum rename because the previous prebuilt files contained stale the old name crate names, paths, and environment strings.
 
-## Quick start
-
-```bash
-pkg update
-pkg install -y git ca-certificates
-
-git clone https://github.com/SakuraByteCore/AxumAgent.git
-cd AxumAgent
-
-chmod +x artifacts/android-aarch64/sagent-cli artifacts/android-aarch64/sagent-server
-./artifacts/android-aarch64/sagent-cli --help
-```
-
-## Configure OpenAI-compatible planner
+Rebuild them from the renamed workspace with an Android NDK toolchain available:
 
 ```bash
-./artifacts/android-aarch64/sagent-cli config openai \
-  --base-url "https://YOUR_ENDPOINT/v1" \
-  --api-key "YOUR_API_KEY" \
-  --model "YOUR_MODEL"
-
-./artifacts/android-aarch64/sagent-cli config show
+cd rs
+cargo build --release --target aarch64-linux-android -p axum-cli -p axum-server
+cp target/aarch64-linux-android/release/axum-cli ../artifacts/android-aarch64/axum-cli
+cp target/aarch64-linux-android/release/axum-server ../artifacts/android-aarch64/axum-server
 ```
 
-## Run with auto-started local server
-
-```bash
-mkdir -p data
-SAGENT_DB_PATH=data/sagent.db \
-./artifacts/android-aarch64/sagent-cli run "hello" \
-  --spawn-server \
-  --server-bin "./artifacts/android-aarch64/sagent-server"
-```
-
-## Run server manually
-
-Terminal 1:
-
-```bash
-mkdir -p data
-PORT=3001 SAGENT_DB_PATH=data/sagent.db ./artifacts/android-aarch64/sagent-server
-```
-
-Terminal 2:
-
-```bash
-./artifacts/android-aarch64/sagent-cli --url http://127.0.0.1:3001 health
-./artifacts/android-aarch64/sagent-cli --url http://127.0.0.1:3001 run "hello"
-```
+Required tool example: `aarch64-linux-android-clang` from the Android NDK.

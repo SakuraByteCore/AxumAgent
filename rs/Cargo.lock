@@ -140,6 +140,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "axum-cli"
+version = "0.1.0"
+dependencies = [
+ "axum-llm",
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "axum-core"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -156,6 +168,78 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+]
+
+[[package]]
+name = "axum-llm"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum-types",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
+name = "axum-policy"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum-types",
+ "tokio",
+]
+
+[[package]]
+name = "axum-runtime"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum-types",
+ "tokio",
+]
+
+[[package]]
+name = "axum-server"
+version = "0.1.0"
+dependencies = [
+ "async-stream",
+ "async-trait",
+ "axum",
+ "axum-llm",
+ "axum-policy",
+ "axum-runtime",
+ "axum-tools",
+ "axum-types",
+ "futures",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "axum-tools"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "axum-types",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "axum-types"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "uuid",
 ]
 
 [[package]]
@@ -1135,89 +1219,6 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
-
-[[package]]
-name = "sagent-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "reqwest",
- "sagent-llm",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "sagent-llm"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "reqwest",
- "sagent-types",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "sagent-policy"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "sagent-types",
-]
-
-[[package]]
-name = "sagent-runtime"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "sagent-types",
- "tokio",
-]
-
-[[package]]
-name = "sagent-server"
-version = "0.1.0"
-dependencies = [
- "async-stream",
- "async-trait",
- "axum",
- "futures",
- "rusqlite",
- "sagent-llm",
- "sagent-policy",
- "sagent-runtime",
- "sagent-tools",
- "sagent-types",
- "serde",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
-name = "sagent-tools"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "sagent-types",
- "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "sagent-types"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror",
- "uuid",
-]
 
 [[package]]
 name = "semver"
