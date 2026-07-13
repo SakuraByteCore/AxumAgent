@@ -25,6 +25,21 @@ npm run build
 node bin/axum.js --help
 ```
 
+## Install from npm
+
+```bash
+npm install -g axum-agent
+axum --help
+```
+
+For local development from this repository:
+
+```bash
+npm install
+npm link
+axum --help
+```
+
 ## Config
 
 AxumAgent reads user-level config instead of project-local config by default:
@@ -54,6 +69,7 @@ Config path resolution:
 
 ```bash
 npm test
+npm run pack:dry
 node bin/axum.js --help
 node bin/axum.js chat "Say hello"
 node bin/axum.js chat --config ~/.axum/config.toml "Say hello"

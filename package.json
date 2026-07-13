@@ -1,5 +1,5 @@
 {
-  "name": "axum",
+  "name": "axum-agent",
   "version": "0.1.0",
   "license": "MIT",
   "bin": {
@@ -7,7 +7,9 @@
   },
   "scripts": {
     "test": "npm run build && node --check bin/axum.js && node --check dist/cli.js && node --check dist/config.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js",
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "prepack": "npm run build",
+    "pack:dry": "npm pack --dry-run"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
@@ -15,5 +17,36 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5"
+  },
+  "description": "TypeScript CLI agent prototype with OpenAI Chat-compatible provider support",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SakuraByteCore/AxumAgent.git"
+  },
+  "homepage": "https://github.com/SakuraByteCore/AxumAgent#readme",
+  "bugs": {
+    "url": "https://github.com/SakuraByteCore/AxumAgent/issues"
+  },
+  "keywords": [
+    "agent",
+    "cli",
+    "openai",
+    "openai-compatible",
+    "chat-completions",
+    "typescript"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": "./dist/cli.js",
+    "./config": "./dist/config.js",
+    "./providers/openai-chat": "./dist/providers/openai-chat.js"
   }
 }

@@ -12,6 +12,7 @@ Work added:
 - Removed the old Rust workspace and prebuilt artifacts to avoid large disk usage and keep the project TS-only.
 - OpenAI-compatible chat requests now retry transient transport/upstream failures 10 times by default, configurable with CLI flags or environment variables.
 - Added user-level TOML config loading (`~/.axum/config.toml`, `AXUM_CONFIG`, or `--config`) so provider settings can live outside project directories.
+- Prepared npm packaging as `axum-agent` with committed dist output, `axum` binary, package exports, package metadata, MIT license, and dry-run pack script.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.
