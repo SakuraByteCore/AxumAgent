@@ -10,6 +10,7 @@ Work added:
 - Node shim now runs the TypeScript CLI directly.
 - Mock HTTP regression test proving `axum chat` sends `/v1/chat/completions` requests with model, system/user messages, and bearer auth.
 - Removed the old Rust workspace and prebuilt artifacts to avoid large disk usage and keep the project TS-only.
+- OpenAI-compatible chat requests now retry transient transport/upstream failures 10 times by default, configurable with CLI flags or environment variables.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

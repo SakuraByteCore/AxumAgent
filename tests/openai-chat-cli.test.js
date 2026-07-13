@@ -5,8 +5,9 @@ const assert = require("assert");
 const { spawn } = require("child_process");
 const path = require("path");
 
-function startMockServer() {
+function startMockServer(options = {}) {
   const requests = [];
+  let failuresLeft = options.failures || 0;
   const server = http.createServer((req, res) => {
     let body = "";
     req.setEncoding("utf8");
@@ -16,6 +17,12 @@ function startMockServer() {
       if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { message: "not found" } }));
+        return;
+      }
+      if (failuresLeft > 0) {
+        failuresLeft -= 1;
+        res.writeHead(500, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: { message: "temporary upstream failure" } }));
         return;
       }
       res.writeHead(200, { "content-type": "application/json" });
@@ -47,7 +54,7 @@ function runCli(args, env) {
   return new Promise((resolve) => child.on("close", (code) => resolve({ code, stdout, stderr })));
 }
 
-(async () => {
+async function testBasicChat() {
   const { server, requests, port } = await startMockServer();
   try {
     const result = await runCli([
@@ -69,11 +76,39 @@ function runCli(args, env) {
       { role: "user", content: "hello" },
     ]);
     assert.strictEqual(requests[0].body.model, "mock-model");
-
-    const missingKey = await runCli(["chat", "hello"], { OPENAI_API_KEY: "" });
-    assert.strictEqual(missingKey.code, 2);
-    assert.match(missingKey.stderr, /missing API key/);
   } finally {
     server.close();
   }
+}
+
+async function testRetryConfig() {
+  const { server, requests, port } = await startMockServer({ failures: 2 });
+  try {
+    const result = await runCli([
+      "chat",
+      "--base-url", `http://127.0.0.1:${port}/v1`,
+      "--model", "mock-model",
+      "--max-retries", "2",
+      "--retry-delay-ms", "0",
+      "hello",
+    ], { OPENAI_API_KEY: "test-key" });
+
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.strictEqual(result.stdout.trim(), "mock answer");
+    assert.strictEqual(requests.length, 3);
+  } finally {
+    server.close();
+  }
+}
+
+async function testMissingKey() {
+  const missingKey = await runCli(["chat", "hello"], { OPENAI_API_KEY: "" });
+  assert.strictEqual(missingKey.code, 2);
+  assert.match(missingKey.stderr, /missing API key/);
+}
+
+(async () => {
+  await testBasicChat();
+  await testRetryConfig();
+  await testMissingKey();
 })();

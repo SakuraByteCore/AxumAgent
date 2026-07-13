@@ -13,12 +13,16 @@ interface ChatCommandOptions {
   apiKey?: string;
   system?: string;
   temperature?: number;
+  maxRetries: number;
+  retryDelayMs: number;
   json: boolean;
 }
 
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_API_KEY_ENV = "OPENAI_API_KEY";
+const DEFAULT_MAX_RETRIES = 10;
+const DEFAULT_RETRY_DELAY_MS = 250;
 
 function takeValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1];
@@ -34,6 +38,14 @@ function parseTemperature(value: string): number {
   return num;
 }
 
+function parseNonNegativeInteger(value: string, flag: string): number {
+  const num = Number(value);
+  if (!Number.isInteger(num) || num < 0) {
+    throw new Error(`${flag} must be a non-negative integer`);
+  }
+  return num;
+}
+
 function parseChatArgs(args: string[], env: NodeJS.ProcessEnv): ChatCommandOptions {
   const rest: string[] = [];
   let model = env.AXUM_MODEL || DEFAULT_MODEL;
@@ -42,6 +54,12 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv): ChatCommandOptio
   let apiKey: string | undefined;
   let system: string | undefined;
   let temperature: number | undefined;
+  let maxRetries = env.AXUM_OPENAI_MAX_RETRIES
+    ? parseNonNegativeInteger(env.AXUM_OPENAI_MAX_RETRIES, "AXUM_OPENAI_MAX_RETRIES")
+    : DEFAULT_MAX_RETRIES;
+  let retryDelayMs = env.AXUM_OPENAI_RETRY_DELAY_MS
+    ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_DELAY_MS, "AXUM_OPENAI_RETRY_DELAY_MS")
+    : DEFAULT_RETRY_DELAY_MS;
   let json = false;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -63,6 +81,12 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv): ChatCommandOptio
       i += 1;
     } else if (arg === "--temperature") {
       temperature = parseTemperature(takeValue(args, i, arg));
+      i += 1;
+    } else if (arg === "--max-retries") {
+      maxRetries = parseNonNegativeInteger(takeValue(args, i, arg), arg);
+      i += 1;
+    } else if (arg === "--retry-delay-ms") {
+      retryDelayMs = parseNonNegativeInteger(takeValue(args, i, arg), arg);
       i += 1;
     } else if (arg === "--json") {
       json = true;
@@ -86,6 +110,8 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv): ChatCommandOptio
     apiKey: apiKey || env[apiKeyEnv],
     system,
     temperature,
+    maxRetries,
+    retryDelayMs,
     json,
   };
 }
@@ -110,11 +136,13 @@ export function renderHelp(): string {
     "      --api-key <value>     API key value; prefer env in normal use",
     "      --system <text>       Optional system message",
     "      --temperature <0..2>  Optional temperature",
+    "      --max-retries <n>     Retry transient failures (default: AXUM_OPENAI_MAX_RETRIES or 10)",
+    "      --retry-delay-ms <n>  Base retry delay in milliseconds (default: AXUM_OPENAI_RETRY_DELAY_MS or 250)",
     "      --json                Print provider result as JSON",
     "  -h, --help               Show this help",
     "",
     "Environment:",
-    "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV",
+    "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_DELAY_MS",
   ].join("\n");
 }
 
@@ -146,6 +174,8 @@ async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
       baseUrl: options.baseUrl,
       model: options.model,
       temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      retryDelayMs: options.retryDelayMs,
     });
     const result = await provider.chat(messages);
     if (options.json) {

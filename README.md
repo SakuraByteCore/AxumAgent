@@ -31,6 +31,7 @@ npm test
 node bin/axum.js --help
 OPENAI_API_KEY=... node bin/axum.js chat --model gpt-4o-mini "Say hello"
 AXUM_OPENAI_BASE_URL=http://localhost:11434/v1 OPENAI_API_KEY=ollama node bin/axum.js chat --model llama3.1 "Say hello"
+OPENAI_API_KEY=... node bin/axum.js chat --max-retries 3 --model gpt-4o-mini "Retry a flaky request"
 ```
 
 `axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`.
@@ -41,6 +42,8 @@ Useful environment variables:
 - `AXUM_MODEL`: default model id, otherwise `gpt-4o-mini`.
 - `AXUM_OPENAI_BASE_URL`: OpenAI-compatible base URL, otherwise `https://api.openai.com/v1`.
 - `AXUM_OPENAI_API_KEY_ENV`: alternate env var name for API keys.
+- `AXUM_OPENAI_MAX_RETRIES`: retry count for transient failures, otherwise `10`.
+- `AXUM_OPENAI_RETRY_DELAY_MS`: base retry delay in milliseconds, otherwise `250`.
 
 ## Safety boundary
 
