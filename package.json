@@ -6,6 +6,11 @@
     "axum": "bin/axum.js"
   },
   "scripts": {
-    "test": "node --check bin/axum.js"
+    "test": "npm run build && node --check bin/axum.js && node --check dist/cli.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js",
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3"
   }
 }

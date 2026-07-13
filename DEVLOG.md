@@ -1,5 +1,18 @@
 # DEVLOG
 
+## 2026-07-13
+
+Direction changed toward a pi-aligned CLI with a TypeScript user-facing layer.
+
+Work added:
+- TypeScript CLI entrypoint under `src/`.
+- OpenAI Chat Completions / OpenAI-compatible provider path for `axum chat`.
+- Node shim now routes TypeScript commands first and falls back to the existing Rust CLI for runtime/server commands.
+- Mock HTTP regression test proving `axum chat` sends `/v1/chat/completions` requests with model, system/user messages, and bearer auth.
+
+Validation:
+- `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.
+
 ## 2026-07-12
 
 Continued `SakuraByteCore/AxumAgent` from a clean clone.

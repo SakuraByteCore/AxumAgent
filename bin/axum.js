@@ -20,6 +20,40 @@ function resolveRepoRoot() {
   return path.resolve(__dirname, "..");
 }
 
+function tsEntrypoint(repoRoot) {
+  return path.join(repoRoot, "dist", "cli.js");
+}
+
+function tsSources(repoRoot) {
+  return [
+    path.join(repoRoot, "src", "cli.ts"),
+    path.join(repoRoot, "src", "providers", "openai-chat.ts"),
+  ];
+}
+
+function isStale(target, sources) {
+  if (!fs.existsSync(target)) return true;
+  const targetMtime = fs.statSync(target).mtimeMs;
+  return sources.some((source) => fs.existsSync(source) && fs.statSync(source).mtimeMs > targetMtime);
+}
+
+function ensureTsBuilt(repoRoot) {
+  const entry = tsEntrypoint(repoRoot);
+  if (!isStale(entry, tsSources(repoRoot))) return;
+  run("npx", ["tsc", "-p", "tsconfig.json"], { cwd: repoRoot });
+}
+
+async function tryTsCli(repoRoot, args) {
+  ensureTsBuilt(repoRoot);
+  const entry = tsEntrypoint(repoRoot);
+  if (!fs.existsSync(entry)) return false;
+  const mod = require(entry);
+  if (typeof mod.runAxumCli !== "function") return false;
+  const result = await mod.runAxumCli(args);
+  if (result && result.handled) process.exit(result.exitCode || 0);
+  return false;
+}
+
 function binCandidates(repoRoot) {
   const exe = process.platform === "win32" ? ".exe" : "";
   return [
@@ -35,7 +69,7 @@ function findBin(repoRoot) {
   return null;
 }
 
-function ensureBuilt(repoRoot) {
+function ensureRustBuilt(repoRoot) {
   if (findBin(repoRoot)) return;
   const cwd = path.join(repoRoot, "rs");
   run("cargo", ["build", "-q", "-p", "axum-cli", "--release"], { cwd });
@@ -43,13 +77,14 @@ function ensureBuilt(repoRoot) {
   if (!bin) fail("axum-cli build succeeded but binary not found");
 }
 
-function main() {
+async function main() {
   const repoRoot = resolveRepoRoot();
-  ensureBuilt(repoRoot);
+  const args = process.argv.slice(2);
+  await tryTsCli(repoRoot, args);
+  ensureRustBuilt(repoRoot);
   const bin = findBin(repoRoot);
   if (!bin) fail("axum-cli binary not found");
-  run(bin, process.argv.slice(2), { cwd: repoRoot });
+  run(bin, args, { cwd: repoRoot });
 }
 
-main();
-
+main().catch((error) => fail(error && error.stack ? error.stack : error));
