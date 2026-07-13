@@ -102,7 +102,6 @@ export function renderHelp(): string {
     "",
     "Usage:",
     "  axum chat [options] <prompt>",
-    "  axum <rust-command> [...args]",
     "",
     "Chat options:",
     "  -m, --model <id>          Model id (default: AXUM_MODEL or gpt-4o-mini)",
@@ -169,5 +168,7 @@ export async function runAxumCli(args: string[], env = process.env, stdout = pro
     stdout.write(`${renderHelp()}\n`);
     return { handled: args.length === 0 || args[0] === "--help" || args[0] === "-h", exitCode: 0 };
   }
-  return { handled: false, exitCode: 0 };
+  stderr.write(`unknown command: ${args[0]}\n`);
+  stderr.write("Run `axum --help`.\n");
+  return { handled: true, exitCode: 2 };
 }

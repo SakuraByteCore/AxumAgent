@@ -16,75 +16,46 @@ function run(cmd, args, opts) {
   if (res.signal) fail(`terminated_by_signal:${res.signal}`);
 }
 
-function resolveRepoRoot() {
+function repoRoot() {
   return path.resolve(__dirname, "..");
 }
 
-function tsEntrypoint(repoRoot) {
-  return path.join(repoRoot, "dist", "cli.js");
+function entrypoint(root) {
+  return path.join(root, "dist", "cli.js");
 }
 
-function tsSources(repoRoot) {
+function sources(root) {
   return [
-    path.join(repoRoot, "src", "cli.ts"),
-    path.join(repoRoot, "src", "providers", "openai-chat.ts"),
+    path.join(root, "src", "cli.ts"),
+    path.join(root, "src", "providers", "openai-chat.ts"),
   ];
 }
 
-function isStale(target, sources) {
+function isStale(target, sourceFiles) {
   if (!fs.existsSync(target)) return true;
   const targetMtime = fs.statSync(target).mtimeMs;
-  return sources.some((source) => fs.existsSync(source) && fs.statSync(source).mtimeMs > targetMtime);
+  return sourceFiles.some((source) => fs.existsSync(source) && fs.statSync(source).mtimeMs > targetMtime);
 }
 
-function ensureTsBuilt(repoRoot) {
-  const entry = tsEntrypoint(repoRoot);
-  if (!isStale(entry, tsSources(repoRoot))) return;
-  run("npx", ["tsc", "-p", "tsconfig.json"], { cwd: repoRoot });
-}
-
-async function tryTsCli(repoRoot, args) {
-  ensureTsBuilt(repoRoot);
-  const entry = tsEntrypoint(repoRoot);
-  if (!fs.existsSync(entry)) return false;
-  const mod = require(entry);
-  if (typeof mod.runAxumCli !== "function") return false;
-  const result = await mod.runAxumCli(args);
-  if (result && result.handled) process.exit(result.exitCode || 0);
-  return false;
-}
-
-function binCandidates(repoRoot) {
-  const exe = process.platform === "win32" ? ".exe" : "";
-  return [
-    path.join(repoRoot, "rs", "target", "release", `axum-cli${exe}`),
-    path.join(repoRoot, "rs", "target", "debug", `axum-cli${exe}`),
-  ];
-}
-
-function findBin(repoRoot) {
-  for (const p of binCandidates(repoRoot)) {
-    if (fs.existsSync(p)) return p;
-  }
-  return null;
-}
-
-function ensureRustBuilt(repoRoot) {
-  if (findBin(repoRoot)) return;
-  const cwd = path.join(repoRoot, "rs");
-  run("cargo", ["build", "-q", "-p", "axum-cli", "--release"], { cwd });
-  const bin = findBin(repoRoot);
-  if (!bin) fail("axum-cli build succeeded but binary not found");
+function ensureBuilt(root) {
+  const entry = entrypoint(root);
+  if (!isStale(entry, sources(root))) return;
+  run("npx", ["tsc", "-p", "tsconfig.json"], { cwd: root });
 }
 
 async function main() {
-  const repoRoot = resolveRepoRoot();
-  const args = process.argv.slice(2);
-  await tryTsCli(repoRoot, args);
-  ensureRustBuilt(repoRoot);
-  const bin = findBin(repoRoot);
-  if (!bin) fail("axum-cli binary not found");
-  run(bin, args, { cwd: repoRoot });
+  const root = repoRoot();
+  ensureBuilt(root);
+  const entry = entrypoint(root);
+  if (!fs.existsSync(entry)) fail("TypeScript CLI build output not found: dist/cli.js");
+  const mod = require(entry);
+  if (typeof mod.runAxumCli !== "function") fail("dist/cli.js does not export runAxumCli");
+  const result = await mod.runAxumCli(process.argv.slice(2));
+  if (!result || !result.handled) {
+    process.stderr.write("unknown command. Run `axum --help`.\n");
+    process.exit(2);
+  }
+  process.exit(result.exitCode || 0);
 }
 
 main().catch((error) => fail(error && error.stack ? error.stack : error));
