@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderHelp = renderHelp;
 exports.runAxumCli = runAxumCli;
+const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -28,20 +29,37 @@ function parseNonNegativeInteger(value, flag) {
     }
     return num;
 }
-function parseChatArgs(args, env) {
+function extractConfigPath(args) {
+    const next = [];
+    let configPath;
+    for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i];
+        if (arg === "--config") {
+            configPath = takeValue(args, i, arg);
+            i += 1;
+        }
+        else {
+            next.push(arg);
+        }
+    }
+    return { configPath, args: next };
+}
+function parseChatArgs(args, env, loaded, configPath) {
+    const config = loaded?.config;
+    const provider = (0, config_1.selectedProvider)(config).config;
     const rest = [];
-    let model = env.AXUM_MODEL || DEFAULT_MODEL;
-    let baseUrl = env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
-    let apiKeyEnv = env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
-    let apiKey;
+    let model = config?.model || provider?.model || env.AXUM_MODEL || DEFAULT_MODEL;
+    let baseUrl = provider?.base_url || provider?.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
+    let apiKeyEnv = provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
+    let apiKey = (0, config_1.resolveSecret)(provider?.api_key || provider?.apiKey, env);
     let system;
     let temperature;
-    let maxRetries = env.AXUM_OPENAI_MAX_RETRIES
+    let maxRetries = (0, config_1.numberFromConfig)(provider?.max_retries ?? provider?.maxRetries) ?? (env.AXUM_OPENAI_MAX_RETRIES
         ? parseNonNegativeInteger(env.AXUM_OPENAI_MAX_RETRIES, "AXUM_OPENAI_MAX_RETRIES")
-        : DEFAULT_MAX_RETRIES;
-    let retryDelayMs = env.AXUM_OPENAI_RETRY_DELAY_MS
+        : DEFAULT_MAX_RETRIES);
+    let retryDelayMs = (0, config_1.numberFromConfig)(provider?.retry_delay_ms ?? provider?.retryDelayMs) ?? (env.AXUM_OPENAI_RETRY_DELAY_MS
         ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_DELAY_MS, "AXUM_OPENAI_RETRY_DELAY_MS")
-        : DEFAULT_RETRY_DELAY_MS;
+        : DEFAULT_RETRY_DELAY_MS);
     let json = false;
     for (let i = 0; i < args.length; i += 1) {
         const arg = args[i];
@@ -103,6 +121,7 @@ function parseChatArgs(args, env) {
         temperature,
         maxRetries,
         retryDelayMs,
+        configPath: loaded?.path || configPath,
         json,
     };
 }
@@ -119,6 +138,7 @@ function renderHelp() {
         "  axum chat [options] <prompt>",
         "",
         "Chat options:",
+        "      --config <path>      Config file path (default: AXUM_CONFIG or ~/.axum/config.toml)",
         "  -m, --model <id>          Model id (default: AXUM_MODEL or gpt-4o-mini)",
         "      --base-url <url>      OpenAI-compatible base URL (default: AXUM_OPENAI_BASE_URL, OPENAI_BASE_URL, or https://api.openai.com/v1)",
         "      --api-key-env <name>  Environment variable that holds the API key (default: OPENAI_API_KEY)",
@@ -132,12 +152,17 @@ function renderHelp() {
         "",
         "Environment:",
         "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_DELAY_MS",
+        "",
+        "Config:",
+        `  Default path: ${(0, config_1.defaultConfigPath)()}`,
     ].join("\n");
 }
 async function runChat(args, env, stdout, stderr) {
     let options;
     try {
-        options = parseChatArgs(args, env);
+        const extracted = extractConfigPath(args);
+        const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
+        options = parseChatArgs(extracted.args, env, loaded, extracted.configPath);
     }
     catch (error) {
         if (error instanceof HelpRequested) {

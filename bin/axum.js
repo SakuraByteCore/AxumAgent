@@ -27,6 +27,7 @@ function entrypoint(root) {
 function sources(root) {
   return [
     path.join(root, "src", "cli.ts"),
+    path.join(root, "src", "config.ts"),
     path.join(root, "src", "providers", "openai-chat.ts"),
   ];
 }

@@ -4,8 +4,9 @@
 - [x] Add root README with project shape and quick checks.
 - [x] Add pi-aligned TypeScript CLI entrypoint with OpenAI Chat/OpenAI-compatible provider support.
 - [x] Remove Rust workspace and prebuilt artifacts to reduce disk footprint.
+- [x] Add user-level TOML config loading outside project workspaces.
 - [ ] Expand TS CLI from one-shot `chat` into session/event/tool-loop semantics aligned with pi.
-- [ ] Add provider config file loading instead of env/flags only.
+- [ ] Add profile switching and multiple provider selection polish.
 - [ ] Add explicit permission/policy gates before file or shell tools.
 - [ ] Add integration tests for session/event/tool-loop behavior once introduced.
 - [ ] Document npm publish/release flow.

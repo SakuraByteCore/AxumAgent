@@ -4,6 +4,8 @@ const http = require("http");
 const assert = require("assert");
 const { spawn } = require("child_process");
 const path = require("path");
+const fs = require("fs");
+const os = require("os");
 
 function startMockServer(options = {}) {
   const requests = [];
@@ -39,10 +41,10 @@ function startMockServer(options = {}) {
   });
 }
 
-function runCli(args, env) {
+function runCli(args, env = {}) {
   const child = spawn(process.execPath, [path.resolve(__dirname, "..", "bin", "axum.js"), ...args], {
     cwd: path.resolve(__dirname, ".."),
-    env: { ...process.env, ...env },
+    env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";
@@ -54,16 +56,33 @@ function runCli(args, env) {
   return new Promise((resolve) => child.on("close", (code) => resolve({ code, stdout, stderr })));
 }
 
-async function testBasicChat() {
+function writeConfig(content) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
+  const file = path.join(dir, "config.toml");
+  fs.writeFileSync(file, content);
+  return { dir, file };
+}
+
+async function testBasicChatFromConfig() {
   const { server, requests, port } = await startMockServer();
+  const cfg = writeConfig(`
+model = "mock-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+max_retries = 10
+retry_delay_ms = 0
+`);
   try {
     const result = await runCli([
       "chat",
-      "--base-url", `http://127.0.0.1:${port}/v1`,
-      "--model", "mock-model",
+      "--config", cfg.file,
       "--system", "be concise",
       "hello",
-    ], { OPENAI_API_KEY: "test-key" });
+    ]);
 
     assert.strictEqual(result.code, 0, result.stderr);
     assert.strictEqual(result.stdout.trim(), "mock answer");
@@ -78,37 +97,43 @@ async function testBasicChat() {
     assert.strictEqual(requests[0].body.model, "mock-model");
   } finally {
     server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
   }
 }
 
 async function testRetryConfig() {
   const { server, requests, port } = await startMockServer({ failures: 2 });
+  const cfg = writeConfig(`
+model = "mock-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+max_retries = 2
+retry_delay_ms = 0
+`);
   try {
-    const result = await runCli([
-      "chat",
-      "--base-url", `http://127.0.0.1:${port}/v1`,
-      "--model", "mock-model",
-      "--max-retries", "2",
-      "--retry-delay-ms", "0",
-      "hello",
-    ], { OPENAI_API_KEY: "test-key" });
+    const result = await runCli(["chat", "--config", cfg.file, "hello"]);
 
     assert.strictEqual(result.code, 0, result.stderr);
     assert.strictEqual(result.stdout.trim(), "mock answer");
     assert.strictEqual(requests.length, 3);
   } finally {
     server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
   }
 }
 
 async function testMissingKey() {
-  const missingKey = await runCli(["chat", "hello"], { OPENAI_API_KEY: "" });
+  const missingKey = await runCli(["chat", "hello"]);
   assert.strictEqual(missingKey.code, 2);
   assert.match(missingKey.stderr, /missing API key/);
 }
 
 (async () => {
-  await testBasicChat();
+  await testBasicChatFromConfig();
   await testRetryConfig();
   await testMissingKey();
 })();

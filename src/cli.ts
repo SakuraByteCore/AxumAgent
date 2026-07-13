@@ -1,3 +1,4 @@
+import { defaultConfigPath, loadConfig, numberFromConfig, resolveSecret, selectedProvider, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 
 export interface AxumCliResult {
@@ -15,6 +16,7 @@ interface ChatCommandOptions {
   temperature?: number;
   maxRetries: number;
   retryDelayMs: number;
+  configPath?: string;
   json: boolean;
 }
 
@@ -46,20 +48,37 @@ function parseNonNegativeInteger(value: string, flag: string): number {
   return num;
 }
 
-function parseChatArgs(args: string[], env: NodeJS.ProcessEnv): ChatCommandOptions {
+function extractConfigPath(args: string[]): { configPath?: string; args: string[] } {
+  const next: string[] = [];
+  let configPath: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--config") {
+      configPath = takeValue(args, i, arg);
+      i += 1;
+    } else {
+      next.push(arg);
+    }
+  }
+  return { configPath, args: next };
+}
+
+function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedConfig, configPath?: string): ChatCommandOptions {
+  const config = loaded?.config;
+  const provider = selectedProvider(config).config;
   const rest: string[] = [];
-  let model = env.AXUM_MODEL || DEFAULT_MODEL;
-  let baseUrl = env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
-  let apiKeyEnv = env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
-  let apiKey: string | undefined;
+  let model = config?.model || provider?.model || env.AXUM_MODEL || DEFAULT_MODEL;
+  let baseUrl = provider?.base_url || provider?.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
+  let apiKeyEnv = provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
+  let apiKey: string | undefined = resolveSecret(provider?.api_key || provider?.apiKey, env);
   let system: string | undefined;
   let temperature: number | undefined;
-  let maxRetries = env.AXUM_OPENAI_MAX_RETRIES
+  let maxRetries = numberFromConfig(provider?.max_retries ?? provider?.maxRetries) ?? (env.AXUM_OPENAI_MAX_RETRIES
     ? parseNonNegativeInteger(env.AXUM_OPENAI_MAX_RETRIES, "AXUM_OPENAI_MAX_RETRIES")
-    : DEFAULT_MAX_RETRIES;
-  let retryDelayMs = env.AXUM_OPENAI_RETRY_DELAY_MS
+    : DEFAULT_MAX_RETRIES);
+  let retryDelayMs = numberFromConfig(provider?.retry_delay_ms ?? provider?.retryDelayMs) ?? (env.AXUM_OPENAI_RETRY_DELAY_MS
     ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_DELAY_MS, "AXUM_OPENAI_RETRY_DELAY_MS")
-    : DEFAULT_RETRY_DELAY_MS;
+    : DEFAULT_RETRY_DELAY_MS);
   let json = false;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -112,6 +131,7 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv): ChatCommandOptio
     temperature,
     maxRetries,
     retryDelayMs,
+    configPath: loaded?.path || configPath,
     json,
   };
 }
@@ -130,6 +150,7 @@ export function renderHelp(): string {
     "  axum chat [options] <prompt>",
     "",
     "Chat options:",
+    "      --config <path>      Config file path (default: AXUM_CONFIG or ~/.axum/config.toml)",
     "  -m, --model <id>          Model id (default: AXUM_MODEL or gpt-4o-mini)",
     "      --base-url <url>      OpenAI-compatible base URL (default: AXUM_OPENAI_BASE_URL, OPENAI_BASE_URL, or https://api.openai.com/v1)",
     "      --api-key-env <name>  Environment variable that holds the API key (default: OPENAI_API_KEY)",
@@ -143,13 +164,18 @@ export function renderHelp(): string {
     "",
     "Environment:",
     "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_DELAY_MS",
+    "",
+    "Config:",
+    `  Default path: ${defaultConfigPath()}`,
   ].join("\n");
 }
 
 async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
   let options: ChatCommandOptions;
   try {
-    options = parseChatArgs(args, env);
+    const extracted = extractConfigPath(args);
+    const loaded = loadConfig(env, extracted.configPath);
+    options = parseChatArgs(extracted.args, env, loaded, extracted.configPath);
   } catch (error) {
     if (error instanceof HelpRequested) {
       stdout.write(`${renderHelp()}\n`);
