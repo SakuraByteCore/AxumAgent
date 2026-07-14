@@ -19,6 +19,7 @@ Work added:
 - Added Codex-like TUI behavior: dynamic terminal width, TTY alternate-screen redraws, and `--no-alt-screen` for scrollback-preserving sessions.
 - Replaced the fake message box with raw TTY input rendering so typed characters appear inside the message frame before Enter sends.
 - Moved TUI shortcut help below the message frame and added an in-frame cursor marker so the active input area is visible.
+- Added an npm `postinstall` hook that creates `~/.axum/config.toml` with an OpenAI-compatible template when missing, without overwriting existing config.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

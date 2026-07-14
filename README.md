@@ -42,7 +42,7 @@ axum --help
 
 ## Config
 
-AxumAgent reads user-level config instead of project-local config by default:
+AxumAgent reads user-level config instead of project-local config by default. Installing the npm package creates `~/.axum/config.toml` when it is missing and never overwrites an existing config.
 
 ```toml
 # ~/.axum/config.toml
@@ -52,7 +52,7 @@ provider = "openai-chat"
 [providers.openai-chat]
 type = "openai-chat"
 base_url = "https://api.openai.com/v1"
-api_key = "***"
+api_key = "env:OPENAI_API_KEY"
 max_retries = 10
 retry_delay_ms = 250
 ```
