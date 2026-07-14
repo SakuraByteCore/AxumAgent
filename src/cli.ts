@@ -225,8 +225,10 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const bottom = `╰${"─".repeat(width - 2)}╯`;
   const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
   const inputBottom = `╰${"─".repeat(width - 2)}╯`;
-  const inputLines = wrap(input, inner - 4);
-  const renderedInput = inputLines.length === 1 && inputLines[0] === "" ? ["› "] : inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
+  const cursor = "█";
+  const inputLines = wrap(`${input}${cursor}`, inner - 4);
+  const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
+  const helpLine = `  enter send · /help commands · /exit quit · ctrl+c interrupt`;
   return [
     top,
     framed([
@@ -239,14 +241,12 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
       "",
       "▌ assistant",
       ...answerLines,
-      "",
-      "─".repeat(Math.max(12, inner)),
-      "enter send · /help commands · /exit quit · ctrl+c interrupt",
     ], width),
     bottom,
     inputTop,
     framed(renderedInput, width),
     inputBottom,
+    clip(helpLine, width),
   ].join("\n");
 }
 

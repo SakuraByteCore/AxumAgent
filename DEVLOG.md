@@ -18,6 +18,7 @@ Work added:
 - Fixed no-prompt `axum tui` so it stays open for interactive input instead of rendering once and exiting.
 - Added Codex-like TUI behavior: dynamic terminal width, TTY alternate-screen redraws, and `--no-alt-screen` for scrollback-preserving sessions.
 - Replaced the fake message box with raw TTY input rendering so typed characters appear inside the message frame before Enter sends.
+- Moved TUI shortcut help below the message frame and added an in-frame cursor marker so the active input area is visible.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.
