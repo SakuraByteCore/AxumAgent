@@ -16,6 +16,7 @@ Work added:
 - Added a lightweight pi-style terminal UI command, `axum tui`, with a boxed terminal layout and `--dry-run` preview mode.
 - Refined `axum tui` toward a Codex-like terminal layout with a top status line, conversation stream, and bottom message input.
 - Fixed no-prompt `axum tui` so it stays open for interactive input instead of rendering once and exiting.
+- Added Codex-like TUI behavior: dynamic terminal width, TTY alternate-screen redraws, and `--no-alt-screen` for scrollback-preserving sessions.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

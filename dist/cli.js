@@ -151,6 +151,7 @@ function renderHelp() {
         "      --retry-delay-ms <n>  Base retry delay in milliseconds (default: AXUM_OPENAI_RETRY_DELAY_MS or 250)",
         "      --json                Print provider result as JSON",
         "      --dry-run             Render the terminal UI without calling a provider (tui only)",
+        "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
         "  -h, --help               Show this help",
         "",
         "Environment:",
@@ -195,15 +196,18 @@ function framed(lines, width = 88) {
     const inner = width - 4;
     return lines.map((line) => `│ ${clip(line, inner)} │`).join("\n");
 }
-function renderTuiScreen(options, answer) {
-    const width = 88;
+function terminalWidth(stdout) {
+    const columns = stdout.columns || 88;
+    return Math.max(72, Math.min(columns, 110));
+}
+function renderTuiScreen(options, answer, width = 88) {
     const inner = width - 4;
     const answerText = answer || "dry-run: provider call skipped";
-    const promptLines = wrap(options.prompt || "(empty)", inner - 4).map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
-    const answerLines = wrap(answerText, inner - 4).map((line, index) => `${index === 0 ? "▸" : " "} ${line}`);
+    const promptLines = wrap(options.prompt || "(empty)", inner - 6).map((line) => `  ${line}`);
+    const answerLines = wrap(answerText, inner - 6).map((line) => `  ${line}`);
     const configPath = options.configPath || (0, config_1.defaultConfigPath)();
     const title = "AxumAgent";
-    const status = `${options.model} · ${options.maxRetries} retries · ${options.baseUrl}`;
+    const status = `${options.model} · ${options.baseUrl}`;
     const top = `╭─ ${title} ${"─".repeat(Math.max(1, width - title.length - status.length - 7))} ${status} ╮`;
     const bottom = `╰${"─".repeat(width - 2)}╯`;
     const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
@@ -211,17 +215,18 @@ function renderTuiScreen(options, answer) {
     return [
         top,
         framed([
-            "workspace  ~/.axum/config.toml",
-            `config     ${configPath}`,
+            `cwd     ${process.cwd()}`,
+            `config  ${configPath}`,
+            `retry   ${options.maxRetries} attempts · ${options.retryDelayMs}ms backoff`,
             "",
-            "user",
+            "▌ user",
             ...promptLines,
             "",
-            "assistant",
+            "▌ assistant",
             ...answerLines,
             "",
-            "────────────────────────────────────────────────────────────────────────",
-            "enter send · ctrl+c exit · /help commands · /model switch",
+            "─".repeat(Math.max(12, inner)),
+            "enter send · /help commands · /exit quit · ctrl+c interrupt",
         ], width),
         bottom,
         inputTop,
@@ -297,37 +302,52 @@ async function resolveTuiAnswer(options, dryRun) {
         return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
     }
 }
-async function runInteractiveTui(options, dryRun, stdout) {
-    stdout.write(`${renderTuiScreen({ ...options, prompt: "(type a message)" }, "waiting for input")}\n`);
+async function runInteractiveTui(options, dryRun, stdout, useAltScreen) {
+    const repaint = (screenOptions, answer) => {
+        if (useAltScreen)
+            stdout.write("\u001b[2J\u001b[H");
+        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout))}\n`);
+    };
+    if (useAltScreen)
+        stdout.write("\u001b[?1049h\u001b[2J\u001b[H");
+    repaint({ ...options, prompt: "(type a message)" }, "waiting for input");
     const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "› " });
     let lastExitCode = 0;
-    rl.prompt();
-    for await (const line of rl) {
-        const prompt = line.trim();
-        if (prompt === "/exit" || prompt === "/quit") {
-            rl.close();
-            return lastExitCode;
-        }
-        if (prompt === "/help") {
-            stdout.write("commands: /help · /exit · /quit\n");
-            rl.prompt();
-            continue;
-        }
-        if (!prompt) {
-            rl.prompt();
-            continue;
-        }
-        const nextOptions = { ...options, prompt };
-        const result = await resolveTuiAnswer(nextOptions, dryRun);
-        lastExitCode = result.exitCode;
-        stdout.write(`${renderTuiScreen(nextOptions, result.answer)}\n`);
+    try {
         rl.prompt();
+        for await (const line of rl) {
+            const prompt = line.trim();
+            if (prompt === "/exit" || prompt === "/quit") {
+                rl.close();
+                return lastExitCode;
+            }
+            if (prompt === "/help") {
+                stdout.write("commands: /help · /exit · /quit\n");
+                rl.prompt();
+                continue;
+            }
+            if (!prompt) {
+                rl.prompt();
+                continue;
+            }
+            const nextOptions = { ...options, prompt };
+            repaint(nextOptions, dryRun ? "dry-run: provider call skipped" : "thinking…");
+            const result = await resolveTuiAnswer(nextOptions, dryRun);
+            lastExitCode = result.exitCode;
+            repaint(nextOptions, result.answer);
+            rl.prompt();
+        }
+        return lastExitCode;
     }
-    return lastExitCode;
+    finally {
+        if (useAltScreen)
+            stdout.write("\u001b[?1049l");
+    }
 }
 async function runTui(args, env, stdout, stderr) {
     const dryRun = args.includes("--dry-run");
-    const filteredArgs = args.filter((arg) => arg !== "--dry-run");
+    const noAltScreen = args.includes("--no-alt-screen");
+    const filteredArgs = args.filter((arg) => arg !== "--dry-run" && arg !== "--no-alt-screen");
     let options;
     let hasPrompt = false;
     try {
@@ -345,9 +365,9 @@ async function runTui(args, env, stdout, stderr) {
         return 2;
     }
     if (!hasPrompt)
-        return runInteractiveTui(options, dryRun, stdout);
+        return runInteractiveTui(options, dryRun, stdout, Boolean(stdout.isTTY && process.stdin.isTTY && !noAltScreen));
     const result = await resolveTuiAnswer(options, dryRun);
-    stdout.write(`${renderTuiScreen(options, result.answer)}\n`);
+    stdout.write(`${renderTuiScreen(options, result.answer, terminalWidth(stdout))}\n`);
     return result.exitCode;
 }
 async function runAxumCli(args, env = process.env, stdout = process.stdout, stderr = process.stderr) {
