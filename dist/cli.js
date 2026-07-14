@@ -4,6 +4,7 @@ exports.renderHelp = renderHelp;
 exports.runAxumCli = runAxumCli;
 const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
+const promises_1 = require("node:readline/promises");
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_API_KEY_ENV = "OPENAI_API_KEY";
@@ -44,7 +45,7 @@ function extractConfigPath(args) {
     }
     return { configPath, args: next };
 }
-function parseChatArgs(args, env, loaded, configPath) {
+function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
     const config = loaded?.config;
     const provider = (0, config_1.selectedProvider)(config).config;
     const rest = [];
@@ -109,7 +110,7 @@ function parseChatArgs(args, env, loaded, configPath) {
         }
     }
     const prompt = rest.join(" ").trim();
-    if (!prompt)
+    if (requirePrompt && !prompt)
         throw new Error("chat prompt is required");
     return {
         prompt,
@@ -274,33 +275,12 @@ async function runChat(args, env, stdout, stderr) {
         return 1;
     }
 }
-async function runTui(args, env, stdout, stderr) {
-    const dryRun = args.includes("--dry-run");
-    const filteredArgs = args.filter((arg) => arg !== "--dry-run");
-    let options;
-    try {
-        const extracted = extractConfigPath(filteredArgs);
-        const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
-        const promptArgs = extracted.args.length > 0 ? extracted.args : ["(waiting for input)"];
-        options = parseChatArgs(promptArgs, env, loaded, extracted.configPath);
-    }
-    catch (error) {
-        if (error instanceof HelpRequested) {
-            stdout.write(`${renderHelp()}\n`);
-            return 0;
-        }
-        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-        return 2;
-    }
-    if (dryRun) {
-        stdout.write(`${renderTuiScreen(options)}\n`);
-        return 0;
-    }
+async function resolveTuiAnswer(options, dryRun) {
+    if (dryRun)
+        return { answer: "dry-run: provider call skipped", exitCode: 0 };
     if (!options.apiKey) {
-        stdout.write(`${renderTuiScreen(options, "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"")}\n`);
-        return 2;
+        return { answer: "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"", exitCode: 2 };
     }
-    const messages = [{ role: "user", content: options.prompt }];
     try {
         const provider = new openai_chat_1.OpenAIChatProvider({
             apiKey: options.apiKey,
@@ -310,14 +290,65 @@ async function runTui(args, env, stdout, stderr) {
             maxRetries: options.maxRetries,
             retryDelayMs: options.retryDelayMs,
         });
-        const result = await provider.chat(messages);
-        stdout.write(`${renderTuiScreen(options, result.content)}\n`);
-        return 0;
+        const result = await provider.chat([{ role: "user", content: options.prompt }]);
+        return { answer: result.content, exitCode: 0 };
     }
     catch (error) {
-        stdout.write(`${renderTuiScreen(options, error instanceof Error ? error.message : String(error))}\n`);
-        return 1;
+        return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
     }
+}
+async function runInteractiveTui(options, dryRun, stdout) {
+    stdout.write(`${renderTuiScreen({ ...options, prompt: "(type a message)" }, "waiting for input")}\n`);
+    const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "› " });
+    let lastExitCode = 0;
+    rl.prompt();
+    for await (const line of rl) {
+        const prompt = line.trim();
+        if (prompt === "/exit" || prompt === "/quit") {
+            rl.close();
+            return lastExitCode;
+        }
+        if (prompt === "/help") {
+            stdout.write("commands: /help · /exit · /quit\n");
+            rl.prompt();
+            continue;
+        }
+        if (!prompt) {
+            rl.prompt();
+            continue;
+        }
+        const nextOptions = { ...options, prompt };
+        const result = await resolveTuiAnswer(nextOptions, dryRun);
+        lastExitCode = result.exitCode;
+        stdout.write(`${renderTuiScreen(nextOptions, result.answer)}\n`);
+        rl.prompt();
+    }
+    return lastExitCode;
+}
+async function runTui(args, env, stdout, stderr) {
+    const dryRun = args.includes("--dry-run");
+    const filteredArgs = args.filter((arg) => arg !== "--dry-run");
+    let options;
+    let hasPrompt = false;
+    try {
+        const extracted = extractConfigPath(filteredArgs);
+        const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
+        hasPrompt = extracted.args.length > 0;
+        options = parseChatArgs(extracted.args, env, loaded, extracted.configPath, hasPrompt);
+    }
+    catch (error) {
+        if (error instanceof HelpRequested) {
+            stdout.write(`${renderHelp()}\n`);
+            return 0;
+        }
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
+    }
+    if (!hasPrompt)
+        return runInteractiveTui(options, dryRun, stdout);
+    const result = await resolveTuiAnswer(options, dryRun);
+    stdout.write(`${renderTuiScreen(options, result.answer)}\n`);
+    return result.exitCode;
 }
 async function runAxumCli(args, env = process.env, stdout = process.stdout, stderr = process.stderr) {
     if (args[0] === "chat") {

@@ -41,11 +41,11 @@ function startMockServer(options = {}) {
   });
 }
 
-function runCli(args, env = {}) {
+function runCli(args, env = {}, inputText) {
   const child = spawn(process.execPath, [path.resolve(__dirname, "..", "bin", "axum.js"), ...args], {
     cwd: path.resolve(__dirname, ".."),
     env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "", ...env },
-    stdio: ["ignore", "pipe", "pipe"],
+    stdio: [inputText === undefined ? "ignore" : "pipe", "pipe", "pipe"],
   });
   let stdout = "";
   let stderr = "";
@@ -53,6 +53,7 @@ function runCli(args, env = {}) {
   child.stderr.setEncoding("utf8");
   child.stdout.on("data", (chunk) => { stdout += chunk; });
   child.stderr.on("data", (chunk) => { stderr += chunk; });
+  if (inputText !== undefined && child.stdin) child.stdin.end(inputText);
   return new Promise((resolve) => child.on("close", (code) => resolve({ code, stdout, stderr })));
 }
 
@@ -134,6 +135,14 @@ async function testTuiDryRun() {
   assert.match(result.stdout, /dry-run: provider call skipped/);
 }
 
+async function testInteractiveTuiDryRun() {
+  const result = await runCli(["tui", "--dry-run"], {}, "hello interactive\n/exit\n");
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.match(result.stdout, /waiting for input/);
+  assert.match(result.stdout, /hello interactive/);
+  assert.match(result.stdout, /dry-run: provider call skipped/);
+}
+
 async function testMissingKey() {
   const missingKey = await runCli(["chat", "hello"]);
   assert.strictEqual(missingKey.code, 2);
@@ -144,5 +153,6 @@ async function testMissingKey() {
   await testBasicChatFromConfig();
   await testRetryConfig();
   await testTuiDryRun();
+  await testInteractiveTuiDryRun();
   await testMissingKey();
 })();

@@ -73,6 +73,7 @@ npm run pack:dry
 node bin/axum.js --help
 node bin/axum.js chat "Say hello"
 node bin/axum.js tui --dry-run "Preview the terminal UI"
+node bin/axum.js tui --dry-run
 node bin/axum.js tui "Say hello in the terminal UI"
 node bin/axum.js chat --config ~/.axum/config.toml "Say hello"
 node bin/axum.js chat --max-retries 3 "Retry a flaky request"
