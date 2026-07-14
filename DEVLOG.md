@@ -20,7 +20,7 @@ Work added:
 - Replaced the fake message box with raw TTY input rendering so typed characters appear inside the message frame before Enter sends.
 - Moved TUI shortcut help below the message frame and added an in-frame cursor marker so the active input area is visible.
 - Added an npm `postinstall` hook that creates `~/.axum/config.toml` with an OpenAI-compatible template when missing, without overwriting existing config.
-- Reworked `axum tui` empty state toward a compact Codex-like startup card with version/model/directory/permissions, a short tip, an inline prompt, bottom status, a dynamically updating Codex-like working timer, no cursor rendered after placeholder suggestions, no user/assistant labels in the conversation body, and OpenAI-compatible SSE streaming updates while answers arrive.
+- Reworked `axum tui` empty state toward a compact Codex-like startup card with version/model/directory/permissions, a short tip, an inline prompt, bottom status, a dynamically updating Codex-like working timer, no placeholder/cursor rendered without user input, no user/assistant labels in the conversation body, and OpenAI-compatible SSE streaming updates while answers arrive.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

@@ -147,8 +147,9 @@ async function testTuiDryRun() {
   assert.match(result.stdout, />_ AxumAgent \(v0\.1\.0\)/);
   assert.match(result.stdout, /model:\s+gpt-4o-mini\s+\/model to change/);
   assert.match(result.stdout, /permissions: YOLO mode/);
-  assert.match(result.stdout, /› Run \/help for commands/);
+  assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
+  assert.match(result.stdout, /^›\s*$/m);
   assert.match(result.stdout, /dry-run: provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
@@ -162,13 +163,13 @@ async function testInteractiveTuiDryRun() {
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, />_ AxumAgent \(v0\.1\.0\)/);
   assert.match(result.stdout, /model:\s+gpt-5\.5\s+\/model to change/);
-  assert.match(result.stdout, /Run \/help for commands/);
+  assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
   assert.match(result.stdout, /permissions: YOLO mode/);
   assert.doesNotMatch(result.stdout, /waiting for input/);
   assert.doesNotMatch(result.stdout, /\(type a message\)/);
   assert.doesNotMatch(result.stdout, /No messages yet\./);
-  assert.doesNotMatch(result.stdout, /\n›\s*$/m);
+  assert.match(result.stdout, /^›\s*$/m);
   assert.match(result.stdout, /hello interactive/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
