@@ -12,6 +12,7 @@ export interface ProviderConfig {
   api_key_env?: string;
   apiKeyEnv?: string;
   model?: string;
+  models?: string[];
   max_retries?: number;
   maxRetries?: number;
   retry_delay_ms?: number;
@@ -20,6 +21,7 @@ export interface ProviderConfig {
 
 export interface AxumConfig {
   model?: string;
+  models?: string[];
   provider?: string;
   providers?: Record<string, ProviderConfig>;
 }

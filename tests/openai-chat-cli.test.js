@@ -17,6 +17,11 @@ function startMockServer(options = {}) {
     req.on("end", () => {
       const parsedBody = JSON.parse(body || "{}");
       requests.push({ method: req.method, url: req.url, headers: req.headers, body: parsedBody });
+      if (req.method === "GET" && req.url === "/v1/models") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ data: (options.models || ["fetched-a", "fetched-b"]).map((id) => ({ id })) }));
+        return;
+      }
       if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { message: "not found" } }));
@@ -176,6 +181,57 @@ async function testInteractiveTuiDryRun() {
   assert.doesNotMatch(result.stdout, /▌ assistant/);
 }
 
+async function testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand() {
+  const { server, requests, port } = await startMockServer();
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+models = ["first-model", "second-model"]
+max_retries = 10
+retry_delay_ms = 0
+`);
+  try {
+    const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/model 2\nhello switched\n/exit\n");
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /\* 1\. first-model/);
+    assert.match(result.stdout, /  2\. second-model/);
+    assert.match(result.stdout, /model switched to second-model/);
+    assert.strictEqual(requests.at(-1).body.model, "second-model");
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testTuiFetchesFirstModelWhenConfigOmitsModel() {
+  const { server, requests, port } = await startMockServer({ models: ["remote-first", "remote-second"] });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+max_retries = 10
+retry_delay_ms = 0
+`);
+  try {
+    const result = await runCli(["tui", "--config", cfg.file], {}, "hello fetched\n/exit\n");
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.strictEqual(requests[0].method, "GET");
+    assert.strictEqual(requests[0].url, "/v1/models");
+    assert.strictEqual(requests.at(-1).body.model, "remote-first");
+    assert.match(result.stdout, /model:\s+remote-first\s+\/model to change/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testInteractiveTuiWorkingTimer() {
   const { server, requests, port } = await startMockServer({ delayMs: 1200 });
   const cfg = writeConfig(`
@@ -213,6 +269,8 @@ async function testMissingKey() {
   await testRetryConfig();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
+  await testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand();
+  await testTuiFetchesFirstModelWhenConfigOmitsModel();
   await testInteractiveTuiWorkingTimer();
   await testMissingKey();
 })();

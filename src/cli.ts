@@ -10,6 +10,8 @@ export interface AxumCliResult {
 interface ChatCommandOptions {
   prompt: string;
   model: string;
+  modelOptions: string[];
+  modelWasExplicit: boolean;
   baseUrl: string;
   apiKeyEnv: string;
   apiKey?: string;
@@ -82,7 +84,9 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
   const config = loaded?.config;
   const provider = selectedProvider(config).config;
   const rest: string[] = [];
-  let model = config?.model || provider?.model || env.AXUM_MODEL || DEFAULT_MODEL;
+  const configuredModels = [...(config?.models ?? []), ...(provider?.models ?? [])].filter((model): model is string => typeof model === "string" && model.length > 0);
+  let model = config?.model || provider?.model || configuredModels[0] || env.AXUM_MODEL || DEFAULT_MODEL;
+  let modelWasExplicit = Boolean(config?.model || provider?.model || configuredModels[0] || env.AXUM_MODEL);
   let baseUrl = provider?.base_url || provider?.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
   let apiKeyEnv = provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
   let apiKey: string | undefined = resolveSecret(provider?.api_key || provider?.apiKey, env);
@@ -100,6 +104,7 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
     const arg = args[i];
     if (arg === "--model" || arg === "-m") {
       model = takeValue(args, i, arg);
+      modelWasExplicit = true;
       i += 1;
     } else if (arg === "--base-url") {
       baseUrl = takeValue(args, i, arg);
@@ -139,6 +144,8 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
   return {
     prompt,
     model,
+    modelOptions: configuredModels,
+    modelWasExplicit,
     baseUrl,
     apiKeyEnv,
     apiKey: apiKey || env[apiKeyEnv],
@@ -167,7 +174,7 @@ export function renderHelp(): string {
     "",
     "Chat options:",
     "      --config <path>      Config file path (default: AXUM_CONFIG or ~/.axum/config.toml)",
-    "  -m, --model <id>          Model id (default: AXUM_MODEL or gpt-4o-mini)",
+    "  -m, --model <id>          Model id (default: config models[0], AXUM_MODEL, or gpt-4o-mini)",
     "      --base-url <url>      OpenAI-compatible base URL (default: AXUM_OPENAI_BASE_URL, OPENAI_BASE_URL, or https://api.openai.com/v1)",
     "      --api-key-env <name>  Environment variable that holds the API key (default: OPENAI_API_KEY)",
     "      --api-key <value>     API key value; prefer env in normal use",
@@ -276,6 +283,59 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
 function workingStatus(startedAt: number): string {
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   return `working:${elapsedSeconds}`;
+}
+
+
+function uniqueModels(models: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const model of models) {
+    const trimmed = model.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
+async function hydrateTuiModels(options: ChatCommandOptions, dryRun: boolean): Promise<ChatCommandOptions> {
+  const configured = uniqueModels(options.modelOptions);
+  if (configured.length > 0) {
+    return { ...options, modelOptions: configured, model: options.modelWasExplicit ? options.model : configured[0] };
+  }
+  if (dryRun || options.modelWasExplicit || !options.apiKey) return { ...options, modelOptions: configured };
+  try {
+    const provider = new OpenAIChatProvider({
+      apiKey: options.apiKey,
+      baseUrl: options.baseUrl,
+      model: options.model,
+      temperature: options.temperature,
+      maxRetries: options.maxRetries,
+      retryDelayMs: options.retryDelayMs,
+    });
+    const fetched = uniqueModels(await provider.listModels());
+    if (fetched.length === 0) return { ...options, modelOptions: fetched };
+    return { ...options, modelOptions: fetched, model: fetched[0] };
+  } catch {
+    return { ...options, modelOptions: configured };
+  }
+}
+
+function renderModelList(options: ChatCommandOptions): string {
+  if (options.modelOptions.length === 0) return `current model: ${options.model}; no configured/fetched model list`;
+  return options.modelOptions
+    .map((model, index) => `${model === options.model ? "*" : " "} ${index + 1}. ${model}`)
+    .join("\n");
+}
+
+function switchModel(options: ChatCommandOptions, value: string): { options: ChatCommandOptions; message: string } {
+  const target = value.trim();
+  if (!target) return { options, message: renderModelList(options) };
+  const index = Number(target);
+  const selected = Number.isInteger(index) && index >= 1 ? options.modelOptions[index - 1] : target;
+  if (!selected) return { options, message: `model index out of range: ${target}` };
+  const modelOptions = options.modelOptions.includes(selected) ? options.modelOptions : [...options.modelOptions, selected];
+  return { options: { ...options, model: selected, modelOptions, modelWasExplicit: true }, message: `model switched to ${selected}` };
 }
 
 async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
@@ -399,7 +459,15 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         }
         if (prompt === "/exit" || prompt === "/quit") return lastExitCode;
         if (prompt === "/help") {
-          answer = "commands: /help · /exit · /quit";
+          answer = "commands: /help · /model [id|number] · /exit · /quit";
+          repaint();
+          continue;
+        }
+        if (prompt === "/model" || prompt.startsWith("/model ")) {
+          const switched = switchModel(screenOptions, prompt.slice("/model".length));
+          screenOptions = { ...switched.options, prompt: "" };
+          options = { ...switched.options, prompt: options.prompt };
+          answer = switched.message;
           repaint();
           continue;
         }
@@ -461,7 +529,14 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /exit · /quit\n");
+      stdout.write("commands: /help · /model [id|number] · /exit · /quit\n");
+      rl.prompt();
+      continue;
+    }
+    if (prompt === "/model" || prompt.startsWith("/model ")) {
+      const switched = switchModel(options, prompt.slice("/model".length));
+      options = switched.options;
+      stdout.write(`${switched.message}\n`);
       rl.prompt();
       continue;
     }
@@ -509,6 +584,8 @@ async function runTui(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wri
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
   }
+
+  options = await hydrateTuiModels(options, dryRun);
 
   if (!hasPrompt) {
     if (stdout.isTTY && process.stdin.isTTY) return runRawInteractiveTui(options, dryRun, stdout, !noAltScreen);

@@ -46,13 +46,13 @@ AxumAgent reads user-level config instead of project-local config by default. In
 
 ```toml
 # ~/.axum/config.toml
-model = "gpt-4o-mini"
 provider = "openai-chat"
 
 [providers.openai-chat]
 type = "openai-chat"
 base_url = "https://api.openai.com/v1"
 api_key = "env:OPENAI_API_KEY"
+models = ["gpt-4o-mini"]
 max_retries = 10
 retry_delay_ms = 250
 ```
@@ -63,7 +63,7 @@ Config path resolution:
 2. `AXUM_CONFIG=/path/to/config.toml`
 3. `~/.axum/config.toml`
 
-`api_key` may be a literal key or an environment reference such as `env:OPENAI_API_KEY`.
+`api_key` may be a literal key or an environment reference such as `env:OPENAI_API_KEY`. `models` is the TUI model list; when no explicit `model`/`--model` is set, `axum tui` selects the first configured model. If the list is omitted and a provider key is available, TUI tries `GET /models` and selects the first returned model. Use `/model` inside TUI to list models and `/model 2` or `/model <id>` to switch.
 
 ## CLI examples
 
@@ -80,7 +80,7 @@ node bin/axum.js chat --config ~/.axum/config.toml "Say hello"
 node bin/axum.js chat --max-retries 3 "Retry a flaky request"
 ```
 
-`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`.
+`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`.
 
 Useful environment variables:
 

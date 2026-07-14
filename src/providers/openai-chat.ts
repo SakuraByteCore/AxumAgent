@@ -21,6 +21,15 @@ export interface OpenAIChatResult {
   raw: unknown;
 }
 
+interface OpenAIModelListResponse {
+  data?: Array<{ id?: string }>;
+  error?: {
+    message?: string;
+    type?: string;
+    code?: string | number;
+  };
+}
+
 interface OpenAIChatChoice {
   message?: {
     role?: string;
@@ -90,6 +99,33 @@ export class OpenAIChatProvider {
     if (!Number.isInteger(this.retryDelayMs) || this.retryDelayMs < 0) {
       throw new Error("retryDelayMs must be a non-negative integer");
     }
+  }
+
+
+  async listModels(): Promise<string[]> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(`${this.baseUrl}/models`, {
+        method: "GET",
+        headers: { "authorization": `Bearer ${this.apiKey}` },
+      });
+    } catch (error) {
+      throw new RetryableOpenAIChatError(`OpenAI Models request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const raw = await readResponseBody(response);
+    if (!response.ok) {
+      const err = raw as OpenAIModelListResponse | string | null;
+      const message = typeof err === "object" && err && "error" in err
+        ? err.error?.message
+        : typeof err === "string"
+          ? err
+          : response.statusText;
+      throw new Error(`OpenAI Models request failed (${response.status}): ${message || response.statusText}`);
+    }
+
+    const json = raw as OpenAIModelListResponse;
+    return (json.data ?? []).map((model) => model.id).filter((id): id is string => typeof id === "string" && id.length > 0);
   }
 
   async chat(messages: ChatMessage[]): Promise<OpenAIChatResult> {

@@ -49,6 +49,30 @@ class OpenAIChatProvider {
             throw new Error("retryDelayMs must be a non-negative integer");
         }
     }
+    async listModels() {
+        let response;
+        try {
+            response = await this.fetchImpl(`${this.baseUrl}/models`, {
+                method: "GET",
+                headers: { "authorization": `Bearer ${this.apiKey}` },
+            });
+        }
+        catch (error) {
+            throw new RetryableOpenAIChatError(`OpenAI Models request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        const raw = await readResponseBody(response);
+        if (!response.ok) {
+            const err = raw;
+            const message = typeof err === "object" && err && "error" in err
+                ? err.error?.message
+                : typeof err === "string"
+                    ? err
+                    : response.statusText;
+            throw new Error(`OpenAI Models request failed (${response.status}): ${message || response.statusText}`);
+        }
+        const json = raw;
+        return (json.data ?? []).map((model) => model.id).filter((id) => typeof id === "string" && id.length > 0);
+    }
     async chat(messages) {
         let lastError;
         for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
