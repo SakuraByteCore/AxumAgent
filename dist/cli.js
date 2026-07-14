@@ -244,11 +244,11 @@ function renderTuiScreen(options, answer, width = 88, input = "") {
     const conversationLines = [];
     if (hasPrompt || hasAnswer || isThinking) {
         if (hasPrompt)
-            conversationLines.push("", "▌ user", ...promptLines);
+            conversationLines.push("", ...promptLines.map((line, index) => (index === 0 ? `›${line.slice(1)}` : line)));
         if (hasPrompt && hasAnswer)
             conversationLines.push("");
         if (hasAnswer)
-            conversationLines.push("▌ assistant", ...answerLines);
+            conversationLines.push(...answerLines);
         if (isThinking)
             conversationLines.push("", `• Working (${workingSeconds}s • esc to interrupt)`);
     }

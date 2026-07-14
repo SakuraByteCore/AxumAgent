@@ -138,6 +138,10 @@ async function testTuiDryRun() {
   assert.match(result.stdout, /› Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
+  assert.doesNotMatch(result.stdout, /▌ user/);
+  assert.doesNotMatch(result.stdout, /▌ assistant/);
+  assert.doesNotMatch(result.stdout, /\bUser\b/);
+  assert.doesNotMatch(result.stdout, /\bAI\b/);
   assert.doesNotMatch(result.stdout, /╭─ message/);
 }
 
@@ -155,6 +159,8 @@ async function testInteractiveTuiDryRun() {
   assert.doesNotMatch(result.stdout, /\n›\s*$/m);
   assert.match(result.stdout, /hello interactive/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
+  assert.doesNotMatch(result.stdout, /▌ user/);
+  assert.doesNotMatch(result.stdout, /▌ assistant/);
 }
 
 async function testInteractiveTuiWorkingTimer() {

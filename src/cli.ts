@@ -257,9 +257,9 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const statusLine = `${options.model} · ${process.cwd()}`;
   const conversationLines: string[] = [];
   if (hasPrompt || hasAnswer || isThinking) {
-    if (hasPrompt) conversationLines.push("", "▌ user", ...promptLines);
+    if (hasPrompt) conversationLines.push("", ...promptLines.map((line, index) => (index === 0 ? `›${line.slice(1)}` : line)));
     if (hasPrompt && hasAnswer) conversationLines.push("");
-    if (hasAnswer) conversationLines.push("▌ assistant", ...answerLines);
+    if (hasAnswer) conversationLines.push(...answerLines);
     if (isThinking) conversationLines.push("", `• Working (${workingSeconds}s • esc to interrupt)`);
   }
   return [
