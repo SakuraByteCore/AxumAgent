@@ -200,7 +200,7 @@ function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
     return Math.max(72, Math.min(columns, 110));
 }
-function renderTuiScreen(options, answer, width = 88) {
+function renderTuiScreen(options, answer, width = 88, input = "") {
     const inner = width - 4;
     const answerText = answer || "dry-run: provider call skipped";
     const promptLines = wrap(options.prompt || "(empty)", inner - 6).map((line) => `  ${line}`);
@@ -212,6 +212,8 @@ function renderTuiScreen(options, answer, width = 88) {
     const bottom = `╰${"─".repeat(width - 2)}╯`;
     const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
     const inputBottom = `╰${"─".repeat(width - 2)}╯`;
+    const inputLines = wrap(input, inner - 4);
+    const renderedInput = inputLines.length === 1 && inputLines[0] === "" ? ["› "] : inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
     return [
         top,
         framed([
@@ -230,7 +232,7 @@ function renderTuiScreen(options, answer, width = 88) {
         ], width),
         bottom,
         inputTop,
-        framed(["› "], width),
+        framed(renderedInput, width),
         inputBottom,
     ].join("\n");
 }
@@ -302,47 +304,98 @@ async function resolveTuiAnswer(options, dryRun) {
         return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
     }
 }
-async function runInteractiveTui(options, dryRun, stdout, useAltScreen) {
-    const repaint = (screenOptions, answer) => {
-        if (useAltScreen)
-            stdout.write("\u001b[2J\u001b[H");
-        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout))}\n`);
+async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
+    const stdin = process.stdin;
+    let input = "";
+    let screenOptions = { ...options, prompt: "(type a message)" };
+    let answer = "waiting for input";
+    let lastExitCode = 0;
+    const repaint = () => {
+        stdout.write("\u001b[2J\u001b[H");
+        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input)}\n`);
     };
     if (useAltScreen)
-        stdout.write("\u001b[?1049h\u001b[2J\u001b[H");
-    repaint({ ...options, prompt: "(type a message)" }, "waiting for input");
-    const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "› " });
-    let lastExitCode = 0;
+        stdout.write("\u001b[?1049h");
+    stdin.setRawMode?.(true);
+    stdin.resume();
+    repaint();
     try {
-        rl.prompt();
-        for await (const line of rl) {
-            const prompt = line.trim();
-            if (prompt === "/exit" || prompt === "/quit") {
-                rl.close();
+        while (true) {
+            const chunk = await new Promise((resolve) => stdin.once("data", resolve));
+            const text = chunk.toString("utf8");
+            if (text === "\u0003")
                 return lastExitCode;
-            }
-            if (prompt === "/help") {
-                stdout.write("commands: /help · /exit · /quit\n");
-                rl.prompt();
+            if (text === "\r" || text === "\n") {
+                const prompt = input.trim();
+                input = "";
+                if (!prompt) {
+                    repaint();
+                    continue;
+                }
+                if (prompt === "/exit" || prompt === "/quit")
+                    return lastExitCode;
+                if (prompt === "/help") {
+                    answer = "commands: /help · /exit · /quit";
+                    repaint();
+                    continue;
+                }
+                screenOptions = { ...options, prompt };
+                answer = dryRun ? "dry-run: provider call skipped" : "thinking…";
+                repaint();
+                const result = await resolveTuiAnswer(screenOptions, dryRun);
+                answer = result.answer;
+                lastExitCode = result.exitCode;
+                repaint();
                 continue;
             }
-            if (!prompt) {
-                rl.prompt();
+            if (text === "\u007f" || text === "\b") {
+                input = input.slice(0, -1);
+                repaint();
                 continue;
             }
-            const nextOptions = { ...options, prompt };
-            repaint(nextOptions, dryRun ? "dry-run: provider call skipped" : "thinking…");
-            const result = await resolveTuiAnswer(nextOptions, dryRun);
-            lastExitCode = result.exitCode;
-            repaint(nextOptions, result.answer);
-            rl.prompt();
+            if (text.startsWith("\u001b"))
+                continue;
+            input += text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+            repaint();
         }
-        return lastExitCode;
     }
     finally {
+        stdin.setRawMode?.(false);
         if (useAltScreen)
             stdout.write("\u001b[?1049l");
     }
+}
+async function runLineInteractiveTui(options, dryRun, stdout) {
+    const repaint = (screenOptions, answer, input = "") => {
+        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input)}\n`);
+    };
+    repaint({ ...options, prompt: "(type a message)" }, "waiting for input");
+    const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "› " });
+    let lastExitCode = 0;
+    rl.prompt();
+    for await (const line of rl) {
+        const prompt = line.trim();
+        if (prompt === "/exit" || prompt === "/quit") {
+            rl.close();
+            return lastExitCode;
+        }
+        if (prompt === "/help") {
+            stdout.write("commands: /help · /exit · /quit\n");
+            rl.prompt();
+            continue;
+        }
+        if (!prompt) {
+            rl.prompt();
+            continue;
+        }
+        const nextOptions = { ...options, prompt };
+        repaint(nextOptions, dryRun ? "dry-run: provider call skipped" : "thinking…");
+        const result = await resolveTuiAnswer(nextOptions, dryRun);
+        lastExitCode = result.exitCode;
+        repaint(nextOptions, result.answer);
+        rl.prompt();
+    }
+    return lastExitCode;
 }
 async function runTui(args, env, stdout, stderr) {
     const dryRun = args.includes("--dry-run");
@@ -364,8 +417,11 @@ async function runTui(args, env, stdout, stderr) {
         stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         return 2;
     }
-    if (!hasPrompt)
-        return runInteractiveTui(options, dryRun, stdout, Boolean(stdout.isTTY && process.stdin.isTTY && !noAltScreen));
+    if (!hasPrompt) {
+        if (stdout.isTTY && process.stdin.isTTY)
+            return runRawInteractiveTui(options, dryRun, stdout, !noAltScreen);
+        return runLineInteractiveTui(options, dryRun, stdout);
+    }
     const result = await resolveTuiAnswer(options, dryRun);
     stdout.write(`${renderTuiScreen(options, result.answer, terminalWidth(stdout))}\n`);
     return result.exitCode;
