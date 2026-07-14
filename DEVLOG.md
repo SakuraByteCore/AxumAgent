@@ -21,7 +21,7 @@ Work added:
 - Moved TUI shortcut help below the message frame and added an in-frame cursor marker so the active input area is visible.
 - Added an npm `postinstall` hook that creates `~/.axum/config.toml` with an OpenAI-compatible template when missing, without overwriting existing config.
 - Reworked `axum tui` empty state toward a compact Codex-like startup card with version/model/directory/permissions, a short tip, an inline prompt, bottom status, a dynamically updating Codex-like working timer, no placeholder/cursor rendered without user input, no user/assistant labels in the conversation body, and OpenAI-compatible SSE streaming updates while answers arrive.
-- Added TUI model discovery and switching: config can provide `models = [...]`, TUI defaults to the first configured/fetched model, OpenAI-compatible `/models` is used when the list is omitted, `/provider url` and `/provider key` can save missing provider settings from inside TUI, and `/model` lists or switches models by number/id.
+- Added TUI model discovery and switching: config can provide `models = [...]`, TUI defaults to the first configured/fetched model, OpenAI-compatible `/models` is used when the list is omitted, `/provider url` and `/provider key` can save missing provider settings from inside TUI, `/model` lists or switches models by number/id, the empty input keeps an active cursor, and typing `/` shows command suggestions.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

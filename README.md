@@ -63,7 +63,7 @@ Config path resolution:
 2. `AXUM_CONFIG=/path/to/config.toml`
 3. `~/.axum/config.toml`
 
-`api_key` may be a literal key or an environment reference such as `env:OPENAI_API_KEY`. `models` is the TUI model list; when no explicit `model`/`--model` is set, `axum tui` selects the first configured model. If the list is omitted and a provider key is available, TUI tries `GET /models` and selects the first returned model. Use `/provider url <url>` and `/provider key <key>` inside TUI to save missing provider settings, then `/model` to list models and `/model 2` or `/model <id>` to switch.
+`api_key` may be a literal key or an environment reference such as `env:OPENAI_API_KEY`. `models` is the TUI model list; when no explicit `model`/`--model` is set, `axum tui` selects the first configured model. If the list is omitted and a provider key is available, TUI tries `GET /models` and selects the first returned model. Use `/provider url <url>` and `/provider key <key>` inside TUI to save missing provider settings, then `/model` to list models and `/model 2` or `/model <id>` to switch. The TUI input keeps an active cursor by default, and typing `/` shows command suggestions.
 
 ## CLI examples
 

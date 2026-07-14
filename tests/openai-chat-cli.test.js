@@ -154,7 +154,7 @@ async function testTuiDryRun() {
   assert.match(result.stdout, /permissions: YOLO mode/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
-  assert.match(result.stdout, /^›\s*$/m);
+  assert.match(result.stdout, /^› █\s*$/m);
   assert.match(result.stdout, /dry-run: provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
@@ -174,11 +174,21 @@ async function testInteractiveTuiDryRun() {
   assert.doesNotMatch(result.stdout, /waiting for input/);
   assert.doesNotMatch(result.stdout, /\(type a message\)/);
   assert.doesNotMatch(result.stdout, /No messages yet\./);
-  assert.match(result.stdout, /^›\s*$/m);
+  assert.match(result.stdout, /^› █\s*$/m);
   assert.match(result.stdout, /hello interactive/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
+}
+
+async function testInteractiveTuiShowsSlashCommands() {
+  const result = await runCli(["tui", "--dry-run"], {}, "/\n/exit\n");
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.match(result.stdout, /commands/);
+  assert.match(result.stdout, /\/help\s+show commands/);
+  assert.match(result.stdout, /\/provider\s+show or set provider url\/key/);
+  assert.match(result.stdout, /\/model\s+list or switch models/);
+  assert.match(result.stdout, /^› █\s*$/m);
 }
 
 async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
@@ -291,6 +301,7 @@ async function testMissingKey() {
   await testRetryConfig();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
+  await testInteractiveTuiShowsSlashCommands();
   await testTuiConfiguresProviderUrlAndKeyWhenMissing();
   await testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand();
   await testTuiFetchesFirstModelWhenConfigOmitsModel();

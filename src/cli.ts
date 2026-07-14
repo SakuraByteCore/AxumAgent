@@ -205,6 +205,14 @@ function clip(text: string, width: number): string {
   return plain.slice(0, Math.max(0, width - 1)) + "…";
 }
 
+const SLASH_COMMANDS = [
+  { name: "/help", description: "show commands" },
+  { name: "/provider", description: "show or set provider url/key" },
+  { name: "/model", description: "list or switch models" },
+  { name: "/exit", description: "exit TUI" },
+  { name: "/quit", description: "exit TUI" },
+];
+
 function wrap(text: string, width: number): string[] {
   const words = text.split(/\s+/g).filter(Boolean);
   if (words.length === 0) return [""];
@@ -222,6 +230,19 @@ function wrap(text: string, width: number): string[] {
   }
   if (line) lines.push(line);
   return lines;
+}
+
+function renderSlashCommandSuggestions(input: string, width: number): string[] {
+  if (!input.startsWith("/")) return [];
+  const query = input.slice(1).trimStart().split(/\s+/)[0] ?? "";
+  const matches = SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(query));
+  if (matches.length === 0) return ["╭─ commands ─╮", "│ no matches │", "╰────────────╯"];
+  const labelWidth = Math.max(...matches.map((command) => command.name.length));
+  const rows = matches.map((command) => `│ ${command.name.padEnd(labelWidth)}  ${command.description} │`);
+  const maxRow = Math.min(width - 2, Math.max(" commands ".length + 4, ...rows.map((row) => stripAnsi(row).length)));
+  const top = `╭${"─".repeat(Math.max(1, maxRow - 2))}╮`;
+  const bottom = `╰${"─".repeat(Math.max(1, maxRow - 2))}╯`;
+  return [top, ...rows.map((row) => clip(row, maxRow)), bottom];
 }
 
 function framed(lines: string[], width = 88): string {
@@ -259,8 +280,8 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   ];
   const cursor = "█";
   const safeInput = visibleInput(input);
-  const inputText = safeInput.length > 0 ? `${safeInput}${cursor}` : "";
-  const inputLines = inputText.length > 0 ? wrap(inputText, inner - 4) : [""];
+  const inputText = safeInput.length > 0 ? `${safeInput}${cursor}` : cursor;
+  const inputLines = wrap(inputText, inner - 4);
   const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
   const statusLine = `${options.model} · ${process.cwd()}`;
   const conversationLines: string[] = [];
@@ -275,6 +296,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
     "",
     "Tip: Build faster with AxumAgent.",
     ...conversationLines,
+    ...renderSlashCommandSuggestions(safeInput, width),
     "",
     ...renderedInput,
     clip(statusLine, width),
@@ -519,6 +541,11 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
           repaint();
           continue;
         }
+        if (prompt.startsWith("/")) {
+          answer = renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n");
+          repaint();
+          continue;
+        }
         screenOptions = { ...options, prompt };
         if (dryRun) {
           answer = "dry-run: provider call skipped";
@@ -592,6 +619,11 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       const applied = await applyProviderCommand(options, process.env, prompt.slice("/provider".length));
       options = applied.options;
       stdout.write(`${applied.message}\n`);
+      rl.prompt();
+      continue;
+    }
+    if (prompt.startsWith("/")) {
+      stdout.write(`${renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n")}\n`);
       rl.prompt();
       continue;
     }
