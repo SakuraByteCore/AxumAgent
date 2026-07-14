@@ -64,6 +64,20 @@ function extractConfigPath(args: string[]): { configPath?: string; args: string[
   return { configPath, args: next };
 }
 
+function hasPositionalPrompt(args: string[]): boolean {
+  const flagsWithValues = new Set(["--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms"]);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (flagsWithValues.has(arg)) {
+      i += 1;
+      continue;
+    }
+    if (arg.startsWith("--")) continue;
+    return true;
+  }
+  return false;
+}
+
 function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedConfig, configPath?: string, requirePrompt = true): ChatCommandOptions {
   const config = loaded?.config;
   const provider = selectedProvider(config).config;
@@ -208,6 +222,12 @@ function framed(lines: string[], width = 88): string {
   return lines.map((line) => `│ ${clip(line, inner)} │`).join("\n");
 }
 
+function box(lines: string[], width = 88): string {
+  const top = `╭${"─".repeat(width - 2)}╮`;
+  const bottom = `╰${"─".repeat(width - 2)}╯`;
+  return [top, framed(lines, width), bottom].join("\n");
+}
+
 function terminalWidth(stdout: NodeJS.WriteStream): number {
   const columns = stdout.columns || 88;
   return Math.max(72, Math.min(columns, 110));
@@ -216,42 +236,38 @@ function terminalWidth(stdout: NodeJS.WriteStream): number {
 function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = ""): string {
   const inner = width - 4;
   const hasPrompt = options.prompt.trim().length > 0;
-  const hasAnswer = answer !== undefined;
+  const isThinking = answer === "thinking…";
+  const hasAnswer = answer !== undefined && !isThinking;
   const promptLines = hasPrompt ? wrap(options.prompt, inner - 6).map((line) => `  ${line}`) : [];
   const answerLines = hasAnswer ? wrap(answer, inner - 6).map((line) => `  ${line}`) : [];
-  const configPath = options.configPath || defaultConfigPath();
-  const title = "AxumAgent";
-  const status = `${options.model} · ${options.baseUrl}`;
-  const top = `╭─ ${title} ${"─".repeat(Math.max(1, width - title.length - status.length - 7))} ${status} ╮`;
-  const bottom = `╰${"─".repeat(width - 2)}╯`;
-  const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
-  const inputBottom = `╰${"─".repeat(width - 2)}╯`;
+  const cardWidth = Math.min(width, 54);
+  const headerLines = [
+    ">_ AxumAgent (v0.1.0)",
+    "",
+    `model:     ${options.model}   /model to change`,
+    `directory: ${process.cwd()}`,
+    "permissions: YOLO mode",
+  ];
   const cursor = "█";
-  const inputText = input.length > 0 ? `${input}${cursor}` : `type a message ${cursor}`;
+  const inputText = input.length > 0 ? `${input}${cursor}` : `Run /help for commands ${cursor}`;
   const inputLines = wrap(inputText, inner - 4);
   const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
-  const helpLine = `  enter send · /help commands · /exit quit · ctrl+c interrupt`;
-  const conversationLines = [
-    `cwd     ${process.cwd()}`,
-    `config  ${configPath}`,
-    `retry   ${options.maxRetries} attempts · ${options.retryDelayMs}ms backoff`,
-    "",
-  ];
-  if (hasPrompt || hasAnswer) {
-    if (hasPrompt) conversationLines.push("▌ user", ...promptLines);
+  const statusLine = `${options.model} · ${process.cwd()}`;
+  const conversationLines: string[] = [];
+  if (hasPrompt || hasAnswer || isThinking) {
+    if (hasPrompt) conversationLines.push("", "▌ user", ...promptLines);
     if (hasPrompt && hasAnswer) conversationLines.push("");
     if (hasAnswer) conversationLines.push("▌ assistant", ...answerLines);
-  } else {
-    conversationLines.push("No messages yet.");
+    if (isThinking) conversationLines.push("", "• Working (0s • esc to interrupt)");
   }
   return [
-    top,
-    framed(conversationLines, width),
-    bottom,
-    inputTop,
-    framed(renderedInput, width),
-    inputBottom,
-    clip(helpLine, width),
+    box(headerLines, cardWidth),
+    "",
+    "Tip: Build faster with AxumAgent.",
+    ...conversationLines,
+    "",
+    ...renderedInput,
+    clip(statusLine, width),
   ].join("\n");
 }
 
@@ -422,7 +438,7 @@ async function runTui(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wri
   try {
     const extracted = extractConfigPath(filteredArgs);
     const loaded = loadConfig(env, extracted.configPath);
-    hasPrompt = extracted.args.length > 0;
+    hasPrompt = hasPositionalPrompt(extracted.args);
     options = parseChatArgs(extracted.args, env, loaded, extracted.configPath, hasPrompt);
   } catch (error) {
     if (error instanceof HelpRequested) {
