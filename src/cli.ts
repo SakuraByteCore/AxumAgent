@@ -182,26 +182,62 @@ function clip(text: string, width: number): string {
   return plain.slice(0, Math.max(0, width - 1)) + "…";
 }
 
-function box(title: string, lines: string[], width = 78): string {
+function wrap(text: string, width: number): string[] {
+  const words = text.split(/\s+/g).filter(Boolean);
+  if (words.length === 0) return [""];
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    if (!line) {
+      line = word;
+    } else if (`${line} ${word}`.length <= width) {
+      line += ` ${word}`;
+    } else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+function framed(lines: string[], width = 88): string {
   const inner = width - 4;
-  const top = `╭─ ${title} ${"─".repeat(Math.max(0, inner - title.length - 1))}╮`;
-  const body = lines.map((line) => `│ ${clip(line, inner)} │`);
-  const bottom = `╰${"─".repeat(width - 2)}╯`;
-  return [top, ...body, bottom].join("\n");
+  return lines.map((line) => `│ ${clip(line, inner)} │`).join("\n");
 }
 
 function renderTuiScreen(options: ChatCommandOptions, answer?: string): string {
+  const width = 88;
+  const inner = width - 4;
+  const answerText = answer || "dry-run: provider call skipped";
+  const promptLines = wrap(options.prompt || "(empty)", inner - 4).map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
+  const answerLines = wrap(answerText, inner - 4).map((line, index) => `${index === 0 ? "▸" : " "} ${line}`);
+  const configPath = options.configPath || defaultConfigPath();
+  const title = "AxumAgent";
+  const status = `${options.model} · ${options.maxRetries} retries · ${options.baseUrl}`;
+  const top = `╭─ ${title} ${"─".repeat(Math.max(1, width - title.length - status.length - 7))} ${status} ╮`;
+  const bottom = `╰${"─".repeat(width - 2)}╯`;
+  const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
+  const inputBottom = `╰${"─".repeat(width - 2)}╯`;
   return [
-    box("AxumAgent", [
-      "pi-style terminal workspace",
-      `model: ${options.model}`,
-      `base_url: ${options.baseUrl}`,
-      `config: ${options.configPath || defaultConfigPath()}`,
-      `retries: ${options.maxRetries} · retry_delay_ms: ${options.retryDelayMs}`,
-    ]),
-    box("Prompt", [options.prompt || "(empty)" ]),
-    box("Assistant", [answer || "dry-run: provider call skipped"]),
-    box("Keys", ["Enter: send · Ctrl+C: exit · /help: commands"]),
+    top,
+    framed([
+      "workspace  ~/.axum/config.toml",
+      `config     ${configPath}`,
+      "",
+      "user",
+      ...promptLines,
+      "",
+      "assistant",
+      ...answerLines,
+      "",
+      "────────────────────────────────────────────────────────────────────────",
+      "enter send · ctrl+c exit · /help commands · /model switch",
+    ], width),
+    bottom,
+    inputTop,
+    framed(["› "], width),
+    inputBottom,
   ].join("\n");
 }
 

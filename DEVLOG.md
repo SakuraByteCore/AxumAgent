@@ -14,6 +14,7 @@ Work added:
 - Added user-level TOML config loading (`~/.axum/config.toml`, `AXUM_CONFIG`, or `--config`) so provider settings can live outside project directories.
 - Prepared npm packaging as `axum-agent` with committed dist output, `axum` binary, package exports, package metadata, MIT license, and dry-run pack script.
 - Added a lightweight pi-style terminal UI command, `axum tui`, with a boxed terminal layout and `--dry-run` preview mode.
+- Refined `axum tui` toward a Codex-like terminal layout with a top status line, conversation stream, and bottom message input.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

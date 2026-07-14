@@ -130,7 +130,7 @@ async function testTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "hello"]);
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /AxumAgent/);
-  assert.match(result.stdout, /pi-style terminal workspace/);
+  assert.match(result.stdout, /message/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
 }
 
