@@ -15,7 +15,8 @@ function startMockServer(options = {}) {
     req.setEncoding("utf8");
     req.on("data", (chunk) => { body += chunk; });
     req.on("end", () => {
-      requests.push({ method: req.method, url: req.url, headers: req.headers, body: JSON.parse(body || "{}") });
+      const parsedBody = JSON.parse(body || "{}");
+      requests.push({ method: req.method, url: req.url, headers: req.headers, body: parsedBody });
       if (req.method !== "POST" || req.url !== "/v1/chat/completions") {
         res.writeHead(404, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { message: "not found" } }));
@@ -25,6 +26,17 @@ function startMockServer(options = {}) {
         failuresLeft -= 1;
         res.writeHead(500, { "content-type": "application/json" });
         res.end(JSON.stringify({ error: { message: "temporary upstream failure" } }));
+        return;
+      }
+      if (parsedBody.stream) {
+        const chunks = options.streamChunks || ["mock ", "answer"];
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        chunks.forEach((chunk, index) => {
+          setTimeout(() => {
+            res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: chunk } }] })}\n\n`);
+            if (index === chunks.length - 1) res.end("data: [DONE]\n\n");
+          }, options.delayMs || index * 200);
+        });
         return;
       }
       setTimeout(() => {
@@ -164,7 +176,7 @@ async function testInteractiveTuiDryRun() {
 }
 
 async function testInteractiveTuiWorkingTimer() {
-  const { server, port } = await startMockServer({ delayMs: 1200 });
+  const { server, requests, port } = await startMockServer({ delayMs: 1200 });
   const cfg = writeConfig(`
 model = "mock-model"
 provider = "openai-chat"
@@ -182,6 +194,7 @@ retry_delay_ms = 0
     assert.match(result.stdout, /• Working \(0s • esc to interrupt\)/);
     assert.match(result.stdout, /• Working \(1s • esc to interrupt\)/);
     assert.match(result.stdout, /mock answer/);
+    assert.strictEqual(requests[0].body.stream, true);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });

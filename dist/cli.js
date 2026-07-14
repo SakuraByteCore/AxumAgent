@@ -334,6 +334,32 @@ async function resolveTuiAnswer(options, dryRun) {
         return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
     }
 }
+async function resolveTuiAnswerStream(options, dryRun, onDelta) {
+    if (dryRun)
+        return { answer: "dry-run: provider call skipped", exitCode: 0 };
+    if (!options.apiKey) {
+        return { answer: "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"", exitCode: 2 };
+    }
+    try {
+        const provider = new openai_chat_1.OpenAIChatProvider({
+            apiKey: options.apiKey,
+            baseUrl: options.baseUrl,
+            model: options.model,
+            temperature: options.temperature,
+            maxRetries: options.maxRetries,
+            retryDelayMs: options.retryDelayMs,
+        });
+        let streamed = "";
+        const result = await provider.chatStream([{ role: "user", content: options.prompt }], (delta) => {
+            streamed += delta;
+            onDelta(streamed);
+        });
+        return { answer: result.content, exitCode: 0 };
+    }
+    catch (error) {
+        return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
+    }
+}
 async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
     const stdin = process.stdin;
     let input = "";
@@ -384,7 +410,10 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
                         repaint();
                     }, 1000);
                     try {
-                        const result = await resolveTuiAnswer(screenOptions, dryRun);
+                        const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
+                            answer = streamed;
+                            repaint();
+                        });
                         answer = result.answer;
                         lastExitCode = result.exitCode;
                     }
@@ -445,7 +474,7 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             repaint(nextOptions, workingStatus(startedAt));
             const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt)), 1000);
             try {
-                const result = await resolveTuiAnswer(nextOptions, dryRun);
+                const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed) => repaint(nextOptions, streamed));
                 lastExitCode = result.exitCode;
                 repaint(nextOptions, result.answer);
             }
