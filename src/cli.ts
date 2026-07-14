@@ -1,4 +1,4 @@
-import { defaultConfigPath, loadConfig, numberFromConfig, resolveSecret, selectedProvider, type LoadedConfig } from "./config";
+import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveOpenAIProviderConfig, selectedProvider, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import { createInterface } from "node:readline/promises";
 
@@ -153,7 +153,7 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
     temperature,
     maxRetries,
     retryDelayMs,
-    configPath: loaded?.path || configPath,
+    configPath: loaded?.path || resolveConfigPath(env, configPath),
     json,
   };
 }
@@ -258,7 +258,8 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
     "permissions: YOLO mode",
   ];
   const cursor = "█";
-  const inputText = input.length > 0 ? `${input}${cursor}` : "";
+  const safeInput = visibleInput(input);
+  const inputText = safeInput.length > 0 ? `${safeInput}${cursor}` : "";
   const inputLines = inputText.length > 0 ? wrap(inputText, inner - 4) : [""];
   const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
   const statusLine = `${options.model} · ${process.cwd()}`;
@@ -336,6 +337,45 @@ function switchModel(options: ChatCommandOptions, value: string): { options: Cha
   if (!selected) return { options, message: `model index out of range: ${target}` };
   const modelOptions = options.modelOptions.includes(selected) ? options.modelOptions : [...options.modelOptions, selected];
   return { options: { ...options, model: selected, modelOptions, modelWasExplicit: true }, message: `model switched to ${selected}` };
+}
+
+
+function maskSecret(value: string | undefined): string {
+  if (!value) return "missing";
+  if (value.length <= 8) return "***";
+  return `${value.slice(0, 4)}…${value.slice(-4)}`;
+}
+
+function visibleInput(input: string): string {
+  return input.replace(/^(\/provider\s+(?:key|api-key)\s+).+$/i, "$1***");
+}
+
+function providerStatus(options: ChatCommandOptions): string {
+  return [
+    `provider url: ${options.baseUrl}`,
+    `provider key: ${maskSecret(options.apiKey)}`,
+    `config: ${options.configPath ?? defaultConfigPath()}`,
+    "commands: /provider url <url> · /provider key <key>",
+  ].join("\n");
+}
+
+async function applyProviderCommand(options: ChatCommandOptions, env: NodeJS.ProcessEnv, value: string): Promise<{ options: ChatCommandOptions; message: string }> {
+  const trimmed = value.trim();
+  if (!trimmed) return { options, message: providerStatus(options) };
+  const match = trimmed.match(/^(url|base-url|key|api-key)\s+(.+)$/i);
+  if (!match) {
+    return { options, message: "usage: /provider url <url> · /provider key <key>" };
+  }
+  const kind = match[1].toLowerCase();
+  const rawValue = match[2].trim();
+  if (!rawValue) return { options, message: "provider value cannot be empty" };
+  const patch = kind === "url" || kind === "base-url" ? { base_url: rawValue } : { api_key: rawValue };
+  const saved = saveOpenAIProviderConfig(env, options.configPath, patch);
+  let next = parseChatArgs([], env, saved, saved.path, false);
+  next = await hydrateTuiModels(next, false);
+  const label = kind === "url" || kind === "base-url" ? "url" : "key";
+  const suffix = next.modelOptions.length > 0 ? `; models loaded: ${next.modelOptions.length}; current model: ${next.model}` : "";
+  return { options: next, message: `provider ${label} saved to ${saved.path}${suffix}` };
 }
 
 async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
@@ -459,7 +499,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         }
         if (prompt === "/exit" || prompt === "/quit") return lastExitCode;
         if (prompt === "/help") {
-          answer = "commands: /help · /model [id|number] · /exit · /quit";
+          answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit";
           repaint();
           continue;
         }
@@ -468,6 +508,14 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
           screenOptions = { ...switched.options, prompt: "" };
           options = { ...switched.options, prompt: options.prompt };
           answer = switched.message;
+          repaint();
+          continue;
+        }
+        if (prompt === "/provider" || prompt.startsWith("/provider ")) {
+          const applied = await applyProviderCommand(screenOptions, process.env, prompt.slice("/provider".length));
+          screenOptions = { ...applied.options, prompt: "" };
+          options = { ...applied.options, prompt: options.prompt };
+          answer = applied.message;
           repaint();
           continue;
         }
@@ -529,7 +577,7 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /model [id|number] · /exit · /quit\n");
+      stdout.write("commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit\n");
       rl.prompt();
       continue;
     }
@@ -537,6 +585,13 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       const switched = switchModel(options, prompt.slice("/model".length));
       options = switched.options;
       stdout.write(`${switched.message}\n`);
+      rl.prompt();
+      continue;
+    }
+    if (prompt === "/provider" || prompt.startsWith("/provider ")) {
+      const applied = await applyProviderCommand(options, process.env, prompt.slice("/provider".length));
+      options = applied.options;
+      stdout.write(`${applied.message}\n`);
       rl.prompt();
       continue;
     }

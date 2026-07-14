@@ -7,6 +7,7 @@ exports.expandHome = expandHome;
 exports.defaultConfigPath = defaultConfigPath;
 exports.resolveConfigPath = resolveConfigPath;
 exports.loadConfig = loadConfig;
+exports.saveOpenAIProviderConfig = saveOpenAIProviderConfig;
 exports.selectedProvider = selectedProvider;
 exports.resolveSecret = resolveSecret;
 exports.numberFromConfig = numberFromConfig;
@@ -35,6 +36,21 @@ function loadConfig(env, explicitPath) {
     const raw = fs_1.default.readFileSync(configPath, "utf8");
     const parsed = (0, toml_1.parse)(raw);
     return { path: configPath, config: parsed };
+}
+function saveOpenAIProviderConfig(env, explicitPath, patch) {
+    const configPath = resolveConfigPath(env, explicitPath);
+    const existing = fs_1.default.existsSync(configPath) ? (0, toml_1.parse)(fs_1.default.readFileSync(configPath, "utf8")) : {};
+    const providerId = existing.provider || "openai-chat";
+    const providers = { ...(existing.providers ?? {}) };
+    providers[providerId] = {
+        ...(providers[providerId] ?? {}),
+        type: providers[providerId]?.type || "openai-chat",
+        ...patch,
+    };
+    const next = { ...existing, provider: providerId, providers };
+    fs_1.default.mkdirSync(path_1.default.dirname(configPath), { recursive: true });
+    fs_1.default.writeFileSync(configPath, (0, toml_1.stringify)(next), "utf8");
+    return { path: configPath, config: next };
 }
 function selectedProvider(config) {
     const id = config?.provider || "openai-chat";

@@ -181,6 +181,28 @@ async function testInteractiveTuiDryRun() {
   assert.doesNotMatch(result.stdout, /▌ assistant/);
 }
 
+async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
+  const { server, requests, port } = await startMockServer({ models: ["configured-first", "configured-second"] });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
+  const file = path.join(dir, "config.toml");
+  try {
+    const result = await runCli(["tui", "--config", file], {}, `/provider url http://127.0.0.1:${port}/v1\n/provider key test-key\n/model\nhello configured\n/exit\n`);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /provider url saved/);
+    assert.match(result.stdout, /provider key saved/);
+    assert.match(result.stdout, /\* 1\. configured-first/);
+    assert.strictEqual(requests[0].method, "GET");
+    assert.strictEqual(requests[0].url, "/v1/models");
+    assert.strictEqual(requests.at(-1).body.model, "configured-first");
+    const saved = fs.readFileSync(file, "utf8");
+    assert.match(saved, /base_url = "http:\/\/127\.0\.0\.1:\d+\/v1"/);
+    assert.match(saved, /api_key = "test-key"/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
@@ -269,6 +291,7 @@ async function testMissingKey() {
   await testRetryConfig();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
+  await testTuiConfiguresProviderUrlAndKeyWhenMissing();
   await testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand();
   await testTuiFetchesFirstModelWhenConfigOmitsModel();
   await testInteractiveTuiWorkingTimer();

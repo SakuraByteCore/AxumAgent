@@ -1,7 +1,7 @@
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { parse } from "@iarna/toml";
+import { parse, stringify } from "@iarna/toml";
 
 export interface ProviderConfig {
   type?: string;
@@ -53,6 +53,22 @@ export function loadConfig(env: NodeJS.ProcessEnv, explicitPath?: string): Loade
   const raw = fs.readFileSync(configPath, "utf8");
   const parsed = parse(raw) as unknown as AxumConfig;
   return { path: configPath, config: parsed };
+}
+
+export function saveOpenAIProviderConfig(env: NodeJS.ProcessEnv, explicitPath: string | undefined, patch: Partial<ProviderConfig>): LoadedConfig {
+  const configPath = resolveConfigPath(env, explicitPath);
+  const existing = fs.existsSync(configPath) ? (parse(fs.readFileSync(configPath, "utf8")) as unknown as AxumConfig) : {};
+  const providerId = existing.provider || "openai-chat";
+  const providers = { ...(existing.providers ?? {}) };
+  providers[providerId] = {
+    ...(providers[providerId] ?? {}),
+    type: providers[providerId]?.type || "openai-chat",
+    ...patch,
+  };
+  const next: AxumConfig = { ...existing, provider: providerId, providers };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, stringify(next as never), "utf8");
+  return { path: configPath, config: next };
 }
 
 export function selectedProvider(config: AxumConfig | undefined): { id: string; config?: ProviderConfig } {
