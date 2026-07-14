@@ -20,6 +20,7 @@ Work added:
 - Replaced the fake message box with raw TTY input rendering so typed characters appear inside the message frame before Enter sends.
 - Moved TUI shortcut help below the message frame and added an in-frame cursor marker so the active input area is visible.
 - Added an npm `postinstall` hook that creates `~/.axum/config.toml` with an OpenAI-compatible template when missing, without overwriting existing config.
+- Removed fake empty-session user/assistant messages from `axum tui`; the empty screen now keeps conversation history clean, puts the input placeholder inside the message box, and avoids an extra fallback prompt below the help line.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.

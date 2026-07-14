@@ -202,9 +202,10 @@ function terminalWidth(stdout) {
 }
 function renderTuiScreen(options, answer, width = 88, input = "") {
     const inner = width - 4;
-    const answerText = answer || "dry-run: provider call skipped";
-    const promptLines = wrap(options.prompt || "(empty)", inner - 6).map((line) => `  ${line}`);
-    const answerLines = wrap(answerText, inner - 6).map((line) => `  ${line}`);
+    const hasPrompt = options.prompt.trim().length > 0;
+    const hasAnswer = answer !== undefined;
+    const promptLines = hasPrompt ? wrap(options.prompt, inner - 6).map((line) => `  ${line}`) : [];
+    const answerLines = hasAnswer ? wrap(answer, inner - 6).map((line) => `  ${line}`) : [];
     const configPath = options.configPath || (0, config_1.defaultConfigPath)();
     const title = "AxumAgent";
     const status = `${options.model} · ${options.baseUrl}`;
@@ -213,22 +214,30 @@ function renderTuiScreen(options, answer, width = 88, input = "") {
     const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
     const inputBottom = `╰${"─".repeat(width - 2)}╯`;
     const cursor = "█";
-    const inputLines = wrap(`${input}${cursor}`, inner - 4);
+    const inputText = input.length > 0 ? `${input}${cursor}` : `type a message ${cursor}`;
+    const inputLines = wrap(inputText, inner - 4);
     const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
     const helpLine = `  enter send · /help commands · /exit quit · ctrl+c interrupt`;
+    const conversationLines = [
+        `cwd     ${process.cwd()}`,
+        `config  ${configPath}`,
+        `retry   ${options.maxRetries} attempts · ${options.retryDelayMs}ms backoff`,
+        "",
+    ];
+    if (hasPrompt || hasAnswer) {
+        if (hasPrompt)
+            conversationLines.push("▌ user", ...promptLines);
+        if (hasPrompt && hasAnswer)
+            conversationLines.push("");
+        if (hasAnswer)
+            conversationLines.push("▌ assistant", ...answerLines);
+    }
+    else {
+        conversationLines.push("No messages yet.");
+    }
     return [
         top,
-        framed([
-            `cwd     ${process.cwd()}`,
-            `config  ${configPath}`,
-            `retry   ${options.maxRetries} attempts · ${options.retryDelayMs}ms backoff`,
-            "",
-            "▌ user",
-            ...promptLines,
-            "",
-            "▌ assistant",
-            ...answerLines,
-        ], width),
+        framed(conversationLines, width),
         bottom,
         inputTop,
         framed(renderedInput, width),
@@ -307,8 +316,8 @@ async function resolveTuiAnswer(options, dryRun) {
 async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
     const stdin = process.stdin;
     let input = "";
-    let screenOptions = { ...options, prompt: "(type a message)" };
-    let answer = "waiting for input";
+    let screenOptions = { ...options, prompt: "" };
+    let answer;
     let lastExitCode = 0;
     const repaint = () => {
         stdout.write("\u001b[2J\u001b[H");
@@ -369,8 +378,8 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
     const repaint = (screenOptions, answer, input = "") => {
         stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input)}\n`);
     };
-    repaint({ ...options, prompt: "(type a message)" }, "waiting for input");
-    const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "› " });
+    repaint({ ...options, prompt: "" }, undefined);
+    const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "" });
     let lastExitCode = 0;
     rl.prompt();
     for await (const line of rl) {

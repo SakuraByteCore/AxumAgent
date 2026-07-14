@@ -138,7 +138,11 @@ async function testTuiDryRun() {
 async function testInteractiveTuiDryRun() {
   const result = await runCli(["tui", "--dry-run"], {}, "hello interactive\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
-  assert.match(result.stdout, /waiting for input/);
+  assert.match(result.stdout, /No messages yet\./);
+  assert.match(result.stdout, /type a message/);
+  assert.doesNotMatch(result.stdout, /waiting for input/);
+  assert.doesNotMatch(result.stdout, /\(type a message\)/);
+  assert.doesNotMatch(result.stdout, /\n›\s*$/m);
   assert.match(result.stdout, /hello interactive/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
 }

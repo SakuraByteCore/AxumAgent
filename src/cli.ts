@@ -215,9 +215,10 @@ function terminalWidth(stdout: NodeJS.WriteStream): number {
 
 function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = ""): string {
   const inner = width - 4;
-  const answerText = answer || "dry-run: provider call skipped";
-  const promptLines = wrap(options.prompt || "(empty)", inner - 6).map((line) => `  ${line}`);
-  const answerLines = wrap(answerText, inner - 6).map((line) => `  ${line}`);
+  const hasPrompt = options.prompt.trim().length > 0;
+  const hasAnswer = answer !== undefined;
+  const promptLines = hasPrompt ? wrap(options.prompt, inner - 6).map((line) => `  ${line}`) : [];
+  const answerLines = hasAnswer ? wrap(answer, inner - 6).map((line) => `  ${line}`) : [];
   const configPath = options.configPath || defaultConfigPath();
   const title = "AxumAgent";
   const status = `${options.model} · ${options.baseUrl}`;
@@ -226,22 +227,26 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const inputTop = `╭─ message ${"─".repeat(width - 12)}╮`;
   const inputBottom = `╰${"─".repeat(width - 2)}╯`;
   const cursor = "█";
-  const inputLines = wrap(`${input}${cursor}`, inner - 4);
+  const inputText = input.length > 0 ? `${input}${cursor}` : `type a message ${cursor}`;
+  const inputLines = wrap(inputText, inner - 4);
   const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
   const helpLine = `  enter send · /help commands · /exit quit · ctrl+c interrupt`;
+  const conversationLines = [
+    `cwd     ${process.cwd()}`,
+    `config  ${configPath}`,
+    `retry   ${options.maxRetries} attempts · ${options.retryDelayMs}ms backoff`,
+    "",
+  ];
+  if (hasPrompt || hasAnswer) {
+    if (hasPrompt) conversationLines.push("▌ user", ...promptLines);
+    if (hasPrompt && hasAnswer) conversationLines.push("");
+    if (hasAnswer) conversationLines.push("▌ assistant", ...answerLines);
+  } else {
+    conversationLines.push("No messages yet.");
+  }
   return [
     top,
-    framed([
-      `cwd     ${process.cwd()}`,
-      `config  ${configPath}`,
-      `retry   ${options.maxRetries} attempts · ${options.retryDelayMs}ms backoff`,
-      "",
-      "▌ user",
-      ...promptLines,
-      "",
-      "▌ assistant",
-      ...answerLines,
-    ], width),
+    framed(conversationLines, width),
     bottom,
     inputTop,
     framed(renderedInput, width),
@@ -320,8 +325,8 @@ async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): P
 async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean, stdout: NodeJS.WriteStream, useAltScreen: boolean): Promise<number> {
   const stdin = process.stdin as NodeJS.ReadStream & { setRawMode?: (mode: boolean) => void };
   let input = "";
-  let screenOptions = { ...options, prompt: "(type a message)" };
-  let answer = "waiting for input";
+  let screenOptions = { ...options, prompt: "" };
+  let answer: string | undefined;
   let lastExitCode = 0;
   const repaint = (): void => {
     stdout.write("\u001b[2J\u001b[H");
@@ -375,12 +380,12 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
 }
 
 async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolean, stdout: NodeJS.WriteStream): Promise<number> {
-  const repaint = (screenOptions: ChatCommandOptions, answer: string, input = ""): void => {
+  const repaint = (screenOptions: ChatCommandOptions, answer: string | undefined, input = ""): void => {
     stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input)}\n`);
   };
 
-  repaint({ ...options, prompt: "(type a message)" }, "waiting for input");
-  const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "› " });
+  repaint({ ...options, prompt: "" }, undefined);
+  const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: "" });
   let lastExitCode = 0;
   rl.prompt();
   for await (const line of rl) {
