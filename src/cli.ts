@@ -251,7 +251,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
     "permissions: YOLO mode",
   ];
   const cursor = "█";
-  const inputText = input.length > 0 ? `${input}${cursor}` : `Run /help for commands ${cursor}`;
+  const inputText = input.length > 0 ? `${input}${cursor}` : "Run /help for commands";
   const inputLines = wrap(inputText, inner - 4);
   const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
   const statusLine = `${options.model} · ${process.cwd()}`;
