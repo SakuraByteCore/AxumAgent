@@ -232,13 +232,38 @@ function wrap(text: string, width: number): string[] {
   return lines;
 }
 
-function renderSlashCommandSuggestions(input: string, width: number): string[] {
+function slashCommandQuery(input: string): string {
+  if (!input.startsWith("/")) return "";
+  return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
+}
+
+function matchingSlashCommands(input: string): typeof SLASH_COMMANDS {
   if (!input.startsWith("/")) return [];
-  const query = input.slice(1).trimStart().split(/\s+/)[0] ?? "";
-  const matches = SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(query));
+  const query = slashCommandQuery(input);
+  return SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(query));
+}
+
+function clampSelection(index: number, count: number): number {
+  if (count <= 0) return 0;
+  return Math.max(0, Math.min(index, count - 1));
+}
+
+function completeSlashCommand(input: string, selectedIndex: number): string | undefined {
+  const matches = matchingSlashCommands(input);
+  const selected = matches[clampSelection(selectedIndex, matches.length)];
+  return selected ? `${selected.name} ` : undefined;
+}
+
+function renderSlashCommandSuggestions(input: string, width: number, selectedIndex = 0): string[] {
+  if (!input.startsWith("/")) return [];
+  const matches = matchingSlashCommands(input);
   if (matches.length === 0) return ["╭─ commands ─╮", "│ no matches │", "╰────────────╯"];
+  const selected = clampSelection(selectedIndex, matches.length);
   const labelWidth = Math.max(...matches.map((command) => command.name.length));
-  const rows = matches.map((command) => `│ ${command.name.padEnd(labelWidth)}  ${command.description} │`);
+  const rows = matches.map((command, index) => {
+    const marker = index === selected ? "›" : " ";
+    return `│ ${marker} ${command.name.padEnd(labelWidth)}  ${command.description} │`;
+  });
   const maxRow = Math.min(width - 2, Math.max(" commands ".length + 4, ...rows.map((row) => stripAnsi(row).length)));
   const top = `╭${"─".repeat(Math.max(1, maxRow - 2))}╮`;
   const bottom = `╰${"─".repeat(Math.max(1, maxRow - 2))}╯`;
@@ -261,7 +286,7 @@ function terminalWidth(stdout: NodeJS.WriteStream): number {
   return Math.max(72, Math.min(columns, 110));
 }
 
-function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = ""): string {
+function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = "", slashSelection = 0): string {
   const inner = width - 4;
   const hasPrompt = options.prompt.trim().length > 0;
   const workingMatch = answer?.match(/^working:(\d+)$/);
@@ -296,7 +321,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
     "",
     "Tip: Build faster with AxumAgent.",
     ...conversationLines,
-    ...renderSlashCommandSuggestions(safeInput, width),
+    ...renderSlashCommandSuggestions(safeInput, width, slashSelection),
     "",
     ...renderedInput,
     clip(statusLine, width),
@@ -498,9 +523,10 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   let screenOptions = { ...options, prompt: "" };
   let answer: string | undefined;
   let lastExitCode = 0;
+  let slashSelection = 0;
   const repaint = (): void => {
     stdout.write("\u001b[2J\u001b[H");
-    stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input)}\n`);
+    stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input, slashSelection)}\n`);
   };
 
   if (useAltScreen) stdout.write("\u001b[?1049h");
@@ -512,9 +538,31 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       const chunk = await new Promise<Buffer>((resolve) => stdin.once("data", resolve));
       const text = chunk.toString("utf8");
       if (text === "\u0003") return lastExitCode;
+      if (text === "\t" && input.startsWith("/")) {
+        const completed = completeSlashCommand(input, slashSelection);
+        if (completed) {
+          input = completed;
+          slashSelection = 0;
+          repaint();
+        }
+        continue;
+      }
+      if (text === "\u001b[A" && input.startsWith("/")) {
+        const matches = matchingSlashCommands(input);
+        slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
+        repaint();
+        continue;
+      }
+      if (text === "\u001b[B" && input.startsWith("/")) {
+        const matches = matchingSlashCommands(input);
+        slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
+        repaint();
+        continue;
+      }
       if (text === "\r" || text === "\n") {
         const prompt = input.trim();
         input = "";
+        slashSelection = 0;
         if (!prompt) {
           repaint();
           continue;
@@ -575,11 +623,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       }
       if (text === "\u007f" || text === "\b") {
         input = input.slice(0, -1);
+        slashSelection = 0;
         repaint();
         continue;
       }
       if (text.startsWith("\u001b")) continue;
       input += text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+      slashSelection = 0;
       repaint();
     }
   } finally {
