@@ -222,7 +222,9 @@ function terminalWidth(stdout) {
 function renderTuiScreen(options, answer, width = 88, input = "") {
     const inner = width - 4;
     const hasPrompt = options.prompt.trim().length > 0;
-    const isThinking = answer === "thinking…";
+    const workingMatch = answer?.match(/^working:(\d+)$/);
+    const isThinking = workingMatch !== undefined && workingMatch !== null;
+    const workingSeconds = workingMatch ? workingMatch[1] : "0";
     const hasAnswer = answer !== undefined && !isThinking;
     const promptLines = hasPrompt ? wrap(options.prompt, inner - 6).map((line) => `  ${line}`) : [];
     const answerLines = hasAnswer ? wrap(answer, inner - 6).map((line) => `  ${line}`) : [];
@@ -248,7 +250,7 @@ function renderTuiScreen(options, answer, width = 88, input = "") {
         if (hasAnswer)
             conversationLines.push("▌ assistant", ...answerLines);
         if (isThinking)
-            conversationLines.push("", "• Working (0s • esc to interrupt)");
+            conversationLines.push("", `• Working (${workingSeconds}s • esc to interrupt)`);
     }
     return [
         box(headerLines, cardWidth),
@@ -259,6 +261,10 @@ function renderTuiScreen(options, answer, width = 88, input = "") {
         ...renderedInput,
         clip(statusLine, width),
     ].join("\n");
+}
+function workingStatus(startedAt) {
+    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    return `working:${elapsedSeconds}`;
 }
 async function runChat(args, env, stdout, stderr) {
     let options;
@@ -364,12 +370,29 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
                     continue;
                 }
                 screenOptions = { ...options, prompt };
-                answer = dryRun ? "dry-run: provider call skipped" : "thinking…";
-                repaint();
-                const result = await resolveTuiAnswer(screenOptions, dryRun);
-                answer = result.answer;
-                lastExitCode = result.exitCode;
-                repaint();
+                if (dryRun) {
+                    answer = "dry-run: provider call skipped";
+                    lastExitCode = 0;
+                    repaint();
+                }
+                else {
+                    const startedAt = Date.now();
+                    answer = workingStatus(startedAt);
+                    repaint();
+                    const timer = setInterval(() => {
+                        answer = workingStatus(startedAt);
+                        repaint();
+                    }, 1000);
+                    try {
+                        const result = await resolveTuiAnswer(screenOptions, dryRun);
+                        answer = result.answer;
+                        lastExitCode = result.exitCode;
+                    }
+                    finally {
+                        clearInterval(timer);
+                    }
+                    repaint();
+                }
                 continue;
             }
             if (text === "\u007f" || text === "\b") {
@@ -413,10 +436,23 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             continue;
         }
         const nextOptions = { ...options, prompt };
-        repaint(nextOptions, dryRun ? "dry-run: provider call skipped" : "thinking…");
-        const result = await resolveTuiAnswer(nextOptions, dryRun);
-        lastExitCode = result.exitCode;
-        repaint(nextOptions, result.answer);
+        if (dryRun) {
+            repaint(nextOptions, "dry-run: provider call skipped");
+            lastExitCode = 0;
+        }
+        else {
+            const startedAt = Date.now();
+            repaint(nextOptions, workingStatus(startedAt));
+            const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt)), 1000);
+            try {
+                const result = await resolveTuiAnswer(nextOptions, dryRun);
+                lastExitCode = result.exitCode;
+                repaint(nextOptions, result.answer);
+            }
+            finally {
+                clearInterval(timer);
+            }
+        }
         rl.prompt();
     }
     return lastExitCode;

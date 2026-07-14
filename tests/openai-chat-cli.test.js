@@ -27,13 +27,15 @@ function startMockServer(options = {}) {
         res.end(JSON.stringify({ error: { message: "temporary upstream failure" } }));
         return;
       }
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({
-        id: "chatcmpl-test",
-        object: "chat.completion",
-        model: "mock-chat-model",
-        choices: [{ index: 0, message: { role: "assistant", content: "mock answer" }, finish_reason: "stop" }],
-      }));
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          id: "chatcmpl-test",
+          object: "chat.completion",
+          model: "mock-chat-model",
+          choices: [{ index: 0, message: { role: "assistant", content: "mock answer" }, finish_reason: "stop" }],
+        }));
+      }, options.delayMs || 0);
     });
   });
   return new Promise((resolve) => {
@@ -153,6 +155,31 @@ async function testInteractiveTuiDryRun() {
   assert.match(result.stdout, /dry-run: provider call skipped/);
 }
 
+async function testInteractiveTuiWorkingTimer() {
+  const { server, port } = await startMockServer({ delayMs: 1200 });
+  const cfg = writeConfig(`
+model = "mock-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+max_retries = 10
+retry_delay_ms = 0
+`);
+  try {
+    const result = await runCli(["tui", "--config", cfg.file], {}, "hello timer\n/exit\n");
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /• Working \(0s • esc to interrupt\)/);
+    assert.match(result.stdout, /• Working \(1s • esc to interrupt\)/);
+    assert.match(result.stdout, /mock answer/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testMissingKey() {
   const missingKey = await runCli(["chat", "hello"]);
   assert.strictEqual(missingKey.code, 2);
@@ -164,5 +191,6 @@ async function testMissingKey() {
   await testRetryConfig();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
+  await testInteractiveTuiWorkingTimer();
   await testMissingKey();
 })();
