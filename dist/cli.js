@@ -136,6 +136,7 @@ function renderHelp() {
         "",
         "Usage:",
         "  axum chat [options] <prompt>",
+        "  axum tui [options] [prompt]",
         "",
         "Chat options:",
         "      --config <path>      Config file path (default: AXUM_CONFIG or ~/.axum/config.toml)",
@@ -148,6 +149,7 @@ function renderHelp() {
         "      --max-retries <n>     Retry transient failures (default: AXUM_OPENAI_MAX_RETRIES or 10)",
         "      --retry-delay-ms <n>  Base retry delay in milliseconds (default: AXUM_OPENAI_RETRY_DELAY_MS or 250)",
         "      --json                Print provider result as JSON",
+        "      --dry-run             Render the terminal UI without calling a provider (tui only)",
         "  -h, --help               Show this help",
         "",
         "Environment:",
@@ -155,6 +157,36 @@ function renderHelp() {
         "",
         "Config:",
         `  Default path: ${(0, config_1.defaultConfigPath)()}`,
+    ].join("\n");
+}
+function stripAnsi(text) {
+    return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+function clip(text, width) {
+    const plain = stripAnsi(text);
+    if (plain.length <= width)
+        return text + " ".repeat(width - plain.length);
+    return plain.slice(0, Math.max(0, width - 1)) + "…";
+}
+function box(title, lines, width = 78) {
+    const inner = width - 4;
+    const top = `╭─ ${title} ${"─".repeat(Math.max(0, inner - title.length - 1))}╮`;
+    const body = lines.map((line) => `│ ${clip(line, inner)} │`);
+    const bottom = `╰${"─".repeat(width - 2)}╯`;
+    return [top, ...body, bottom].join("\n");
+}
+function renderTuiScreen(options, answer) {
+    return [
+        box("AxumAgent", [
+            "pi-style terminal workspace",
+            `model: ${options.model}`,
+            `base_url: ${options.baseUrl}`,
+            `config: ${options.configPath || (0, config_1.defaultConfigPath)()}`,
+            `retries: ${options.maxRetries} · retry_delay_ms: ${options.retryDelayMs}`,
+        ]),
+        box("Prompt", [options.prompt || "(empty)"]),
+        box("Assistant", [answer || "dry-run: provider call skipped"]),
+        box("Keys", ["Enter: send · Ctrl+C: exit · /help: commands"]),
     ].join("\n");
 }
 async function runChat(args, env, stdout, stderr) {
@@ -203,9 +235,57 @@ async function runChat(args, env, stdout, stderr) {
         return 1;
     }
 }
+async function runTui(args, env, stdout, stderr) {
+    const dryRun = args.includes("--dry-run");
+    const filteredArgs = args.filter((arg) => arg !== "--dry-run");
+    let options;
+    try {
+        const extracted = extractConfigPath(filteredArgs);
+        const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
+        const promptArgs = extracted.args.length > 0 ? extracted.args : ["(waiting for input)"];
+        options = parseChatArgs(promptArgs, env, loaded, extracted.configPath);
+    }
+    catch (error) {
+        if (error instanceof HelpRequested) {
+            stdout.write(`${renderHelp()}\n`);
+            return 0;
+        }
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
+    }
+    if (dryRun) {
+        stdout.write(`${renderTuiScreen(options)}\n`);
+        return 0;
+    }
+    if (!options.apiKey) {
+        stdout.write(`${renderTuiScreen(options, "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"")}\n`);
+        return 2;
+    }
+    const messages = [{ role: "user", content: options.prompt }];
+    try {
+        const provider = new openai_chat_1.OpenAIChatProvider({
+            apiKey: options.apiKey,
+            baseUrl: options.baseUrl,
+            model: options.model,
+            temperature: options.temperature,
+            maxRetries: options.maxRetries,
+            retryDelayMs: options.retryDelayMs,
+        });
+        const result = await provider.chat(messages);
+        stdout.write(`${renderTuiScreen(options, result.content)}\n`);
+        return 0;
+    }
+    catch (error) {
+        stdout.write(`${renderTuiScreen(options, error instanceof Error ? error.message : String(error))}\n`);
+        return 1;
+    }
+}
 async function runAxumCli(args, env = process.env, stdout = process.stdout, stderr = process.stderr) {
     if (args[0] === "chat") {
         return { handled: true, exitCode: await runChat(args.slice(1), env, stdout, stderr) };
+    }
+    if (args[0] === "tui") {
+        return { handled: true, exitCode: await runTui(args.slice(1), env, stdout, stderr) };
     }
     if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
         stdout.write(`${renderHelp()}\n`);
