@@ -427,6 +427,32 @@ function visibleInput(input: string): string {
   return input.replace(/^(\/provider\s+(?:key|api-key)\s+).+$/i, "$1***");
 }
 
+function tokenizeRawInput(text: string): string[] {
+  const tokens: string[] = [];
+  for (let index = 0; index < text.length;) {
+    const char = text[index];
+    if (char === "\u001b" && text[index + 1] === "[" && "ABCD".includes(text[index + 2] ?? "")) {
+      tokens.push(text.slice(index, index + 3));
+      index += 3;
+      continue;
+    }
+    if (char === "\u0003" || char === "\t" || char === "\r" || char === "\n" || char === "\u007f" || char === "\b") {
+      tokens.push(char);
+      index += 1;
+      continue;
+    }
+    let end = index + 1;
+    while (end < text.length) {
+      const next = text[end];
+      if (next === "\u001b" || next === "\u0003" || next === "\t" || next === "\r" || next === "\n" || next === "\u007f" || next === "\b") break;
+      end += 1;
+    }
+    tokens.push(text.slice(index, end));
+    index = end;
+  }
+  return tokens;
+}
+
 function providerStatus(options: ChatCommandOptions): string {
   return [
     `provider url: ${options.baseUrl}`,
@@ -609,18 +635,18 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   try {
     while (true) {
       const chunk = await new Promise<Buffer>((resolve) => stdin.once("data", resolve));
-      const text = chunk.toString("utf8");
-      if (text === "\u0003") return lastExitCode;
-      if (text === "\t" && input.startsWith("/")) {
-        const completed = completeSlashCommand(input, slashSelection);
-        if (completed) {
-          input = completed;
-          cursorIndex = input.length;
-          slashSelection = 0;
-          repaint();
+      for (const text of tokenizeRawInput(chunk.toString("utf8"))) {
+        if (text === "\u0003") return lastExitCode;
+        if (text === "\t" && input.startsWith("/")) {
+          const completed = completeSlashCommand(input, slashSelection);
+          if (completed) {
+            input = completed;
+            cursorIndex = input.length;
+            slashSelection = 0;
+            repaint();
+          }
+          continue;
         }
-        continue;
-      }
       if (text === "\u001b[A") {
         if (historyIndex === undefined && input.startsWith("/")) {
           const matches = matchingSlashCommands(input);
@@ -733,6 +759,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       cursorIndex += inserted.length;
       slashSelection = 0;
       repaint();
+      }
     }
   } finally {
     stdin.setRawMode?.(false);

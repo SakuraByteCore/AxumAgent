@@ -410,6 +410,32 @@ function maskSecret(value) {
 function visibleInput(input) {
     return input.replace(/^(\/provider\s+(?:key|api-key)\s+).+$/i, "$1***");
 }
+function tokenizeRawInput(text) {
+    const tokens = [];
+    for (let index = 0; index < text.length;) {
+        const char = text[index];
+        if (char === "\u001b" && text[index + 1] === "[" && "ABCD".includes(text[index + 2] ?? "")) {
+            tokens.push(text.slice(index, index + 3));
+            index += 3;
+            continue;
+        }
+        if (char === "\u0003" || char === "\t" || char === "\r" || char === "\n" || char === "\u007f" || char === "\b") {
+            tokens.push(char);
+            index += 1;
+            continue;
+        }
+        let end = index + 1;
+        while (end < text.length) {
+            const next = text[end];
+            if (next === "\u001b" || next === "\u0003" || next === "\t" || next === "\r" || next === "\n" || next === "\u007f" || next === "\b")
+                break;
+            end += 1;
+        }
+        tokens.push(text.slice(index, end));
+        index = end;
+    }
+    return tokens;
+}
 function providerStatus(options) {
     return [
         `provider url: ${options.baseUrl}`,
@@ -600,137 +626,138 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
     try {
         while (true) {
             const chunk = await new Promise((resolve) => stdin.once("data", resolve));
-            const text = chunk.toString("utf8");
-            if (text === "\u0003")
-                return lastExitCode;
-            if (text === "\t" && input.startsWith("/")) {
-                const completed = completeSlashCommand(input, slashSelection);
-                if (completed) {
-                    input = completed;
-                    cursorIndex = input.length;
-                    slashSelection = 0;
-                    repaint();
-                }
-                continue;
-            }
-            if (text === "\u001b[A") {
-                if (historyIndex === undefined && input.startsWith("/")) {
-                    const matches = matchingSlashCommands(input);
-                    slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
-                }
-                else {
-                    recallPreviousInput();
-                }
-                repaint();
-                continue;
-            }
-            if (text === "\u001b[B") {
-                if (historyIndex === undefined && input.startsWith("/")) {
-                    const matches = matchingSlashCommands(input);
-                    slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
-                }
-                else {
-                    recallNextInput();
-                }
-                repaint();
-                continue;
-            }
-            if (text === "\r" || text === "\n") {
-                const prompt = input.trim();
-                input = "";
-                cursorIndex = 0;
-                slashSelection = 0;
-                resetHistoryRecall();
-                if (!prompt) {
-                    repaint();
-                    continue;
-                }
-                if (prompt === "/exit" || prompt === "/quit")
+            for (const text of tokenizeRawInput(chunk.toString("utf8"))) {
+                if (text === "\u0003")
                     return lastExitCode;
-                if (prompt === "/help") {
-                    answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
+                if (text === "\t" && input.startsWith("/")) {
+                    const completed = completeSlashCommand(input, slashSelection);
+                    if (completed) {
+                        input = completed;
+                        cursorIndex = input.length;
+                        slashSelection = 0;
+                        repaint();
+                    }
+                    continue;
+                }
+                if (text === "\u001b[A") {
+                    if (historyIndex === undefined && input.startsWith("/")) {
+                        const matches = matchingSlashCommands(input);
+                        slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
+                    }
+                    else {
+                        recallPreviousInput();
+                    }
                     repaint();
                     continue;
                 }
-                if (prompt === "/model" || prompt.startsWith("/model ")) {
-                    const switched = switchModel(screenOptions, prompt.slice("/model".length));
-                    screenOptions = { ...switched.options, prompt: "" };
-                    options = { ...switched.options, prompt: options.prompt };
-                    answer = switched.message;
+                if (text === "\u001b[B") {
+                    if (historyIndex === undefined && input.startsWith("/")) {
+                        const matches = matchingSlashCommands(input);
+                        slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
+                    }
+                    else {
+                        recallNextInput();
+                    }
                     repaint();
                     continue;
                 }
-                if (prompt === "/provider" || prompt.startsWith("/provider ")) {
-                    const applied = await applyProviderCommand(screenOptions, process.env, prompt.slice("/provider".length));
-                    screenOptions = { ...applied.options, prompt: "" };
-                    options = { ...applied.options, prompt: options.prompt };
-                    answer = applied.message;
-                    repaint();
-                    continue;
-                }
-                if (prompt.startsWith("/")) {
-                    answer = renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n");
-                    repaint();
-                    continue;
-                }
-                recordInputHistory(prompt);
-                screenOptions = { ...options, prompt };
-                if (dryRun) {
-                    answer = "dry-run: provider call skipped";
-                    lastExitCode = 0;
-                    repaint();
-                }
-                else {
-                    const startedAt = Date.now();
-                    answer = workingStatus(startedAt);
-                    repaint();
-                    const timer = setInterval(() => {
+                if (text === "\r" || text === "\n") {
+                    const prompt = input.trim();
+                    input = "";
+                    cursorIndex = 0;
+                    slashSelection = 0;
+                    resetHistoryRecall();
+                    if (!prompt) {
+                        repaint();
+                        continue;
+                    }
+                    if (prompt === "/exit" || prompt === "/quit")
+                        return lastExitCode;
+                    if (prompt === "/help") {
+                        answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
+                        repaint();
+                        continue;
+                    }
+                    if (prompt === "/model" || prompt.startsWith("/model ")) {
+                        const switched = switchModel(screenOptions, prompt.slice("/model".length));
+                        screenOptions = { ...switched.options, prompt: "" };
+                        options = { ...switched.options, prompt: options.prompt };
+                        answer = switched.message;
+                        repaint();
+                        continue;
+                    }
+                    if (prompt === "/provider" || prompt.startsWith("/provider ")) {
+                        const applied = await applyProviderCommand(screenOptions, process.env, prompt.slice("/provider".length));
+                        screenOptions = { ...applied.options, prompt: "" };
+                        options = { ...applied.options, prompt: options.prompt };
+                        answer = applied.message;
+                        repaint();
+                        continue;
+                    }
+                    if (prompt.startsWith("/")) {
+                        answer = renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n");
+                        repaint();
+                        continue;
+                    }
+                    recordInputHistory(prompt);
+                    screenOptions = { ...options, prompt };
+                    if (dryRun) {
+                        answer = "dry-run: provider call skipped";
+                        lastExitCode = 0;
+                        repaint();
+                    }
+                    else {
+                        const startedAt = Date.now();
                         answer = workingStatus(startedAt);
                         repaint();
-                    }, 1000);
-                    try {
-                        const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
-                            answer = streamed;
+                        const timer = setInterval(() => {
+                            answer = workingStatus(startedAt);
                             repaint();
-                        });
-                        answer = result.answer;
-                        lastExitCode = result.exitCode;
+                        }, 1000);
+                        try {
+                            const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
+                                answer = streamed;
+                                repaint();
+                            });
+                            answer = result.answer;
+                            lastExitCode = result.exitCode;
+                        }
+                        finally {
+                            clearInterval(timer);
+                        }
+                        repaint();
                     }
-                    finally {
-                        clearInterval(timer);
-                    }
+                    continue;
+                }
+                if (text === "\u001b[D") {
+                    cursorIndex = Math.max(0, cursorIndex - 1);
                     repaint();
+                    continue;
                 }
-                continue;
-            }
-            if (text === "\u001b[D") {
-                cursorIndex = Math.max(0, cursorIndex - 1);
-                repaint();
-                continue;
-            }
-            if (text === "\u001b[C") {
-                cursorIndex = Math.min(input.length, cursorIndex + 1);
-                repaint();
-                continue;
-            }
-            if (text === "\u007f" || text === "\b") {
+                if (text === "\u001b[C") {
+                    cursorIndex = Math.min(input.length, cursorIndex + 1);
+                    repaint();
+                    continue;
+                }
+                if (text === "\u007f" || text === "\b") {
+                    resetHistoryRecall();
+                    if (cursorIndex > 0) {
+                        input = `${input.slice(0, cursorIndex - 1)}${input.slice(cursorIndex)}`;
+                        cursorIndex -= 1;
+                    }
+                    slashSelection = 0;
+                    repaint();
+                    continue;
+                }
+                if (text.startsWith("\u001b"))
+                    continue;
                 resetHistoryRecall();
-                if (cursorIndex > 0) {
-                    input = `${input.slice(0, cursorIndex - 1)}${input.slice(cursorIndex)}`;
-                    cursorIndex -= 1;
-                }
+                const inserted = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+                input = `${input.slice(0, cursorIndex)}${inserted}${input.slice(cursorIndex)}`;
+                cursorIndex += inserted.length;
                 slashSelection = 0;
                 repaint();
-                continue;
             }
-            if (text.startsWith("\u001b"))
-                continue;
-            resetHistoryRecall();
-            const inserted = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-            input = `${input.slice(0, cursorIndex)}${inserted}${input.slice(cursorIndex)}`;
-            cursorIndex += inserted.length;
-            slashSelection = 0;
-            repaint();
         }
     }
     finally {
