@@ -186,8 +186,8 @@ async function testInteractiveTuiShowsSlashCommands() {
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /commands/);
   assert.match(result.stdout, /^▸ \/help\s+show commands$/m);
-  assert.match(result.stdout, /^  \/provider\s+show or set provider url\/key$/m);
-  assert.match(result.stdout, /^  \/model\s+list or switch models$/m);
+  assert.match(result.stdout, /^  \/provider\s+show\/set provider and model$/m);
+  assert.doesNotMatch(result.stdout, /^  \/model\s+/m);
   assert.match(result.stdout, /^  \/exit \/ \/quit\s+exit TUI$/m);
   assert.doesNotMatch(result.stdout, /^  \/quit\s+exit TUI$/m);
   assert.doesNotMatch(result.stdout, /^▌ \/█\s*$/m);
@@ -198,7 +198,7 @@ async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
   const file = path.join(dir, "config.toml");
   try {
-    const result = await runCli(["tui", "--config", file], {}, `/provider url http://127.0.0.1:${port}/v1\n/provider key test-key\n/model\nhello configured\n/exit\n`);
+    const result = await runCli(["tui", "--config", file], {}, `/provider url http://127.0.0.1:${port}/v1\n/provider key test-key\n/provider models\nhello configured\n/exit\n`);
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /provider url saved/);
     assert.match(result.stdout, /provider key saved/);
@@ -217,7 +217,7 @@ async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
   }
 }
 
-async function testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand() {
+async function testTuiUsesFirstConfiguredModelAndSwitchesWithProviderModelCommand() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
 provider = "openai-chat"
@@ -231,13 +231,15 @@ max_retries = 10
 retry_delay_ms = 0
 `);
   try {
-    const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/model 2\nhello switched\n/exit\n");
+    const result = await runCli(["tui", "--config", cfg.file], {}, "/provider models\n/provider model 2\nhello switched\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /models/);
     assert.match(result.stdout, /▸ 1\s+first-model\s+current/);
     assert.match(result.stdout, /  2\s+second-model/);
     assert.match(result.stdout, /model switched to second-model/);
     assert.strictEqual(requests.at(-1).body.model, "second-model");
+    const saved = fs.readFileSync(cfg.file, "utf8");
+    assert.match(saved, /model = "second-model"/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -283,7 +285,7 @@ max_retries = 10
 retry_delay_ms = 0
 `);
   try {
-    const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/exit\n");
+    const result = await runCli(["tui", "--config", cfg.file], {}, "/provider models\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
@@ -349,7 +351,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testInteractiveTuiDryRun();
   await testInteractiveTuiShowsSlashCommands();
   await testTuiConfiguresProviderUrlAndKeyWhenMissing();
-  await testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand();
+  await testTuiUsesFirstConfiguredModelAndSwitchesWithProviderModelCommand();
   await testTuiFetchesFirstModelWhenConfigOmitsModel();
   await testTuiFetchesModelListEvenWhenConfigHasModel();
   await testInteractiveTuiWorkingTimer();

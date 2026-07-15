@@ -208,8 +208,7 @@ function clip(text: string, width: number): string {
 
 const SLASH_COMMANDS = [
   { name: "/help", description: "show commands" },
-  { name: "/provider", description: "show or set provider url/key" },
-  { name: "/model", description: "list or switch models" },
+  { name: "/provider", description: "show/set provider and model" },
   { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 
@@ -444,16 +443,27 @@ function providerStatus(options: ChatCommandOptions): string {
     `provider url: ${options.baseUrl}`,
     `provider key: ${maskSecret(options.apiKey)}`,
     `config: ${options.configPath ?? defaultConfigPath()}`,
-    "commands: /provider url <url> · /provider key <key>",
+    "commands: /provider url <url> · /provider key <key> · /provider model <id|number> · /provider models",
   ].join("\n");
 }
 
 async function applyProviderCommand(options: ChatCommandOptions, env: NodeJS.ProcessEnv, value: string): Promise<{ options: ChatCommandOptions; message: string }> {
   const trimmed = value.trim();
   if (!trimmed) return { options, message: providerStatus(options) };
+  if (trimmed === "model" || trimmed === "models") return { options, message: renderModelList(options) };
+  const modelMatch = trimmed.match(/^models?\s+(.+)$/i);
+  if (modelMatch) {
+    const switched = switchModel(options, modelMatch[1]);
+    const saved = saveOpenAIProviderConfig(env, options.configPath, {
+      model: switched.options.model,
+      models: switched.options.modelOptions,
+    });
+    const next = parseChatArgs([], env, saved, saved.path, false);
+    return { options: next, message: `${switched.message}\nprovider model saved to ${saved.path}` };
+  }
   const match = trimmed.match(/^(url|base-url|key|api-key)\s+(.+)$/i);
   if (!match) {
-    return { options, message: "usage: /provider url <url> · /provider key <key>" };
+    return { options, message: "usage: /provider url <url> · /provider key <key> · /provider model <id|number> · /provider models" };
   }
   const kind = match[1].toLowerCase();
   const rawValue = match[2].trim();
@@ -657,15 +667,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return;
     }
     if (prompt === "/help") {
-      answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
-      requestRender();
-      return;
-    }
-    if (prompt === "/model" || prompt.startsWith("/model ")) {
-      const switched = switchModel(screenOptions, prompt.slice("/model".length));
-      screenOptions = { ...switched.options, prompt: "" };
-      options = { ...switched.options, prompt: options.prompt };
-      answer = switched.message;
+      answer = "commands: /help · /provider [url|key|model] · /exit (/quit)";
       requestRender();
       return;
     }
@@ -820,14 +822,7 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)\n");
-      rl.prompt();
-      continue;
-    }
-    if (prompt === "/model" || prompt.startsWith("/model ")) {
-      const switched = switchModel(options, prompt.slice("/model".length));
-      options = switched.options;
-      stdout.write(`${switched.message}\n`);
+      stdout.write("commands: /help · /provider [url|key|model] · /exit (/quit)\n");
       rl.prompt();
       continue;
     }

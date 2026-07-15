@@ -115,7 +115,8 @@ async function testSlashCommandPaletteScreenshot() {
   const snapshot = await normalizeScreen(raw);
   assert.ok(snapshot.includes("commands"));
   assert.ok(snapshot.includes("▸ /help"));
-  assert.ok(snapshot.includes("/model"));
+  assert.ok(snapshot.includes("/provider"));
+  assert.ok(!snapshot.includes("/model"));
   assertSnapshot("slash-command-palette", snapshot);
 }
 
@@ -127,7 +128,7 @@ async function testModelListScreenshot() {
     const raw = await runTtyCli(["tui", "--config", config, "--no-alt-screen"], [
       { delayMs: 350, input: `/provider url http://127.0.0.1:${port}/v1\r` },
       { delayMs: 800, input: "/provider key test-key\r" },
-      { delayMs: 800, input: "/model\r" },
+      { delayMs: 800, input: "/provider models\r" },
       { delayMs: 450, input: "/exit\r" },
     ]);
     const snapshot = await normalizeScreen(raw);
