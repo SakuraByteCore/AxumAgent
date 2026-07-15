@@ -261,38 +261,17 @@ function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
     if (!input.startsWith("/"))
         return [];
     const matches = matchingSlashCommands(input);
-    if (matches.length === 0) {
-        const emptyWidth = Math.min(width, 42);
-        const inner = emptyWidth - 2;
-        return [`╭${"─".repeat(inner)}╮`, `│ ${padCell("no matching commands", inner - 2)} │`, `╰${"─".repeat(inner)}╯`];
-    }
+    if (matches.length === 0)
+        return ["commands", "  no matching commands"];
     const selected = clampSelection(selectedIndex, matches.length);
     const labelWidth = Math.max(...matches.map((command) => slashCommandDisplayName(command).length));
-    const desiredDescWidth = Math.max(...matches.map((command) => command.description.length));
-    const totalWidth = Math.min(width, Math.max(48, Math.min(width, labelWidth + desiredDescWidth + 12)));
-    const inner = totalWidth - 2;
-    const commandCellWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(inner * 0.4)));
-    const descCellWidth = Math.max(8, inner - commandCellWidth - 7);
-    const title = " commands ";
-    const titleRight = Math.max(0, inner - title.length);
-    const top = `╭${title}${"─".repeat(titleRight)}╮`;
-    const bottom = `╰${"─".repeat(inner)}╯`;
+    const commandWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(width * 0.36)));
     const rows = matches.map((command, index) => {
         const marker = index === selected ? "›" : " ";
-        const commandCell = padCell(slashCommandDisplayName(command), commandCellWidth);
-        const descCell = padCell(command.description, descCellWidth);
-        return `│ ${marker} ${commandCell}  ${descCell} │`;
+        const commandCell = padCell(slashCommandDisplayName(command), commandWidth);
+        return `${marker} ${commandCell}  ${command.description}`;
     });
-    return [top, ...rows, bottom];
-}
-function framed(lines, width = 88) {
-    const inner = width - 4;
-    return lines.map((line) => `│ ${clip(line, inner)} │`).join("\n");
-}
-function box(lines, width = 88) {
-    const top = `╭${"─".repeat(width - 2)}╮`;
-    const bottom = `╰${"─".repeat(width - 2)}╯`;
-    return [top, framed(lines, width), bottom].join("\n");
+    return ["commands", ...rows];
 }
 function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
@@ -307,7 +286,6 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     const hasAnswer = answer !== undefined && !isThinking;
     const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
     const answerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
-    const cardWidth = Math.min(width, 54);
     const headerLines = [
         ">_ AxumAgent (v0.1.0)",
         "",
@@ -334,7 +312,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
             conversationLines.push("", `• Working (${workingSeconds}s • esc to interrupt)`);
     }
     return [
-        box(headerLines, cardWidth),
+        ...headerLines,
         "",
         "Tip: Build faster with AxumAgent.",
         ...conversationLines,
@@ -727,7 +705,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
                         const timer = setInterval(() => {
                             answer = workingStatus(startedAt);
                             repaint();
-                        }, 1000);
+                        }, 250);
                         try {
                             const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
                                 answer = streamed;
@@ -830,7 +808,7 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
         else {
             const startedAt = Date.now();
             repaint(nextOptions, workingStatus(startedAt));
-            const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt)), 1000);
+            const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt)), 250);
             try {
                 const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed) => repaint(nextOptions, streamed));
                 lastExitCode = result.exitCode;
