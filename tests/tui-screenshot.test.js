@@ -120,6 +120,17 @@ async function testSlashCommandPaletteScreenshot() {
   assertSnapshot("slash-command-palette", snapshot);
 }
 
+async function testBracketedPasteInInput() {
+  const raw = await runTtyCli(["tui", "--dry-run", "--no-alt-screen"], [
+    { delayMs: 350, input: "\x1b[200~hello from shift insert\x1b[201~" },
+    { delayMs: 350, input: "\r" },
+    { delayMs: 350, input: "/exit\r" },
+  ]);
+  const snapshot = await normalizeScreen(raw);
+  assert.ok(snapshot.includes("hello from shift insert"));
+  assert.ok(snapshot.includes("dry-run: provider call skipped"));
+}
+
 async function testModelListScreenshot() {
   const { server, port } = await startMockServer();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-tui-shot-"));
@@ -144,6 +155,7 @@ async function testModelListScreenshot() {
 
 (async () => {
   await testSlashCommandPaletteScreenshot();
+  await testBracketedPasteInInput();
   await testModelListScreenshot();
   console.log("tui_screenshot_snapshots=True");
 })();

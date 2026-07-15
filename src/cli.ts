@@ -597,6 +597,24 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   let draftInputBeforeHistory = "";
   let stopped = false;
   let busy = false;
+  let isBracketedPaste = false;
+  let pasteBuffer = "";
+
+  const normalizePastedInput = (value: string): string => value
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\t/g, "    ")
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+
+  const insertInputText = (value: string): void => {
+    const printable = normalizePastedInput(value);
+    if (!printable) return;
+    resetHistoryRecall();
+    input = `${input.slice(0, cursorIndex)}${printable}${input.slice(cursorIndex)}`;
+    cursorIndex += printable.length;
+    slashSelection = 0;
+    requestRender();
+  };
 
   const recordInputHistory = (value: string): void => {
     const trimmed = value.trim();
@@ -722,6 +740,28 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return;
     }
     if (busy) return;
+
+    const pasteStart = "[200~";
+    const pasteEnd = "[201~";
+    if (isBracketedPaste || data.includes(pasteStart)) {
+      let chunk = data;
+      if (!isBracketedPaste) {
+        const startIndex = data.indexOf(pasteStart);
+        insertInputText(data.slice(0, startIndex));
+        chunk = data.slice(startIndex + pasteStart.length);
+        pasteBuffer = "";
+        isBracketedPaste = true;
+      }
+      pasteBuffer += chunk;
+      const endIndex = pasteBuffer.indexOf(pasteEnd);
+      if (endIndex === -1) return;
+      insertInputText(pasteBuffer.slice(0, endIndex));
+      const remaining = pasteBuffer.slice(endIndex + pasteEnd.length);
+      pasteBuffer = "";
+      isBracketedPaste = false;
+      if (remaining) await handlePiInput(remaining);
+      return;
+    }
     if (pi.matchesKey(data, pi.Key.tab) && input.startsWith("/")) {
       const completed = completeSlashCommand(input, slashSelection);
       if (completed) {

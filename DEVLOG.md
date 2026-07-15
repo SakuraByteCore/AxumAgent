@@ -25,6 +25,7 @@ Work added:
 - Moved raw TTY rendering/input onto `@earendil-works/pi-tui` and added xterm-backed TUI screenshot snapshot tests for the slash command palette and remote model list layout.
 - Reworked the TUI chrome toward Kilo/kilocode’s compact command/model picker style: tight title metadata, no fake tip/card, unified `▸` selection gutter, and updated screenshots as regression snapshots.
 - Removed the standalone `/model` TUI command and moved model listing/switching/custom model ids under `/provider models` and `/provider model <id|number>`, with provider config persistence.
+- Added raw TUI paste handling for `Shift+Insert`/bracketed paste and multi-character input chunks, with a TTY regression covering pasted prompt submission.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.
