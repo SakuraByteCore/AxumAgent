@@ -1,9 +1,13 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderHelp = renderHelp;
 exports.runAxumCli = runAxumCli;
 const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
+const node_http_1 = __importDefault(require("node:http"));
 const promises_1 = require("node:readline/promises");
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -198,6 +202,7 @@ function renderHelp() {
         "Usage:",
         "  axum chat [options] <prompt>",
         "  axum tui [options] [prompt]",
+        "  axum config-web [options]",
         "",
         "Chat options:",
         "      --config <path>      Config file path (default: AXUM_CONFIG or ~/.axum/config.toml)",
@@ -213,6 +218,8 @@ function renderHelp() {
         "      --json                Print provider result as JSON",
         "      --dry-run             Render the terminal UI without calling a provider (tui only)",
         "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
+        "      --host <host>         Config web host (default: 127.0.0.1)",
+        "      --port <port>         Config web port (default: 8787)",
         "  -h, --help               Show this help",
         "",
         "Environment:",
@@ -221,6 +228,153 @@ function renderHelp() {
         "Config:",
         `  Default path: ${(0, config_1.defaultConfigPath)()}`,
     ].join("\n");
+}
+function htmlEscape(value) {
+    return (value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+}
+function currentProviderFields(env, explicitPath) {
+    const loaded = (0, config_1.loadConfig)(env, explicitPath);
+    const options = parseChatArgs([], env, loaded, explicitPath, false);
+    return {
+        configPath: options.configPath ?? (0, config_1.resolveConfigPath)(env, explicitPath),
+        baseUrl: options.baseUrl,
+        apiKey: options.apiKey ?? "",
+        model: options.model,
+    };
+}
+function renderConfigWebPage(fields, message) {
+    return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AxumAgent Provider Config</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #0f1115; color: #eceff4; }
+    form { display: grid; gap: 14px; padding: 20px; border: 1px solid #2b303b; border-radius: 12px; background: #151923; }
+    label { display: grid; gap: 6px; font-size: 14px; color: #b8c0cc; }
+    input { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #3a4150; background: #0f1115; color: #eceff4; }
+    button { width: fit-content; padding: 10px 14px; border: 0; border-radius: 8px; background: #7c9cff; color: #081120; font-weight: 700; cursor: pointer; }
+    code, .path { color: #9adbcf; word-break: break-all; }
+    .ok { padding: 10px 12px; border-radius: 8px; background: #14351f; color: #b6f5c7; }
+    .hint { color: #8d97a8; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>AxumAgent Provider Config</h1>
+  <p class="hint">Writes to <span class="path">${htmlEscape(fields.configPath)}</span>. This local temporary page only edits provider URL, key, and model.</p>
+  ${message ? `<p class="ok">${htmlEscape(message)}</p>` : ""}
+  <form method="post" action="/save">
+    <label>Base URL
+      <input name="base_url" value="${htmlEscape(fields.baseUrl)}" placeholder="https://api.openai.com/v1" required>
+    </label>
+    <label>API key or env reference
+      <input name="api_key" value="${htmlEscape(fields.apiKey)}" placeholder="env:OPENAI_API_KEY or sk-..." required>
+    </label>
+    <label>Model
+      <input name="model" value="${htmlEscape(fields.model)}" placeholder="gpt-4o-mini" required>
+    </label>
+    <button type="submit">Save provider config</button>
+  </form>
+  <p class="hint">CLI equivalent: <code>/provider set &lt;url&gt; &lt;key|env:VAR&gt; &lt;model&gt;</code></p>
+</body>
+</html>`;
+}
+async function readRequestBody(req) {
+    const chunks = [];
+    for await (const chunk of req)
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    return Buffer.concat(chunks).toString("utf8");
+}
+function parseConfigWebArgs(args) {
+    let host = "127.0.0.1";
+    let port = 8787;
+    let configPath;
+    for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i];
+        if (arg === "--host") {
+            host = takeValue(args, i, arg);
+            i += 1;
+        }
+        else if (arg === "--port") {
+            port = parseNonNegativeInteger(takeValue(args, i, arg), arg);
+            i += 1;
+        }
+        else if (arg === "--config") {
+            configPath = takeValue(args, i, arg);
+            i += 1;
+        }
+        else if (arg === "--help" || arg === "-h") {
+            throw new HelpRequested();
+        }
+        else {
+            throw new Error(`unknown config-web option: ${arg}`);
+        }
+    }
+    return { host, port, configPath };
+}
+async function runConfigWeb(args, env, stdout, stderr) {
+    try {
+        const options = parseConfigWebArgs(args);
+        const server = node_http_1.default.createServer(async (req, res) => {
+            try {
+                if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
+                    const html = renderConfigWebPage(currentProviderFields(env, options.configPath));
+                    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+                    res.end(html);
+                    return;
+                }
+                if (req.method === "POST" && req.url === "/save") {
+                    const body = await readRequestBody(req);
+                    const form = new URLSearchParams(body);
+                    const baseUrl = String(form.get("base_url") ?? "").trim();
+                    const apiKey = String(form.get("api_key") ?? "").trim();
+                    const model = String(form.get("model") ?? "").trim();
+                    if (!baseUrl || !apiKey || !model) {
+                        res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
+                        res.end("base_url, api_key, and model are required");
+                        return;
+                    }
+                    const saved = (0, config_1.saveOpenAIProviderConfig)(env, options.configPath, { base_url: baseUrl, api_key: apiKey, model, models: [model] });
+                    const html = renderConfigWebPage({ configPath: saved.path, baseUrl, apiKey, model }, "Saved");
+                    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+                    res.end(html);
+                    return;
+                }
+                res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+                res.end("not found");
+            }
+            catch (error) {
+                res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+                res.end(error instanceof Error ? error.message : String(error));
+            }
+        });
+        await new Promise((resolve, reject) => {
+            server.once("error", reject);
+            server.listen(options.port, options.host, resolve);
+        });
+        const address = server.address();
+        const actualPort = typeof address === "object" && address ? address.port : options.port;
+        stdout.write(`AxumAgent config web listening on http://${options.host}:${actualPort}\n`);
+        await new Promise((resolve) => {
+            const close = () => server.close(() => resolve());
+            process.once("SIGINT", close);
+            process.once("SIGTERM", close);
+        });
+        return 0;
+    }
+    catch (error) {
+        if (error instanceof HelpRequested) {
+            stdout.write("Usage: axum config-web [--host 127.0.0.1] [--port 8787] [--config <path>]\n");
+            return 0;
+        }
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
+    }
 }
 function stripAnsi(text) {
     return text.replace(/\u001b\[[0-9;]*m/g, "");
@@ -1068,6 +1222,9 @@ async function runAxumCli(args, env = process.env, stdout = process.stdout, stde
     }
     if (args[0] === "tui") {
         return { handled: true, exitCode: await runTui(args.slice(1), env, stdout, stderr) };
+    }
+    if (args[0] === "config-web") {
+        return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };
     }
     if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
         stdout.write(`${renderHelp()}\n`);

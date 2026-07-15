@@ -83,6 +83,33 @@ function writeConfig(content) {
   return { dir, file };
 }
 
+function startConfigWeb(configPath) {
+  const child = spawn(process.execPath, [path.resolve(__dirname, "..", "bin", "axum.js"), "config-web", "--config", configPath, "--port", "0"], {
+    cwd: path.resolve(__dirname, ".."),
+    env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`config-web did not start\nstdout=${stdout}\nstderr=${stderr}`)), 5000);
+    child.stdout.on("data", () => {
+      const match = stdout.match(/listening on (http:\/\/127\.0\.0\.1:\d+)/);
+      if (!match) return;
+      clearTimeout(timer);
+      resolve({ child, url: match[1], stdout: () => stdout, stderr: () => stderr });
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`config-web exited early with ${code}\nstdout=${stdout}\nstderr=${stderr}`));
+    });
+  });
+}
+
 async function testBasicChatFromConfig() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
@@ -135,6 +162,40 @@ provider_config = "http://127.0.0.1:${port}/v1 test-key one-line-model"
     assert.strictEqual(requests[0].body.model, "one-line-model");
   } finally {
     server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testConfigWebSavesProviderFields() {
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "https://old.example/v1"
+api_key = "old-key"
+model = "old-model"
+`);
+  let web;
+  try {
+    web = await startConfigWeb(cfg.file);
+    const page = await fetch(web.url).then((res) => res.text());
+    assert.match(page, /AxumAgent Provider Config/);
+    assert.match(page, /https:\/\/old\.example\/v1/);
+
+    const response = await fetch(`${web.url}/save`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ base_url: "https://new.example/v1", api_key: "env:NEW_KEY", model: "new-model" }),
+    });
+    assert.strictEqual(response.status, 200);
+    assert.match(await response.text(), /Saved/);
+    const saved = fs.readFileSync(cfg.file, "utf8");
+    assert.match(saved, /base_url = "https:\/\/new\.example\/v1"/);
+    assert.match(saved, /api_key = "env:NEW_KEY"/);
+    assert.match(saved, /model = "new-model"/);
+  } finally {
+    if (web) web.child.kill("SIGTERM");
     fs.rmSync(cfg.dir, { recursive: true, force: true });
   }
 }
@@ -441,6 +502,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
 (async () => {
   await testBasicChatFromConfig();
   await testOneLineProviderConfig();
+  await testConfigWebSavesProviderFields();
   await testDefaultSystemPromptKeepsShortInputsConcise();
   await testRequestTimeoutConfig();
   await testRetryConfig();

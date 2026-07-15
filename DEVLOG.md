@@ -32,6 +32,7 @@ Work added:
 - Added configurable provider request timeouts (`request_timeout_ms`, `--request-timeout-ms`, `AXUM_OPENAI_REQUEST_TIMEOUT_MS`) with a 10-minute default and `0` disable option so long requests fail predictably instead of hanging indefinitely.
 - Changed raw TUI busy-state interrupt handling so `Esc`/`Ctrl-C` cancels only the active provider request and returns to the prompt instead of exiting the TUI during a request.
 - Added one-line provider setup via config `provider_config = "<base_url> <api_key|env:VAR> <model>"` and TUI `/provider set <url> <key> <model>`.
+- Added `axum config-web`, a temporary local web page for editing provider URL/key/model in the same config file.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.
