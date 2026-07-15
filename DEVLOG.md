@@ -39,6 +39,7 @@ Work added:
 - Removed install-time config mutation; npm install no longer writes `~/.axum/config.toml`, and users initialize explicitly with `axum init`.
 - Removed the now-unused `bin/create-default-config.js` helper from the shipped package surface.
 - Added `axum --version` / `-v` for installed CLI identification.
+- Added `--provider <id>` for chat, TUI, and doctor so users can select a configured provider without editing the default.
 - Reworked top-level help around the product flow (`init` → `doctor` → `tui`) and separated config-web options from chat options.
 - Added GitHub Actions CI for `npm test` and `npm run pack:dry` on push/PR to `main`.
 

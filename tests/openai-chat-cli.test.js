@@ -187,6 +187,44 @@ provider_config = "http://127.0.0.1:${port}/v1 test-key one-line-model"
   }
 }
 
+async function testProviderFlagSelectsConfiguredProvider() {
+  const primary = await startMockServer();
+  const secondary = await startMockServer();
+  const cfg = writeConfig(`
+provider = "primary"
+
+[providers.primary]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${primary.port}/v1"
+api_key = "primary-key"
+model = "primary-model"
+
+[providers.secondary]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${secondary.port}/v1"
+api_key = "secondary-key"
+model = "secondary-model"
+`);
+  try {
+    const result = await runCli(["chat", "--config", cfg.file, "--provider", "secondary", "hello provider"]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.strictEqual(primary.requests.length, 0);
+    assert.strictEqual(secondary.requests.length, 1);
+    assert.strictEqual(secondary.requests[0].headers.authorization, "Bearer secondary-key");
+    assert.strictEqual(secondary.requests[0].body.model, "secondary-model");
+
+    const doctor = await runCli(["doctor", "--config", cfg.file, "--provider", "secondary", "--json"]);
+    assert.strictEqual(doctor.code, 0, doctor.stderr);
+    const report = JSON.parse(doctor.stdout);
+    assert.strictEqual(report.provider, "secondary");
+    assert.strictEqual(report.model, "secondary-model");
+  } finally {
+    primary.server.close();
+    secondary.server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testInitCreatesConfigWithoutOverwriting() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-init-test-"));
   const file = path.join(dir, "config.toml");
@@ -657,6 +695,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testHelpShowsProductFlow();
   await testPackageInstallDoesNotMutateHome();
   await testOneLineProviderConfig();
+  await testProviderFlagSelectsConfiguredProvider();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
   await testConfigWebBlankKeyKeepsExistingSecret();

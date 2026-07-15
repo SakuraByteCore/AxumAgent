@@ -82,7 +82,7 @@ function extractConfigPath(args) {
     return { configPath, args: next };
 }
 function hasPositionalPrompt(args) {
-    const flagsWithValues = new Set(["--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms", "--request-timeout-ms"]);
+    const flagsWithValues = new Set(["--provider", "--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms", "--request-timeout-ms"]);
     for (let i = 0; i < args.length; i += 1) {
         const arg = args[i];
         if (flagsWithValues.has(arg)) {
@@ -97,7 +97,16 @@ function hasPositionalPrompt(args) {
 }
 function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
     const config = loaded?.config;
-    const provider = (0, config_1.selectedProvider)(config).config;
+    let providerId = config?.provider || "openai-chat";
+    for (let i = 0; i < args.length; i += 1) {
+        if (args[i] === "--provider") {
+            providerId = takeValue(args, i, args[i]);
+            i += 1;
+        }
+    }
+    if (config?.providers && !config.providers[providerId])
+        throw new Error(`provider not found in config: ${providerId}`);
+    const provider = providerId === (config?.provider || "openai-chat") ? (0, config_1.selectedProvider)(config).config : config?.providers?.[providerId];
     const rest = [];
     const configuredModels = [...(config?.models ?? []), ...(provider?.models ?? [])].filter((model) => typeof model === "string" && model.length > 0);
     const rootProviderLine = parseProviderConfigLine(config?.provider_config ?? config?.providerConfig, "provider_config");
@@ -122,7 +131,10 @@ function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
     let json = false;
     for (let i = 0; i < args.length; i += 1) {
         const arg = args[i];
-        if (arg === "--model" || arg === "-m") {
+        if (arg === "--provider") {
+            i += 1;
+        }
+        else if (arg === "--model" || arg === "-m") {
             model = takeValue(args, i, arg);
             modelWasExplicit = true;
             i += 1;
@@ -177,6 +189,7 @@ function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
         throw new Error("chat prompt is required");
     return {
         prompt,
+        providerId,
         model,
         modelOptions: configuredModels,
         modelWasExplicit,
@@ -216,6 +229,7 @@ function renderHelp() {
         "",
         "Common options:",
         "      --config <path>      Config file path (default: AXUM_CONFIG or ~/.axum/config.toml)",
+        "      --provider <id>      Use a configured provider id for chat/tui/doctor",
         "  -h, --help               Show help",
         "  -v, --version            Show package version",
         "",
@@ -897,14 +911,13 @@ async function runDoctor(args, env, stdout, stderr) {
             return 0;
         }
         const json = extracted.args.includes("--json");
-        const unknown = extracted.args.find((arg) => arg !== "--json");
-        if (unknown)
-            throw new Error(`unknown doctor option: ${unknown}`);
+        const doctorArgs = extracted.args.filter((arg) => arg !== "--json");
         const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
-        const options = parseChatArgs([], env, loaded, extracted.configPath, false);
+        const options = parseChatArgs(doctorArgs, env, loaded, extracted.configPath, false);
         const report = {
             status: "pending",
             config: options.configPath,
+            provider: options.providerId,
             providerUrl: options.baseUrl,
             providerKey: options.apiKey ? maskSecret(options.apiKey) : "missing",
             model: options.model,
@@ -912,6 +925,7 @@ async function runDoctor(args, env, stdout, stderr) {
         const lines = [
             "AxumAgent doctor",
             `config: ${options.configPath}`,
+            `provider: ${options.providerId}`,
             `provider url: ${options.baseUrl}`,
             `provider key: ${options.apiKey ? maskSecret(options.apiKey) : "missing"}`,
             `model: ${options.model}`,

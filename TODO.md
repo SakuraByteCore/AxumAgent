@@ -11,7 +11,8 @@
 - [x] Add `axum doctor` provider readiness checks.
 - [x] Add GitHub Actions CI for test and pack dry-run.
 - [ ] Expand TS CLI from one-shot `chat` into session/event/tool-loop semantics aligned with pi.
-- [ ] Add profile switching and multiple provider selection polish.
+- [x] Add CLI/TUI/doctor `--provider <id>` selection for configured providers.
+- [ ] Add richer profile switching polish beyond provider selection.
 - [ ] Add explicit permission/policy gates before file or shell tools.
 - [ ] Add integration tests for session/event/tool-loop behavior once introduced.
 - [ ] Document npm publish/release flow.
