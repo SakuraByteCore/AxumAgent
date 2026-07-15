@@ -83,10 +83,10 @@ function writeConfig(content) {
   return { dir, file };
 }
 
-function startConfigWeb(configPath) {
+function startConfigWeb(configPath, env = {}) {
   const child = spawn(process.execPath, [path.resolve(__dirname, "..", "bin", "axum.js"), "config-web", "--config", configPath, "--port", "0"], {
     cwd: path.resolve(__dirname, ".."),
-    env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "" },
+    env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "", ...env },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let stdout = "";
@@ -196,6 +196,51 @@ model = "old-model"
     assert.match(saved, /model = "new-model"/);
   } finally {
     if (web) web.child.kill("SIGTERM");
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testConfigWebDoesNotExposeResolvedEnvSecret() {
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "https://old.example/v1"
+api_key = "env:AXUM_TEST_SECRET_KEY"
+model = "old-model"
+`);
+  let web;
+  try {
+    web = await startConfigWeb(cfg.file, { AXUM_TEST_SECRET_KEY: "super-secret-value" });
+    const page = await fetch(web.url).then((res) => res.text());
+    assert.match(page, /env:AXUM_TEST_SECRET_KEY/);
+    assert.doesNotMatch(page, /super-secret-value/);
+  } finally {
+    if (web) web.child.kill("SIGTERM");
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testDoctorChecksProviderModels() {
+  const { server, port } = await startMockServer({ models: ["doctor-model"] });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+model = "doctor-model"
+`);
+  try {
+    const result = await runCli(["doctor", "--config", cfg.file]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /AxumAgent doctor/);
+    assert.match(result.stdout, /models endpoint: ok \(1\)/);
+    assert.match(result.stdout, /status: ok/);
+  } finally {
+    server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
   }
 }
@@ -503,6 +548,8 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testBasicChatFromConfig();
   await testOneLineProviderConfig();
   await testConfigWebSavesProviderFields();
+  await testConfigWebDoesNotExposeResolvedEnvSecret();
+  await testDoctorChecksProviderModels();
   await testDefaultSystemPromptKeepsShortInputsConcise();
   await testRequestTimeoutConfig();
   await testRetryConfig();

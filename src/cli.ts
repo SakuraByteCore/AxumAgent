@@ -213,6 +213,7 @@ export function renderHelp(): string {
     "Usage:",
     "  axum chat [options] <prompt>",
     "  axum tui [options] [prompt]",
+    "  axum doctor [options]",
     "  axum config-web [options]",
     "",
     "Chat options:",
@@ -251,12 +252,16 @@ function htmlEscape(value: string | undefined): string {
 
 function currentProviderFields(env: NodeJS.ProcessEnv, explicitPath?: string): { configPath: string; baseUrl: string; apiKey: string; model: string } {
   const loaded = loadConfig(env, explicitPath);
-  const options = parseChatArgs([], env, loaded, explicitPath, false);
+  const config = loaded?.config;
+  const provider = selectedProvider(config).config;
+  const rootProviderLine = parseProviderConfigLine(config?.provider_config ?? config?.providerConfig, "provider_config");
+  const providerLine = parseProviderConfigLine(provider?.provider_config ?? provider?.providerConfig, "providers.openai-chat.provider_config");
+  const oneLineConfig = { ...rootProviderLine, ...providerLine };
   return {
-    configPath: options.configPath ?? resolveConfigPath(env, explicitPath),
-    baseUrl: options.baseUrl,
-    apiKey: options.apiKey ?? "",
-    model: options.model,
+    configPath: loaded?.path ?? resolveConfigPath(env, explicitPath),
+    baseUrl: provider?.base_url || provider?.baseUrl || oneLineConfig.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
+    apiKey: provider?.api_key || provider?.apiKey || oneLineConfig.apiKey || `env:${provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV}`,
+    model: config?.model || provider?.model || oneLineConfig.model || (config?.models ?? [])[0] || (provider?.models ?? [])[0] || env.AXUM_MODEL || DEFAULT_MODEL,
   };
 }
 
@@ -287,7 +292,7 @@ function renderConfigWebPage(fields: { configPath: string; baseUrl: string; apiK
       <input name="base_url" value="${htmlEscape(fields.baseUrl)}" placeholder="https://api.openai.com/v1" required>
     </label>
     <label>API key or env reference
-      <input name="api_key" value="${htmlEscape(fields.apiKey)}" placeholder="env:OPENAI_API_KEY or sk-..." required>
+      <input name="api_key" type="password" value="${htmlEscape(fields.apiKey)}" placeholder="env:OPENAI_API_KEY or sk-..." autocomplete="off" required>
     </label>
     <label>Model
       <input name="model" value="${htmlEscape(fields.model)}" placeholder="gpt-4o-mini" required>
@@ -787,6 +792,59 @@ async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
   }
 }
 
+async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
+  try {
+    const extracted = extractConfigPath(args);
+    if (extracted.args.some((arg) => arg === "--help" || arg === "-h")) {
+      stdout.write("Usage: axum doctor [--config <path>]\n");
+      return 0;
+    }
+    if (extracted.args.length > 0) throw new Error(`unknown doctor option: ${extracted.args[0]}`);
+    const loaded = loadConfig(env, extracted.configPath);
+    const options = parseChatArgs([], env, loaded, extracted.configPath, false);
+    const lines = [
+      "AxumAgent doctor",
+      `config: ${options.configPath}`,
+      `provider url: ${options.baseUrl}`,
+      `provider key: ${options.apiKey ? maskSecret(options.apiKey) : "missing"}`,
+      `model: ${options.model}`,
+    ];
+    if (!options.apiKey) {
+      lines.push(`status: failed`, `missing API key: set config api_key, provider_config, or ${options.apiKeyEnv}`);
+      stdout.write(`${lines.join("\n")}\n`);
+      return 2;
+    }
+    try {
+      const provider = new OpenAIChatProvider({
+        baseUrl: options.baseUrl,
+        apiKey: options.apiKey,
+        model: options.model,
+        maxRetries: 0,
+        retryDelayMs: options.retryDelayMs,
+        requestTimeoutMs: options.requestTimeoutMs,
+      });
+      const models = await provider.listModels();
+      lines.push(`models endpoint: ok (${models.length})`);
+      if (models.length > 0) lines.push(`first model: ${models[0]}`);
+      if (models.length > 0 && !models.includes(options.model)) lines.push(`warning: configured model was not returned by /models`);
+      lines.push("status: ok");
+      stdout.write(`${lines.join("\n")}\n`);
+      return 0;
+    } catch (error) {
+      lines.push("models endpoint: failed", error instanceof Error ? error.message : String(error), "status: failed");
+      stdout.write(`${lines.join("\n")}\n`);
+      return 1;
+    }
+  } catch (error) {
+    if (error instanceof HelpRequested) {
+      stdout.write("Usage: axum doctor [--config <path>]\n");
+      return 0;
+    }
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+}
+
 async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): Promise<{ answer: string; exitCode: number }> {
   if (dryRun) return { answer: "dry-run: provider call skipped", exitCode: 0 };
   if (!options.apiKey) {
@@ -1231,6 +1289,9 @@ export async function runAxumCli(args: string[], env = process.env, stdout = pro
   }
   if (args[0] === "tui") {
     return { handled: true, exitCode: await runTui(args.slice(1), env, stdout, stderr) };
+  }
+  if (args[0] === "doctor") {
+    return { handled: true, exitCode: await runDoctor(args.slice(1), env, stdout, stderr) };
   }
   if (args[0] === "config-web") {
     return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };

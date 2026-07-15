@@ -33,6 +33,9 @@ Work added:
 - Changed raw TUI busy-state interrupt handling so `Esc`/`Ctrl-C` cancels only the active provider request and returns to the prompt instead of exiting the TUI during a request.
 - Added one-line provider setup via config `provider_config = "<base_url> <api_key|env:VAR> <model>"` and TUI `/provider set <url> <key> <model>`.
 - Added `axum config-web`, a temporary local web page for editing provider URL/key/model in the same config file.
+- Hardened `config-web` so env-referenced API keys stay as `env:...` in the page instead of exposing resolved secret values.
+- Added `axum doctor` for provider config and `/models` connectivity checks.
+- Added GitHub Actions CI for `npm test` and `npm run pack:dry` on push/PR to `main`.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.
