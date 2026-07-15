@@ -295,7 +295,7 @@ function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
     return Math.max(72, Math.min(columns, 110));
 }
-function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0) {
+function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length) {
     const inner = width - 4;
     const hasPrompt = options.prompt.trim().length > 0;
     const workingMatch = answer?.match(/^working:(\d+)$/);
@@ -314,7 +314,8 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     ];
     const cursor = "█";
     const safeInput = visibleInput(input);
-    const inputText = safeInput.length > 0 ? `${safeInput}${cursor}` : cursor;
+    const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
+    const inputText = `${safeInput.slice(0, safeCursorIndex)}${cursor}${safeInput.slice(safeCursorIndex)}`;
     const inputLines = wrap(inputText, inner - 4);
     const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
     const statusLine = `${options.model} · ${process.cwd()}`;
@@ -538,6 +539,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
     let answer;
     let lastExitCode = 0;
     let slashSelection = 0;
+    let cursorIndex = 0;
     const inputHistory = [];
     let historyIndex;
     let draftInputBeforeHistory = "";
@@ -561,6 +563,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
             historyIndex = Math.max(0, historyIndex - 1);
         }
         input = inputHistory[historyIndex];
+        cursorIndex = input.length;
         slashSelection = 0;
         return true;
     };
@@ -570,11 +573,13 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
         if (historyIndex >= inputHistory.length - 1) {
             historyIndex = undefined;
             input = draftInputBeforeHistory;
+            cursorIndex = input.length;
             draftInputBeforeHistory = "";
         }
         else {
             historyIndex += 1;
             input = inputHistory[historyIndex];
+            cursorIndex = input.length;
         }
         slashSelection = 0;
         return true;
@@ -585,7 +590,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
     };
     const repaint = () => {
         stdout.write("\u001b[2J\u001b[H");
-        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input, slashSelection)}\n`);
+        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input, slashSelection, cursorIndex)}\n`);
     };
     if (useAltScreen)
         stdout.write("\u001b[?1049h");
@@ -602,6 +607,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
                 const completed = completeSlashCommand(input, slashSelection);
                 if (completed) {
                     input = completed;
+                    cursorIndex = input.length;
                     slashSelection = 0;
                     repaint();
                 }
@@ -632,6 +638,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
             if (text === "\r" || text === "\n") {
                 const prompt = input.trim();
                 input = "";
+                cursorIndex = 0;
                 slashSelection = 0;
                 resetHistoryRecall();
                 if (!prompt) {
@@ -696,9 +703,22 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
                 }
                 continue;
             }
+            if (text === "\u001b[D") {
+                cursorIndex = Math.max(0, cursorIndex - 1);
+                repaint();
+                continue;
+            }
+            if (text === "\u001b[C") {
+                cursorIndex = Math.min(input.length, cursorIndex + 1);
+                repaint();
+                continue;
+            }
             if (text === "\u007f" || text === "\b") {
                 resetHistoryRecall();
-                input = input.slice(0, -1);
+                if (cursorIndex > 0) {
+                    input = `${input.slice(0, cursorIndex - 1)}${input.slice(cursorIndex)}`;
+                    cursorIndex -= 1;
+                }
                 slashSelection = 0;
                 repaint();
                 continue;
@@ -706,7 +726,9 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
             if (text.startsWith("\u001b"))
                 continue;
             resetHistoryRecall();
-            input += text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+            const inserted = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+            input = `${input.slice(0, cursorIndex)}${inserted}${input.slice(cursorIndex)}`;
+            cursorIndex += inserted.length;
             slashSelection = 0;
             repaint();
         }
