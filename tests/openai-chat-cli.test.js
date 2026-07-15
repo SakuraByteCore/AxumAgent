@@ -280,6 +280,32 @@ model = "doctor-model"
   }
 }
 
+async function testDoctorJsonReport() {
+  const { server, port } = await startMockServer({ models: ["json-model"] });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+model = "json-model"
+`);
+  try {
+    const result = await runCli(["doctor", "--config", cfg.file, "--json"]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.strictEqual(report.status, "ok");
+    assert.strictEqual(report.modelsEndpoint, "ok");
+    assert.strictEqual(report.modelCount, 1);
+    assert.strictEqual(report.firstModel, "json-model");
+    assert.strictEqual(report.providerKey, "***");
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testDefaultSystemPromptKeepsShortInputsConcise() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
@@ -587,6 +613,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testConfigWebSavesProviderFields();
   await testConfigWebDoesNotExposeResolvedEnvSecret();
   await testDoctorChecksProviderModels();
+  await testDoctorJsonReport();
   await testDefaultSystemPromptKeepsShortInputsConcise();
   await testRequestTimeoutConfig();
   await testRetryConfig();

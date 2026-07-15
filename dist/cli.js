@@ -876,13 +876,22 @@ async function runDoctor(args, env, stdout, stderr) {
     try {
         const extracted = extractConfigPath(args);
         if (extracted.args.some((arg) => arg === "--help" || arg === "-h")) {
-            stdout.write("Usage: axum doctor [--config <path>]\n");
+            stdout.write("Usage: axum doctor [--config <path>] [--json]\n");
             return 0;
         }
-        if (extracted.args.length > 0)
-            throw new Error(`unknown doctor option: ${extracted.args[0]}`);
+        const json = extracted.args.includes("--json");
+        const unknown = extracted.args.find((arg) => arg !== "--json");
+        if (unknown)
+            throw new Error(`unknown doctor option: ${unknown}`);
         const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
         const options = parseChatArgs([], env, loaded, extracted.configPath, false);
+        const report = {
+            status: "pending",
+            config: options.configPath,
+            providerUrl: options.baseUrl,
+            providerKey: options.apiKey ? maskSecret(options.apiKey) : "missing",
+            model: options.model,
+        };
         const lines = [
             "AxumAgent doctor",
             `config: ${options.configPath}`,
@@ -890,10 +899,19 @@ async function runDoctor(args, env, stdout, stderr) {
             `provider key: ${options.apiKey ? maskSecret(options.apiKey) : "missing"}`,
             `model: ${options.model}`,
         ];
+        const writeReport = (exitCode) => {
+            if (json)
+                stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+            else
+                stdout.write(`${lines.join("\n")}\n`);
+            return exitCode;
+        };
         if (!options.apiKey) {
-            lines.push(`status: failed`, `missing API key: set config api_key, provider_config, or ${options.apiKeyEnv}`);
-            stdout.write(`${lines.join("\n")}\n`);
-            return 2;
+            const error = `missing API key: set config api_key, provider_config, or ${options.apiKeyEnv}`;
+            report.status = "failed";
+            report.error = error;
+            lines.push("status: failed", error);
+            return writeReport(2);
         }
         try {
             const provider = new openai_chat_1.OpenAIChatProvider({
@@ -905,24 +923,34 @@ async function runDoctor(args, env, stdout, stderr) {
                 requestTimeoutMs: options.requestTimeoutMs,
             });
             const models = await provider.listModels();
+            const warning = models.length > 0 && !models.includes(options.model) ? "configured model was not returned by /models" : undefined;
+            report.status = "ok";
+            report.modelsEndpoint = "ok";
+            report.modelCount = models.length;
+            if (models.length > 0)
+                report.firstModel = models[0];
+            if (warning)
+                report.warning = warning;
             lines.push(`models endpoint: ok (${models.length})`);
             if (models.length > 0)
                 lines.push(`first model: ${models[0]}`);
-            if (models.length > 0 && !models.includes(options.model))
-                lines.push(`warning: configured model was not returned by /models`);
+            if (warning)
+                lines.push(`warning: ${warning}`);
             lines.push("status: ok");
-            stdout.write(`${lines.join("\n")}\n`);
-            return 0;
+            return writeReport(0);
         }
         catch (error) {
-            lines.push("models endpoint: failed", error instanceof Error ? error.message : String(error), "status: failed");
-            stdout.write(`${lines.join("\n")}\n`);
-            return 1;
+            const message = error instanceof Error ? error.message : String(error);
+            report.status = "failed";
+            report.modelsEndpoint = "failed";
+            report.error = message;
+            lines.push("models endpoint: failed", message, "status: failed");
+            return writeReport(1);
         }
     }
     catch (error) {
         if (error instanceof HelpRequested) {
-            stdout.write("Usage: axum doctor [--config <path>]\n");
+            stdout.write("Usage: axum doctor [--config <path>] [--json]\n");
             return 0;
         }
         stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

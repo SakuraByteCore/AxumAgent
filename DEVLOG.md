@@ -34,7 +34,7 @@ Work added:
 - Added one-line provider setup via config `provider_config = "<base_url> <api_key|env:VAR> <model>"` and TUI `/provider set <url> <key> <model>`.
 - Added `axum config-web`, a temporary local web page for editing provider URL/key/model in the same config file.
 - Hardened `config-web` so env-referenced API keys stay as `env:...` in the page instead of exposing resolved secret values.
-- Added `axum doctor` for provider config and `/models` connectivity checks.
+- Added `axum doctor` for provider config and `/models` connectivity checks, including `--json` output for scripts.
 - Added `axum init` for safe manual config creation with one-line provider setup and no overwrite unless `--force` is used.
 - Added `axum --version` / `-v` for installed CLI identification.
 - Added GitHub Actions CI for `npm test` and `npm run pack:dry` on push/PR to `main`.
