@@ -1,5 +1,6 @@
 import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveOpenAIProviderConfig, selectedProvider, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
+import fs from "node:fs";
 import http from "node:http";
 import { createInterface } from "node:readline/promises";
 import type { Component as PiComponent, Focusable as PiFocusable } from "@earendil-works/pi-tui";
@@ -211,6 +212,7 @@ export function renderHelp(): string {
     "AxumAgent CLI",
     "",
     "Usage:",
+    "  axum init [options]",
     "  axum chat [options] <prompt>",
     "  axum tui [options] [prompt]",
     "  axum doctor [options]",
@@ -240,6 +242,76 @@ export function renderHelp(): string {
     "Config:",
     `  Default path: ${defaultConfigPath()}`,
   ].join("\n");
+}
+
+function parseInitArgs(args: string[]): { configPath?: string; baseUrl: string; apiKey: string; model: string; force: boolean } {
+  let configPath: string | undefined;
+  let baseUrl = DEFAULT_BASE_URL;
+  let apiKey = `env:${DEFAULT_API_KEY_ENV}`;
+  let model = DEFAULT_MODEL;
+  let force = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--config") {
+      configPath = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--provider-config") {
+      const parsed = parseProviderConfigLine(takeValue(args, i, arg), arg);
+      baseUrl = parsed.baseUrl ?? baseUrl;
+      apiKey = parsed.apiKey ?? apiKey;
+      model = parsed.model ?? model;
+      i += 1;
+    } else if (arg === "--base-url") {
+      baseUrl = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--api-key") {
+      apiKey = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--model" || arg === "-m") {
+      model = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--force") {
+      force = true;
+    } else if (arg === "--help" || arg === "-h") {
+      throw new HelpRequested();
+    } else {
+      throw new Error(`unknown init option: ${arg}`);
+    }
+  }
+  return { configPath, baseUrl, apiKey, model, force };
+}
+
+async function runInit(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
+  try {
+    const options = parseInitArgs(args);
+    const configPath = resolveConfigPath(env, options.configPath);
+    if (fs.existsSync(configPath) && !options.force) {
+      stdout.write(`axum config exists: ${configPath}\n`);
+      stdout.write("Use --force to update provider URL/key/model.\n");
+      return 0;
+    }
+    const saved = saveOpenAIProviderConfig(env, options.configPath, {
+      base_url: options.baseUrl,
+      api_key: options.apiKey,
+      model: options.model,
+      models: [options.model],
+      max_retries: DEFAULT_MAX_RETRIES,
+      retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+      request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
+    });
+    stdout.write(`axum config ${fs.existsSync(configPath) && options.force ? "updated" : "created"}: ${saved.path}\n`);
+    stdout.write(`provider: ${options.baseUrl}\n`);
+    stdout.write(`model: ${options.model}\n`);
+    stdout.write("Next: axum doctor && axum tui\n");
+    return 0;
+  } catch (error) {
+    if (error instanceof HelpRequested) {
+      stdout.write("Usage: axum init [--config <path>] [--provider-config '<url> <key|env:VAR> <model>'] [--base-url <url>] [--api-key <key|env:VAR>] [--model <id>] [--force]\n");
+      return 0;
+    }
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
 }
 
 function htmlEscape(value: string | undefined): string {
@@ -1284,6 +1356,9 @@ async function runTui(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wri
 }
 
 export async function runAxumCli(args: string[], env = process.env, stdout = process.stdout, stderr = process.stderr): Promise<AxumCliResult> {
+  if (args[0] === "init") {
+    return { handled: true, exitCode: await runInit(args.slice(1), env, stdout, stderr) };
+  }
   if (args[0] === "chat") {
     return { handled: true, exitCode: await runChat(args.slice(1), env, stdout, stderr) };
   }

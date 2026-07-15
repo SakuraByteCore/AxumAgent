@@ -166,6 +166,29 @@ provider_config = "http://127.0.0.1:${port}/v1 test-key one-line-model"
   }
 }
 
+async function testInitCreatesConfigWithoutOverwriting() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-init-test-"));
+  const file = path.join(dir, "config.toml");
+  try {
+    const created = await runCli(["init", "--config", file, "--provider-config", "https://init.example/v1 env:INIT_KEY init-model"]);
+    assert.strictEqual(created.code, 0, created.stderr);
+    assert.match(created.stdout, /axum config created:/);
+    let saved = fs.readFileSync(file, "utf8");
+    assert.match(saved, /base_url = "https:\/\/init\.example\/v1"/);
+    assert.match(saved, /api_key = "env:INIT_KEY"/);
+    assert.match(saved, /model = "init-model"/);
+
+    const exists = await runCli(["init", "--config", file, "--provider-config", "https://other.example/v1 env:OTHER_KEY other-model"]);
+    assert.strictEqual(exists.code, 0, exists.stderr);
+    assert.match(exists.stdout, /axum config exists:/);
+    saved = fs.readFileSync(file, "utf8");
+    assert.match(saved, /base_url = "https:\/\/init\.example\/v1"/);
+    assert.doesNotMatch(saved, /other-model/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function testConfigWebSavesProviderFields() {
   const cfg = writeConfig(`
 provider = "openai-chat"
@@ -547,6 +570,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
 (async () => {
   await testBasicChatFromConfig();
   await testOneLineProviderConfig();
+  await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
   await testConfigWebDoesNotExposeResolvedEnvSecret();
   await testDoctorChecksProviderModels();
