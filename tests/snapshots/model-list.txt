@@ -1,0 +1,13 @@
+>_ AxumAgent (v0.1.0)
+
+model:     m1   /model to change
+directory: <cwd>
+permissions: YOLO mode
+
+Tip: Build faster with AxumAgent.
+  Select model
+  ● 1  m1
+    2  very-long-model-name-beta
+
+› █
+m1 · <cwd>

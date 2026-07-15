@@ -22,9 +22,10 @@ Work added:
 - Added an npm `postinstall` hook that creates `~/.axum/config.toml` with an OpenAI-compatible template when missing, without overwriting existing config.
 - Reworked `axum tui` empty state toward a compact Codex-like startup card with version/model/directory/permissions, a short tip, an inline prompt, bottom status, a dynamically updating Codex-like working timer, no placeholder/cursor rendered without user input, no user/assistant labels in the conversation body, and OpenAI-compatible SSE streaming updates while answers arrive.
 - Added TUI model discovery and switching: config can provide `models = [...]`, TUI defaults to the first configured/fetched model, OpenAI-compatible `/models` is used when the list is omitted even if a current model is already configured, `/provider url` and `/provider key` can save missing provider settings from inside TUI and immediately show the refreshed model list when fetch succeeds, `/model` lists or switches models by number/id, the empty input keeps an active cursor, ←/→ move the cursor for in-line edits, typing `/` shows a two-column command list with a selected item that `Tab` completes, and ↑/↓ recalls previous inputs when the slash command list is not active.
+- Moved raw TTY rendering/input onto `@earendil-works/pi-tui` and added xterm-backed TUI screenshot snapshot tests for the slash command palette and remote model list layout.
 
 Validation:
-- `npm test` builds TypeScript, checks generated JS, and runs the OpenAI-compatible mock CLI regression.
+- `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.
 
 ## 2026-07-12
 

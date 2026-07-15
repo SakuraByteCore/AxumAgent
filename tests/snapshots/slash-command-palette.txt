@@ -1,0 +1,15 @@
+>_ AxumAgent (v0.1.0)
+
+model:     gpt-4o-mini   /model to change
+directory: <cwd>
+permissions: YOLO mode
+
+Tip: Build faster with AxumAgent.
+commands
+› /help          show commands
+  /provider      show or set provider url/key
+  /model         list or switch models
+  /exit / /quit  exit TUI
+
+› /█
+gpt-4o-mini · <cwd>
