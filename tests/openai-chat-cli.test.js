@@ -185,11 +185,11 @@ async function testInteractiveTuiShowsSlashCommands() {
   const result = await runCli(["tui", "--dry-run"], {}, "/\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /commands/);
-  assert.match(result.stdout, /│ › \[\/help\s+\] │ show commands\s+│/);
-  assert.match(result.stdout, /│   \[\/provider\s+\] │ show or set provider url\/key\s+│/);
-  assert.match(result.stdout, /│   \[\/model\s+\] │ list or switch models\s+│/);
-  assert.match(result.stdout, /│   \[\/exit \/ \/quit\s*\] │ exit TUI\s+│/);
-  assert.doesNotMatch(result.stdout, /│   \[\/quit\s+\] │ exit TUI\s+│/);
+  assert.match(result.stdout, /│ › \/help\s+show commands\s+│/);
+  assert.match(result.stdout, /│   \/provider\s+show or set provider url\/key\s+│/);
+  assert.match(result.stdout, /│   \/model\s+list or switch models\s+│/);
+  assert.match(result.stdout, /│   \/exit \/ \/quit\s+exit TUI\s+│/);
+  assert.doesNotMatch(result.stdout, /│   \/quit\s+exit TUI\s+│/);
   assert.match(result.stdout, /^› █\s*$/m);
 }
 
@@ -202,8 +202,9 @@ async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /provider url saved/);
     assert.match(result.stdout, /provider key saved/);
-    assert.match(result.stdout, /│ yes\s+│ 1 │ configured-first\s+│/);
-    assert.match(result.stdout, /│\s+│ 2 │ configured-second\s+│/);
+    assert.match(result.stdout, /Select model/);
+    assert.match(result.stdout, /● 1\s+configured-first/);
+    assert.match(result.stdout, /  2\s+configured-second/);
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
     assert.strictEqual(requests.at(-1).body.model, "configured-first");
@@ -232,8 +233,9 @@ retry_delay_ms = 0
   try {
     const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/model 2\nhello switched\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
-    assert.match(result.stdout, /│ yes\s+│ 1 │ first-model\s+│/);
-    assert.match(result.stdout, /│\s+│ 2 │ second-model\s+│/);
+    assert.match(result.stdout, /Select model/);
+    assert.match(result.stdout, /● 1\s+first-model/);
+    assert.match(result.stdout, /  2\s+second-model/);
     assert.match(result.stdout, /model switched to second-model/);
     assert.strictEqual(requests.at(-1).body.model, "second-model");
   } finally {

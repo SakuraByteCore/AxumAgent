@@ -217,6 +217,9 @@ function wrap(text, width) {
         lines.push(line);
     return lines;
 }
+function wrapPreservingShortLine(text, width) {
+    return stripAnsi(text).length <= width ? [text] : wrap(text, width);
+}
 function slashCommandQuery(input) {
     if (!input.startsWith("/"))
         return "";
@@ -269,7 +272,7 @@ function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
     const totalWidth = Math.min(width, Math.max(48, Math.min(width, labelWidth + desiredDescWidth + 12)));
     const inner = totalWidth - 2;
     const commandCellWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(inner * 0.4)));
-    const descCellWidth = Math.max(8, inner - commandCellWidth - 9);
+    const descCellWidth = Math.max(8, inner - commandCellWidth - 7);
     const title = " commands ";
     const titleRight = Math.max(0, inner - title.length);
     const top = `╭${title}${"─".repeat(titleRight)}╮`;
@@ -278,7 +281,7 @@ function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
         const marker = index === selected ? "›" : " ";
         const commandCell = padCell(slashCommandDisplayName(command), commandCellWidth);
         const descCell = padCell(command.description, descCellWidth);
-        return `│ ${marker} [${commandCell}] │ ${descCell} │`;
+        return `│ ${marker} ${commandCell}  ${descCell} │`;
     });
     return [top, ...rows, bottom];
 }
@@ -303,7 +306,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     const workingSeconds = workingMatch ? workingMatch[1] : "0";
     const hasAnswer = answer !== undefined && !isThinking;
     const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
-    const answerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
+    const answerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
     const cardWidth = Math.min(width, 54);
     const headerLines = [
         ">_ AxumAgent (v0.1.0)",
@@ -389,16 +392,11 @@ function renderModelList(options) {
     if (options.modelOptions.length === 0)
         return `current model: ${options.model}; no configured/fetched model list`;
     const numberWidth = String(options.modelOptions.length).length;
-    const modelWidth = Math.max("model".length, ...options.modelOptions.map((model) => model.length));
-    const header = `│ current │ ${"#".padStart(numberWidth)} │ ${"model".padEnd(modelWidth)} │`;
-    const divider = `├${"─".repeat(9)}┼${"─".repeat(numberWidth + 2)}┼${"─".repeat(modelWidth + 2)}┤`;
-    const top = `╭${"─".repeat(9)}┬${"─".repeat(numberWidth + 2)}┬${"─".repeat(modelWidth + 2)}╮`;
-    const bottom = `╰${"─".repeat(9)}┴${"─".repeat(numberWidth + 2)}┴${"─".repeat(modelWidth + 2)}╯`;
     const rows = options.modelOptions.map((model, index) => {
-        const selected = model === options.model ? "yes" : "";
-        return `│ ${selected.padEnd(7)} │ ${String(index + 1).padStart(numberWidth)} │ ${model.padEnd(modelWidth)} │`;
+        const current = model === options.model ? "●" : " ";
+        return `${current} ${String(index + 1).padStart(numberWidth)}  ${model}`;
     });
-    return [top, header, divider, ...rows, bottom].join("\n");
+    return ["Select model", ...rows].join("\n");
 }
 function switchModel(options, value) {
     const target = value.trim();
