@@ -102,7 +102,7 @@ node bin/axum.js chat --max-retries 3 "Retry a flaky request"
 node bin/axum.js chat --request-timeout-ms 900000 "Run a longer request"
 ```
 
-`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config and `/v1/models` connectivity without sending a chat prompt; use `axum doctor --json` for scripts and CI diagnostics.
+`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config and `/v1/models` connectivity without sending a chat prompt; use `axum doctor --json` for scripts and CI diagnostics. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
 
 Useful environment variables:
 

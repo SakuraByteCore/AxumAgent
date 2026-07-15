@@ -226,6 +226,7 @@ model = "old-model"
     const page = await fetch(web.url).then((res) => res.text());
     assert.match(page, /AxumAgent Provider Config/);
     assert.match(page, /https:\/\/old\.example\/v1/);
+    assert.doesNotMatch(page, /old-key/);
 
     const response = await fetch(`${web.url}/save`, {
       method: "POST",
@@ -237,6 +238,37 @@ model = "old-model"
     const saved = fs.readFileSync(cfg.file, "utf8");
     assert.match(saved, /base_url = "https:\/\/new\.example\/v1"/);
     assert.match(saved, /api_key = "env:NEW_KEY"/);
+    assert.match(saved, /model = "new-model"/);
+  } finally {
+    if (web) web.child.kill("SIGTERM");
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testConfigWebBlankKeyKeepsExistingSecret() {
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "https://old.example/v1"
+api_key = "old-key"
+model = "old-model"
+`);
+  let web;
+  try {
+    web = await startConfigWeb(cfg.file);
+    const page = await fetch(web.url).then((res) => res.text());
+    assert.doesNotMatch(page, /old-key/);
+    const response = await fetch(`${web.url}/save`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ base_url: "https://new.example/v1", api_key: "", model: "new-model" }),
+    });
+    assert.strictEqual(response.status, 200);
+    const saved = fs.readFileSync(cfg.file, "utf8");
+    assert.match(saved, /base_url = "https:\/\/new\.example\/v1"/);
+    assert.match(saved, /api_key = "old-key"/);
     assert.match(saved, /model = "new-model"/);
   } finally {
     if (web) web.child.kill("SIGTERM");
@@ -621,6 +653,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testOneLineProviderConfig();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
+  await testConfigWebBlankKeyKeepsExistingSecret();
   await testConfigWebDoesNotExposeResolvedEnvSecret();
   await testDoctorChecksProviderModels();
   await testDoctorJsonReport();

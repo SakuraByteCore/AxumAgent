@@ -33,7 +33,7 @@ Work added:
 - Changed raw TUI busy-state interrupt handling so `Esc`/`Ctrl-C` cancels only the active provider request and returns to the prompt instead of exiting the TUI during a request.
 - Added one-line provider setup via config `provider_config = "<base_url> <api_key|env:VAR> <model>"` and TUI `/provider set <url> <key> <model>`.
 - Added `axum config-web`, a temporary local web page for editing provider URL/key/model in the same config file.
-- Hardened `config-web` so env-referenced API keys stay as `env:...` in the page instead of exposing resolved secret values.
+- Hardened `config-web` so env-referenced API keys stay as `env:...` and raw stored keys are not echoed into the page; leaving the key blank preserves the existing key.
 - Added `axum doctor` for provider config and `/models` connectivity checks, including `--json` output for scripts.
 - Added `axum init` for safe manual config creation with one-line provider setup and no overwrite unless `--force` is used.
 - Added `axum --version` / `-v` for installed CLI identification.

@@ -391,7 +391,7 @@ function renderConfigWebPage(fields: { configPath: string; baseUrl: string; apiK
       <input name="base_url" value="${htmlEscape(fields.baseUrl)}" placeholder="https://api.openai.com/v1" required>
     </label>
     <label>API key or env reference
-      <input name="api_key" type="password" value="${htmlEscape(fields.apiKey)}" placeholder="env:OPENAI_API_KEY or sk-..." autocomplete="off" required>
+      <input name="api_key" type="password" value="${htmlEscape(fields.apiKey.startsWith("env:") ? fields.apiKey : "")}" placeholder="env:OPENAI_API_KEY, sk-..., or leave blank to keep existing key" autocomplete="off">
     </label>
     <label>Model
       <input name="model" value="${htmlEscape(fields.model)}" placeholder="gpt-4o-mini" required>
@@ -447,8 +447,10 @@ async function runConfigWeb(args: string[], env: NodeJS.ProcessEnv, stdout: Node
         if (req.method === "POST" && req.url === "/save") {
           const body = await readRequestBody(req);
           const form = new URLSearchParams(body);
+          const current = currentProviderFields(env, options.configPath);
           const baseUrl = String(form.get("base_url") ?? "").trim();
-          const apiKey = String(form.get("api_key") ?? "").trim();
+          const submittedApiKey = String(form.get("api_key") ?? "").trim();
+          const apiKey = submittedApiKey || current.apiKey;
           const model = String(form.get("model") ?? "").trim();
           if (!baseUrl || !apiKey || !model) {
             res.writeHead(400, { "content-type": "text/plain; charset=utf-8" });
