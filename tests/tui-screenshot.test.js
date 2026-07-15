@@ -17,7 +17,7 @@ function requireScriptCommand() {
   assert.strictEqual(result.status, 0, "tui screenshot tests need the POSIX `script` command to allocate a real TTY");
 }
 
-function startMockServer(models = ["m1", "very-long-model-name-beta"]) {
+function startMockServer(models = ["m1", "very-long-model-name-beta"], responseDelayMs = 0) {
   const requests = [];
   const server = http.createServer((req, res) => {
     let body = "";
@@ -30,8 +30,10 @@ function startMockServer(models = ["m1", "very-long-model-name-beta"]) {
         res.end(JSON.stringify({ data: models.map((id) => ({ id })) }));
         return;
       }
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+      setTimeout(() => {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ choices: [{ message: { content: "ok" } }] }));
+      }, responseDelayMs);
     });
   });
   return new Promise((resolve) => {
@@ -116,7 +118,7 @@ async function testSlashCommandPaletteScreenshot() {
   assert.ok(snapshot.includes("commands"));
   assert.ok(snapshot.includes("▸ /help"));
   assert.ok(snapshot.includes("/provider"));
-  assert.ok(!snapshot.includes("/model"));
+  assert.ok(snapshot.includes("/model"));
   assertSnapshot("slash-command-palette", snapshot);
 }
 
@@ -138,7 +140,7 @@ async function testLongModelListStaysWithinViewport() {
   fs.writeFileSync(config, `provider = "openai-chat"\n\n[providers.openai-chat]\ntype = "openai-chat"\nbase_url = "http://127.0.0.1:1/v1"\napi_key = "***"\nmodel = "model-41"\nmodels = ${JSON.stringify(models)}\n`);
   try {
     const raw = await runTtyCli(["tui", "--config", config, "--dry-run", "--no-alt-screen"], [
-      { delayMs: 350, input: "/provider models\r" },
+      { delayMs: 350, input: "/model\r" },
       { delayMs: 350, input: "/exit\r" },
     ]);
     const snapshot = await normalizeScreen(raw);
@@ -151,6 +153,26 @@ async function testLongModelListStaysWithinViewport() {
   }
 }
 
+async function testWorkingStatusDoesNotReplaceModelOutput() {
+  const { server, port } = await startMockServer(["m1", "m2"], 900);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-working-model-output-"));
+  const config = path.join(dir, "config.toml");
+  fs.writeFileSync(config, `provider = "openai-chat"\n\n[providers.openai-chat]\ntype = "openai-chat"\nbase_url = "http://127.0.0.1:${port}/v1"\napi_key = "***"\nmodel = "m1"\n`);
+  try {
+    const raw = await runTtyCli(["tui", "--config", config, "--no-alt-screen"], [
+      { delayMs: 350, input: "/model\r" },
+      { delayMs: 350, input: "hello\r" },
+      { delayMs: 1400, input: "/exit\r" },
+    ]);
+    assert.ok(raw.includes("model list refreshed"));
+    assert.ok(raw.includes("• Working"));
+    assert.ok(raw.indexOf("model list refreshed") < raw.indexOf("• Working"));
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function testModelListScreenshot() {
   const { server, port } = await startMockServer();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-tui-shot-"));
@@ -159,7 +181,7 @@ async function testModelListScreenshot() {
     const raw = await runTtyCli(["tui", "--config", config, "--no-alt-screen"], [
       { delayMs: 350, input: `/provider url http://127.0.0.1:${port}/v1\r` },
       { delayMs: 800, input: "/provider key test-key\r" },
-      { delayMs: 800, input: "/provider models\r" },
+      { delayMs: 800, input: "/model\r" },
       { delayMs: 450, input: "/exit\r" },
     ]);
     const snapshot = await normalizeScreen(raw);
@@ -177,6 +199,7 @@ async function testModelListScreenshot() {
   await testSlashCommandPaletteScreenshot();
   await testBracketedPasteInInput();
   await testLongModelListStaysWithinViewport();
+  await testWorkingStatusDoesNotReplaceModelOutput();
   await testModelListScreenshot();
   console.log("tui_screenshot_snapshots=True");
 })();

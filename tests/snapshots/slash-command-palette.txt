@@ -3,7 +3,8 @@
 
 ⌘ commands
 ▸ /help         show commands
-  /provider     show/set provider and model
+  /provider     show/set provider url/key
+  /model        fetch/list/switch models
   /exit / /quit exit TUI
 
 ▌ /█

@@ -191,7 +191,8 @@ function clip(text, width) {
 }
 const SLASH_COMMANDS = [
     { name: "/help", description: "show commands" },
-    { name: "/provider", description: "show/set provider and model" },
+    { name: "/provider", description: "show/set provider url/key" },
+    { name: "/model", description: "fetch/list/switch models" },
     { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 function wrap(text, width) {
@@ -276,16 +277,14 @@ function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
     return Math.max(72, Math.min(columns, 110));
 }
-function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24) {
+function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status = undefined) {
     const inner = width - 4;
     const hasPrompt = options.prompt.trim().length > 0;
-    const workingMatch = answer?.match(/^working:(\d+)$/);
-    const isThinking = workingMatch !== undefined && workingMatch !== null;
-    const workingSeconds = workingMatch ? workingMatch[1] : "0";
-    const hasAnswer = answer !== undefined && !isThinking;
+    const hasStatus = status !== undefined;
+    const hasAnswer = answer !== undefined;
     const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
     const rawAnswerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
-    const maxAnswerLines = Math.max(4, height - 7);
+    const maxAnswerLines = Math.max(4, height - (hasStatus ? 8 : 7));
     const answerLines = rawAnswerLines.length > maxAnswerLines
         ? [...rawAnswerLines.slice(0, maxAnswerLines - 1), `  … ${rawAnswerLines.length - maxAnswerLines + 1} more`]
         : rawAnswerLines;
@@ -301,15 +300,15 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     const renderedInput = inputLines.map((line, index) => `${index === 0 ? "▌" : " "} ${line}`);
     const statusLine = `${options.model} · ${process.cwd()}`;
     const conversationLines = [];
-    if (hasPrompt || hasAnswer || isThinking) {
+    if (hasPrompt || hasAnswer || hasStatus) {
         if (hasPrompt)
             conversationLines.push(...promptLines.map((line, index) => (index === 0 ? `›${line.slice(1)}` : line)));
         if (hasPrompt && hasAnswer)
             conversationLines.push("");
         if (hasAnswer)
             conversationLines.push(...answerLines);
-        if (isThinking)
-            conversationLines.push(...(hasPrompt || hasAnswer ? [""] : []), `• Working (${workingSeconds}s • esc to interrupt)`);
+        if (hasStatus)
+            conversationLines.push(...(hasPrompt || hasAnswer ? [""] : []), status);
     }
     const commandLines = renderSlashCommandSuggestions(safeInput, width, slashSelection);
     return [
@@ -325,7 +324,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
 }
 function workingStatus(startedAt) {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-    return `working:${elapsedSeconds}`;
+    return `• Working (${elapsedSeconds}s • esc to interrupt)`;
 }
 function uniqueModels(models) {
     const seen = new Set();
@@ -367,7 +366,29 @@ async function hydrateTuiModelsWithStatus(options, dryRun) {
         return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
     }
 }
-function renderModelList(options, maxRows = 16) {
+async function fetchTuiModelsWithStatus(options) {
+    const configured = uniqueModels(options.modelOptions);
+    if (!options.apiKey)
+        return { options: { ...options, modelOptions: configured }, error: `missing API key: set ${options.apiKeyEnv} or /provider key <key>` };
+    try {
+        const provider = new openai_chat_1.OpenAIChatProvider({
+            apiKey: options.apiKey,
+            baseUrl: options.baseUrl,
+            model: options.model,
+            temperature: options.temperature,
+            maxRetries: options.maxRetries,
+            retryDelayMs: options.retryDelayMs,
+        });
+        const fetched = uniqueModels(await provider.listModels());
+        if (fetched.length === 0)
+            return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
+        return { options: { ...options, modelOptions: fetched, model: fetched.includes(options.model) ? options.model : fetched[0] } };
+    }
+    catch (error) {
+        return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
+    }
+}
+function renderModelList(options, maxRows = 14) {
     if (options.modelOptions.length === 0)
         return `models\n  no configured/fetched model list`;
     const numberWidth = String(options.modelOptions.length).length;
@@ -443,8 +464,24 @@ function providerStatus(options) {
         `provider url: ${options.baseUrl}`,
         `provider key: ${maskSecret(options.apiKey)}`,
         `config: ${options.configPath ?? (0, config_1.defaultConfigPath)()}`,
-        "commands: /provider url <url> · /provider key <key> · /provider model <id|number> · /provider models",
+        "commands: /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number]",
     ].join("\n");
+}
+async function applyModelCommand(options, env, value) {
+    const trimmed = value.trim();
+    const fetched = await fetchTuiModelsWithStatus(options);
+    let next = fetched.options;
+    const fetchNote = fetched.error ? `model list fetch failed: ${fetched.error}` : "model list refreshed";
+    if (!trimmed) {
+        return { options: next, message: `${fetchNote}\n${renderModelList(next)}` };
+    }
+    const switched = switchModel(next, trimmed);
+    const saved = (0, config_1.saveOpenAIProviderConfig)(env, next.configPath, {
+        model: switched.options.model,
+        models: switched.options.modelOptions,
+    });
+    next = parseChatArgs([], env, saved, saved.path, false);
+    return { options: next, message: `${fetchNote}\n${switched.message}\nprovider model saved to ${saved.path}` };
 }
 async function applyProviderCommand(options, env, value) {
     const trimmed = value.trim();
@@ -464,7 +501,7 @@ async function applyProviderCommand(options, env, value) {
     }
     const match = trimmed.match(/^(url|base-url|key|api-key)\s+(.+)$/i);
     if (!match) {
-        return { options, message: "usage: /provider url <url> · /provider key <key> · /provider model <id|number> · /provider models" };
+        return { options, message: "usage: /provider url <url> · /provider key <key> · /provider model <id|number>" };
     }
     const kind = match[1].toLowerCase();
     const rawValue = match[2].trim();
@@ -587,6 +624,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
     const tui = new pi.TUI(terminal);
     let screenOptions = { ...options, prompt: "" };
     let answer;
+    let status;
     let lastExitCode = 0;
     let input = "";
     let cursorIndex = 0;
@@ -668,7 +706,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         focused = false;
         invalidate() { }
         render(width) {
-            const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex, terminal.rows).split("\n");
+            const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex, terminal.rows, status).split("\n");
             return lines.map((line) => pi.truncateToWidth(line, width));
         }
         handleInput(data) {
@@ -686,7 +724,17 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return;
         }
         if (prompt === "/help") {
-            answer = "commands: /help · /provider [url|key|model] · /exit (/quit)";
+            answer = "commands: /help · /provider [url|key|model] · /model [id|number] · /exit (/quit)";
+            status = undefined;
+            requestRender();
+            return;
+        }
+        if (prompt === "/model" || prompt.startsWith("/model ")) {
+            const applied = await applyModelCommand(screenOptions, process.env, prompt.slice("/model".length));
+            screenOptions = { ...applied.options, prompt: "" };
+            options = { ...applied.options, prompt: options.prompt };
+            answer = applied.message;
+            status = undefined;
             requestRender();
             return;
         }
@@ -695,11 +743,13 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             screenOptions = { ...applied.options, prompt: "" };
             options = { ...applied.options, prompt: options.prompt };
             answer = applied.message;
+            status = undefined;
             requestRender();
             return;
         }
         if (prompt.startsWith("/")) {
             answer = renderSlashCommandSuggestions(prompt, terminal.columns).join("\n");
+            status = undefined;
             requestRender();
             return;
         }
@@ -707,16 +757,17 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         screenOptions = { ...options, prompt };
         if (dryRun) {
             answer = "dry-run: provider call skipped";
+            status = undefined;
             lastExitCode = 0;
             requestRender();
             return;
         }
         busy = true;
         const startedAt = Date.now();
-        answer = workingStatus(startedAt);
+        status = workingStatus(startedAt);
         requestRender();
         const timer = setInterval(() => {
-            answer = workingStatus(startedAt);
+            status = workingStatus(startedAt);
             requestRender();
         }, 250);
         try {
@@ -725,10 +776,12 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
                 requestRender();
             });
             answer = result.answer;
+            status = undefined;
             lastExitCode = result.exitCode;
         }
         finally {
             busy = false;
+            status = undefined;
             clearInterval(timer);
             requestRender();
         }
@@ -826,23 +879,18 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         }
         if (data.startsWith("\u001b"))
             return;
-        resetHistoryRecall();
-        const printable = data.length === 1 ? data.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "") : "";
-        if (!printable)
-            return;
-        input = `${input.slice(0, cursorIndex)}${printable}${input.slice(cursorIndex)}`;
-        cursorIndex += printable.length;
-        slashSelection = 0;
-        requestRender();
+        insertInputText(data);
     }
     tui.addChild(app);
     tui.setFocus(app);
     if (useAltScreen)
         terminal.write("\u001b[?1049h");
+    terminal.write("\u001b[?2004h");
     const exitCode = await new Promise((resolve) => {
         const originalStop = tui.stop.bind(tui);
         tui.stop = () => {
             originalStop();
+            terminal.write("\u001b[?2004l");
             if (useAltScreen)
                 terminal.write("\u001b[?1049l");
             resolve(lastExitCode);
@@ -866,7 +914,14 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             return lastExitCode;
         }
         if (prompt === "/help") {
-            stdout.write("commands: /help · /provider [url|key|model] · /exit (/quit)\n");
+            stdout.write("commands: /help · /provider [url|key|model] · /model [id|number] · /exit (/quit)\n");
+            rl.prompt();
+            continue;
+        }
+        if (prompt === "/model" || prompt.startsWith("/model ")) {
+            const applied = await applyModelCommand(options, process.env, prompt.slice("/model".length));
+            options = applied.options;
+            stdout.write(`${applied.message}\n`);
             rl.prompt();
             continue;
         }

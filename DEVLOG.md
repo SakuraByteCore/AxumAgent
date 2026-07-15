@@ -24,9 +24,10 @@ Work added:
 - Added TUI model discovery and switching: config can provide `models = [...]`, TUI defaults to the first configured/fetched model, OpenAI-compatible `/models` is used when the list is omitted even if a current model is already configured, `/provider url` and `/provider key` can save missing provider settings from inside TUI and immediately show the refreshed model list when fetch succeeds, `/provider models` lists models and `/provider model <id|number>` switches models by number/id, the empty input keeps an active cursor, ←/→ move the cursor for in-line edits, typing `/` shows a two-column command list with a selected item that `Tab` completes, and ↑/↓ recalls previous inputs when the slash command list is not active.
 - Moved raw TTY rendering/input onto `@earendil-works/pi-tui` and added xterm-backed TUI screenshot snapshot tests for the slash command palette and remote model list layout.
 - Reworked the TUI chrome toward Kilo/kilocode’s compact command/model picker style: tight title metadata, no fake tip/card, unified `▸` selection gutter, and updated screenshots as regression snapshots.
-- Removed the standalone `/model` TUI command and moved model listing/switching/custom model ids under `/provider models` and `/provider model <id|number>`, with provider config persistence.
+- Restored `/model` as the dynamic provider model command: `/model` fetches and lists current provider models, `/model <id|number>` refreshes then switches/saves, while `/provider model <id>` remains a custom-id persistence path.
 - Added raw TUI paste handling for `Shift+Insert`/bracketed paste and multi-character input chunks, with a TTY regression covering pasted prompt submission.
 - Capped long TUI model-list rendering so oversized provider model lists keep the first entries, current model, and hidden-count markers visible instead of pushing earlier models off-screen.
+- Split raw TUI transient Working status from persistent output so command results/model lists are not replaced by the Working indicator while a request is running.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.
