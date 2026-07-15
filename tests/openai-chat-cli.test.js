@@ -148,6 +148,13 @@ retry_delay_ms = 0
   }
 }
 
+async function testVersionFlag() {
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8"));
+  const result = await runCli(["--version"]);
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.strictEqual(result.stdout.trim(), pkg.version);
+}
+
 async function testOneLineProviderConfig() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
@@ -569,6 +576,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
 
 (async () => {
   await testBasicChatFromConfig();
+  await testVersionFlag();
   await testOneLineProviderConfig();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();

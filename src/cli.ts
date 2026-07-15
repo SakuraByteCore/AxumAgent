@@ -2,6 +2,7 @@ import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, res
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 import { createInterface } from "node:readline/promises";
 import type { Component as PiComponent, Focusable as PiFocusable } from "@earendil-works/pi-tui";
 
@@ -311,6 +312,16 @@ async function runInit(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
     }
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
     return 2;
+  }
+}
+
+function packageVersion(): string {
+  try {
+    const raw = fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8");
+    const parsed = JSON.parse(raw) as { version?: string };
+    return parsed.version || "0.0.0";
+  } catch {
+    return "0.0.0";
   }
 }
 
@@ -1356,6 +1367,10 @@ async function runTui(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wri
 }
 
 export async function runAxumCli(args: string[], env = process.env, stdout = process.stdout, stderr = process.stderr): Promise<AxumCliResult> {
+  if (args[0] === "--version" || args[0] === "-v") {
+    stdout.write(`${packageVersion()}\n`);
+    return { handled: true, exitCode: 0 };
+  }
   if (args[0] === "init") {
     return { handled: true, exitCode: await runInit(args.slice(1), env, stdout, stderr) };
   }

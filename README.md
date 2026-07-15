@@ -86,6 +86,7 @@ Config path resolution:
 npm test
 npm run pack:dry
 node bin/axum.js --help
+node bin/axum.js --version
 node bin/axum.js init --provider-config "https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini"
 node bin/axum.js chat "Say hello"
 node bin/axum.js tui --dry-run "Preview the terminal UI"

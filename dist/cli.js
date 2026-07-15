@@ -9,6 +9,7 @@ const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_http_1 = __importDefault(require("node:http"));
+const node_path_1 = __importDefault(require("node:path"));
 const promises_1 = require("node:readline/promises");
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -306,6 +307,16 @@ async function runInit(args, env, stdout, stderr) {
         }
         stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         return 2;
+    }
+}
+function packageVersion() {
+    try {
+        const raw = node_fs_1.default.readFileSync(node_path_1.default.resolve(__dirname, "..", "package.json"), "utf8");
+        const parsed = JSON.parse(raw);
+        return parsed.version || "0.0.0";
+    }
+    catch {
+        return "0.0.0";
     }
 }
 function htmlEscape(value) {
@@ -1357,6 +1368,10 @@ async function runTui(args, env, stdout, stderr) {
     return result.exitCode;
 }
 async function runAxumCli(args, env = process.env, stdout = process.stdout, stderr = process.stderr) {
+    if (args[0] === "--version" || args[0] === "-v") {
+        stdout.write(`${packageVersion()}\n`);
+        return { handled: true, exitCode: 0 };
+    }
     if (args[0] === "init") {
         return { handled: true, exitCode: await runInit(args.slice(1), env, stdout, stderr) };
     }

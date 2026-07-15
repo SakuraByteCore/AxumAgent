@@ -36,6 +36,7 @@ Work added:
 - Hardened `config-web` so env-referenced API keys stay as `env:...` in the page instead of exposing resolved secret values.
 - Added `axum doctor` for provider config and `/models` connectivity checks.
 - Added `axum init` for safe manual config creation with one-line provider setup and no overwrite unless `--force` is used.
+- Added `axum --version` / `-v` for installed CLI identification.
 - Added GitHub Actions CI for `npm test` and `npm run pack:dry` on push/PR to `main`.
 
 Validation:
