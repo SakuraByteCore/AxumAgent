@@ -23,6 +23,7 @@ The repository is TypeScript-only and npm-packaged as `axum-agent`. The previous
 
 ```bash
 npm install -g axum-agent
+# Install does not write config automatically; initialize explicitly:
 axum init --provider-config "https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini"
 axum config-web
 axum doctor

@@ -36,6 +36,7 @@ Work added:
 - Hardened `config-web` so env-referenced API keys stay as `env:...` and raw stored keys are not echoed into the page; leaving the key blank preserves the existing key.
 - Added `axum doctor` for provider config and `/models` connectivity checks, including `--json` output for scripts.
 - Added `axum init` for safe manual config creation with one-line provider setup and no overwrite unless `--force` is used.
+- Removed install-time config mutation; npm install no longer writes `~/.axum/config.toml`, and users initialize explicitly with `axum init`.
 - Added `axum --version` / `-v` for installed CLI identification.
 - Reworked top-level help around the product flow (`init` → `doctor` → `tui`) and separated config-web options from chat options.
 - Added GitHub Actions CI for `npm test` and `npm run pack:dry` on push/PR to `main`.

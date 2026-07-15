@@ -164,6 +164,11 @@ async function testHelpShowsProductFlow() {
   assert.match(result.stdout, /axum --version/);
 }
 
+async function testPackageInstallDoesNotMutateHome() {
+  const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", "package.json"), "utf8"));
+  assert.ok(!pkg.scripts?.postinstall, "package install should not write user config; use axum init explicitly");
+}
+
 async function testOneLineProviderConfig() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
@@ -650,6 +655,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testBasicChatFromConfig();
   await testVersionFlag();
   await testHelpShowsProductFlow();
+  await testPackageInstallDoesNotMutateHome();
   await testOneLineProviderConfig();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
