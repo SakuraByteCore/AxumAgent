@@ -239,22 +239,39 @@ function completeSlashCommand(input, selectedIndex) {
     const selected = matches[clampSelection(selectedIndex, matches.length)];
     return selected ? `${selected.name} ` : undefined;
 }
+function padCell(text, width) {
+    const plain = stripAnsi(text);
+    if (plain.length <= width)
+        return text + " ".repeat(width - plain.length);
+    return plain.slice(0, Math.max(0, width - 1)) + "…";
+}
 function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
     if (!input.startsWith("/"))
         return [];
     const matches = matchingSlashCommands(input);
-    if (matches.length === 0)
-        return ["╭─ commands ─╮", "│ no matches │", "╰────────────╯"];
+    if (matches.length === 0) {
+        const emptyWidth = Math.min(width, 42);
+        const inner = emptyWidth - 2;
+        return [`╭${"─".repeat(inner)}╮`, `│ ${padCell("no matching commands", inner - 2)} │`, `╰${"─".repeat(inner)}╯`];
+    }
     const selected = clampSelection(selectedIndex, matches.length);
     const labelWidth = Math.max(...matches.map((command) => command.name.length));
+    const desiredDescWidth = Math.max(...matches.map((command) => command.description.length));
+    const totalWidth = Math.min(width, Math.max(48, Math.min(width, labelWidth + desiredDescWidth + 12)));
+    const inner = totalWidth - 2;
+    const commandCellWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(inner * 0.4)));
+    const descCellWidth = Math.max(8, inner - commandCellWidth - 7);
+    const title = " commands ";
+    const titleRight = Math.max(0, inner - title.length);
+    const top = `╭${title}${"─".repeat(titleRight)}╮`;
+    const bottom = `╰${"─".repeat(inner)}╯`;
     const rows = matches.map((command, index) => {
         const marker = index === selected ? "›" : " ";
-        return `│ ${marker} ${command.name.padEnd(labelWidth)}  ${command.description} │`;
+        const commandCell = padCell(command.name, commandCellWidth);
+        const descCell = padCell(command.description, descCellWidth);
+        return `│ ${marker} ${commandCell} │ ${descCell} │`;
     });
-    const maxRow = Math.min(width - 2, Math.max(" commands ".length + 4, ...rows.map((row) => stripAnsi(row).length)));
-    const top = `╭${"─".repeat(Math.max(1, maxRow - 2))}╮`;
-    const bottom = `╰${"─".repeat(Math.max(1, maxRow - 2))}╯`;
-    return [top, ...rows.map((row) => clip(row, maxRow)), bottom];
+    return [top, ...rows, bottom];
 }
 function framed(lines, width = 88) {
     const inner = width - 4;

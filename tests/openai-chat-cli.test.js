@@ -185,9 +185,9 @@ async function testInteractiveTuiShowsSlashCommands() {
   const result = await runCli(["tui", "--dry-run"], {}, "/\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /commands/);
-  assert.match(result.stdout, /›\s+\/help\s+show commands/);
-  assert.match(result.stdout, /  \/provider\s+show or set provider url\/key/);
-  assert.match(result.stdout, /\/model\s+list or switch models/);
+  assert.match(result.stdout, /│ › \/help\s+│ show commands\s+│/);
+  assert.match(result.stdout, /│   \/provider\s+│ show or set provider url\/key\s+│/);
+  assert.match(result.stdout, /│   \/model\s+│ list or switch models\s+│/);
   assert.match(result.stdout, /^› █\s*$/m);
 }
 
