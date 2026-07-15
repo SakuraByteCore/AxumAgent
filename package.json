@@ -21,7 +21,7 @@
     "@earendil-works/pi-tui": "0.80.7",
     "@iarna/toml": "^2.2.5"
   },
-  "description": "TypeScript CLI agent prototype with OpenAI Chat-compatible provider support",
+  "description": "OpenAI-compatible CLI agent with terminal UI, provider setup, and readiness checks",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SakuraByteCore/AxumAgent.git"
@@ -36,7 +36,11 @@
     "openai",
     "openai-compatible",
     "chat-completions",
-    "typescript"
+    "typescript",
+    "tui",
+    "terminal-ui",
+    "provider",
+    "diagnostics"
   ],
   "engines": {
     "node": ">=20"
