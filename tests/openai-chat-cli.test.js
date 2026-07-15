@@ -298,7 +298,7 @@ retry_delay_ms = 0
 }
 
 async function testInteractiveTuiWorkingTimer() {
-  const { server, requests, port } = await startMockServer({ delayMs: 1200 });
+  const { server, requests, port } = await startMockServer({ delayMs: 1800 });
   const cfg = writeConfig(`
 model = "mock-model"
 provider = "openai-chat"
