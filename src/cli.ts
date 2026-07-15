@@ -209,8 +209,7 @@ const SLASH_COMMANDS = [
   { name: "/help", description: "show commands" },
   { name: "/provider", description: "show or set provider url/key" },
   { name: "/model", description: "list or switch models" },
-  { name: "/exit", description: "exit TUI" },
-  { name: "/quit", description: "exit TUI" },
+  { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 
 function wrap(text: string, width: number): string[] {
@@ -237,10 +236,18 @@ function slashCommandQuery(input: string): string {
   return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
 }
 
+function slashCommandLabels(command: (typeof SLASH_COMMANDS)[number]): string[] {
+  return [command.name, ...(command.aliases ?? [])];
+}
+
+function slashCommandDisplayName(command: (typeof SLASH_COMMANDS)[number]): string {
+  return slashCommandLabels(command).join(" / ");
+}
+
 function matchingSlashCommands(input: string): typeof SLASH_COMMANDS {
   if (!input.startsWith("/")) return [];
   const query = slashCommandQuery(input);
-  return SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(query));
+  return SLASH_COMMANDS.filter((command) => slashCommandLabels(command).some((label) => label.slice(1).startsWith(query)));
 }
 
 function clampSelection(index: number, count: number): number {
@@ -251,7 +258,10 @@ function clampSelection(index: number, count: number): number {
 function completeSlashCommand(input: string, selectedIndex: number): string | undefined {
   const matches = matchingSlashCommands(input);
   const selected = matches[clampSelection(selectedIndex, matches.length)];
-  return selected ? `${selected.name} ` : undefined;
+  if (!selected) return undefined;
+  const query = slashCommandQuery(input);
+  const completed = slashCommandLabels(selected).find((label) => label.slice(1).startsWith(query)) ?? selected.name;
+  return `${completed} `;
 }
 
 function padCell(text: string, width: number): string {
@@ -270,7 +280,7 @@ function renderSlashCommandSuggestions(input: string, width: number, selectedInd
   }
 
   const selected = clampSelection(selectedIndex, matches.length);
-  const labelWidth = Math.max(...matches.map((command) => command.name.length));
+  const labelWidth = Math.max(...matches.map((command) => slashCommandDisplayName(command).length));
   const desiredDescWidth = Math.max(...matches.map((command) => command.description.length));
   const totalWidth = Math.min(width, Math.max(48, Math.min(width, labelWidth + desiredDescWidth + 12)));
   const inner = totalWidth - 2;
@@ -282,7 +292,7 @@ function renderSlashCommandSuggestions(input: string, width: number, selectedInd
   const bottom = `╰${"─".repeat(inner)}╯`;
   const rows = matches.map((command, index) => {
     const marker = index === selected ? "›" : " ";
-    const commandCell = padCell(command.name, commandCellWidth);
+    const commandCell = padCell(slashCommandDisplayName(command), commandCellWidth);
     const descCell = padCell(command.description, descCellWidth);
     return `│ ${marker} ${commandCell} │ ${descCell} │`;
   });
@@ -636,7 +646,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         }
         if (prompt === "/exit" || prompt === "/quit") return lastExitCode;
         if (prompt === "/help") {
-          answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit";
+          answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
           repaint();
           continue;
         }
@@ -724,7 +734,7 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit\n");
+      stdout.write("commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)\n");
       rl.prompt();
       continue;
     }

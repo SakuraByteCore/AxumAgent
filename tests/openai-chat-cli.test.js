@@ -188,6 +188,8 @@ async function testInteractiveTuiShowsSlashCommands() {
   assert.match(result.stdout, /│ › \/help\s+│ show commands\s+│/);
   assert.match(result.stdout, /│   \/provider\s+│ show or set provider url\/key\s+│/);
   assert.match(result.stdout, /│   \/model\s+│ list or switch models\s+│/);
+  assert.match(result.stdout, /│   \/exit \/ \/quit\s+│ exit TUI\s+│/);
+  assert.doesNotMatch(result.stdout, /│   \/quit\s+│ exit TUI\s+│/);
   assert.match(result.stdout, /^› █\s*$/m);
 }
 

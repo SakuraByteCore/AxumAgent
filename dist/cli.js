@@ -193,8 +193,7 @@ const SLASH_COMMANDS = [
     { name: "/help", description: "show commands" },
     { name: "/provider", description: "show or set provider url/key" },
     { name: "/model", description: "list or switch models" },
-    { name: "/exit", description: "exit TUI" },
-    { name: "/quit", description: "exit TUI" },
+    { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 function wrap(text, width) {
     const words = text.split(/\s+/g).filter(Boolean);
@@ -223,11 +222,17 @@ function slashCommandQuery(input) {
         return "";
     return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
 }
+function slashCommandLabels(command) {
+    return [command.name, ...(command.aliases ?? [])];
+}
+function slashCommandDisplayName(command) {
+    return slashCommandLabels(command).join(" / ");
+}
 function matchingSlashCommands(input) {
     if (!input.startsWith("/"))
         return [];
     const query = slashCommandQuery(input);
-    return SLASH_COMMANDS.filter((command) => command.name.slice(1).startsWith(query));
+    return SLASH_COMMANDS.filter((command) => slashCommandLabels(command).some((label) => label.slice(1).startsWith(query)));
 }
 function clampSelection(index, count) {
     if (count <= 0)
@@ -237,7 +242,11 @@ function clampSelection(index, count) {
 function completeSlashCommand(input, selectedIndex) {
     const matches = matchingSlashCommands(input);
     const selected = matches[clampSelection(selectedIndex, matches.length)];
-    return selected ? `${selected.name} ` : undefined;
+    if (!selected)
+        return undefined;
+    const query = slashCommandQuery(input);
+    const completed = slashCommandLabels(selected).find((label) => label.slice(1).startsWith(query)) ?? selected.name;
+    return `${completed} `;
 }
 function padCell(text, width) {
     const plain = stripAnsi(text);
@@ -255,7 +264,7 @@ function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
         return [`╭${"─".repeat(inner)}╮`, `│ ${padCell("no matching commands", inner - 2)} │`, `╰${"─".repeat(inner)}╯`];
     }
     const selected = clampSelection(selectedIndex, matches.length);
-    const labelWidth = Math.max(...matches.map((command) => command.name.length));
+    const labelWidth = Math.max(...matches.map((command) => slashCommandDisplayName(command).length));
     const desiredDescWidth = Math.max(...matches.map((command) => command.description.length));
     const totalWidth = Math.min(width, Math.max(48, Math.min(width, labelWidth + desiredDescWidth + 12)));
     const inner = totalWidth - 2;
@@ -267,7 +276,7 @@ function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
     const bottom = `╰${"─".repeat(inner)}╯`;
     const rows = matches.map((command, index) => {
         const marker = index === selected ? "›" : " ";
-        const commandCell = padCell(command.name, commandCellWidth);
+        const commandCell = padCell(slashCommandDisplayName(command), commandCellWidth);
         const descCell = padCell(command.description, descCellWidth);
         return `│ ${marker} ${commandCell} │ ${descCell} │`;
     });
@@ -632,7 +641,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
                 if (prompt === "/exit" || prompt === "/quit")
                     return lastExitCode;
                 if (prompt === "/help") {
-                    answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit";
+                    answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
                     repaint();
                     continue;
                 }
@@ -723,7 +732,7 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             return lastExitCode;
         }
         if (prompt === "/help") {
-            stdout.write("commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit\n");
+            stdout.write("commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)\n");
             rl.prompt();
             continue;
         }
