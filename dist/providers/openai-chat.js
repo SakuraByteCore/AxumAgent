@@ -29,6 +29,7 @@ class OpenAIChatProvider {
     temperature;
     maxRetries;
     retryDelayMs;
+    requestTimeoutMs;
     fetchImpl;
     constructor(options) {
         this.baseUrl = normalizeBaseUrl(options.baseUrl ?? "https://api.openai.com/v1");
@@ -37,6 +38,7 @@ class OpenAIChatProvider {
         this.temperature = options.temperature;
         this.maxRetries = options.maxRetries ?? 10;
         this.retryDelayMs = options.retryDelayMs ?? 250;
+        this.requestTimeoutMs = options.requestTimeoutMs ?? 600_000;
         this.fetchImpl = options.fetchImpl ?? fetch;
         if (!this.model)
             throw new Error("model is required");
@@ -48,21 +50,54 @@ class OpenAIChatProvider {
         if (!Number.isInteger(this.retryDelayMs) || this.retryDelayMs < 0) {
             throw new Error("retryDelayMs must be a non-negative integer");
         }
+        if (!Number.isInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 0) {
+            throw new Error("requestTimeoutMs must be a non-negative integer");
+        }
     }
-    async listModels() {
-        let response;
+    async withRequestTimeout(label, run, externalSignal) {
+        if (externalSignal?.aborted)
+            throw new Error(`${label} cancelled`);
+        if (this.requestTimeoutMs === 0)
+            return run(externalSignal);
+        const controller = new AbortController();
+        const abortFromExternal = () => controller.abort(externalSignal?.reason);
+        externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+        const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs);
         try {
-            response = await this.fetchImpl(`${this.baseUrl}/models`, {
-                method: "GET",
-                headers: { "authorization": `Bearer ${this.apiKey}` },
-            });
+            return await run(controller.signal);
         }
         catch (error) {
-            throw new RetryableOpenAIChatError(`OpenAI Models request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+            if (externalSignal?.aborted) {
+                throw new Error(`${label} cancelled`);
+            }
+            if (controller.signal.aborted) {
+                throw new Error(`${label} timed out after ${this.requestTimeoutMs}ms`);
+            }
+            throw error;
         }
-        const raw = await readResponseBody(response);
+        finally {
+            clearTimeout(timer);
+            externalSignal?.removeEventListener("abort", abortFromExternal);
+        }
+    }
+    async listModels() {
+        const raw = await this.withRequestTimeout("OpenAI Models request", async (signal) => {
+            let response;
+            try {
+                response = await this.fetchImpl(`${this.baseUrl}/models`, {
+                    method: "GET",
+                    headers: { "authorization": `Bearer ${this.apiKey}` },
+                    signal,
+                });
+            }
+            catch (error) {
+                throw new RetryableOpenAIChatError(`OpenAI Models request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            return { response, raw: await readResponseBody(response) };
+        });
+        const { response } = raw;
         if (!response.ok) {
-            const err = raw;
+            const err = raw.raw;
             const message = typeof err === "object" && err && "error" in err
                 ? err.error?.message
                 : typeof err === "string"
@@ -70,14 +105,14 @@ class OpenAIChatProvider {
                     : response.statusText;
             throw new Error(`OpenAI Models request failed (${response.status}): ${message || response.statusText}`);
         }
-        const json = raw;
+        const json = raw.raw;
         return (json.data ?? []).map((model) => model.id).filter((id) => typeof id === "string" && id.length > 0);
     }
-    async chat(messages) {
+    async chat(messages, signal) {
         let lastError;
         for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
             try {
-                return await this.chatOnce(messages);
+                return await this.chatOnce(messages, signal);
             }
             catch (error) {
                 lastError = error instanceof Error ? error : new Error(String(error));
@@ -89,11 +124,11 @@ class OpenAIChatProvider {
         }
         throw lastError ?? new Error("OpenAI Chat request failed");
     }
-    async chatStream(messages, onDelta) {
+    async chatStream(messages, onDelta, signal) {
         let lastError;
         for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
             try {
-                return await this.chatStreamOnce(messages, onDelta);
+                return await this.chatStreamOnce(messages, onDelta, signal);
             }
             catch (error) {
                 lastError = error instanceof Error ? error : new Error(String(error));
@@ -105,26 +140,30 @@ class OpenAIChatProvider {
         }
         throw lastError ?? new Error("OpenAI Chat stream request failed");
     }
-    async chatOnce(messages) {
-        let response;
-        try {
-            response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-                method: "POST",
-                headers: {
-                    "authorization": `Bearer ${this.apiKey}`,
-                    "content-type": "application/json",
-                },
-                body: JSON.stringify({
-                    model: this.model,
-                    messages,
-                    ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
-                }),
-            });
-        }
-        catch (error) {
-            throw new RetryableOpenAIChatError(`OpenAI Chat request transport failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        const raw = await readResponseBody(response);
+    async chatOnce(messages, signal) {
+        const request = await this.withRequestTimeout("OpenAI Chat request", async (requestSignal) => {
+            let response;
+            try {
+                response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+                    method: "POST",
+                    headers: {
+                        "authorization": `Bearer ${this.apiKey}`,
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        model: this.model,
+                        messages,
+                        ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
+                    }),
+                    signal: requestSignal,
+                });
+            }
+            catch (error) {
+                throw new RetryableOpenAIChatError(`OpenAI Chat request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            return { response, raw: await readResponseBody(response) };
+        }, signal);
+        const { response, raw } = request;
         if (!response.ok) {
             const err = raw;
             const message = typeof err === "object" && err && "error" in err
@@ -144,45 +183,48 @@ class OpenAIChatProvider {
             raw: json,
         };
     }
-    async chatStreamOnce(messages, onDelta) {
-        let response;
-        try {
-            response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
-                method: "POST",
-                headers: {
-                    "authorization": `Bearer ${this.apiKey}`,
-                    "content-type": "application/json",
-                },
-                body: JSON.stringify({
-                    model: this.model,
-                    messages,
-                    stream: true,
-                    ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
-                }),
-            });
-        }
-        catch (error) {
-            throw new RetryableOpenAIChatError(`OpenAI Chat stream request transport failed: ${error instanceof Error ? error.message : String(error)}`);
-        }
-        if (!response.ok) {
-            const raw = await readResponseBody(response);
-            const err = raw;
-            const message = typeof err === "object" && err && "error" in err
-                ? err.error?.message
-                : typeof err === "string"
-                    ? err
-                    : response.statusText;
-            const errorText = `OpenAI Chat stream request failed (${response.status}): ${message || response.statusText}`;
-            if (isRetryableStatus(response.status))
-                throw new RetryableOpenAIChatError(errorText);
-            throw new Error(errorText);
-        }
-        if (!response.body)
-            throw new Error("OpenAI Chat stream response did not include a body");
-        const content = await readSseContent(response.body, onDelta);
-        if (!content)
-            throw new Error("OpenAI Chat stream response did not contain delta content");
-        return { model: this.model, content, raw: { streamed: true } };
+    async chatStreamOnce(messages, onDelta, signal) {
+        return this.withRequestTimeout("OpenAI Chat stream request", async (requestSignal) => {
+            let response;
+            try {
+                response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
+                    method: "POST",
+                    headers: {
+                        "authorization": `Bearer ${this.apiKey}`,
+                        "content-type": "application/json",
+                    },
+                    body: JSON.stringify({
+                        model: this.model,
+                        messages,
+                        stream: true,
+                        ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
+                    }),
+                    signal: requestSignal,
+                });
+            }
+            catch (error) {
+                throw new RetryableOpenAIChatError(`OpenAI Chat stream request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+            }
+            if (!response.ok) {
+                const raw = await readResponseBody(response);
+                const err = raw;
+                const message = typeof err === "object" && err && "error" in err
+                    ? err.error?.message
+                    : typeof err === "string"
+                        ? err
+                        : response.statusText;
+                const errorText = `OpenAI Chat stream request failed (${response.status}): ${message || response.statusText}`;
+                if (isRetryableStatus(response.status))
+                    throw new RetryableOpenAIChatError(errorText);
+                throw new Error(errorText);
+            }
+            if (!response.body)
+                throw new Error("OpenAI Chat stream response did not include a body");
+            const content = await readSseContent(response.body, onDelta);
+            if (!content)
+                throw new Error("OpenAI Chat stream response did not contain delta content");
+            return { model: this.model, content, raw: { streamed: true } };
+        }, signal);
     }
 }
 exports.OpenAIChatProvider = OpenAIChatProvider;

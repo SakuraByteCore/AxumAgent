@@ -17,6 +17,10 @@ export interface ProviderConfig {
   maxRetries?: number;
   retry_delay_ms?: number;
   retryDelayMs?: number;
+  request_timeout_ms?: number;
+  requestTimeoutMs?: number;
+  provider_config?: string;
+  providerConfig?: string;
 }
 
 export interface AxumConfig {
@@ -24,6 +28,8 @@ export interface AxumConfig {
   models?: string[];
   provider?: string;
   providers?: Record<string, ProviderConfig>;
+  provider_config?: string;
+  providerConfig?: string;
 }
 
 export interface LoadedConfig {

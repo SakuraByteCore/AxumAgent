@@ -14,6 +14,7 @@ function defaultConfigTemplate() {
     "# Created automatically during install if missing.",
     "",
     'provider = "openai-chat"',
+    '# Optional one-line equivalent: provider_config = "https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini"',
     "",
     '[providers.openai-chat]',
     'type = "openai-chat"',
@@ -22,6 +23,7 @@ function defaultConfigTemplate() {
     'models = ["gpt-4o-mini"]',
     "max_retries = 10",
     "retry_delay_ms = 250",
+    "request_timeout_ms = 600000",
     "",
   ].join("\n");
 }

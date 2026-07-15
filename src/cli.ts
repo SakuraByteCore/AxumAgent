@@ -20,6 +20,7 @@ interface ChatCommandOptions {
   temperature?: number;
   maxRetries: number;
   retryDelayMs: number;
+  requestTimeoutMs: number;
   configPath?: string;
   json: boolean;
 }
@@ -29,11 +30,29 @@ const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_API_KEY_ENV = "OPENAI_API_KEY";
 const DEFAULT_MAX_RETRIES = 10;
 const DEFAULT_RETRY_DELAY_MS = 250;
+const DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
+const DEFAULT_SYSTEM_PROMPT = [
+  "You are AxumAgent, a concise terminal assistant.",
+  "Answer in the user's language by default.",
+  "For short, ambiguous, or chat-like inputs, respond naturally and briefly instead of expanding into a dictionary, encyclopedia, or list of interpretations.",
+  "Only provide detailed explanations, examples, or multiple interpretations when the user asks for them.",
+].join(" ");
 
 function takeValue(args: string[], index: number, flag: string): string {
   const value = args[index + 1];
   if (!value || value.startsWith("--")) throw new Error(`${flag} requires a value`);
   return value;
+}
+
+function defaultSystemPrompt(): string {
+  return DEFAULT_SYSTEM_PROMPT;
+}
+
+function buildChatMessages(options: ChatCommandOptions): ChatMessage[] {
+  const messages: ChatMessage[] = [];
+  messages.push({ role: "system", content: options.system || defaultSystemPrompt() });
+  messages.push({ role: "user", content: options.prompt });
+  return messages;
 }
 
 function parseTemperature(value: string): number {
@@ -52,6 +71,17 @@ function parseNonNegativeInteger(value: string, flag: string): number {
   return num;
 }
 
+function parseProviderConfigLine(value: string | undefined, source: string): { baseUrl?: string; apiKey?: string; model?: string } {
+  if (!value) return {};
+  const parts = value.trim().split(/\s+/g).filter(Boolean);
+  if (parts.length === 0) return {};
+  if (parts.length < 3) throw new Error(`${source} must be: <base_url> <api_key|env:VAR> <model>`);
+  const [baseUrl, apiKey, ...modelParts] = parts;
+  const model = modelParts.join(" ").trim();
+  if (!baseUrl || !apiKey || !model) throw new Error(`${source} must be: <base_url> <api_key|env:VAR> <model>`);
+  return { baseUrl, apiKey, model };
+}
+
 function extractConfigPath(args: string[]): { configPath?: string; args: string[] } {
   const next: string[] = [];
   let configPath: string | undefined;
@@ -68,7 +98,7 @@ function extractConfigPath(args: string[]): { configPath?: string; args: string[
 }
 
 function hasPositionalPrompt(args: string[]): boolean {
-  const flagsWithValues = new Set(["--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms"]);
+  const flagsWithValues = new Set(["--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms", "--request-timeout-ms"]);
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
     if (flagsWithValues.has(arg)) {
@@ -86,11 +116,14 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
   const provider = selectedProvider(config).config;
   const rest: string[] = [];
   const configuredModels = [...(config?.models ?? []), ...(provider?.models ?? [])].filter((model): model is string => typeof model === "string" && model.length > 0);
-  let model = config?.model || provider?.model || configuredModels[0] || env.AXUM_MODEL || DEFAULT_MODEL;
-  let modelWasExplicit = Boolean(config?.model || provider?.model || configuredModels[0] || env.AXUM_MODEL);
-  let baseUrl = provider?.base_url || provider?.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
+  const rootProviderLine = parseProviderConfigLine(config?.provider_config ?? config?.providerConfig, "provider_config");
+  const providerLine = parseProviderConfigLine(provider?.provider_config ?? provider?.providerConfig, "providers.openai-chat.provider_config");
+  const oneLineConfig = { ...rootProviderLine, ...providerLine };
+  let model = config?.model || provider?.model || oneLineConfig.model || configuredModels[0] || env.AXUM_MODEL || DEFAULT_MODEL;
+  let modelWasExplicit = Boolean(config?.model || provider?.model || oneLineConfig.model || configuredModels[0] || env.AXUM_MODEL);
+  let baseUrl = provider?.base_url || provider?.baseUrl || oneLineConfig.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
   let apiKeyEnv = provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
-  let apiKey: string | undefined = resolveSecret(provider?.api_key || provider?.apiKey, env);
+  let apiKey: string | undefined = resolveSecret(provider?.api_key || provider?.apiKey || oneLineConfig.apiKey, env);
   let system: string | undefined;
   let temperature: number | undefined;
   let maxRetries = numberFromConfig(provider?.max_retries ?? provider?.maxRetries) ?? (env.AXUM_OPENAI_MAX_RETRIES
@@ -99,6 +132,9 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
   let retryDelayMs = numberFromConfig(provider?.retry_delay_ms ?? provider?.retryDelayMs) ?? (env.AXUM_OPENAI_RETRY_DELAY_MS
     ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_DELAY_MS, "AXUM_OPENAI_RETRY_DELAY_MS")
     : DEFAULT_RETRY_DELAY_MS);
+  let requestTimeoutMs = numberFromConfig(provider?.request_timeout_ms ?? provider?.requestTimeoutMs) ?? (env.AXUM_OPENAI_REQUEST_TIMEOUT_MS
+    ? parseNonNegativeInteger(env.AXUM_OPENAI_REQUEST_TIMEOUT_MS, "AXUM_OPENAI_REQUEST_TIMEOUT_MS")
+    : DEFAULT_REQUEST_TIMEOUT_MS);
   let json = false;
 
   for (let i = 0; i < args.length; i += 1) {
@@ -128,6 +164,9 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
     } else if (arg === "--retry-delay-ms") {
       retryDelayMs = parseNonNegativeInteger(takeValue(args, i, arg), arg);
       i += 1;
+    } else if (arg === "--request-timeout-ms") {
+      requestTimeoutMs = parseNonNegativeInteger(takeValue(args, i, arg), arg);
+      i += 1;
     } else if (arg === "--json") {
       json = true;
     } else if (arg === "--help" || arg === "-h") {
@@ -154,6 +193,7 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
     temperature,
     maxRetries,
     retryDelayMs,
+    requestTimeoutMs,
     configPath: loaded?.path || resolveConfigPath(env, configPath),
     json,
   };
@@ -183,13 +223,14 @@ export function renderHelp(): string {
     "      --temperature <0..2>  Optional temperature",
     "      --max-retries <n>     Retry transient failures (default: AXUM_OPENAI_MAX_RETRIES or 10)",
     "      --retry-delay-ms <n>  Base retry delay in milliseconds (default: AXUM_OPENAI_RETRY_DELAY_MS or 250)",
+    "      --request-timeout-ms <n>  Request timeout in milliseconds; 0 disables (default: AXUM_OPENAI_REQUEST_TIMEOUT_MS or 600000)",
     "      --json                Print provider result as JSON",
     "      --dry-run             Render the terminal UI without calling a provider (tui only)",
     "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
     "  -h, --help               Show this help",
     "",
     "Environment:",
-    "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_DELAY_MS",
+    "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_DELAY_MS, AXUM_OPENAI_REQUEST_TIMEOUT_MS",
     "",
     "Config:",
     `  Default path: ${defaultConfigPath()}`,
@@ -374,6 +415,7 @@ async function hydrateTuiModelsWithStatus(options: ChatCommandOptions, dryRun: b
       temperature: options.temperature,
       maxRetries: options.maxRetries,
       retryDelayMs: options.retryDelayMs,
+      requestTimeoutMs: options.requestTimeoutMs,
     });
     const fetched = uniqueModels(await provider.listModels());
     if (fetched.length === 0) return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
@@ -394,6 +436,7 @@ async function fetchTuiModelsWithStatus(options: ChatCommandOptions): Promise<{ 
       temperature: options.temperature,
       maxRetries: options.maxRetries,
       retryDelayMs: options.retryDelayMs,
+      requestTimeoutMs: options.requestTimeoutMs,
     });
     const fetched = uniqueModels(await provider.listModels());
     if (fetched.length === 0) return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
@@ -478,7 +521,7 @@ function providerStatus(options: ChatCommandOptions): string {
     `provider url: ${options.baseUrl}`,
     `provider key: ${maskSecret(options.apiKey)}`,
     `config: ${options.configPath ?? defaultConfigPath()}`,
-    "commands: /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number]",
+    "commands: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number]",
   ].join("\n");
 }
 
@@ -513,9 +556,24 @@ async function applyProviderCommand(options: ChatCommandOptions, env: NodeJS.Pro
     const next = parseChatArgs([], env, saved, saved.path, false);
     return { options: next, message: `${switched.message}\nprovider model saved to ${saved.path}` };
   }
+  const setMatch = trimmed.match(/^set\s+(\S+)\s+(\S+)\s+(\S+)$/i);
+  if (setMatch) {
+    const [, baseUrl, apiKey, model] = setMatch;
+    const saved = saveOpenAIProviderConfig(env, options.configPath, {
+      base_url: baseUrl,
+      api_key: apiKey,
+      model,
+      models: [model],
+    });
+    let next = parseChatArgs([], env, saved, saved.path, false);
+    const hydrated = await hydrateTuiModelsWithStatus(next, false);
+    next = hydrated.options;
+    const fetchNote = hydrated.error ? `model list fetch failed: ${hydrated.error}` : "model list refreshed";
+    return { options: next, message: `provider saved to ${saved.path}\n${fetchNote}\nmodel ${next.model}` };
+  }
   const match = trimmed.match(/^(url|base-url|key|api-key)\s+(.+)$/i);
   if (!match) {
-    return { options, message: "usage: /provider url <url> · /provider key <key> · /provider model <id|number>" };
+    return { options, message: "usage: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number>" };
   }
   const kind = match[1].toLowerCase();
   const rawValue = match[2].trim();
@@ -554,9 +612,7 @@ async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
     return 2;
   }
 
-  const messages: ChatMessage[] = [];
-  if (options.system) messages.push({ role: "system", content: options.system });
-  messages.push({ role: "user", content: options.prompt });
+  const messages = buildChatMessages(options);
 
   try {
     const provider = new OpenAIChatProvider({
@@ -566,6 +622,7 @@ async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
       temperature: options.temperature,
       maxRetries: options.maxRetries,
       retryDelayMs: options.retryDelayMs,
+      requestTimeoutMs: options.requestTimeoutMs,
     });
     const result = await provider.chat(messages);
     if (options.json) {
@@ -593,15 +650,16 @@ async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): P
       temperature: options.temperature,
       maxRetries: options.maxRetries,
       retryDelayMs: options.retryDelayMs,
+      requestTimeoutMs: options.requestTimeoutMs,
     });
-    const result = await provider.chat([{ role: "user", content: options.prompt }]);
+    const result = await provider.chat(buildChatMessages(options));
     return { answer: result.content, exitCode: 0 };
   } catch (error) {
     return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
   }
 }
 
-async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boolean, onDelta: (answer: string) => void): Promise<{ answer: string; exitCode: number }> {
+async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boolean, onDelta: (answer: string) => void, signal?: AbortSignal): Promise<{ answer: string; exitCode: number }> {
   if (dryRun) return { answer: "dry-run: provider call skipped", exitCode: 0 };
   if (!options.apiKey) {
     return { answer: "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"", exitCode: 2 };
@@ -614,12 +672,13 @@ async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boole
       temperature: options.temperature,
       maxRetries: options.maxRetries,
       retryDelayMs: options.retryDelayMs,
+      requestTimeoutMs: options.requestTimeoutMs,
     });
     let streamed = "";
-    const result = await provider.chatStream([{ role: "user", content: options.prompt }], (delta) => {
+    const result = await provider.chatStream(buildChatMessages(options), (delta) => {
       streamed += delta;
       onDelta(streamed);
-    });
+    }, signal);
     return { answer: result.content, exitCode: 0 };
   } catch (error) {
     return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
@@ -650,6 +709,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   let draftInputBeforeHistory = "";
   let stopped = false;
   let busy = false;
+  let activeRequestController: AbortController | undefined;
   let isBracketedPaste = false;
   let pasteBuffer = "";
 
@@ -738,7 +798,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return;
     }
     if (prompt === "/help") {
-      answer = "commands: /help · /provider [url|key|model] · /model [id|number] · /exit (/quit)";
+      answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /exit (/quit)";
       status = undefined;
       requestRender();
       return;
@@ -779,6 +839,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     }
 
     busy = true;
+    activeRequestController = new AbortController();
     const startedAt = Date.now();
     status = workingStatus(startedAt);
     requestRender();
@@ -790,11 +851,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
         answer = streamed;
         requestRender();
-      });
-      answer = result.answer;
+      }, activeRequestController.signal);
+      const wasCancelled = activeRequestController.signal.aborted;
+      answer = wasCancelled ? "request cancelled; ready for the next prompt" : result.answer;
       status = undefined;
-      lastExitCode = result.exitCode;
+      lastExitCode = wasCancelled ? 0 : result.exitCode;
     } finally {
+      activeRequestController = undefined;
       busy = false;
       status = undefined;
       clearInterval(timer);
@@ -803,6 +866,12 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   }
 
   async function handlePiInput(data: string): Promise<void> {
+    if (busy && (pi.matchesKey(data, pi.Key.ctrl("c")) || data === "\u001b")) {
+      activeRequestController?.abort();
+      status = "• Cancelling request…";
+      requestRender();
+      return;
+    }
     if (pi.matchesKey(data, pi.Key.ctrl("c"))) {
       stop(lastExitCode);
       return;
@@ -926,7 +995,7 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /provider [url|key|model] · /model [id|number] · /exit (/quit)\n");
+      stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /exit (/quit)\n");
       rl.prompt();
       continue;
     }

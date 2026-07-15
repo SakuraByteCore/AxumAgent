@@ -47,6 +47,8 @@ AxumAgent reads user-level config instead of project-local config by default. In
 ```toml
 # ~/.axum/config.toml
 provider = "openai-chat"
+# One-line shortcut, equivalent to base_url + api_key + model:
+# provider_config = "https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini"
 
 [providers.openai-chat]
 type = "openai-chat"
@@ -55,6 +57,7 @@ api_key = "env:OPENAI_API_KEY"
 models = ["gpt-4o-mini"]
 max_retries = 10
 retry_delay_ms = 250
+request_timeout_ms = 600000
 ```
 
 Config path resolution:
@@ -63,7 +66,7 @@ Config path resolution:
 2. `AXUM_CONFIG=/path/to/config.toml`
 3. `~/.axum/config.toml`
 
-`api_key` may be a literal key or an environment reference such as `env:OPENAI_API_KEY`. `models` is the TUI model list; when no explicit `model`/`--model` is set, `axum tui` selects the first configured model. If the list is omitted and a provider key is available, TUI tries `GET /models` even when a current model is already configured, fills the provider model list from the response, and only auto-selects the first returned model when no model was explicitly configured. Use `/provider url <url>` and `/provider key <key>` inside TUI to save missing provider settings. Use `/model` to dynamically fetch and list provider models, then `/model 2` or `/model <id>` to switch and save the model selection. `/provider model <id>` remains available for saving a custom model id under the current provider without fetching. The TUI input keeps an active cursor by default, ←/→ move the cursor for in-line edits, `Shift+Insert`/bracketed paste inserts pasted text, typing `/` shows a two-column command list with a selected item, `Tab` completes the selected slash command, and ↑/↓ recalls prior inputs when the slash command list is not active.
+`api_key` may be a literal key or an environment reference such as `env:OPENAI_API_KEY`. For quick setup, `provider_config = "<base_url> <api_key|env:VAR> <model>"` can configure url/key/model in one line. `models` is the TUI model list; when no explicit `model`/`--model` is set, `axum tui` selects the first configured model. If the list is omitted and a provider key is available, TUI tries `GET /models` even when a current model is already configured, fills the provider model list from the response, and only auto-selects the first returned model when no model was explicitly configured. Use `/provider set <url> <key> <model>` inside TUI to save all three fields at once, or `/provider url <url>` and `/provider key <key>` for separate updates. Use `/model` to dynamically fetch and list provider models, then `/model 2` or `/model <id>` to switch and save the model selection. `/provider model <id>` remains available for saving a custom model id under the current provider without fetching. The TUI input keeps an active cursor by default, ←/→ move the cursor for in-line edits, `Shift+Insert`/bracketed paste inserts pasted text, typing `/` shows a two-column command list with a selected item, `Tab` completes the selected slash command, and ↑/↓ recalls prior inputs when the slash command list is not active.
 
 ## CLI examples
 
@@ -78,6 +81,7 @@ node bin/axum.js tui --no-alt-screen --dry-run
 node bin/axum.js tui "Say hello in the terminal UI"
 node bin/axum.js chat --config ~/.axum/config.toml "Say hello"
 node bin/axum.js chat --max-retries 3 "Retry a flaky request"
+node bin/axum.js chat --request-timeout-ms 900000 "Run a longer request"
 ```
 
 `axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`.
@@ -91,6 +95,7 @@ Useful environment variables:
 - `AXUM_OPENAI_API_KEY_ENV`: fallback env var name for API keys.
 - `AXUM_OPENAI_MAX_RETRIES`: fallback retry count for transient failures, otherwise `10`.
 - `AXUM_OPENAI_RETRY_DELAY_MS`: fallback base retry delay in milliseconds, otherwise `250`.
+- `AXUM_OPENAI_REQUEST_TIMEOUT_MS`: request timeout in milliseconds, otherwise `600000`; set `0` to disable.
 
 ## Safety boundary
 

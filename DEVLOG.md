@@ -28,6 +28,10 @@ Work added:
 - Added raw TUI paste handling for `Shift+Insert`/bracketed paste and multi-character input chunks, with a TTY regression covering pasted prompt submission.
 - Capped long TUI model-list rendering so oversized provider model lists keep the first entries, current model, and hidden-count markers visible instead of pushing earlier models off-screen.
 - Split raw TUI transient Working status from persistent output so command results/model lists are not replaced by the Working indicator while a request is running.
+- Added a default concise AxumAgent system prompt for `chat` and TUI provider calls so short or ambiguous inputs stay natural and brief instead of turning into encyclopedia-style explanations; explicit `--system` still overrides it.
+- Added configurable provider request timeouts (`request_timeout_ms`, `--request-timeout-ms`, `AXUM_OPENAI_REQUEST_TIMEOUT_MS`) with a 10-minute default and `0` disable option so long requests fail predictably instead of hanging indefinitely.
+- Changed raw TUI busy-state interrupt handling so `Esc`/`Ctrl-C` cancels only the active provider request and returns to the prompt instead of exiting the TUI during a request.
+- Added one-line provider setup via config `provider_config = "<base_url> <api_key|env:VAR> <model>"` and TUI `/provider set <url> <key> <model>`.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.

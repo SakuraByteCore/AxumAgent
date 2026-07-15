@@ -121,6 +121,77 @@ retry_delay_ms = 0
   }
 }
 
+async function testOneLineProviderConfig() {
+  const { server, requests, port } = await startMockServer();
+  const cfg = writeConfig(`
+provider_config = "http://127.0.0.1:${port}/v1 test-key one-line-model"
+`);
+  try {
+    const result = await runCli(["chat", "--config", cfg.file, "hello one line"]);
+
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.strictEqual(result.stdout.trim(), "mock answer");
+    assert.strictEqual(requests[0].headers.authorization, "Bearer test-key");
+    assert.strictEqual(requests[0].body.model, "one-line-model");
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testDefaultSystemPromptKeepsShortInputsConcise() {
+  const { server, requests, port } = await startMockServer();
+  const cfg = writeConfig(`
+model = "mock-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+max_retries = 10
+retry_delay_ms = 0
+`);
+  try {
+    const result = await runCli(["chat", "--config", cfg.file, "6666"]);
+
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.strictEqual(requests.length, 1);
+    assert.deepStrictEqual(requests[0].body.messages.at(-1), { role: "user", content: "6666" });
+    assert.match(requests[0].body.messages[0].content, /concise terminal assistant/);
+    assert.match(requests[0].body.messages[0].content, /short, ambiguous, or chat-like inputs/);
+    assert.match(requests[0].body.messages[0].content, /Answer in the user's language/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testRequestTimeoutConfig() {
+  const { server, port } = await startMockServer({ delayMs: 200 });
+  const cfg = writeConfig(`
+model = "mock-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+request_timeout_ms = 50
+max_retries = 0
+retry_delay_ms = 0
+`);
+  try {
+    const result = await runCli(["chat", "--config", cfg.file, "slow request"]);
+
+    assert.strictEqual(result.code, 1);
+    assert.match(result.stderr, /OpenAI Chat request timed out after 50ms/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testRetryConfig() {
   const { server, requests, port } = await startMockServer({ failures: 2 });
   const cfg = writeConfig(`
@@ -191,6 +262,28 @@ async function testInteractiveTuiShowsSlashCommands() {
   assert.match(result.stdout, /^  \/exit \/ \/quit\s+exit TUI$/m);
   assert.doesNotMatch(result.stdout, /^  \/quit\s+exit TUI$/m);
   assert.doesNotMatch(result.stdout, /^▌ \/█\s*$/m);
+}
+
+async function testTuiConfiguresProviderInOneLine() {
+  const { server, requests, port } = await startMockServer({ models: ["one-line-model", "other-model"] });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
+  const file = path.join(dir, "config.toml");
+  try {
+    const result = await runCli(["tui", "--config", file], {}, `/provider set http://127.0.0.1:${port}/v1 test-key one-line-model\nhello configured\n/exit\n`);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /provider saved/);
+    assert.match(result.stdout, /model one-line-model/);
+    assert.strictEqual(requests[0].method, "POST");
+    assert.strictEqual(requests[0].url, "/v1/chat/completions");
+    assert.strictEqual(requests[0].body.model, "one-line-model");
+    const saved = fs.readFileSync(file, "utf8");
+    assert.match(saved, /base_url = "http:\/\/127\.0\.0\.1:\d+\/v1"/);
+    assert.match(saved, /api_key = "test-key"/);
+    assert.match(saved, /model = "one-line-model"/);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
@@ -347,10 +440,14 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
 
 (async () => {
   await testBasicChatFromConfig();
+  await testOneLineProviderConfig();
+  await testDefaultSystemPromptKeepsShortInputsConcise();
+  await testRequestTimeoutConfig();
   await testRetryConfig();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
   await testInteractiveTuiShowsSlashCommands();
+  await testTuiConfiguresProviderInOneLine();
   await testTuiConfiguresProviderUrlAndKeyWhenMissing();
   await testTuiFetchesModelListAndSwitchesWithModelCommand();
   await testTuiFetchesFirstModelWhenConfigOmitsModel();

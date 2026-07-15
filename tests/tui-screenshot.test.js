@@ -153,6 +153,25 @@ async function testLongModelListStaysWithinViewport() {
   }
 }
 
+async function testBusyCtrlCOnlyCancelsRequest() {
+  const { server, port } = await startMockServer(["m1"], 4000);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-busy-cancel-"));
+  const config = path.join(dir, "config.toml");
+  fs.writeFileSync(config, `provider = "openai-chat"\n\n[providers.openai-chat]\ntype = "openai-chat"\nbase_url = "http://127.0.0.1:${port}/v1"\napi_key = "***"\nmodel = "m1"\nrequest_timeout_ms = 0\n`);
+  try {
+    const raw = await runTtyCli(["tui", "--config", config, "--no-alt-screen"], [
+      { delayMs: 350, input: "hello\r" },
+      { delayMs: 700, input: "\x03" },
+      { delayMs: 700, input: "/exit\r" },
+    ]);
+    assert.ok(raw.includes("• Working"));
+    assert.ok(raw.includes("request cancelled; ready for the next prompt"));
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function testWorkingStatusDoesNotReplaceModelOutput() {
   const { server, port } = await startMockServer(["m1", "m2"], 900);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-working-model-output-"));
@@ -199,6 +218,7 @@ async function testModelListScreenshot() {
   await testSlashCommandPaletteScreenshot();
   await testBracketedPasteInInput();
   await testLongModelListStaysWithinViewport();
+  await testBusyCtrlCOnlyCancelsRequest();
   await testWorkingStatusDoesNotReplaceModelOutput();
   await testModelListScreenshot();
   console.log("tui_screenshot_snapshots=True");
