@@ -55,7 +55,7 @@ axum --help
 
 ## Config
 
-AxumAgent reads user-level config instead of project-local config by default. Installing the npm package creates `~/.axum/config.toml` when it is missing and never overwrites an existing config.
+AxumAgent reads user-level config instead of project-local config by default. Installing the npm package does not write user files; run `axum init` explicitly to create `~/.axum/config.toml`. Existing config is not overwritten unless `axum init --force` is used.
 
 ```toml
 # ~/.axum/config.toml
@@ -121,3 +121,21 @@ Useful environment variables:
 ## Safety boundary
 
 This is still an early CLI/provider slice, not a hardened autonomous agent runtime. The next hardening step is to add explicit session/event/tool-loop semantics before expanding file or shell tools.
+
+## Release checklist
+
+Only release from a clean `main` checkout after the current head has a green CI run.
+
+```bash
+git status --short --branch
+npm test
+npm run pack:dry
+npm version patch --no-git-tag-version
+git add package.json package-lock.json dist/ README.md TODO.md DEVLOG.md
+git commit -m "chore(release): v$(node -p 'require("./package.json").version')"
+git tag "v$(node -p 'require("./package.json").version')"
+npm publish --access public
+git push origin main --tags
+```
+
+Do not publish if `npm test`, `npm run pack:dry`, or CI fails. Do not tag or publish uncommitted local changes.

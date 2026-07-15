@@ -15,4 +15,4 @@
 - [ ] Add richer profile switching polish beyond provider selection.
 - [ ] Add explicit permission/policy gates before file or shell tools.
 - [ ] Add integration tests for session/event/tool-loop behavior once introduced.
-- [ ] Document npm publish/release flow.
+- [x] Document npm publish/release flow.
