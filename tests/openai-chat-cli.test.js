@@ -155,6 +155,15 @@ async function testVersionFlag() {
   assert.strictEqual(result.stdout.trim(), pkg.version);
 }
 
+async function testHelpShowsProductFlow() {
+  const result = await runCli(["--help"]);
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Recommended first run:/);
+  assert.match(result.stdout, /axum init --provider-config/);
+  assert.match(result.stdout, /Config web options:/);
+  assert.match(result.stdout, /axum --version/);
+}
+
 async function testOneLineProviderConfig() {
   const { server, requests, port } = await startMockServer();
   const cfg = writeConfig(`
@@ -608,6 +617,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
 (async () => {
   await testBasicChatFromConfig();
   await testVersionFlag();
+  await testHelpShowsProductFlow();
   await testOneLineProviderConfig();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
