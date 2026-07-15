@@ -370,7 +370,7 @@ async function hydrateTuiModels(options: ChatCommandOptions, dryRun: boolean): P
   if (configured.length > 0) {
     return { ...options, modelOptions: configured, model: options.modelWasExplicit ? options.model : configured[0] };
   }
-  if (dryRun || options.modelWasExplicit || !options.apiKey) return { ...options, modelOptions: configured };
+  if (dryRun || !options.apiKey) return { ...options, modelOptions: configured };
   try {
     const provider = new OpenAIChatProvider({
       apiKey: options.apiKey,
@@ -382,7 +382,7 @@ async function hydrateTuiModels(options: ChatCommandOptions, dryRun: boolean): P
     });
     const fetched = uniqueModels(await provider.listModels());
     if (fetched.length === 0) return { ...options, modelOptions: fetched };
-    return { ...options, modelOptions: fetched, model: fetched[0] };
+    return { ...options, modelOptions: fetched, model: options.modelWasExplicit ? options.model : fetched[0] };
   } catch {
     return { ...options, modelOptions: configured };
   }
@@ -635,7 +635,6 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
           continue;
         }
         if (prompt === "/exit" || prompt === "/quit") return lastExitCode;
-        recordInputHistory(prompt);
         if (prompt === "/help") {
           answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit";
           repaint();
@@ -662,6 +661,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
           repaint();
           continue;
         }
+        recordInputHistory(prompt);
         screenOptions = { ...options, prompt };
         if (dryRun) {
           answer = "dry-run: provider call skipped";

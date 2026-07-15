@@ -264,6 +264,34 @@ retry_delay_ms = 0
   }
 }
 
+async function testTuiFetchesModelListEvenWhenConfigHasModel() {
+  const { server, requests, port } = await startMockServer({ models: ["remote-first", "remote-second"] });
+  const cfg = writeConfig(`
+model = "configured-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+max_retries = 10
+retry_delay_ms = 0
+`);
+  try {
+    const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/exit\n");
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.strictEqual(requests[0].method, "GET");
+    assert.strictEqual(requests[0].url, "/v1/models");
+    assert.match(result.stdout, /remote-first/);
+    assert.match(result.stdout, /remote-second/);
+    assert.doesNotMatch(result.stdout, /no configured\/fetched model list/);
+    assert.match(result.stdout, /model:\s+configured-model\s+\/model to change/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testInteractiveTuiWorkingTimer() {
   const { server, requests, port } = await startMockServer({ delayMs: 1200 });
   const cfg = writeConfig(`
@@ -283,7 +311,7 @@ retry_delay_ms = 0
     assert.match(result.stdout, /• Working \(0s • esc to interrupt\)/);
     assert.match(result.stdout, /• Working \(1s • esc to interrupt\)/);
     assert.match(result.stdout, /mock answer/);
-    assert.strictEqual(requests[0].body.stream, true);
+    assert.strictEqual(requests.at(-1).body.stream, true);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -291,9 +319,22 @@ retry_delay_ms = 0
 }
 
 async function testMissingKey() {
-  const missingKey = await runCli(["chat", "hello"]);
-  assert.strictEqual(missingKey.code, 2);
-  assert.match(missingKey.stderr, /missing API key/);
+  const cfg = writeConfig(`
+model = "mock-model"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:9/v1"
+api_key_env = "AXUM_TEST_MISSING_KEY"
+`);
+  try {
+    const missingKey = await runCli(["chat", "--config", cfg.file, "hello"], { AXUM_TEST_MISSING_KEY: "" });
+    assert.strictEqual(missingKey.code, 2);
+    assert.match(missingKey.stderr, /missing API key/);
+  } finally {
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
 }
 
 (async () => {
@@ -305,6 +346,7 @@ async function testMissingKey() {
   await testTuiConfiguresProviderUrlAndKeyWhenMissing();
   await testTuiUsesFirstConfiguredModelAndSwitchesWithModelCommand();
   await testTuiFetchesFirstModelWhenConfigOmitsModel();
+  await testTuiFetchesModelListEvenWhenConfigHasModel();
   await testInteractiveTuiWorkingTimer();
   await testMissingKey();
 })();
