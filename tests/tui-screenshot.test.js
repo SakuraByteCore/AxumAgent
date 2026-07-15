@@ -114,7 +114,7 @@ async function testSlashCommandPaletteScreenshot() {
   ]);
   const snapshot = await normalizeScreen(raw);
   assert.ok(snapshot.includes("commands"));
-  assert.ok(snapshot.includes("› /help"));
+  assert.ok(snapshot.includes("▸ /help"));
   assert.ok(snapshot.includes("/model"));
   assertSnapshot("slash-command-palette", snapshot);
 }
@@ -131,8 +131,8 @@ async function testModelListScreenshot() {
       { delayMs: 450, input: "/exit\r" },
     ]);
     const snapshot = await normalizeScreen(raw);
-    assert.ok(snapshot.includes("Select model"));
-    assert.ok(snapshot.includes("● 1  m1"));
+    assert.ok(snapshot.includes("models"));
+    assert.ok(snapshot.includes("▸ 1  m1"));
     assert.ok(snapshot.includes("2  very-long-model-name-beta"));
     assertSnapshot("model-list", snapshot);
   } finally {

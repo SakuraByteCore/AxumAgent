@@ -149,12 +149,12 @@ retry_delay_ms = 0
 async function testTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "hello"]);
   assert.strictEqual(result.code, 0, result.stderr);
-  assert.match(result.stdout, />_ AxumAgent \(v0\.1\.0\)/);
-  assert.match(result.stdout, /model:\s+gpt-4o-mini\s+\/model to change/);
-  assert.match(result.stdout, /permissions: YOLO mode/);
+  assert.match(result.stdout, /✦ AxumAgent v0\.1\.0/);
+  assert.match(result.stdout, /model gpt-4o-mini/);
+  assert.match(result.stdout, /mode YOLO/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
-  assert.match(result.stdout, /^› █\s*$/m);
+  assert.match(result.stdout, /^▌ █\s*$/m);
   assert.match(result.stdout, /dry-run: provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
@@ -166,15 +166,15 @@ async function testTuiDryRun() {
 async function testInteractiveTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "--model", "gpt-5.5"], {}, "hello interactive\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
-  assert.match(result.stdout, />_ AxumAgent \(v0\.1\.0\)/);
-  assert.match(result.stdout, /model:\s+gpt-5\.5\s+\/model to change/);
+  assert.match(result.stdout, /✦ AxumAgent v0\.1\.0/);
+  assert.match(result.stdout, /model gpt-5\.5/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
-  assert.match(result.stdout, /permissions: YOLO mode/);
+  assert.match(result.stdout, /mode YOLO/);
   assert.doesNotMatch(result.stdout, /waiting for input/);
   assert.doesNotMatch(result.stdout, /\(type a message\)/);
   assert.doesNotMatch(result.stdout, /No messages yet\./);
-  assert.match(result.stdout, /^› █\s*$/m);
+  assert.match(result.stdout, /^▌ █\s*$/m);
   assert.match(result.stdout, /hello interactive/);
   assert.match(result.stdout, /dry-run: provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
@@ -185,12 +185,12 @@ async function testInteractiveTuiShowsSlashCommands() {
   const result = await runCli(["tui", "--dry-run"], {}, "/\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /commands/);
-  assert.match(result.stdout, /^› \/help\s+show commands$/m);
+  assert.match(result.stdout, /^▸ \/help\s+show commands$/m);
   assert.match(result.stdout, /^  \/provider\s+show or set provider url\/key$/m);
   assert.match(result.stdout, /^  \/model\s+list or switch models$/m);
   assert.match(result.stdout, /^  \/exit \/ \/quit\s+exit TUI$/m);
   assert.doesNotMatch(result.stdout, /^  \/quit\s+exit TUI$/m);
-  assert.match(result.stdout, /^› █\s*$/m);
+  assert.doesNotMatch(result.stdout, /^▌ \/█\s*$/m);
 }
 
 async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
@@ -202,8 +202,8 @@ async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /provider url saved/);
     assert.match(result.stdout, /provider key saved/);
-    assert.match(result.stdout, /Select model/);
-    assert.match(result.stdout, /● 1\s+configured-first/);
+    assert.match(result.stdout, /models/);
+    assert.match(result.stdout, /▸ 1\s+configured-first\s+current/);
     assert.match(result.stdout, /  2\s+configured-second/);
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
@@ -233,8 +233,8 @@ retry_delay_ms = 0
   try {
     const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/model 2\nhello switched\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
-    assert.match(result.stdout, /Select model/);
-    assert.match(result.stdout, /● 1\s+first-model/);
+    assert.match(result.stdout, /models/);
+    assert.match(result.stdout, /▸ 1\s+first-model\s+current/);
     assert.match(result.stdout, /  2\s+second-model/);
     assert.match(result.stdout, /model switched to second-model/);
     assert.strictEqual(requests.at(-1).body.model, "second-model");
@@ -262,7 +262,7 @@ retry_delay_ms = 0
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
     assert.strictEqual(requests.at(-1).body.model, "remote-first");
-    assert.match(result.stdout, /model:\s+remote-first\s+\/model to change/);
+    assert.match(result.stdout, /model remote-first/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -290,7 +290,7 @@ retry_delay_ms = 0
     assert.match(result.stdout, /remote-first/);
     assert.match(result.stdout, /remote-second/);
     assert.doesNotMatch(result.stdout, /no configured\/fetched model list/);
-    assert.match(result.stdout, /model:\s+configured-model\s+\/model to change/);
+    assert.match(result.stdout, /model configured-model/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });

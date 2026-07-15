@@ -278,17 +278,17 @@ function padCell(text: string, width: number): string {
 function renderSlashCommandSuggestions(input: string, width: number, selectedIndex = 0): string[] {
   if (!input.startsWith("/")) return [];
   const matches = matchingSlashCommands(input);
-  if (matches.length === 0) return ["commands", "  no matching commands"];
+  if (matches.length === 0) return ["⌘ commands", "  no matching commands"];
 
   const selected = clampSelection(selectedIndex, matches.length);
   const labelWidth = Math.max(...matches.map((command) => slashCommandDisplayName(command).length));
-  const commandWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(width * 0.36)));
+  const commandWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(width * 0.32)));
   const rows = matches.map((command, index) => {
-    const marker = index === selected ? "›" : " ";
+    const marker = index === selected ? "▸" : " ";
     const commandCell = padCell(slashCommandDisplayName(command), commandWidth);
-    return `${marker} ${commandCell}  ${command.description}`;
+    return `${marker} ${commandCell} ${command.description}`;
   });
-  return ["commands", ...rows];
+  return ["⌘ commands", ...rows];
 }
 
 function terminalWidth(stdout: NodeJS.WriteStream): number {
@@ -306,33 +306,31 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
   const answerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
   const headerLines = [
-    ">_ AxumAgent (v0.1.0)",
-    "",
-    `model:     ${options.model}   /model to change`,
-    `directory: ${process.cwd()}`,
-    "permissions: YOLO mode",
+    "✦ AxumAgent v0.1.0",
+    `  model ${options.model}    cwd ${process.cwd()}    mode YOLO`,
   ];
   const cursor = "█";
   const safeInput = visibleInput(input);
   const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
   const inputText = `${safeInput.slice(0, safeCursorIndex)}${cursor}${safeInput.slice(safeCursorIndex)}`;
   const inputLines = wrap(inputText, inner - 4);
-  const renderedInput = inputLines.map((line, index) => `${index === 0 ? "›" : " "} ${line}`);
+  const renderedInput = inputLines.map((line, index) => `${index === 0 ? "▌" : " "} ${line}`);
   const statusLine = `${options.model} · ${process.cwd()}`;
   const conversationLines: string[] = [];
   if (hasPrompt || hasAnswer || isThinking) {
-    if (hasPrompt) conversationLines.push("", ...promptLines.map((line, index) => (index === 0 ? `›${line.slice(1)}` : line)));
+    if (hasPrompt) conversationLines.push(...promptLines.map((line, index) => (index === 0 ? `›${line.slice(1)}` : line)));
     if (hasPrompt && hasAnswer) conversationLines.push("");
     if (hasAnswer) conversationLines.push(...answerLines);
-    if (isThinking) conversationLines.push("", `• Working (${workingSeconds}s • esc to interrupt)`);
+    if (isThinking) conversationLines.push(...(hasPrompt || hasAnswer ? [""] : []), `• Working (${workingSeconds}s • esc to interrupt)`);
   }
+  const commandLines = renderSlashCommandSuggestions(safeInput, width, slashSelection);
   return [
     ...headerLines,
     "",
-    "Tip: Build faster with AxumAgent.",
     ...conversationLines,
-    ...renderSlashCommandSuggestions(safeInput, width, slashSelection),
-    "",
+    ...(conversationLines.length > 0 ? [""] : []),
+    ...commandLines,
+    ...(commandLines.length > 0 ? [""] : []),
     ...renderedInput,
     clip(statusLine, width),
   ].join("\n");
@@ -384,13 +382,14 @@ async function hydrateTuiModelsWithStatus(options: ChatCommandOptions, dryRun: b
 }
 
 function renderModelList(options: ChatCommandOptions): string {
-  if (options.modelOptions.length === 0) return `current model: ${options.model}; no configured/fetched model list`;
+  if (options.modelOptions.length === 0) return `models\n  no configured/fetched model list`;
   const numberWidth = String(options.modelOptions.length).length;
   const rows = options.modelOptions.map((model, index) => {
-    const current = model === options.model ? "●" : " ";
-    return `${current} ${String(index + 1).padStart(numberWidth)}  ${model}`;
+    const current = model === options.model ? "▸" : " ";
+    const suffix = model === options.model ? "  current" : "";
+    return `${current} ${String(index + 1).padStart(numberWidth)}  ${model}${suffix}`;
   });
-  return ["Select model", ...rows].join("\n");
+  return ["models", ...rows].join("\n");
 }
 
 function switchModel(options: ChatCommandOptions, value: string): { options: ChatCommandOptions; message: string } {
