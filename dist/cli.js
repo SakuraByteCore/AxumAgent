@@ -550,17 +550,25 @@ async function resolveTuiAnswerStream(options, dryRun, onDelta) {
         return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
     }
 }
-async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
-    const stdin = process.stdin;
-    let input = "";
+const importEsm = new Function("specifier", "return import(specifier)");
+async function loadPiTui() {
+    return importEsm("@earendil-works/pi-tui");
+}
+async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
+    const pi = await loadPiTui();
+    const terminal = new pi.ProcessTerminal();
+    const tui = new pi.TUI(terminal);
     let screenOptions = { ...options, prompt: "" };
     let answer;
     let lastExitCode = 0;
-    let slashSelection = 0;
+    let input = "";
     let cursorIndex = 0;
+    let slashSelection = 0;
     const inputHistory = [];
     let historyIndex;
     let draftInputBeforeHistory = "";
+    let stopped = false;
+    let busy = false;
     const recordInputHistory = (value) => {
         const trimmed = value.trim();
         if (!trimmed || trimmed === "/exit" || trimmed === "/quit")
@@ -572,7 +580,7 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
     };
     const recallPreviousInput = () => {
         if (inputHistory.length === 0)
-            return false;
+            return;
         if (historyIndex === undefined) {
             draftInputBeforeHistory = input;
             historyIndex = inputHistory.length - 1;
@@ -583,11 +591,10 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
         input = inputHistory[historyIndex];
         cursorIndex = input.length;
         slashSelection = 0;
-        return true;
     };
     const recallNextInput = () => {
         if (historyIndex === undefined)
-            return false;
+            return;
         if (historyIndex >= inputHistory.length - 1) {
             historyIndex = undefined;
             input = draftInputBeforeHistory;
@@ -600,163 +607,190 @@ async function runRawInteractiveTui(options, dryRun, stdout, useAltScreen) {
             cursorIndex = input.length;
         }
         slashSelection = 0;
-        return true;
     };
     const resetHistoryRecall = () => {
         historyIndex = undefined;
         draftInputBeforeHistory = "";
     };
-    const repaint = () => {
-        stdout.write("\u001b[2J\u001b[H");
-        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input, slashSelection, cursorIndex)}\n`);
+    const requestRender = () => tui.requestRender();
+    const stop = (code = lastExitCode) => {
+        if (stopped)
+            return;
+        stopped = true;
+        lastExitCode = code;
+        tui.stop();
     };
-    if (useAltScreen)
-        stdout.write("\u001b[?1049h");
-    stdin.setRawMode?.(true);
-    stdin.resume();
-    repaint();
-    try {
-        while (true) {
-            const chunk = await new Promise((resolve) => stdin.once("data", resolve));
-            for (const text of tokenizeRawInput(chunk.toString("utf8"))) {
-                if (text === "\u0003")
-                    return lastExitCode;
-                if (text === "\t" && input.startsWith("/")) {
-                    const completed = completeSlashCommand(input, slashSelection);
-                    if (completed) {
-                        input = completed;
-                        cursorIndex = input.length;
-                        slashSelection = 0;
-                        repaint();
-                    }
-                    continue;
-                }
-                if (text === "\u001b[A") {
-                    if (historyIndex === undefined && input.startsWith("/")) {
-                        const matches = matchingSlashCommands(input);
-                        slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
-                    }
-                    else {
-                        recallPreviousInput();
-                    }
-                    repaint();
-                    continue;
-                }
-                if (text === "\u001b[B") {
-                    if (historyIndex === undefined && input.startsWith("/")) {
-                        const matches = matchingSlashCommands(input);
-                        slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
-                    }
-                    else {
-                        recallNextInput();
-                    }
-                    repaint();
-                    continue;
-                }
-                if (text === "\r" || text === "\n") {
-                    const prompt = input.trim();
-                    input = "";
-                    cursorIndex = 0;
-                    slashSelection = 0;
-                    resetHistoryRecall();
-                    if (!prompt) {
-                        repaint();
-                        continue;
-                    }
-                    if (prompt === "/exit" || prompt === "/quit")
-                        return lastExitCode;
-                    if (prompt === "/help") {
-                        answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
-                        repaint();
-                        continue;
-                    }
-                    if (prompt === "/model" || prompt.startsWith("/model ")) {
-                        const switched = switchModel(screenOptions, prompt.slice("/model".length));
-                        screenOptions = { ...switched.options, prompt: "" };
-                        options = { ...switched.options, prompt: options.prompt };
-                        answer = switched.message;
-                        repaint();
-                        continue;
-                    }
-                    if (prompt === "/provider" || prompt.startsWith("/provider ")) {
-                        const applied = await applyProviderCommand(screenOptions, process.env, prompt.slice("/provider".length));
-                        screenOptions = { ...applied.options, prompt: "" };
-                        options = { ...applied.options, prompt: options.prompt };
-                        answer = applied.message;
-                        repaint();
-                        continue;
-                    }
-                    if (prompt.startsWith("/")) {
-                        answer = renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n");
-                        repaint();
-                        continue;
-                    }
-                    recordInputHistory(prompt);
-                    screenOptions = { ...options, prompt };
-                    if (dryRun) {
-                        answer = "dry-run: provider call skipped";
-                        lastExitCode = 0;
-                        repaint();
-                    }
-                    else {
-                        const startedAt = Date.now();
-                        answer = workingStatus(startedAt);
-                        repaint();
-                        const timer = setInterval(() => {
-                            answer = workingStatus(startedAt);
-                            repaint();
-                        }, 250);
-                        try {
-                            const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
-                                answer = streamed;
-                                repaint();
-                            });
-                            answer = result.answer;
-                            lastExitCode = result.exitCode;
-                        }
-                        finally {
-                            clearInterval(timer);
-                        }
-                        repaint();
-                    }
-                    continue;
-                }
-                if (text === "\u001b[D") {
-                    cursorIndex = Math.max(0, cursorIndex - 1);
-                    repaint();
-                    continue;
-                }
-                if (text === "\u001b[C") {
-                    cursorIndex = Math.min(input.length, cursorIndex + 1);
-                    repaint();
-                    continue;
-                }
-                if (text === "\u007f" || text === "\b") {
-                    resetHistoryRecall();
-                    if (cursorIndex > 0) {
-                        input = `${input.slice(0, cursorIndex - 1)}${input.slice(cursorIndex)}`;
-                        cursorIndex -= 1;
-                    }
-                    slashSelection = 0;
-                    repaint();
-                    continue;
-                }
-                if (text.startsWith("\u001b"))
-                    continue;
-                resetHistoryRecall();
-                const inserted = text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-                input = `${input.slice(0, cursorIndex)}${inserted}${input.slice(cursorIndex)}`;
-                cursorIndex += inserted.length;
-                slashSelection = 0;
-                repaint();
-            }
+    class AxumPiTuiApp {
+        focused = false;
+        invalidate() { }
+        render(width) {
+            const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex).split("\n");
+            return lines.map((line) => pi.truncateToWidth(line, width));
+        }
+        handleInput(data) {
+            void handlePiInput(data);
         }
     }
-    finally {
-        stdin.setRawMode?.(false);
-        if (useAltScreen)
-            stdout.write("\u001b[?1049l");
+    const app = new AxumPiTuiApp();
+    async function submitPrompt(prompt) {
+        if (!prompt) {
+            requestRender();
+            return;
+        }
+        if (prompt === "/exit" || prompt === "/quit") {
+            stop(lastExitCode);
+            return;
+        }
+        if (prompt === "/help") {
+            answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit (/quit)";
+            requestRender();
+            return;
+        }
+        if (prompt === "/model" || prompt.startsWith("/model ")) {
+            const switched = switchModel(screenOptions, prompt.slice("/model".length));
+            screenOptions = { ...switched.options, prompt: "" };
+            options = { ...switched.options, prompt: options.prompt };
+            answer = switched.message;
+            requestRender();
+            return;
+        }
+        if (prompt === "/provider" || prompt.startsWith("/provider ")) {
+            const applied = await applyProviderCommand(screenOptions, process.env, prompt.slice("/provider".length));
+            screenOptions = { ...applied.options, prompt: "" };
+            options = { ...applied.options, prompt: options.prompt };
+            answer = applied.message;
+            requestRender();
+            return;
+        }
+        if (prompt.startsWith("/")) {
+            answer = renderSlashCommandSuggestions(prompt, terminal.columns).join("\n");
+            requestRender();
+            return;
+        }
+        recordInputHistory(prompt);
+        screenOptions = { ...options, prompt };
+        if (dryRun) {
+            answer = "dry-run: provider call skipped";
+            lastExitCode = 0;
+            requestRender();
+            return;
+        }
+        busy = true;
+        const startedAt = Date.now();
+        answer = workingStatus(startedAt);
+        requestRender();
+        const timer = setInterval(() => {
+            answer = workingStatus(startedAt);
+            requestRender();
+        }, 250);
+        try {
+            const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
+                answer = streamed;
+                requestRender();
+            });
+            answer = result.answer;
+            lastExitCode = result.exitCode;
+        }
+        finally {
+            busy = false;
+            clearInterval(timer);
+            requestRender();
+        }
     }
+    async function handlePiInput(data) {
+        if (pi.matchesKey(data, pi.Key.ctrl("c"))) {
+            stop(lastExitCode);
+            return;
+        }
+        if (busy)
+            return;
+        if (pi.matchesKey(data, pi.Key.tab) && input.startsWith("/")) {
+            const completed = completeSlashCommand(input, slashSelection);
+            if (completed) {
+                input = completed;
+                cursorIndex = input.length;
+                slashSelection = 0;
+            }
+            requestRender();
+            return;
+        }
+        if (pi.matchesKey(data, pi.Key.up)) {
+            if (historyIndex === undefined && input.startsWith("/")) {
+                const matches = matchingSlashCommands(input);
+                slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
+            }
+            else {
+                recallPreviousInput();
+            }
+            requestRender();
+            return;
+        }
+        if (pi.matchesKey(data, pi.Key.down)) {
+            if (historyIndex === undefined && input.startsWith("/")) {
+                const matches = matchingSlashCommands(input);
+                slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
+            }
+            else {
+                recallNextInput();
+            }
+            requestRender();
+            return;
+        }
+        if (pi.matchesKey(data, pi.Key.left)) {
+            cursorIndex = Math.max(0, cursorIndex - 1);
+            requestRender();
+            return;
+        }
+        if (pi.matchesKey(data, pi.Key.right)) {
+            cursorIndex = Math.min(input.length, cursorIndex + 1);
+            requestRender();
+            return;
+        }
+        if (pi.matchesKey(data, pi.Key.backspace)) {
+            resetHistoryRecall();
+            if (cursorIndex > 0) {
+                input = `${input.slice(0, cursorIndex - 1)}${input.slice(cursorIndex)}`;
+                cursorIndex -= 1;
+            }
+            slashSelection = 0;
+            requestRender();
+            return;
+        }
+        if (pi.matchesKey(data, pi.Key.enter)) {
+            const prompt = input.trim();
+            input = "";
+            cursorIndex = 0;
+            slashSelection = 0;
+            resetHistoryRecall();
+            await submitPrompt(prompt);
+            return;
+        }
+        if (data.startsWith("\u001b"))
+            return;
+        resetHistoryRecall();
+        const printable = data.length === 1 ? data.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "") : "";
+        if (!printable)
+            return;
+        input = `${input.slice(0, cursorIndex)}${printable}${input.slice(cursorIndex)}`;
+        cursorIndex += printable.length;
+        slashSelection = 0;
+        requestRender();
+    }
+    tui.addChild(app);
+    tui.setFocus(app);
+    if (useAltScreen)
+        terminal.write("\u001b[?1049h");
+    const exitCode = await new Promise((resolve) => {
+        const originalStop = tui.stop.bind(tui);
+        tui.stop = () => {
+            originalStop();
+            if (useAltScreen)
+                terminal.write("\u001b[?1049l");
+            resolve(lastExitCode);
+        };
+        tui.start();
+    });
+    return exitCode;
 }
 async function runLineInteractiveTui(options, dryRun, stdout) {
     const repaint = (screenOptions, answer, input = "") => {
