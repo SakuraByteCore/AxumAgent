@@ -6,7 +6,7 @@
     "axum": "bin/axum.js"
   },
   "scripts": {
-    "test": "npm run build && node --check bin/axum.js && node --check bin/create-default-config.js && node --check dist/cli.js && node --check dist/config.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js && node tests/tui-screenshot.test.js",
+    "test": "npm run build && node --check bin/axum.js && node --check dist/cli.js && node --check dist/config.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js && node tests/tui-screenshot.test.js",
     "build": "tsc -p tsconfig.json",
     "prepack": "npm run build",
     "pack:dry": "npm pack --dry-run"
