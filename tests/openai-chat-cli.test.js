@@ -185,6 +185,11 @@ async function testInitCreatesConfigWithoutOverwriting() {
     assert.match(saved, /api_key = "env:INIT_KEY"/);
     assert.match(saved, /model = "init-model"/);
 
+    const forcedNew = path.join(dir, "forced.toml");
+    const forcedCreated = await runCli(["init", "--config", forcedNew, "--force"]);
+    assert.strictEqual(forcedCreated.code, 0, forcedCreated.stderr);
+    assert.match(forcedCreated.stdout, /axum config created:/);
+
     const exists = await runCli(["init", "--config", file, "--provider-config", "https://other.example/v1 env:OTHER_KEY other-model"]);
     assert.strictEqual(exists.code, 0, exists.stderr);
     assert.match(exists.stdout, /axum config exists:/);

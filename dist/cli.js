@@ -280,7 +280,8 @@ async function runInit(args, env, stdout, stderr) {
     try {
         const options = parseInitArgs(args);
         const configPath = (0, config_1.resolveConfigPath)(env, options.configPath);
-        if (node_fs_1.default.existsSync(configPath) && !options.force) {
+        const existedBefore = node_fs_1.default.existsSync(configPath);
+        if (existedBefore && !options.force) {
             stdout.write(`axum config exists: ${configPath}\n`);
             stdout.write("Use --force to update provider URL/key/model.\n");
             return 0;
@@ -294,7 +295,7 @@ async function runInit(args, env, stdout, stderr) {
             retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
             request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
         });
-        stdout.write(`axum config ${node_fs_1.default.existsSync(configPath) && options.force ? "updated" : "created"}: ${saved.path}\n`);
+        stdout.write(`axum config ${existedBefore ? "updated" : "created"}: ${saved.path}\n`);
         stdout.write(`provider: ${options.baseUrl}\n`);
         stdout.write(`model: ${options.model}\n`);
         stdout.write("Next: axum doctor && axum tui\n");
