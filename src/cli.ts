@@ -405,9 +405,17 @@ async function hydrateTuiModelsWithStatus(options: ChatCommandOptions, dryRun: b
 
 function renderModelList(options: ChatCommandOptions): string {
   if (options.modelOptions.length === 0) return `current model: ${options.model}; no configured/fetched model list`;
-  return options.modelOptions
-    .map((model, index) => `${model === options.model ? "*" : " "} ${index + 1}. ${model}`)
-    .join("\n");
+  const numberWidth = String(options.modelOptions.length).length;
+  const modelWidth = Math.max("model".length, ...options.modelOptions.map((model) => model.length));
+  const header = `│ current │ ${"#".padStart(numberWidth)} │ ${"model".padEnd(modelWidth)} │`;
+  const divider = `├${"─".repeat(9)}┼${"─".repeat(numberWidth + 2)}┼${"─".repeat(modelWidth + 2)}┤`;
+  const top = `╭${"─".repeat(9)}┬${"─".repeat(numberWidth + 2)}┬${"─".repeat(modelWidth + 2)}╮`;
+  const bottom = `╰${"─".repeat(9)}┴${"─".repeat(numberWidth + 2)}┴${"─".repeat(modelWidth + 2)}╯`;
+  const rows = options.modelOptions.map((model, index) => {
+    const selected = model === options.model ? "yes" : "";
+    return `│ ${selected.padEnd(7)} │ ${String(index + 1).padStart(numberWidth)} │ ${model.padEnd(modelWidth)} │`;
+  });
+  return [top, header, divider, ...rows, bottom].join("\n");
 }
 
 function switchModel(options: ChatCommandOptions, value: string): { options: ChatCommandOptions; message: string } {

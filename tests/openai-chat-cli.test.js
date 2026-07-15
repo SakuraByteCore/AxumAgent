@@ -202,8 +202,8 @@ async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /provider url saved/);
     assert.match(result.stdout, /provider key saved/);
-    assert.match(result.stdout, /\* 1\. configured-first/);
-    assert.match(result.stdout, /  2\. configured-second/);
+    assert.match(result.stdout, /│ yes\s+│ 1 │ configured-first\s+│/);
+    assert.match(result.stdout, /│\s+│ 2 │ configured-second\s+│/);
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
     assert.strictEqual(requests.at(-1).body.model, "configured-first");
@@ -232,8 +232,8 @@ retry_delay_ms = 0
   try {
     const result = await runCli(["tui", "--config", cfg.file], {}, "/model\n/model 2\nhello switched\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
-    assert.match(result.stdout, /\* 1\. first-model/);
-    assert.match(result.stdout, /  2\. second-model/);
+    assert.match(result.stdout, /│ yes\s+│ 1 │ first-model\s+│/);
+    assert.match(result.stdout, /│\s+│ 2 │ second-model\s+│/);
     assert.match(result.stdout, /model switched to second-model/);
     assert.strictEqual(requests.at(-1).body.model, "second-model");
   } finally {
