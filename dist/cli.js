@@ -219,12 +219,14 @@ function renderHelp() {
         "  axum chat [options] <prompt>",
         "  axum tui [options] [prompt]",
         "  axum doctor [options]",
+        "  axum providers [options]",
         "  axum config-web [options]",
         "  axum --version",
         "",
         "Recommended first run:",
         "  axum init --provider-config \"https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini\"",
         "  axum doctor",
+        "  axum providers",
         "  axum tui",
         "",
         "Common options:",
@@ -347,6 +349,61 @@ function packageVersion() {
     }
     catch {
         return "0.0.0";
+    }
+}
+function apiKeyDisplay(value) {
+    if (!value)
+        return "missing";
+    if (value.startsWith("env:"))
+        return value;
+    return maskSecret(value);
+}
+function providerRows(env, explicitPath) {
+    const loaded = (0, config_1.loadConfig)(env, explicitPath);
+    const config = loaded?.config;
+    const defaultProvider = config?.provider || "openai-chat";
+    const providers = config?.providers && Object.keys(config.providers).length > 0
+        ? config.providers
+        : { [defaultProvider]: undefined };
+    return Object.entries(providers).map(([id, provider]) => {
+        const providerLine = parseProviderConfigLine(provider?.provider_config ?? provider?.providerConfig, `providers.${id}.provider_config`);
+        return {
+            id,
+            default: id === defaultProvider,
+            type: provider?.type || "openai-chat",
+            baseUrl: provider?.base_url || provider?.baseUrl || providerLine.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
+            model: provider?.model || providerLine.model || (provider?.models ?? [])[0] || config?.model || (config?.models ?? [])[0] || env.AXUM_MODEL || DEFAULT_MODEL,
+            key: apiKeyDisplay(provider?.api_key || provider?.apiKey || providerLine.apiKey || `env:${provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV}`),
+        };
+    });
+}
+async function runProviders(args, env, stdout, stderr) {
+    try {
+        const extracted = extractConfigPath(args);
+        if (extracted.args.some((arg) => arg === "--help" || arg === "-h")) {
+            stdout.write("Usage: axum providers [--config <path>] [--json]\n");
+            return 0;
+        }
+        const json = extracted.args.includes("--json");
+        const unknown = extracted.args.find((arg) => arg !== "--json");
+        if (unknown)
+            throw new Error(`unknown providers option: ${unknown}`);
+        const rows = providerRows(env, extracted.configPath);
+        if (json) {
+            stdout.write(`${JSON.stringify({ providers: rows }, null, 2)}\n`);
+        }
+        else {
+            stdout.write("AxumAgent providers\n");
+            for (const row of rows) {
+                const mark = row.default ? "*" : " ";
+                stdout.write(`${mark} ${row.id}  ${row.baseUrl}  ${row.model}  key:${row.key}\n`);
+            }
+        }
+        return 0;
+    }
+    catch (error) {
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
     }
 }
 function htmlEscape(value) {
@@ -1443,6 +1500,9 @@ async function runAxumCli(args, env = process.env, stdout = process.stdout, stde
     }
     if (args[0] === "doctor") {
         return { handled: true, exitCode: await runDoctor(args.slice(1), env, stdout, stderr) };
+    }
+    if (args[0] === "providers") {
+        return { handled: true, exitCode: await runProviders(args.slice(1), env, stdout, stderr) };
     }
     if (args[0] === "config-web") {
         return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };

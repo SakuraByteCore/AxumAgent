@@ -27,6 +27,7 @@ npm install -g axum-agent
 axum init --provider-config "https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini"
 axum config-web
 axum doctor
+axum providers
 axum tui
 ```
 
@@ -96,6 +97,8 @@ node bin/axum.js tui --no-alt-screen --dry-run
 node bin/axum.js tui "Say hello in the terminal UI"
 node bin/axum.js doctor
 node bin/axum.js doctor --json
+node bin/axum.js providers
+node bin/axum.js providers --json
 node bin/axum.js config-web
 node bin/axum.js config-web --port 8788 --config ~/.axum/config.toml
 node bin/axum.js chat --config ~/.axum/config.toml "Say hello"
@@ -105,7 +108,7 @@ node bin/axum.js doctor --provider secondary --json
 node bin/axum.js chat --request-timeout-ms 900000 "Run a longer request"
 ```
 
-`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum chat`, `axum tui`, and `axum doctor` accept `--provider <id>` to temporarily use another provider from `providers.<id>` without changing the default config. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config and `/v1/models` connectivity without sending a chat prompt; use `axum doctor --json` for scripts and CI diagnostics. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
+`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum providers` lists configured providers and masks literal keys; use `--json` for scripts. `axum chat`, `axum tui`, and `axum doctor` accept `--provider <id>` to temporarily use another provider from `providers.<id>` without changing the default config. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config and `/v1/models` connectivity without sending a chat prompt; use `axum doctor --json` for scripts and CI diagnostics. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
 
 Useful environment variables:
 

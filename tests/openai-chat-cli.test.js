@@ -225,6 +225,42 @@ model = "secondary-model"
   }
 }
 
+async function testProvidersListsConfiguredProviders() {
+  const cfg = writeConfig(`
+provider = "primary"
+
+[providers.primary]
+type = "openai-chat"
+base_url = "https://primary.example/v1"
+api_key = "env:PRIMARY_KEY"
+model = "primary-model"
+
+[providers.secondary]
+type = "openai-chat"
+base_url = "https://secondary.example/v1"
+api_key = "secondary-secret"
+model = "secondary-model"
+`);
+  try {
+    const text = await runCli(["providers", "--config", cfg.file]);
+    assert.strictEqual(text.code, 0, text.stderr);
+    assert.match(text.stdout, /AxumAgent providers/);
+    assert.match(text.stdout, /\* primary/);
+    assert.match(text.stdout, /secondary/);
+    assert.match(text.stdout, /env:PRIMARY_KEY/);
+    assert.doesNotMatch(text.stdout, /secondary-secret/);
+
+    const json = await runCli(["providers", "--config", cfg.file, "--json"]);
+    assert.strictEqual(json.code, 0, json.stderr);
+    const parsed = JSON.parse(json.stdout);
+    assert.strictEqual(parsed.providers.length, 2);
+    assert.strictEqual(parsed.providers[0].id, "primary");
+    assert.strictEqual(parsed.providers[0].default, true);
+  } finally {
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testInitCreatesConfigWithoutOverwriting() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-init-test-"));
   const file = path.join(dir, "config.toml");
@@ -696,6 +732,7 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testPackageInstallDoesNotMutateHome();
   await testOneLineProviderConfig();
   await testProviderFlagSelectsConfiguredProvider();
+  await testProvidersListsConfiguredProviders();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
   await testConfigWebBlankKeyKeepsExistingSecret();
