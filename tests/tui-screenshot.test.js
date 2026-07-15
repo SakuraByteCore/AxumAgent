@@ -131,6 +131,26 @@ async function testBracketedPasteInInput() {
   assert.ok(snapshot.includes("dry-run: provider call skipped"));
 }
 
+async function testLongModelListStaysWithinViewport() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-long-model-list-"));
+  const config = path.join(dir, "config.toml");
+  const models = Array.from({ length: 41 }, (_, index) => `model-${String(index + 1).padStart(2, "0")}`);
+  fs.writeFileSync(config, `provider = "openai-chat"\n\n[providers.openai-chat]\ntype = "openai-chat"\nbase_url = "http://127.0.0.1:1/v1"\napi_key = "***"\nmodel = "model-41"\nmodels = ${JSON.stringify(models)}\n`);
+  try {
+    const raw = await runTtyCli(["tui", "--config", config, "--dry-run", "--no-alt-screen"], [
+      { delayMs: 350, input: "/provider models\r" },
+      { delayMs: 350, input: "/exit\r" },
+    ]);
+    const snapshot = await normalizeScreen(raw);
+    assert.ok(snapshot.includes("  1  model-01"));
+    assert.ok(snapshot.includes("▸ 41  model-41  current"));
+    assert.ok(snapshot.includes("hidden before current"));
+    assert.ok(!snapshot.includes(" 21  model-21"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function testModelListScreenshot() {
   const { server, port } = await startMockServer();
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-tui-shot-"));
@@ -156,6 +176,7 @@ async function testModelListScreenshot() {
 (async () => {
   await testSlashCommandPaletteScreenshot();
   await testBracketedPasteInInput();
+  await testLongModelListStaysWithinViewport();
   await testModelListScreenshot();
   console.log("tui_screenshot_snapshots=True");
 })();

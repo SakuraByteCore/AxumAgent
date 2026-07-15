@@ -276,7 +276,7 @@ function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
     return Math.max(72, Math.min(columns, 110));
 }
-function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length) {
+function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24) {
     const inner = width - 4;
     const hasPrompt = options.prompt.trim().length > 0;
     const workingMatch = answer?.match(/^working:(\d+)$/);
@@ -284,7 +284,11 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     const workingSeconds = workingMatch ? workingMatch[1] : "0";
     const hasAnswer = answer !== undefined && !isThinking;
     const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
-    const answerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
+    const rawAnswerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
+    const maxAnswerLines = Math.max(4, height - 7);
+    const answerLines = rawAnswerLines.length > maxAnswerLines
+        ? [...rawAnswerLines.slice(0, maxAnswerLines - 1), `  … ${rawAnswerLines.length - maxAnswerLines + 1} more`]
+        : rawAnswerLines;
     const headerLines = [
         "✦ AxumAgent v0.1.0",
         `  model ${options.model}    cwd ${process.cwd()}    mode YOLO`,
@@ -363,15 +367,28 @@ async function hydrateTuiModelsWithStatus(options, dryRun) {
         return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
     }
 }
-function renderModelList(options) {
+function renderModelList(options, maxRows = 16) {
     if (options.modelOptions.length === 0)
         return `models\n  no configured/fetched model list`;
     const numberWidth = String(options.modelOptions.length).length;
-    const rows = options.modelOptions.map((model, index) => {
+    const currentIndex = Math.max(0, options.modelOptions.indexOf(options.model));
+    const formatRow = (model, index) => {
         const current = model === options.model ? "▸" : " ";
         const suffix = model === options.model ? "  current" : "";
         return `${current} ${String(index + 1).padStart(numberWidth)}  ${model}${suffix}`;
-    });
+    };
+    const allRows = options.modelOptions.map(formatRow);
+    if (allRows.length <= maxRows)
+        return ["models", ...allRows].join("\n");
+    const headCount = Math.max(1, maxRows - (currentIndex >= maxRows - 1 ? 2 : 1));
+    const rows = allRows.slice(0, headCount);
+    if (currentIndex >= headCount) {
+        rows.push(`  … ${currentIndex - headCount + 1} hidden before current`);
+        rows.push(allRows[currentIndex]);
+    }
+    const hiddenBelow = allRows.length - (currentIndex >= headCount ? currentIndex + 1 : rows.length);
+    if (hiddenBelow > 0)
+        rows.push(`  … ${hiddenBelow} more`);
     return ["models", ...rows].join("\n");
 }
 function switchModel(options, value) {
@@ -651,7 +668,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         focused = false;
         invalidate() { }
         render(width) {
-            const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex).split("\n");
+            const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex, terminal.rows).split("\n");
             return lines.map((line) => pi.truncateToWidth(line, width));
         }
         handleInput(data) {
@@ -836,7 +853,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
 }
 async function runLineInteractiveTui(options, dryRun, stdout) {
     const repaint = (screenOptions, answer, input = "") => {
-        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input)}\n`);
+        stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input, 0, input.length, stdout.rows || 24)}\n`);
     };
     repaint({ ...options, prompt: "" }, undefined);
     const rl = (0, promises_1.createInterface)({ input: process.stdin, output: process.stdout, prompt: "" });
@@ -918,7 +935,7 @@ async function runTui(args, env, stdout, stderr) {
         return runLineInteractiveTui(options, dryRun, stdout);
     }
     const result = await resolveTuiAnswer(options, dryRun);
-    stdout.write(`${renderTuiScreen(options, result.answer, terminalWidth(stdout))}\n`);
+    stdout.write(`${renderTuiScreen(options, result.answer, terminalWidth(stdout), "", 0, 0, stdout.rows || 24)}\n`);
     return result.exitCode;
 }
 async function runAxumCli(args, env = process.env, stdout = process.stdout, stderr = process.stderr) {
