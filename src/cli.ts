@@ -285,7 +285,7 @@ function renderSlashCommandSuggestions(input: string, width: number, selectedInd
   const totalWidth = Math.min(width, Math.max(48, Math.min(width, labelWidth + desiredDescWidth + 12)));
   const inner = totalWidth - 2;
   const commandCellWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(inner * 0.4)));
-  const descCellWidth = Math.max(8, inner - commandCellWidth - 7);
+  const descCellWidth = Math.max(8, inner - commandCellWidth - 9);
   const title = " commands ";
   const titleRight = Math.max(0, inner - title.length);
   const top = `╭${title}${"─".repeat(titleRight)}╮`;
@@ -294,7 +294,7 @@ function renderSlashCommandSuggestions(input: string, width: number, selectedInd
     const marker = index === selected ? "›" : " ";
     const commandCell = padCell(slashCommandDisplayName(command), commandCellWidth);
     const descCell = padCell(command.description, descCellWidth);
-    return `│ ${marker} ${commandCell} │ ${descCell} │`;
+    return `│ ${marker} [${commandCell}] │ ${descCell} │`;
   });
   return [top, ...rows, bottom];
 }
@@ -322,8 +322,8 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const isThinking = workingMatch !== undefined && workingMatch !== null;
   const workingSeconds = workingMatch ? workingMatch[1] : "0";
   const hasAnswer = answer !== undefined && !isThinking;
-  const promptLines = hasPrompt ? wrap(options.prompt, inner - 6).map((line) => `  ${line}`) : [];
-  const answerLines = hasAnswer ? wrap(answer, inner - 6).map((line) => `  ${line}`) : [];
+  const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
+  const answerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
   const cardWidth = Math.min(width, 54);
   const headerLines = [
     ">_ AxumAgent (v0.1.0)",
@@ -377,11 +377,15 @@ function uniqueModels(models: string[]): string[] {
 }
 
 async function hydrateTuiModels(options: ChatCommandOptions, dryRun: boolean): Promise<ChatCommandOptions> {
+  return (await hydrateTuiModelsWithStatus(options, dryRun)).options;
+}
+
+async function hydrateTuiModelsWithStatus(options: ChatCommandOptions, dryRun: boolean): Promise<{ options: ChatCommandOptions; error?: string }> {
   const configured = uniqueModels(options.modelOptions);
   if (configured.length > 0) {
-    return { ...options, modelOptions: configured, model: options.modelWasExplicit ? options.model : configured[0] };
+    return { options: { ...options, modelOptions: configured, model: options.modelWasExplicit ? options.model : configured[0] } };
   }
-  if (dryRun || !options.apiKey) return { ...options, modelOptions: configured };
+  if (dryRun || !options.apiKey) return { options: { ...options, modelOptions: configured } };
   try {
     const provider = new OpenAIChatProvider({
       apiKey: options.apiKey,
@@ -392,10 +396,10 @@ async function hydrateTuiModels(options: ChatCommandOptions, dryRun: boolean): P
       retryDelayMs: options.retryDelayMs,
     });
     const fetched = uniqueModels(await provider.listModels());
-    if (fetched.length === 0) return { ...options, modelOptions: fetched };
-    return { ...options, modelOptions: fetched, model: options.modelWasExplicit ? options.model : fetched[0] };
-  } catch {
-    return { ...options, modelOptions: configured };
+    if (fetched.length === 0) return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
+    return { options: { ...options, modelOptions: fetched, model: options.modelWasExplicit ? options.model : fetched[0] } };
+  } catch (error) {
+    return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
   }
 }
 
@@ -475,10 +479,15 @@ async function applyProviderCommand(options: ChatCommandOptions, env: NodeJS.Pro
   const patch = kind === "url" || kind === "base-url" ? { base_url: rawValue } : { api_key: rawValue };
   const saved = saveOpenAIProviderConfig(env, options.configPath, patch);
   let next = parseChatArgs([], env, saved, saved.path, false);
-  next = await hydrateTuiModels(next, false);
+  const hydrated = await hydrateTuiModelsWithStatus(next, false);
+  next = hydrated.options;
   const label = kind === "url" || kind === "base-url" ? "url" : "key";
-  const suffix = next.modelOptions.length > 0 ? `; models loaded: ${next.modelOptions.length}; current model: ${next.model}` : "";
-  return { options: next, message: `provider ${label} saved to ${saved.path}${suffix}` };
+  const header = `provider ${label} saved to ${saved.path}`;
+  if (next.modelOptions.length > 0) {
+    return { options: next, message: `${header}\n${renderModelList(next)}` };
+  }
+  const failure = hydrated.error ? `model list fetch failed: ${hydrated.error}` : "no configured/fetched model list";
+  return { options: next, message: `${header}\n${failure}` };
 }
 
 async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {

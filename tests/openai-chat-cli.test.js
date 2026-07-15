@@ -185,11 +185,11 @@ async function testInteractiveTuiShowsSlashCommands() {
   const result = await runCli(["tui", "--dry-run"], {}, "/\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /commands/);
-  assert.match(result.stdout, /│ › \/help\s+│ show commands\s+│/);
-  assert.match(result.stdout, /│   \/provider\s+│ show or set provider url\/key\s+│/);
-  assert.match(result.stdout, /│   \/model\s+│ list or switch models\s+│/);
-  assert.match(result.stdout, /│   \/exit \/ \/quit\s+│ exit TUI\s+│/);
-  assert.doesNotMatch(result.stdout, /│   \/quit\s+│ exit TUI\s+│/);
+  assert.match(result.stdout, /│ › \[\/help\s+\] │ show commands\s+│/);
+  assert.match(result.stdout, /│   \[\/provider\s+\] │ show or set provider url\/key\s+│/);
+  assert.match(result.stdout, /│   \[\/model\s+\] │ list or switch models\s+│/);
+  assert.match(result.stdout, /│   \[\/exit \/ \/quit\s*\] │ exit TUI\s+│/);
+  assert.doesNotMatch(result.stdout, /│   \[\/quit\s+\] │ exit TUI\s+│/);
   assert.match(result.stdout, /^› █\s*$/m);
 }
 
@@ -203,6 +203,7 @@ async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
     assert.match(result.stdout, /provider url saved/);
     assert.match(result.stdout, /provider key saved/);
     assert.match(result.stdout, /\* 1\. configured-first/);
+    assert.match(result.stdout, /  2\. configured-second/);
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
     assert.strictEqual(requests.at(-1).body.model, "configured-first");
