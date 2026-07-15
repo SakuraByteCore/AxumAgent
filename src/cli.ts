@@ -543,6 +543,45 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   let answer: string | undefined;
   let lastExitCode = 0;
   let slashSelection = 0;
+  const inputHistory: string[] = [];
+  let historyIndex: number | undefined;
+  let draftInputBeforeHistory = "";
+  const recordInputHistory = (value: string): void => {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "/exit" || trimmed === "/quit") return;
+    if (inputHistory.at(-1) !== trimmed) inputHistory.push(trimmed);
+    historyIndex = undefined;
+    draftInputBeforeHistory = "";
+  };
+  const recallPreviousInput = (): boolean => {
+    if (inputHistory.length === 0) return false;
+    if (historyIndex === undefined) {
+      draftInputBeforeHistory = input;
+      historyIndex = inputHistory.length - 1;
+    } else {
+      historyIndex = Math.max(0, historyIndex - 1);
+    }
+    input = inputHistory[historyIndex];
+    slashSelection = 0;
+    return true;
+  };
+  const recallNextInput = (): boolean => {
+    if (historyIndex === undefined) return false;
+    if (historyIndex >= inputHistory.length - 1) {
+      historyIndex = undefined;
+      input = draftInputBeforeHistory;
+      draftInputBeforeHistory = "";
+    } else {
+      historyIndex += 1;
+      input = inputHistory[historyIndex];
+    }
+    slashSelection = 0;
+    return true;
+  };
+  const resetHistoryRecall = (): void => {
+    historyIndex = undefined;
+    draftInputBeforeHistory = "";
+  };
   const repaint = (): void => {
     stdout.write("\u001b[2J\u001b[H");
     stdout.write(`${renderTuiScreen(screenOptions, answer, terminalWidth(stdout), input, slashSelection)}\n`);
@@ -566,15 +605,23 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         }
         continue;
       }
-      if (text === "\u001b[A" && input.startsWith("/")) {
-        const matches = matchingSlashCommands(input);
-        slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
+      if (text === "\u001b[A") {
+        if (historyIndex === undefined && input.startsWith("/")) {
+          const matches = matchingSlashCommands(input);
+          slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
+        } else {
+          recallPreviousInput();
+        }
         repaint();
         continue;
       }
-      if (text === "\u001b[B" && input.startsWith("/")) {
-        const matches = matchingSlashCommands(input);
-        slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
+      if (text === "\u001b[B") {
+        if (historyIndex === undefined && input.startsWith("/")) {
+          const matches = matchingSlashCommands(input);
+          slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
+        } else {
+          recallNextInput();
+        }
         repaint();
         continue;
       }
@@ -582,11 +629,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         const prompt = input.trim();
         input = "";
         slashSelection = 0;
+        resetHistoryRecall();
         if (!prompt) {
           repaint();
           continue;
         }
         if (prompt === "/exit" || prompt === "/quit") return lastExitCode;
+        recordInputHistory(prompt);
         if (prompt === "/help") {
           answer = "commands: /help · /provider [url|key] · /model [id|number] · /exit · /quit";
           repaint();
@@ -641,12 +690,14 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         continue;
       }
       if (text === "\u007f" || text === "\b") {
+        resetHistoryRecall();
         input = input.slice(0, -1);
         slashSelection = 0;
         repaint();
         continue;
       }
       if (text.startsWith("\u001b")) continue;
+      resetHistoryRecall();
       input += text.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
       slashSelection = 0;
       repaint();
