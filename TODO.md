@@ -7,6 +7,9 @@
 - [x] Add user-level TOML config loading outside project workspaces.
 - [x] Prepare npm package metadata, files, exports, license, and dry-run pack script.
 - [x] Add lightweight pi-style terminal UI command with dry-run preview.
+- [x] Add provider model discovery/switching, one-line setup, and temporary config web UI.
+- [x] Add `axum doctor` provider readiness checks.
+- [x] Add GitHub Actions CI for test and pack dry-run.
 - [ ] Expand TS CLI from one-shot `chat` into session/event/tool-loop semantics aligned with pi.
 - [ ] Add profile switching and multiple provider selection polish.
 - [ ] Add explicit permission/policy gates before file or shell tools.

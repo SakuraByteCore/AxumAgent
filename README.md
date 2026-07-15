@@ -1,6 +1,8 @@
 # AxumAgent
 
-AxumAgent is a TypeScript CLI prototype aligned toward `earendil-works/pi`-style provider and agent ergonomics.
+[![CI](https://github.com/SakuraByteCore/AxumAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/SakuraByteCore/AxumAgent/actions/workflows/ci.yml)
+
+AxumAgent is a TypeScript CLI for OpenAI-compatible chat providers, with a terminal UI, quick provider setup, and local readiness checks.
 
 - `src/`: TypeScript CLI/provider layer.
 - `src/config.ts`: user-level TOML config loading.
@@ -10,18 +12,27 @@ AxumAgent is a TypeScript CLI prototype aligned toward `earendil-works/pi`-style
 
 ## Current shape
 
-The repository is TypeScript-only. The previous Rust workspace and prebuilt binary artifacts were removed to avoid large local/remote footprint.
+The repository is TypeScript-only and npm-packaged as `axum-agent`. The previous Rust workspace and prebuilt binary artifacts were removed to avoid large local/remote footprint.
 
 ## Requirements
 
 - Node.js.
 - npm.
 
-## Quick checks
+## Quick start
+
+```bash
+npm install -g axum-agent
+axum config-web
+axum doctor
+axum tui
+```
+
+Local development checks:
 
 ```bash
 npm test
-npm run build
+npm run pack:dry
 node bin/axum.js --help
 ```
 
