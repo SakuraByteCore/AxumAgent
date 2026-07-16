@@ -32,6 +32,7 @@ axum doctor
 axum providers
 axum modes
 axum workflow --dry-run --mode plan "Ship the next change"
+axum workflow --dry-run --verbose --mode plan "Inspect every step"
 axum tui
 ```
 
@@ -105,6 +106,7 @@ node bin/axum.js providers
 node bin/axum.js providers --json
 node bin/axum.js modes
 node bin/axum.js workflow --dry-run --mode build "Implement a safe change"
+node bin/axum.js workflow --dry-run --verbose --mode build "Show folded workflow steps"
 node bin/axum.js config-web
 node bin/axum.js config-web --port 8788 --config ~/.axum/config.toml
 node bin/axum.js chat --config ~/.axum/config.toml "Say hello"
@@ -114,7 +116,7 @@ node bin/axum.js doctor --provider secondary --json
 node bin/axum.js chat --request-timeout-ms 900000 "Run a longer request"
 ```
 
-`axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum providers` lists configured providers and masks literal keys; use `--json` for scripts. `axum chat`, `axum tui`, and `axum doctor` accept `--provider <id>` to temporarily use another provider from `providers.<id>` without changing the default config. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config and `/v1/models` connectivity without sending a chat prompt; use `axum doctor --json` for scripts and CI diagnostics. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
+`axum workflow` renders a compact Unicode stage view by default and folds intermediate workflow steps; pass `--verbose` to expand them. `axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum providers` lists configured providers and masks literal keys; use `--json` for scripts. `axum chat`, `axum tui`, and `axum doctor` accept `--provider <id>` to temporarily use another provider from `providers.<id>` without changing the default config. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config and `/v1/models` connectivity without sending a chat prompt; use `axum doctor --json` for scripts and CI diagnostics. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
 
 Useful environment variables:
 

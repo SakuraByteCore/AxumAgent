@@ -268,6 +268,7 @@ export function renderHelp(): string {
     "      --dry-run             Render the terminal UI without calling a provider (tui only)",
     "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
     "      --mode <id>           Use a Kilo-style Axum shell mode for workflow execution",
+    "      --verbose             Expand folded workflow steps",
     "",
     "Config web options:",
     "      --host <host>         Config web host (default: 127.0.0.1)",
@@ -1530,10 +1531,11 @@ async function runModes(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.W
   }
 }
 
-function parseWorkflowArgs(args: string[]): { configPath?: string; mode?: string; dryRun: boolean; prompt: string } {
+function parseWorkflowArgs(args: string[]): { configPath?: string; mode?: string; dryRun: boolean; verbose: boolean; prompt: string } {
   let configPath: string | undefined;
   let mode: string | undefined;
   let dryRun = false;
+  let verbose = false;
   const rest: string[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i];
@@ -1545,6 +1547,8 @@ function parseWorkflowArgs(args: string[]): { configPath?: string; mode?: string
       i += 1;
     } else if (arg === "--dry-run") {
       dryRun = true;
+    } else if (arg === "--verbose") {
+      verbose = true;
     } else if (arg === "--help" || arg === "-h") {
       throw new HelpRequested();
     } else if (arg.startsWith("--")) {
@@ -1553,7 +1557,13 @@ function parseWorkflowArgs(args: string[]): { configPath?: string; mode?: string
       rest.push(arg);
     }
   }
-  return { configPath, mode, dryRun, prompt: rest.join(" ").trim() };
+  return { configPath, mode, dryRun, verbose, prompt: rest.join(" ").trim() };
+}
+
+function writeWorkflowRender(stdout: NodeJS.WriteStream, plan: ReturnType<typeof buildWorkflowPlan>, checkpointPath: string | undefined, verbose: boolean): void {
+  for (const line of renderWorkflowPlan(plan, checkpointPath, { verbose }).split("\n")) {
+    stdout.write(`${line}\n`);
+  }
 }
 
 async function runWorkflow(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
@@ -1562,11 +1572,11 @@ async function runWorkflow(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJ
     const loaded = loadConfig(env, options.configPath);
     const plan = buildWorkflowPlan(loaded?.config, options.prompt, { mode: options.mode });
     const checkpointPath = options.dryRun ? undefined : persistWorkflowPlan(plan);
-    stdout.write(`${renderWorkflowPlan(plan, checkpointPath)}\n`);
+    writeWorkflowRender(stdout, plan, checkpointPath, options.verbose);
     return 0;
   } catch (error) {
     if (error instanceof HelpRequested) {
-      stdout.write("Usage: axum workflow [--config <path>] [--mode <id>] [--dry-run] <prompt>\n");
+      stdout.write("Usage: axum workflow [--config <path>] [--mode <id>] [--dry-run] [--verbose] <prompt>\n");
       return 0;
     }
     stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

@@ -737,11 +737,18 @@ async function testKiloStyleModesList() {
 async function testWorkflowDryRunUsesPiRuntimeShape() {
   const result = await runCli(["workflow", "--dry-run", "--mode", "plan", "ship", "feature"]);
   assert.strictEqual(result.code, 0, result.stderr);
-  assert.match(result.stdout, /Axum workflow \(plan\)/);
-  assert.match(result.stdout, /shell: Kilo-style mode\/prompt UX/);
-  assert.match(result.stdout, /runtime: pi-style event\/checkpoint\/tool-gate/);
-  assert.match(result.stdout, /permission-gated: allow tools: read/);
-  assert.doesNotMatch(result.stdout, /checkpoint:/);
+  assert.match(result.stdout, /◇ Axum workflow/);
+  assert.match(result.stdout, /◌ plan · ship feature/);
+  assert.match(result.stdout, /⤷ 2 steps folded \(--verbose to expand\)/);
+  assert.doesNotMatch(result.stdout, /shell:/);
+  assert.doesNotMatch(result.stdout, /runtime:/);
+  assert.doesNotMatch(result.stdout, /permission-gated:/);
+  assert.doesNotMatch(result.stdout, /◆ checkpoint/);
+
+  const verbose = await runCli(["workflow", "--dry-run", "--verbose", "--mode", "plan", "ship", "feature"]);
+  assert.strictEqual(verbose.code, 0, verbose.stderr);
+  assert.match(verbose.stdout, /├─ shape workflow events/);
+  assert.match(verbose.stdout, /├─ gate tools read/);
 }
 
 (async () => {

@@ -258,6 +258,7 @@ function renderHelp() {
         "      --dry-run             Render the terminal UI without calling a provider (tui only)",
         "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
         "      --mode <id>           Use a Kilo-style Axum shell mode for workflow execution",
+        "      --verbose             Expand folded workflow steps",
         "",
         "Config web options:",
         "      --host <host>         Config web host (default: 127.0.0.1)",
@@ -1546,6 +1547,7 @@ function parseWorkflowArgs(args) {
     let configPath;
     let mode;
     let dryRun = false;
+    let verbose = false;
     const rest = [];
     for (let i = 0; i < args.length; i += 1) {
         const arg = args[i];
@@ -1560,6 +1562,9 @@ function parseWorkflowArgs(args) {
         else if (arg === "--dry-run") {
             dryRun = true;
         }
+        else if (arg === "--verbose") {
+            verbose = true;
+        }
         else if (arg === "--help" || arg === "-h") {
             throw new HelpRequested();
         }
@@ -1570,7 +1575,12 @@ function parseWorkflowArgs(args) {
             rest.push(arg);
         }
     }
-    return { configPath, mode, dryRun, prompt: rest.join(" ").trim() };
+    return { configPath, mode, dryRun, verbose, prompt: rest.join(" ").trim() };
+}
+function writeWorkflowRender(stdout, plan, checkpointPath, verbose) {
+    for (const line of (0, pi_workflow_1.renderWorkflowPlan)(plan, checkpointPath, { verbose }).split("\n")) {
+        stdout.write(`${line}\n`);
+    }
 }
 async function runWorkflow(args, env, stdout, stderr) {
     try {
@@ -1578,12 +1588,12 @@ async function runWorkflow(args, env, stdout, stderr) {
         const loaded = (0, config_1.loadConfig)(env, options.configPath);
         const plan = (0, pi_workflow_1.buildWorkflowPlan)(loaded?.config, options.prompt, { mode: options.mode });
         const checkpointPath = options.dryRun ? undefined : (0, pi_workflow_1.persistWorkflowPlan)(plan);
-        stdout.write(`${(0, pi_workflow_1.renderWorkflowPlan)(plan, checkpointPath)}\n`);
+        writeWorkflowRender(stdout, plan, checkpointPath, options.verbose);
         return 0;
     }
     catch (error) {
         if (error instanceof HelpRequested) {
-            stdout.write("Usage: axum workflow [--config <path>] [--mode <id>] [--dry-run] <prompt>\n");
+            stdout.write("Usage: axum workflow [--config <path>] [--mode <id>] [--dry-run] [--verbose] <prompt>\n");
             return 0;
         }
         stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

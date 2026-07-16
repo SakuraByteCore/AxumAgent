@@ -40,18 +40,29 @@ function persistWorkflowPlan(plan) {
     node_fs_1.default.writeFileSync(file, JSON.stringify(plan, null, 2) + "\n", "utf8");
     return file;
 }
-function renderWorkflowPlan(plan, checkpointPath) {
+function renderWorkflowPlan(plan, checkpointPath, options = {}) {
     const lines = [
-        `Axum workflow (${plan.mode.id})`,
-        `shell: Kilo-style mode/prompt UX`,
-        `runtime: pi-style event/checkpoint/tool-gate`,
-        `state: ${plan.stateDir}`,
-        `prompt: ${plan.prompt}`,
-        "events:",
+        "◇ Axum workflow",
+        `  ◌ ${plan.mode.id} · ${plan.prompt}`,
+        "  ✓ request captured",
     ];
-    for (const item of plan.events)
-        lines.push(`  ${item.id}. ${item.phase}: ${item.message}`);
+    const middle = plan.events.slice(1, -1);
+    if (options.verbose) {
+        lines.push(`  ◌ state ${plan.stateDir}`);
+        for (const item of middle) {
+            const message = item.phase === "planned"
+                ? "shape workflow events"
+                : item.phase === "permission-gated"
+                    ? `gate tools ${plan.mode.tools.length ? plan.mode.tools.join(", ") : "none"}`
+                    : item.message;
+            lines.push(`  ├─ ${message}`);
+        }
+    }
+    else if (middle.length > 0) {
+        lines.push(`  ⤷ ${middle.length} steps folded (--verbose to expand)`);
+    }
+    lines.push(`  ✓ ready · ${plan.stateDir}`);
     if (checkpointPath)
-        lines.push(`checkpoint: ${checkpointPath}`);
+        lines.push(`  ◆ checkpoint ${checkpointPath}`);
     return lines.join("\n");
 }

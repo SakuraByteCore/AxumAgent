@@ -17,5 +17,6 @@
 - [ ] Add richer profile switching polish beyond provider selection.
 - [ ] Add explicit file/shell tool executors behind the workflow permission gates.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.
+- [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [ ] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.
