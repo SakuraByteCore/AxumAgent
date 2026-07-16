@@ -122,6 +122,19 @@ async function testSlashCommandPaletteScreenshot() {
   assertSnapshot("slash-command-palette", snapshot);
 }
 
+async function testSlashCommandPaletteClearsOldRows() {
+  const raw = await runTtyCli(["tui", "--dry-run", "--no-alt-screen"], [
+    { delayMs: 350, input: "/" },
+    { delayMs: 350, input: "\x1b[B" },
+    { delayMs: 350, input: "\x1b[B" },
+    { delayMs: 350, input: "\x03" },
+  ]);
+  const snapshot = await normalizeScreen(raw);
+  const commandHeaderCount = (snapshot.match(/⌘ commands/g) || []).length;
+  assert.strictEqual(commandHeaderCount, 1, `slash command palette left stale rows:\n${snapshot}`);
+  assert.ok(snapshot.includes("▸ /provider") || snapshot.includes("▸ /model"));
+}
+
 async function testBracketedPasteInInput() {
   const raw = await runTtyCli(["tui", "--dry-run", "--no-alt-screen"], [
     { delayMs: 350, input: "\x1b[200~hello from shift insert\x1b[201~" },
@@ -216,6 +229,7 @@ async function testModelListScreenshot() {
 
 (async () => {
   await testSlashCommandPaletteScreenshot();
+  await testSlashCommandPaletteClearsOldRows();
   await testBracketedPasteInInput();
   await testLongModelListStaysWithinViewport();
   await testBusyCtrlCOnlyCancelsRequest();

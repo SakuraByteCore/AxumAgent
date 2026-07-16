@@ -1195,7 +1195,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         invalidate() { }
         render(width) {
             const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex, terminal.rows, status).split("\n");
-            return lines.map((line) => pi.truncateToWidth(line, width));
+            return lines.map((line) => clip(pi.truncateToWidth(line, width), width));
         }
         handleInput(data) {
             void handlePiInput(data);
