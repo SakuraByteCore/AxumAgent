@@ -2,10 +2,12 @@
 
 [![CI](https://github.com/SakuraByteCore/AxumAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/SakuraByteCore/AxumAgent/actions/workflows/ci.yml)
 
-AxumAgent is a TypeScript CLI for OpenAI-compatible chat providers, with a terminal UI, quick provider setup, and local readiness checks.
+AxumAgent is a TypeScript CLI for OpenAI-compatible chat providers, with a Kilo-style terminal shell, quick provider setup, and a pi-style workflow runtime foundation.
 
-- `src/`: TypeScript CLI/provider layer.
+- `src/`: TypeScript CLI/provider/runtime layer.
 - `src/config.ts`: user-level TOML config loading.
+- `src/shell/kilo-shell.ts`: Kilo-style shell mode definitions without depending on KiloCode.
+- `src/runtime/pi-workflow.ts`: pi-style workflow events, permission gates, and checkpoint layout.
 - `src/providers/openai-chat.ts`: OpenAI Chat Completions and OpenAI-compatible provider.
 - `bin/axum.js`: npm binary shim that runs the built TypeScript CLI.
 - `dist/`: committed build output for install-time execution.
@@ -28,6 +30,8 @@ axum init --provider-config "https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o
 axum config-web
 axum doctor
 axum providers
+axum modes
+axum workflow --dry-run --mode plan "Ship the next change"
 axum tui
 ```
 
@@ -99,6 +103,8 @@ node bin/axum.js doctor
 node bin/axum.js doctor --json
 node bin/axum.js providers
 node bin/axum.js providers --json
+node bin/axum.js modes
+node bin/axum.js workflow --dry-run --mode build "Implement a safe change"
 node bin/axum.js config-web
 node bin/axum.js config-web --port 8788 --config ~/.axum/config.toml
 node bin/axum.js chat --config ~/.axum/config.toml "Say hello"

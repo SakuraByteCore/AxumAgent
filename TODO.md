@@ -10,9 +10,12 @@
 - [x] Add provider model discovery/switching, one-line setup, manual init, and temporary config web UI.
 - [x] Add `axum doctor` provider readiness checks.
 - [x] Add GitHub Actions CI for test and pack dry-run.
-- [ ] Expand TS CLI from one-shot `chat` into session/event/tool-loop semantics aligned with pi.
+- [x] Add Kilo-style shell mode surface without taking a runtime dependency on KiloCode.
+- [x] Add initial pi-style workflow event/checkpoint/permission-gate skeleton.
+- [ ] Expand TS CLI from one-shot `chat` into full session/event/tool-loop execution aligned with pi.
 - [x] Add CLI/TUI/doctor `--provider <id>` selection and `axum providers` discovery for configured providers.
 - [ ] Add richer profile switching polish beyond provider selection.
-- [ ] Add explicit permission/policy gates before file or shell tools.
-- [ ] Add integration tests for session/event/tool-loop behavior once introduced.
+- [ ] Add explicit file/shell tool executors behind the workflow permission gates.
+- [x] Add smoke tests for shell modes and workflow dry-run shape.
+- [ ] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.

@@ -23,6 +23,17 @@ export interface ProviderConfig {
   providerConfig?: string;
 }
 
+export interface AxumModeConfig {
+  description?: string;
+  prompt?: string;
+  tools?: string[];
+}
+
+export interface AxumShellConfig {
+  default_mode?: string;
+  defaultMode?: string;
+}
+
 export interface AxumConfig {
   model?: string;
   models?: string[];
@@ -30,6 +41,8 @@ export interface AxumConfig {
   providers?: Record<string, ProviderConfig>;
   provider_config?: string;
   providerConfig?: string;
+  shell?: AxumShellConfig;
+  modes?: Record<string, AxumModeConfig>;
 }
 
 export interface LoadedConfig {

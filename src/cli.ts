@@ -1,5 +1,7 @@
 import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveOpenAIProviderConfig, selectedProvider, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
+import { buildWorkflowPlan, persistWorkflowPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
+import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -230,6 +232,8 @@ export function renderHelp(): string {
     "  axum tui [options] [prompt]",
     "  axum doctor [options]",
     "  axum providers [options]",
+    "  axum modes [options]",
+    "  axum workflow [options] <prompt>",
     "  axum config-web [options]",
     "  axum --version",
     "",
@@ -237,6 +241,7 @@ export function renderHelp(): string {
     "  axum init --provider-config \"https://api.openai.com/v1 env:OPENAI_API_KEY gpt-4o-mini\"",
     "  axum doctor",
     "  axum providers",
+    "  axum modes",
     "  axum tui",
     "",
     "Common options:",
@@ -262,6 +267,7 @@ export function renderHelp(): string {
     "      --json                Print provider/doctor result as JSON",
     "      --dry-run             Render the terminal UI without calling a provider (tui only)",
     "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
+    "      --mode <id>           Use a Kilo-style Axum shell mode for workflow execution",
     "",
     "Config web options:",
     "      --host <host>         Config web host (default: 127.0.0.1)",
@@ -1477,6 +1483,97 @@ async function runTui(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wri
   return result.exitCode;
 }
 
+function parseModeArgs(args: string[]): { configPath?: string; json: boolean; mode?: string } {
+  let configPath: string | undefined;
+  let json = false;
+  let mode: string | undefined;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--config") {
+      configPath = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--json") {
+      json = true;
+    } else if (arg === "--mode") {
+      mode = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--help" || arg === "-h") {
+      throw new HelpRequested();
+    } else {
+      throw new Error(`unknown modes option: ${arg}`);
+    }
+  }
+  return { configPath, json, mode };
+}
+
+async function runModes(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
+  try {
+    const options = parseModeArgs(args);
+    const loaded = loadConfig(env, options.configPath);
+    if (options.json) {
+      const mode = options.mode ? findMode(loaded?.config, options.mode) : undefined;
+      stdout.write(`${JSON.stringify(mode ? { mode } : { modes: renderModeList(loaded?.config).split("\n") }, null, 2)}\n`);
+    } else if (options.mode) {
+      const mode = findMode(loaded?.config, options.mode);
+      stdout.write(`${mode.id}\n${mode.description}\ntools: ${mode.tools.join(", ") || "none"}\n`);
+    } else {
+      stdout.write(`${renderModeList(loaded?.config)}\n`);
+    }
+    return 0;
+  } catch (error) {
+    if (error instanceof HelpRequested) {
+      stdout.write("Usage: axum modes [--config <path>] [--mode <id>] [--json]\n");
+      return 0;
+    }
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+}
+
+function parseWorkflowArgs(args: string[]): { configPath?: string; mode?: string; dryRun: boolean; prompt: string } {
+  let configPath: string | undefined;
+  let mode: string | undefined;
+  let dryRun = false;
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--config") {
+      configPath = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--mode") {
+      mode = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--help" || arg === "-h") {
+      throw new HelpRequested();
+    } else if (arg.startsWith("--")) {
+      throw new Error(`unknown workflow option: ${arg}`);
+    } else {
+      rest.push(arg);
+    }
+  }
+  return { configPath, mode, dryRun, prompt: rest.join(" ").trim() };
+}
+
+async function runWorkflow(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
+  try {
+    const options = parseWorkflowArgs(args);
+    const loaded = loadConfig(env, options.configPath);
+    const plan = buildWorkflowPlan(loaded?.config, options.prompt, { mode: options.mode });
+    const checkpointPath = options.dryRun ? undefined : persistWorkflowPlan(plan);
+    stdout.write(`${renderWorkflowPlan(plan, checkpointPath)}\n`);
+    return 0;
+  } catch (error) {
+    if (error instanceof HelpRequested) {
+      stdout.write("Usage: axum workflow [--config <path>] [--mode <id>] [--dry-run] <prompt>\n");
+      return 0;
+    }
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+}
+
 export async function runAxumCli(args: string[], env = process.env, stdout = process.stdout, stderr = process.stderr): Promise<AxumCliResult> {
   if (args[0] === "--version" || args[0] === "-v") {
     stdout.write(`${packageVersion()}\n`);
@@ -1496,6 +1593,12 @@ export async function runAxumCli(args: string[], env = process.env, stdout = pro
   }
   if (args[0] === "providers") {
     return { handled: true, exitCode: await runProviders(args.slice(1), env, stdout, stderr) };
+  }
+  if (args[0] === "modes") {
+    return { handled: true, exitCode: await runModes(args.slice(1), env, stdout, stderr) };
+  }
+  if (args[0] === "workflow") {
+    return { handled: true, exitCode: await runWorkflow(args.slice(1), env, stdout, stderr) };
   }
   if (args[0] === "config-web") {
     return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };

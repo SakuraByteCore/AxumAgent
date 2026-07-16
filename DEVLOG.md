@@ -44,6 +44,7 @@ Work added:
 - Documented the release checklist and corrected install/config wording to make `axum init` the explicit first-run step.
 - Reworked top-level help around the product flow (`init` → `doctor` → `tui`) and separated config-web options from chat options.
 - Added GitHub Actions CI for `npm test` and `npm run pack:dry` on push/PR to `main`.
+- Added the first Kilo-inspired shell layer without adding a KiloCode runtime dependency: `axum modes` exposes build/plan/debug mode profiles, while `axum workflow` maps shell prompts into pi-style events, permission gates, and project-local checkpoints under `.axum/state`.
 
 Validation:
 - `npm test` builds TypeScript, checks generated JS, runs the OpenAI-compatible mock CLI regression, and compares TUI screenshot snapshots.

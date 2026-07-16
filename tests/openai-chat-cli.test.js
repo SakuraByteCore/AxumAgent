@@ -725,6 +725,25 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   }
 }
 
+async function testKiloStyleModesList() {
+  const result = await runCli(["modes"]);
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Kilo-style shell; Axum\/pi runtime owns execution state/);
+  assert.match(result.stdout, /\* build\s+builtin/);
+  assert.match(result.stdout, /plan\s+builtin/);
+  assert.match(result.stdout, /debug\s+builtin/);
+}
+
+async function testWorkflowDryRunUsesPiRuntimeShape() {
+  const result = await runCli(["workflow", "--dry-run", "--mode", "plan", "ship", "feature"]);
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.match(result.stdout, /Axum workflow \(plan\)/);
+  assert.match(result.stdout, /shell: Kilo-style mode\/prompt UX/);
+  assert.match(result.stdout, /runtime: pi-style event\/checkpoint\/tool-gate/);
+  assert.match(result.stdout, /permission-gated: allow tools: read/);
+  assert.doesNotMatch(result.stdout, /checkpoint:/);
+}
+
 (async () => {
   await testBasicChatFromConfig();
   await testVersionFlag();
@@ -752,4 +771,6 @@ api_key_env = "AXUM_TEST_MISSING_KEY"
   await testTuiFetchesModelListEvenWhenConfigHasModel();
   await testInteractiveTuiWorkingTimer();
   await testMissingKey();
+  await testKiloStyleModesList();
+  await testWorkflowDryRunUsesPiRuntimeShape();
 })();
