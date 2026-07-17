@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.OpenAIChatProvider = void 0;
+exports.sanitizeMessagesForProvider = sanitizeMessagesForProvider;
+exports.sanitizeToolCallsForProvider = sanitizeToolCallsForProvider;
 function normalizeBaseUrl(baseUrl) {
     return baseUrl.replace(/\/+$/, "");
 }
@@ -10,6 +12,36 @@ function resolveContent(json) {
         throw new Error("OpenAI Chat response did not contain choices[0].message.content");
     }
     return content;
+}
+function sanitizeMessagesForProvider(messages) {
+    const corrections = [];
+    const sanitized = messages.map((message, index) => {
+        const role = message.role;
+        if (role !== "system" && role !== "user" && role !== "assistant") {
+            corrections.push(`message[${index}] role corrected to user`);
+            return { role: "user", content: String(message.content ?? "") };
+        }
+        const content = String(message.content ?? "");
+        if (content.length === 0)
+            corrections.push(`message[${index}] empty content preserved`);
+        return { role, content };
+    });
+    return { value: sanitized, corrections };
+}
+function sanitizeToolCallsForProvider(toolCalls, allowedTools) {
+    const allowed = new Set(allowedTools);
+    const corrections = [];
+    const value = toolCalls.flatMap((call, index) => {
+        const name = call.function?.name;
+        if (!name || !allowed.has(name)) {
+            corrections.push(`tool_calls[${index}] dropped: ${name || "missing-name"} is not allowed`);
+            return [];
+        }
+        if (call.type && call.type !== "function")
+            corrections.push(`tool_calls[${index}] type corrected to function`);
+        return [{ ...call, type: "function", function: { ...call.function, name, arguments: call.function?.arguments ?? "{}" } }];
+    });
+    return { value, corrections };
 }
 async function readResponseBody(response) {
     const text = await response.text();
@@ -141,6 +173,7 @@ class OpenAIChatProvider {
         throw lastError ?? new Error("OpenAI Chat stream request failed");
     }
     async chatOnce(messages, signal) {
+        const guardedMessages = sanitizeMessagesForProvider(messages).value;
         const request = await this.withRequestTimeout("OpenAI Chat request", async (requestSignal) => {
             let response;
             try {
@@ -152,7 +185,7 @@ class OpenAIChatProvider {
                     },
                     body: JSON.stringify({
                         model: this.model,
-                        messages,
+                        messages: guardedMessages,
                         ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
                     }),
                     signal: requestSignal,
@@ -184,6 +217,7 @@ class OpenAIChatProvider {
         };
     }
     async chatStreamOnce(messages, onDelta, signal) {
+        const guardedMessages = sanitizeMessagesForProvider(messages).value;
         return this.withRequestTimeout("OpenAI Chat stream request", async (requestSignal) => {
             let response;
             try {
@@ -195,7 +229,7 @@ class OpenAIChatProvider {
                     },
                     body: JSON.stringify({
                         model: this.model,
-                        messages,
+                        messages: guardedMessages,
                         stream: true,
                         ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
                     }),

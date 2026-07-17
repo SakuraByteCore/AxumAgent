@@ -224,6 +224,7 @@ function renderHelp() {
         "  axum providers [options]",
         "  axum modes [options]",
         "  axum workflow [options] <prompt>",
+        "  axum parallel [options] --task <prompt> --task <prompt> <goal>",
         "  axum config-web [options]",
         "  axum --version",
         "",
@@ -232,6 +233,7 @@ function renderHelp() {
         "  axum doctor",
         "  axum providers",
         "  axum modes",
+        "  axum parallel --task \"inspect runtime\" --task \"inspect tools\" \"plan refactor\"",
         "  axum tui",
         "",
         "Common options:",
@@ -258,6 +260,7 @@ function renderHelp() {
         "      --dry-run             Render the terminal UI without calling a provider (tui only)",
         "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
         "      --mode <id>           Use a Kilo-style Axum shell mode for workflow execution",
+        "      --task <prompt>       Add a planned sub-agent task for axum parallel",
         "      --verbose             Expand folded workflow steps",
         "",
         "Config web options:",
@@ -1649,6 +1652,60 @@ async function runWorkflow(args, env, stdout, stderr) {
         return 2;
     }
 }
+function parseParallelArgs(args) {
+    let configPath;
+    let mode;
+    let dryRun = false;
+    const tasks = [];
+    const rest = [];
+    for (let i = 0; i < args.length; i += 1) {
+        const arg = args[i];
+        if (arg === "--config") {
+            configPath = takeValue(args, i, arg);
+            i += 1;
+        }
+        else if (arg === "--mode") {
+            mode = takeValue(args, i, arg);
+            i += 1;
+        }
+        else if (arg === "--task") {
+            tasks.push(takeValue(args, i, arg));
+            i += 1;
+        }
+        else if (arg === "--dry-run") {
+            dryRun = true;
+        }
+        else if (arg === "--help" || arg === "-h") {
+            throw new HelpRequested();
+        }
+        else if (arg.startsWith("--")) {
+            throw new Error(`unknown parallel option: ${arg}`);
+        }
+        else {
+            rest.push(arg);
+        }
+    }
+    return { configPath, mode, dryRun, prompt: rest.join(" ").trim(), tasks };
+}
+async function runParallel(args, env, stdout, stderr) {
+    try {
+        const options = parseParallelArgs(args);
+        const loaded = (0, config_1.loadConfig)(env, options.configPath);
+        const mode = (0, kilo_shell_1.findMode)(loaded?.config, options.mode).id;
+        const plan = (0, pi_workflow_1.buildSwarmPlan)(options.prompt, options.tasks, { mode });
+        const checkpointPath = options.dryRun ? undefined : (0, pi_workflow_1.persistSwarmPlan)(plan);
+        stdout.write(`${(0, pi_workflow_1.renderSwarmPlan)(plan, checkpointPath)}\n`);
+        return 0;
+    }
+    catch (error) {
+        if (error instanceof HelpRequested) {
+            stdout.write("Usage: axum parallel [--config <path>] [--mode <id>] [--dry-run] --task <prompt> --task <prompt> <goal>\n");
+            return 0;
+        }
+        stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        return 2;
+    }
+}
 async function runAxumCli(args, env = process.env, stdout = process.stdout, stderr = process.stderr) {
     if (args[0] === "--version" || args[0] === "-v") {
         stdout.write(`${packageVersion()}\n`);
@@ -1674,6 +1731,9 @@ async function runAxumCli(args, env = process.env, stdout = process.stdout, stde
     }
     if (args[0] === "workflow") {
         return { handled: true, exitCode: await runWorkflow(args.slice(1), env, stdout, stderr) };
+    }
+    if (args[0] === "parallel") {
+        return { handled: true, exitCode: await runParallel(args.slice(1), env, stdout, stderr) };
     }
     if (args[0] === "config-web") {
         return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };

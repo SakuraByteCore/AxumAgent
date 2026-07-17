@@ -3,11 +3,15 @@
 ## 2026-07-17
 
 Work added:
+- Reworked the workflow skeleton from basic pi-style events into a Codex-style Plan/Execute shape with request/tool hash anchors and bounded auto-fix loop metadata.
+- Added a Kilo/Codex-inspired tool registry for precise local edit, safe command sandbox, and LSP symbol lookup surfaces.
+- Added `axum parallel` as the first swarm/sub-agent planning surface, persisting planned fan-out tasks with a hash-anchor merge policy.
+- Added provider-layer safety guard helpers that correct unsupported message/tool-call shapes before OpenAI-compatible transport.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
 
 Validation:
-- `npm test` passes.
+- `npm test` passes after workflow/tool/swarm guard changes.
 
 
 ## 2026-07-13

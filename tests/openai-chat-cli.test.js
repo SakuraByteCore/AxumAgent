@@ -743,7 +743,8 @@ async function testWorkflowDryRunUsesPiRuntimeShape() {
   assert.strictEqual(result.code, 0, result.stderr);
   assert.match(result.stdout, /◇ Axum workflow/);
   assert.match(result.stdout, /◌ plan · ship feature/);
-  assert.match(result.stdout, /⤷ 2 steps folded \(--verbose to expand\)/);
+  assert.match(result.stdout, /✓ plan · request anchored/);
+  assert.match(result.stdout, /⤷ 4 steps folded \(--verbose to expand\)/);
   assert.doesNotMatch(result.stdout, /shell:/);
   assert.doesNotMatch(result.stdout, /runtime:/);
   assert.doesNotMatch(result.stdout, /permission-gated:/);
@@ -751,8 +752,34 @@ async function testWorkflowDryRunUsesPiRuntimeShape() {
 
   const verbose = await runCli(["workflow", "--dry-run", "--verbose", "--mode", "plan", "ship", "feature"]);
   assert.strictEqual(verbose.code, 0, verbose.stderr);
-  assert.match(verbose.stdout, /├─ shape workflow events/);
-  assert.match(verbose.stdout, /├─ gate tools read/);
+  assert.match(verbose.stdout, /anchor .* sha256:/);
+  assert.match(verbose.stdout, /├─ shape plan stage/);
+  assert.match(verbose.stdout, /├─ gate tools read, lsp_symbols/);
+  assert.match(verbose.stdout, /├─ enter execute stage/);
+  assert.match(verbose.stdout, /├─ auto-fix loop 3x via hash anchor/);
+}
+
+async function testParallelDryRunPlansSubAgents() {
+  const result = await runCli(["parallel", "--dry-run", "--mode", "build", "--task", "inspect runtime", "--task", "inspect tools", "refactor core workflow"]);
+  assert.strictEqual(result.code, 0, result.stderr);
+  assert.match(result.stdout, /◇ Axum parallel/);
+  assert.match(result.stdout, /coordinator main-agent · refactor core workflow/);
+  assert.match(result.stdout, /✓ 2 sub-agents planned/);
+  assert.match(result.stdout, /agent-1 \[build\] inspect runtime/);
+  assert.match(result.stdout, /merge policy · hash-anchor-review/);
+  assert.doesNotMatch(result.stdout, /◆ checkpoint/);
+}
+
+async function testProviderSafetyGuardExportsCorrections() {
+  const { sanitizeToolCallsForProvider } = require("../dist/providers/openai-chat.js");
+  const guarded = sanitizeToolCallsForProvider([
+    { id: "1", type: "unsafe", function: { name: "safe_exec", arguments: "{}" } },
+    { id: "2", type: "function", function: { name: "raw_shell", arguments: "{}" } },
+  ], ["safe_exec"]);
+  assert.strictEqual(guarded.value.length, 1);
+  assert.strictEqual(guarded.value[0].type, "function");
+  assert.match(guarded.corrections.join("\n"), /type corrected to function/);
+  assert.match(guarded.corrections.join("\n"), /raw_shell is not allowed/);
 }
 
 (async () => {
@@ -784,4 +811,6 @@ async function testWorkflowDryRunUsesPiRuntimeShape() {
   await testMissingKey();
   await testKiloStyleModesList();
   await testWorkflowDryRunUsesPiRuntimeShape();
+  await testParallelDryRunPlansSubAgents();
+  await testProviderSafetyGuardExportsCorrections();
 })();

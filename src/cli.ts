@@ -1,6 +1,6 @@
 import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveOpenAIProviderConfig, selectedProvider, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
-import { buildWorkflowPlan, persistWorkflowPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
+import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPlan, renderSwarmPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
 import http from "node:http";
@@ -234,6 +234,7 @@ export function renderHelp(): string {
     "  axum providers [options]",
     "  axum modes [options]",
     "  axum workflow [options] <prompt>",
+    "  axum parallel [options] --task <prompt> --task <prompt> <goal>",
     "  axum config-web [options]",
     "  axum --version",
     "",
@@ -242,6 +243,7 @@ export function renderHelp(): string {
     "  axum doctor",
     "  axum providers",
     "  axum modes",
+    "  axum parallel --task \"inspect runtime\" --task \"inspect tools\" \"plan refactor\"",
     "  axum tui",
     "",
     "Common options:",
@@ -268,6 +270,7 @@ export function renderHelp(): string {
     "      --dry-run             Render the terminal UI without calling a provider (tui only)",
     "      --no-alt-screen       Keep terminal scrollback instead of using the alternate screen (tui only)",
     "      --mode <id>           Use a Kilo-style Axum shell mode for workflow execution",
+    "      --task <prompt>       Add a planned sub-agent task for axum parallel",
     "      --verbose             Expand folded workflow steps",
     "",
     "Config web options:",
@@ -1635,6 +1638,55 @@ async function runWorkflow(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJ
   }
 }
 
+function parseParallelArgs(args: string[]): { configPath?: string; mode?: string; dryRun: boolean; prompt: string; tasks: string[] } {
+  let configPath: string | undefined;
+  let mode: string | undefined;
+  let dryRun = false;
+  const tasks: string[] = [];
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === "--config") {
+      configPath = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--mode") {
+      mode = takeValue(args, i, arg);
+      i += 1;
+    } else if (arg === "--task") {
+      tasks.push(takeValue(args, i, arg));
+      i += 1;
+    } else if (arg === "--dry-run") {
+      dryRun = true;
+    } else if (arg === "--help" || arg === "-h") {
+      throw new HelpRequested();
+    } else if (arg.startsWith("--")) {
+      throw new Error(`unknown parallel option: ${arg}`);
+    } else {
+      rest.push(arg);
+    }
+  }
+  return { configPath, mode, dryRun, prompt: rest.join(" ").trim(), tasks };
+}
+
+async function runParallel(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
+  try {
+    const options = parseParallelArgs(args);
+    const loaded = loadConfig(env, options.configPath);
+    const mode = findMode(loaded?.config, options.mode).id;
+    const plan = buildSwarmPlan(options.prompt, options.tasks, { mode });
+    const checkpointPath = options.dryRun ? undefined : persistSwarmPlan(plan);
+    stdout.write(`${renderSwarmPlan(plan, checkpointPath)}\n`);
+    return 0;
+  } catch (error) {
+    if (error instanceof HelpRequested) {
+      stdout.write("Usage: axum parallel [--config <path>] [--mode <id>] [--dry-run] --task <prompt> --task <prompt> <goal>\n");
+      return 0;
+    }
+    stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    return 2;
+  }
+}
+
 export async function runAxumCli(args: string[], env = process.env, stdout = process.stdout, stderr = process.stderr): Promise<AxumCliResult> {
   if (args[0] === "--version" || args[0] === "-v") {
     stdout.write(`${packageVersion()}\n`);
@@ -1660,6 +1712,9 @@ export async function runAxumCli(args: string[], env = process.env, stdout = pro
   }
   if (args[0] === "workflow") {
     return { handled: true, exitCode: await runWorkflow(args.slice(1), env, stdout, stderr) };
+  }
+  if (args[0] === "parallel") {
+    return { handled: true, exitCode: await runParallel(args.slice(1), env, stdout, stderr) };
   }
   if (args[0] === "config-web") {
     return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };

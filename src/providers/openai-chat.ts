@@ -22,6 +22,20 @@ export interface OpenAIChatResult {
   raw: unknown;
 }
 
+export interface AxumToolCall {
+  id?: string;
+  type?: string;
+  function?: {
+    name?: string;
+    arguments?: string;
+  };
+}
+
+export interface AxumSafetyGuardResult<T> {
+  value: T;
+  corrections: string[];
+}
+
 interface OpenAIModelListResponse {
   data?: Array<{ id?: string }>;
   error?: {
@@ -62,6 +76,36 @@ function resolveContent(json: OpenAIChatResponse): string {
     throw new Error("OpenAI Chat response did not contain choices[0].message.content");
   }
   return content;
+}
+
+export function sanitizeMessagesForProvider(messages: ChatMessage[]): AxumSafetyGuardResult<ChatMessage[]> {
+  const corrections: string[] = [];
+  const sanitized = messages.map((message, index) => {
+    const role = message.role;
+    if (role !== "system" && role !== "user" && role !== "assistant") {
+      corrections.push(`message[${index}] role corrected to user`);
+      return { role: "user" as const, content: String(message.content ?? "") };
+    }
+    const content = String(message.content ?? "");
+    if (content.length === 0) corrections.push(`message[${index}] empty content preserved`);
+    return { role, content };
+  });
+  return { value: sanitized, corrections };
+}
+
+export function sanitizeToolCallsForProvider(toolCalls: AxumToolCall[], allowedTools: string[]): AxumSafetyGuardResult<AxumToolCall[]> {
+  const allowed = new Set(allowedTools);
+  const corrections: string[] = [];
+  const value = toolCalls.flatMap((call, index) => {
+    const name = call.function?.name;
+    if (!name || !allowed.has(name)) {
+      corrections.push(`tool_calls[${index}] dropped: ${name || "missing-name"} is not allowed`);
+      return [];
+    }
+    if (call.type && call.type !== "function") corrections.push(`tool_calls[${index}] type corrected to function`);
+    return [{ ...call, type: "function" as const, function: { ...call.function, name, arguments: call.function?.arguments ?? "{}" } }];
+  });
+  return { value, corrections };
 }
 
 async function readResponseBody(response: Response): Promise<unknown> {
@@ -190,6 +234,7 @@ export class OpenAIChatProvider {
   }
 
   private async chatOnce(messages: ChatMessage[], signal?: AbortSignal): Promise<OpenAIChatResult> {
+    const guardedMessages = sanitizeMessagesForProvider(messages).value;
     const request = await this.withRequestTimeout("OpenAI Chat request", async (requestSignal) => {
       let response: Response;
       try {
@@ -201,7 +246,7 @@ export class OpenAIChatProvider {
           },
           body: JSON.stringify({
             model: this.model,
-            messages,
+            messages: guardedMessages,
             ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
           }),
           signal: requestSignal,
@@ -233,6 +278,7 @@ export class OpenAIChatProvider {
   }
 
   private async chatStreamOnce(messages: ChatMessage[], onDelta: (delta: string) => void, signal?: AbortSignal): Promise<OpenAIChatResult> {
+    const guardedMessages = sanitizeMessagesForProvider(messages).value;
     return this.withRequestTimeout("OpenAI Chat stream request", async (requestSignal) => {
       let response: Response;
       try {
@@ -244,7 +290,7 @@ export class OpenAIChatProvider {
           },
           body: JSON.stringify({
             model: this.model,
-            messages,
+            messages: guardedMessages,
             stream: true,
             ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
           }),

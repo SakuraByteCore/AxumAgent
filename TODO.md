@@ -15,7 +15,12 @@
 - [ ] Expand TS CLI from one-shot `chat` into full session/event/tool-loop execution aligned with pi.
 - [x] Add CLI/TUI/doctor `--provider <id>` selection and `axum providers` discovery for configured providers.
 - [ ] Add richer profile switching polish beyond provider selection.
-- [ ] Add explicit file/shell tool executors behind the workflow permission gates.
+- [x] Add Codex-style Plan/Execute workflow skeleton with hash-anchor auto-fix metadata.
+- [x] Add high-precision tool registry for precise edit, safe exec sandbox, and LSP symbol lookup surfaces.
+- [x] Add `axum parallel` swarm planning surface for sub-agent task fan-out.
+- [x] Add provider-layer safety guard helpers for message/tool-call correction before model transport.
+- [ ] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
+- [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.
 - [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [x] Harden TUI width helpers for narrow terminals with wide Unicode input.
