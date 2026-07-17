@@ -133,6 +133,30 @@ async function readResponseBody(response: Response): Promise<unknown> {
   }
 }
 
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function summarizeProviderErrorBody(raw: unknown, response?: Response): string | undefined {
+  if (typeof raw === "object" && raw && "error" in raw) {
+    const message = (raw as { error?: { message?: string } }).error?.message;
+    return message ? collapseWhitespace(message) : undefined;
+  }
+  if (typeof raw !== "string") return undefined;
+  const text = collapseWhitespace(raw);
+  const contentType = response?.headers.get("content-type") ?? "";
+  const server = response?.headers.get("server") ?? "";
+  const isHtml = /text\/html/i.test(contentType) || /^<!doctype html/i.test(text) || /^<html/i.test(text);
+  const isCloudflare = /cloudflare/i.test(server) || /Just a moment|challenge-platform|cf_chl|Cloudflare challenge/i.test(text);
+  if (isCloudflare) return "provider returned a Cloudflare/browser challenge HTML page; this endpoint is not directly CLI/API-compatible from this network";
+  if (isHtml) return "provider returned HTML instead of JSON; check the base URL, API path, or gateway/proxy compatibility";
+  return text.length > 800 ? `${text.slice(0, 800)}…` : text;
+}
+
+function providerErrorMessage(label: string, response: Response, raw: unknown): string {
+  return `${label} failed (${response.status}): ${summarizeProviderErrorBody(raw, response) || response.statusText}`;
+}
+
 export class OpenAIChatProvider {
   readonly baseUrl: string;
   readonly apiKey: string;
@@ -205,13 +229,7 @@ export class OpenAIChatProvider {
     });
     const { response } = raw;
     if (!response.ok) {
-      const err = raw.raw as OpenAIModelListResponse | string | null;
-      const message = typeof err === "object" && err && "error" in err
-        ? err.error?.message
-        : typeof err === "string"
-          ? err
-          : response.statusText;
-      throw new Error(`OpenAI Models request failed (${response.status}): ${message || response.statusText}`);
+      throw new Error(providerErrorMessage("OpenAI Models request", response, raw.raw));
     }
 
     const json = raw.raw as OpenAIModelListResponse;
@@ -289,13 +307,7 @@ export class OpenAIChatProvider {
     }, signal);
     const { response, raw } = request;
     if (!response.ok) {
-      const err = raw as OpenAIChatResponse | string | null;
-      const message = typeof err === "object" && err && "error" in err
-        ? err.error?.message
-        : typeof err === "string"
-          ? err
-          : response.statusText;
-      const errorText = `OpenAI Chat request failed (${response.status}): ${message || response.statusText}`;
+      const errorText = providerErrorMessage("OpenAI Chat request", response, raw);
       if (isRetryableStatus(response.status)) throw new RetryableOpenAIChatError(errorText);
       throw new Error(errorText);
     }
@@ -336,13 +348,7 @@ export class OpenAIChatProvider {
 
       if (!response.ok) {
         const raw = await readResponseBody(response);
-        const err = raw as OpenAIChatResponse | string | null;
-        const message = typeof err === "object" && err && "error" in err
-          ? err.error?.message
-          : typeof err === "string"
-            ? err
-            : response.statusText;
-        const errorText = `OpenAI Chat stream request failed (${response.status}): ${message || response.statusText}`;
+        const errorText = providerErrorMessage("OpenAI Chat stream request", response, raw);
         if (isRetryableStatus(response.status)) throw new RetryableOpenAIChatError(errorText);
         throw new Error(errorText);
       }

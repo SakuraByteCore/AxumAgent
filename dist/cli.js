@@ -376,15 +376,18 @@ function providerRows(env, explicitPath) {
     const providers = config?.providers && Object.keys(config.providers).length > 0
         ? config.providers
         : { [defaultProvider]: undefined };
+    const rootProviderLine = parseProviderConfigLine(config?.provider_config ?? config?.providerConfig, "provider_config");
     return Object.entries(providers).map(([id, provider]) => {
         const providerLine = parseProviderConfigLine(provider?.provider_config ?? provider?.providerConfig, `providers.${id}.provider_config`);
+        const effectiveRootLine = id === defaultProvider ? rootProviderLine : {};
+        const oneLineConfig = { ...effectiveRootLine, ...providerLine };
         return {
             id,
             default: id === defaultProvider,
             type: provider?.type || "openai-chat",
-            baseUrl: provider?.base_url || provider?.baseUrl || providerLine.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
-            model: provider?.model || providerLine.model || (provider?.models ?? [])[0] || config?.model || (config?.models ?? [])[0] || env.AXUM_MODEL || DEFAULT_MODEL,
-            key: apiKeyDisplay(provider?.api_key || provider?.apiKey || providerLine.apiKey || `env:${provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV}`),
+            baseUrl: provider?.base_url || provider?.baseUrl || oneLineConfig.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL,
+            model: provider?.model || oneLineConfig.model || (provider?.models ?? [])[0] || config?.model || (config?.models ?? [])[0] || env.AXUM_MODEL || DEFAULT_MODEL,
+            key: apiKeyDisplay(provider?.api_key || provider?.apiKey || oneLineConfig.apiKey || `env:${provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV}`),
         };
     });
 }
@@ -1080,15 +1083,15 @@ async function runDoctor(args, env, stdout, stderr) {
             lines.push("status: failed", error);
             return writeReport(2);
         }
+        const provider = new openai_chat_1.OpenAIChatProvider({
+            baseUrl: options.baseUrl,
+            apiKey: options.apiKey,
+            model: options.model,
+            maxRetries: 0,
+            retryDelayMs: options.retryDelayMs,
+            requestTimeoutMs: options.requestTimeoutMs,
+        });
         try {
-            const provider = new openai_chat_1.OpenAIChatProvider({
-                baseUrl: options.baseUrl,
-                apiKey: options.apiKey,
-                model: options.model,
-                maxRetries: 0,
-                retryDelayMs: options.retryDelayMs,
-                requestTimeoutMs: options.requestTimeoutMs,
-            });
             const models = await provider.listModels();
             const warning = models.length > 0 && !models.includes(options.model) ? "configured model was not returned by /models" : undefined;
             report.status = "ok";
@@ -1107,12 +1110,28 @@ async function runDoctor(args, env, stdout, stderr) {
             return writeReport(0);
         }
         catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            report.status = "failed";
+            const modelsMessage = error instanceof Error ? error.message : String(error);
             report.modelsEndpoint = "failed";
-            report.error = message;
-            lines.push("models endpoint: failed", message, "status: failed");
-            return writeReport(1);
+            report.modelsError = modelsMessage;
+            lines.push("models endpoint: failed", modelsMessage);
+            try {
+                const chatProbe = await provider.chat([{ role: "user", content: "Reply with OK only." }]);
+                report.status = "ok";
+                report.chatEndpoint = "ok";
+                report.chatProbe = chatProbe.content.slice(0, 80);
+                report.warning = "/models failed, but /chat/completions succeeded";
+                lines.push("chat endpoint: ok", "warning: /models failed, but /chat/completions succeeded", "status: ok");
+                return writeReport(0);
+            }
+            catch (chatError) {
+                const chatMessage = chatError instanceof Error ? chatError.message : String(chatError);
+                report.status = "failed";
+                report.chatEndpoint = "failed";
+                report.chatError = chatMessage;
+                report.error = chatMessage;
+                lines.push("chat endpoint: failed", chatMessage, "status: failed");
+                return writeReport(1);
+            }
         }
     }
     catch (error) {

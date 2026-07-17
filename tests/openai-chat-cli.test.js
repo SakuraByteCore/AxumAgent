@@ -17,7 +17,22 @@ function startMockServer(options = {}) {
     req.on("end", () => {
       const parsedBody = JSON.parse(body || "{}");
       requests.push({ method: req.method, url: req.url, headers: req.headers, body: parsedBody });
+      if (options.htmlChallenge) {
+        res.writeHead(403, { "content-type": "text/html; charset=UTF-8", server: "cloudflare" });
+        res.end("<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>Cloudflare challenge</body></html>");
+        return;
+      }
       if (req.method === "GET" && req.url === "/v1/models") {
+        if (options.modelsHtmlChallenge) {
+          res.writeHead(403, { "content-type": "text/html; charset=UTF-8", server: "cloudflare" });
+          res.end("<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>Cloudflare challenge</body></html>");
+          return;
+        }
+        if (options.modelsStatus) {
+          res.writeHead(options.modelsStatus, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message: options.modelsError || "models endpoint unavailable" } }));
+          return;
+        }
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ data: (options.models || ["fetched-a", "fetched-b"]).map((id) => ({ id })) }));
         return;
@@ -261,6 +276,23 @@ model = "secondary-model"
   }
 }
 
+async function testProvidersShowsRootProviderConfig() {
+  const cfg = writeConfig(`
+provider_config = "https://root.example/v1 env:ROOT_KEY root-model"
+`);
+  try {
+    const json = await runCli(["providers", "--config", cfg.file, "--json"]);
+    assert.strictEqual(json.code, 0, json.stderr);
+    const parsed = JSON.parse(json.stdout);
+    assert.strictEqual(parsed.providers.length, 1);
+    assert.strictEqual(parsed.providers[0].baseUrl, "https://root.example/v1");
+    assert.strictEqual(parsed.providers[0].model, "root-model");
+    assert.strictEqual(parsed.providers[0].key, "env:ROOT_KEY");
+  } finally {
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testInitCreatesConfigWithoutOverwriting() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-init-test-"));
   const file = path.join(dir, "config.toml");
@@ -420,6 +452,56 @@ model = "json-model"
     assert.strictEqual(report.modelCount, 1);
     assert.strictEqual(report.firstModel, "json-model");
     assert.strictEqual(report.providerKey, "***");
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testDoctorFallsBackToChatProbeWhenModelsUnavailable() {
+  const { server, port } = await startMockServer({ modelsStatus: 404, modelsError: "models endpoint not available" });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+model = "json-model"
+`);
+  try {
+    const result = await runCli(["doctor", "--config", cfg.file, "--json"]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.strictEqual(report.status, "ok");
+    assert.strictEqual(report.modelsEndpoint, "failed");
+    assert.strictEqual(report.chatEndpoint, "ok");
+    assert.match(report.warning, /chat\/completions succeeded/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testProviderHtmlChallengeErrorsAreSummarized() {
+  const { server, port } = await startMockServer({ htmlChallenge: true });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+model = "json-model"
+`);
+  try {
+    const result = await runCli(["doctor", "--config", cfg.file, "--json"]);
+    assert.strictEqual(result.code, 1);
+    const report = JSON.parse(result.stdout);
+    assert.strictEqual(report.status, "failed");
+    assert.match(report.modelsError, /Cloudflare\/browser challenge/);
+    assert.match(report.chatError, /Cloudflare\/browser challenge/);
+    assert.doesNotMatch(JSON.stringify(report), /<!DOCTYPE html>/i);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -884,12 +966,15 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testOneLineProviderConfig();
   await testProviderFlagSelectsConfiguredProvider();
   await testProvidersListsConfiguredProviders();
+  await testProvidersShowsRootProviderConfig();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();
   await testConfigWebBlankKeyKeepsExistingSecret();
   await testConfigWebDoesNotExposeResolvedEnvSecret();
   await testDoctorChecksProviderModels();
   await testDoctorJsonReport();
+  await testDoctorFallsBackToChatProbeWhenModelsUnavailable();
+  await testProviderHtmlChallengeErrorsAreSummarized();
   await testDefaultSystemPromptKeepsShortInputsConcise();
   await testRequestTimeoutConfig();
   await testRetryConfig();

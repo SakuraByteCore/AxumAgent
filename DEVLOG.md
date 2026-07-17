@@ -12,11 +12,12 @@ Work added:
 - Replaced the fake workflow-only execution path with a Codex-like TypeScript runtime split into protocol, event bus, session, turn loop, and tool-runner layers.
 - Routed `axum chat` through the runtime session so model sampling can request gated tools, feed tool output back into the next sampling request, and emit turn lifecycle events.
 - Added OpenAI Chat tool-call transport support while preserving retry behavior and tool-role message forwarding.
+- Hardened OpenAI-compatible provider diagnostics: HTML/Cloudflare challenge responses are summarized, `doctor` falls back to a chat probe when `/models` is unavailable, and provider listing now reflects root-level `provider_config`.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
 
 Validation:
-- `npm test` passes after workflow/tool/swarm/runtime guard changes.
+- `npm test` passes after workflow/tool/swarm/runtime/provider-diagnostic guard changes.
 - `npm run pack:dry` passes; package dry-run includes the new `dist/runtime/events.js`, `protocol.js`, `session.js`, `tool-runner.js`, and `turn.js` files.
 
 
