@@ -12,7 +12,7 @@
 - [x] Add GitHub Actions CI for test and pack dry-run.
 - [x] Add Kilo-style shell mode surface without taking a runtime dependency on KiloCode.
 - [x] Add initial pi-style workflow event/checkpoint/permission-gate skeleton.
-- [ ] Expand TS CLI from one-shot `chat` into full session/event/tool-loop execution aligned with pi.
+- [x] Expand TS CLI from one-shot `chat` into Codex-like session/event/tool-loop execution with runtime events.
 - [x] Add CLI/TUI/doctor `--provider <id>` selection and `axum providers` discovery for configured providers.
 - [ ] Add richer profile switching polish beyond provider selection.
 - [x] Add Codex-style Plan/Execute workflow skeleton with hash-anchor auto-fix metadata.
@@ -25,5 +25,5 @@
 - [x] Add smoke tests for shell modes and workflow dry-run shape.
 - [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [x] Harden TUI width helpers for narrow terminals with wide Unicode input.
-- [ ] Add integration tests for full session/event/tool-loop behavior once introduced.
+- [x] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.

@@ -1,6 +1,8 @@
 import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveOpenAIProviderConfig, selectedProvider, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPlan, renderSwarmPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
+import { AxumRuntimeSession } from "./runtime/session";
+import { renderRuntimeEvents } from "./runtime/events";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
 import http from "node:http";
@@ -990,9 +992,10 @@ async function applyProviderCommand(options: ChatCommandOptions, env: NodeJS.Pro
 
 async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
   let options: ChatCommandOptions;
+  let loaded: LoadedConfig | undefined;
   try {
     const extracted = extractConfigPath(args);
-    const loaded = loadConfig(env, extracted.configPath);
+    loaded = loadConfig(env, extracted.configPath);
     options = parseChatArgs(extracted.args, env, loaded, extracted.configPath);
   } catch (error) {
     if (error instanceof HelpRequested) {
@@ -1020,11 +1023,18 @@ async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
       retryDelayMs: options.retryDelayMs,
       requestTimeoutMs: options.requestTimeoutMs,
     });
-    const result = await provider.chat(messages);
+    const session = new AxumRuntimeSession({
+      config: loaded?.config,
+      provider,
+      cwd: process.cwd(),
+      mode: findMode(loaded?.config).id,
+      systemPrompt: options.system || defaultSystemPrompt(),
+    });
+    const result = await session.runUserTurn(options.prompt);
     if (options.json) {
-      stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      stdout.write(`${JSON.stringify({ ...result, submissions: session.submissionSnapshot() }, null, 2)}\n`);
     } else {
-      stdout.write(`${result.content}\n`);
+      stdout.write(`${result.assistantMessage}\n`);
     }
     return 0;
   } catch (error) {

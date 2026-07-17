@@ -8,6 +8,7 @@ exports.runAxumCli = runAxumCli;
 const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
 const pi_workflow_1 = require("./runtime/pi-workflow");
+const session_1 = require("./runtime/session");
 const kilo_shell_1 = require("./shell/kilo-shell");
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_http_1 = __importDefault(require("node:http"));
@@ -988,9 +989,10 @@ async function applyProviderCommand(options, env, value) {
 }
 async function runChat(args, env, stdout, stderr) {
     let options;
+    let loaded;
     try {
         const extracted = extractConfigPath(args);
-        const loaded = (0, config_1.loadConfig)(env, extracted.configPath);
+        loaded = (0, config_1.loadConfig)(env, extracted.configPath);
         options = parseChatArgs(extracted.args, env, loaded, extracted.configPath);
     }
     catch (error) {
@@ -1016,12 +1018,19 @@ async function runChat(args, env, stdout, stderr) {
             retryDelayMs: options.retryDelayMs,
             requestTimeoutMs: options.requestTimeoutMs,
         });
-        const result = await provider.chat(messages);
+        const session = new session_1.AxumRuntimeSession({
+            config: loaded?.config,
+            provider,
+            cwd: process.cwd(),
+            mode: (0, kilo_shell_1.findMode)(loaded?.config).id,
+            systemPrompt: options.system || defaultSystemPrompt(),
+        });
+        const result = await session.runUserTurn(options.prompt);
         if (options.json) {
-            stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+            stdout.write(`${JSON.stringify({ ...result, submissions: session.submissionSnapshot() }, null, 2)}\n`);
         }
         else {
-            stdout.write(`${result.content}\n`);
+            stdout.write(`${result.assistantMessage}\n`);
         }
         return 0;
     }

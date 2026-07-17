@@ -823,6 +823,59 @@ async function testLineTuiParallelSlashCommandPlansSwarm() {
   }
 }
 
+async function testCodexLikeRuntimeLoopsThroughToolCalls() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const { AxumRuntimeSession } = require("../dist/runtime/session.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-session-test-"));
+  fs.writeFileSync(path.join(dir, "note.txt"), "runtime evidence", "utf8");
+  const requests = [];
+  let count = 0;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      const parsed = JSON.parse(body || "{}");
+      requests.push(parsed);
+      count += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      if (count === 1) {
+        assert.ok(parsed.tools.some((tool) => tool.function.name === "read"));
+        res.end(JSON.stringify({
+          model: "mock-tool-model",
+          choices: [{
+            finish_reason: "tool_calls",
+            message: {
+              role: "assistant",
+              content: "",
+              tool_calls: [{ id: "call-read-1", type: "function", function: { name: "read", arguments: JSON.stringify({ file: "note.txt" }) } }],
+            },
+          }],
+        }));
+        return;
+      }
+      const toolMessage = parsed.messages.find((message) => message.role === "tool" && message.tool_call_id === "call-read-1");
+      assert.ok(toolMessage, "runtime should feed tool output back into the next sampling request");
+      assert.match(toolMessage.content, /runtime evidence/);
+      res.end(JSON.stringify({ model: "mock-tool-model", choices: [{ finish_reason: "stop", message: { role: "assistant", content: "saw runtime evidence" } }] }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const provider = new OpenAIChatProvider({ baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: "test", model: "mock-tool-model", maxRetries: 0 });
+    const session = new AxumRuntimeSession({ provider, cwd: dir, mode: "build" });
+    const result = await session.runUserTurn("read note");
+    assert.strictEqual(result.assistantMessage, "saw runtime evidence");
+    assert.strictEqual(result.toolOutputs.length, 1);
+    assert.ok(result.events.some((event) => event.kind === "tool_call_requested"));
+    assert.ok(result.events.some((event) => event.kind === "tool_call_completed"));
+    assert.strictEqual(requests.length, 2);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await testBasicChatFromConfig();
   await testVersionFlag();
@@ -856,4 +909,5 @@ async function testLineTuiParallelSlashCommandPlansSwarm() {
   await testProviderSafetyGuardExportsCorrections();
   await testRuntimeToolExecutorsHonorGates();
   await testLineTuiParallelSlashCommandPlansSwarm();
+  await testCodexLikeRuntimeLoopsThroughToolCalls();
 })();

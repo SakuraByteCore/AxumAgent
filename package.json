@@ -53,6 +53,11 @@
   "exports": {
     ".": "./dist/cli.js",
     "./config": "./dist/config.js",
-    "./providers/openai-chat": "./dist/providers/openai-chat.js"
+    "./providers/openai-chat": "./dist/providers/openai-chat.js",
+    "./runtime/events": "./dist/runtime/events.js",
+    "./runtime/protocol": "./dist/runtime/protocol.js",
+    "./runtime/session": "./dist/runtime/session.js",
+    "./runtime/tool-runner": "./dist/runtime/tool-runner.js",
+    "./runtime/turn": "./dist/runtime/turn.js"
   }
 }

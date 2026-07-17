@@ -1,8 +1,19 @@
-export type ChatRole = "system" | "user" | "assistant";
+export type ChatRole = "system" | "user" | "assistant" | "tool";
 
 export interface ChatMessage {
   role: ChatRole;
   content: string;
+  tool_call_id?: string;
+  tool_calls?: AxumToolCall[];
+}
+
+export interface ChatToolSpec {
+  type: "function";
+  function: {
+    name: string;
+    description?: string;
+    parameters?: Record<string, unknown>;
+  };
 }
 
 export interface OpenAIChatProviderOptions {
@@ -20,6 +31,8 @@ export interface OpenAIChatResult {
   model: string;
   content: string;
   raw: unknown;
+  toolCalls?: AxumToolCall[];
+  finishReason?: string;
 }
 
 export interface AxumToolCall {
@@ -49,7 +62,9 @@ interface OpenAIChatChoice {
   message?: {
     role?: string;
     content?: string | null;
+    tool_calls?: AxumToolCall[];
   };
+  finish_reason?: string;
   delta?: {
     role?: string;
     content?: string | null;
@@ -71,24 +86,24 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 function resolveContent(json: OpenAIChatResponse): string {
-  const content = json.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || content.length === 0) {
-    throw new Error("OpenAI Chat response did not contain choices[0].message.content");
-  }
-  return content;
+  const choice = json.choices?.[0];
+  const content = choice?.message?.content;
+  if (typeof content === "string") return content;
+  if (choice?.message?.tool_calls?.length) return "";
+  throw new Error("OpenAI Chat response did not contain choices[0].message.content");
 }
 
 export function sanitizeMessagesForProvider(messages: ChatMessage[]): AxumSafetyGuardResult<ChatMessage[]> {
   const corrections: string[] = [];
   const sanitized = messages.map((message, index) => {
     const role = message.role;
-    if (role !== "system" && role !== "user" && role !== "assistant") {
+    if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") {
       corrections.push(`message[${index}] role corrected to user`);
       return { role: "user" as const, content: String(message.content ?? "") };
     }
     const content = String(message.content ?? "");
     if (content.length === 0) corrections.push(`message[${index}] empty content preserved`);
-    return { role, content };
+    return { role, content, ...(message.tool_call_id ? { tool_call_id: message.tool_call_id } : {}), ...(message.tool_calls ? { tool_calls: message.tool_calls } : {}) };
   });
   return { value: sanitized, corrections };
 }
@@ -233,7 +248,22 @@ export class OpenAIChatProvider {
     throw lastError ?? new Error("OpenAI Chat stream request failed");
   }
 
-  private async chatOnce(messages: ChatMessage[], signal?: AbortSignal): Promise<OpenAIChatResult> {
+  async chatWithTools(messages: ChatMessage[], tools: ChatToolSpec[], signal?: AbortSignal): Promise<OpenAIChatResult> {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      try {
+        return await this.chatOnce(messages, signal, tools);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const retryable = error instanceof RetryableOpenAIChatError;
+        if (!retryable || attempt >= this.maxRetries) break;
+        await sleep(this.retryDelayMs * Math.max(1, attempt + 1));
+      }
+    }
+    throw lastError ?? new Error("OpenAI Chat request failed");
+  }
+
+  private async chatOnce(messages: ChatMessage[], signal?: AbortSignal, tools?: ChatToolSpec[]): Promise<OpenAIChatResult> {
     const guardedMessages = sanitizeMessagesForProvider(messages).value;
     const request = await this.withRequestTimeout("OpenAI Chat request", async (requestSignal) => {
       let response: Response;
@@ -248,6 +278,7 @@ export class OpenAIChatProvider {
             model: this.model,
             messages: guardedMessages,
             ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
+            ...(tools && tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
           }),
           signal: requestSignal,
         });
@@ -270,10 +301,13 @@ export class OpenAIChatProvider {
     }
 
     const json = raw as OpenAIChatResponse;
+    const choice = json.choices?.[0];
     return {
       model: json.model ?? this.model,
       content: resolveContent(json),
       raw: json,
+      toolCalls: sanitizeToolCallsForProvider(choice?.message?.tool_calls ?? [], tools?.map((tool) => tool.function.name) ?? []).value,
+      finishReason: choice?.finish_reason,
     };
   }
 
