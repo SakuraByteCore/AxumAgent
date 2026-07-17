@@ -1,5 +1,5 @@
-✦ AxumAgent v0.1.0
-  model m1    cwd <cwd>    mode YOLO
+◇ AxumAgent v0.1.0
+  ◌ m1 · <cwd>
 
   model list refreshed
   models

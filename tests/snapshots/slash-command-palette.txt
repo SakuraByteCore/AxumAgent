@@ -1,5 +1,5 @@
-✦ AxumAgent v0.1.0
-  model gpt-4o-mini    cwd <cwd>    mode YOLO
+◇ AxumAgent v0.1.0
+  ◌ gpt-4o-mini · <cwd>
 
 ⌘ commands
 ▸ /help         show commands

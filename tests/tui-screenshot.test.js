@@ -143,7 +143,7 @@ async function testBracketedPasteInInput() {
   ]);
   const snapshot = await normalizeScreen(raw);
   assert.ok(snapshot.includes("hello from shift insert"));
-  assert.ok(snapshot.includes("dry-run: provider call skipped"));
+  assert.ok(snapshot.includes("✓ dry-run · provider call skipped"));
 }
 
 async function testLongModelListStaysWithinViewport() {

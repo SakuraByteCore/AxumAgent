@@ -608,6 +608,11 @@ function wrapPreservingShortLine(text: string, width: number): string[] {
   return stripAnsi(text).length <= width ? [text] : wrap(text, width);
 }
 
+function renderAssistantOutput(answer: string): string {
+  if (answer === "dry-run: provider call skipped") return "✓ dry-run · provider call skipped";
+  return answer;
+}
+
 function slashCommandQuery(input: string): string {
   if (!input.startsWith("/")) return "";
   return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
@@ -674,14 +679,14 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const hasStatus = status !== undefined;
   const hasAnswer = answer !== undefined;
   const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
-  const rawAnswerLines = hasAnswer ? answer.split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
+  const rawAnswerLines = hasAnswer ? renderAssistantOutput(answer).split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
   const maxAnswerLines = Math.max(4, height - (hasStatus ? 8 : 7));
   const answerLines = rawAnswerLines.length > maxAnswerLines
     ? [...rawAnswerLines.slice(0, maxAnswerLines - 1), `  … ${rawAnswerLines.length - maxAnswerLines + 1} more`]
     : rawAnswerLines;
   const headerLines = [
-    "✦ AxumAgent v0.1.0",
-    `  model ${options.model}    cwd ${process.cwd()}    mode YOLO`,
+    "◇ AxumAgent v0.1.0",
+    `  ◌ ${options.model} · ${process.cwd()}`,
   ];
   const cursor = "█";
   const safeInput = visibleInput(input);

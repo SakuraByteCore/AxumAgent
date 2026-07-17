@@ -507,13 +507,14 @@ retry_delay_ms = 0
 async function testTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "hello"]);
   assert.strictEqual(result.code, 0, result.stderr);
-  assert.match(result.stdout, /✦ AxumAgent v0\.1\.0/);
-  assert.match(result.stdout, /model gpt-4o-mini/);
-  assert.match(result.stdout, /mode YOLO/);
+  assert.match(result.stdout, /◇ AxumAgent v0\.1\.0/);
+  assert.match(result.stdout, /◌ gpt-4o-mini/);
+  assert.doesNotMatch(result.stdout, /model gpt-4o-mini/);
+  assert.doesNotMatch(result.stdout, /mode YOLO/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
   assert.match(result.stdout, /^▌ █\s*$/m);
-  assert.match(result.stdout, /dry-run: provider call skipped/);
+  assert.match(result.stdout, /✓ dry-run · provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
   assert.doesNotMatch(result.stdout, /\bUser\b/);
@@ -524,17 +525,18 @@ async function testTuiDryRun() {
 async function testInteractiveTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "--model", "gpt-5.5"], {}, "hello interactive\n/exit\n");
   assert.strictEqual(result.code, 0, result.stderr);
-  assert.match(result.stdout, /✦ AxumAgent v0\.1\.0/);
-  assert.match(result.stdout, /model gpt-5\.5/);
+  assert.match(result.stdout, /◇ AxumAgent v0\.1\.0/);
+  assert.match(result.stdout, /◌ gpt-5\.5/);
+  assert.doesNotMatch(result.stdout, /model gpt-5\.5/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
-  assert.match(result.stdout, /mode YOLO/);
+  assert.doesNotMatch(result.stdout, /mode YOLO/);
   assert.doesNotMatch(result.stdout, /waiting for input/);
   assert.doesNotMatch(result.stdout, /\(type a message\)/);
   assert.doesNotMatch(result.stdout, /No messages yet\./);
   assert.match(result.stdout, /^▌ █\s*$/m);
   assert.match(result.stdout, /hello interactive/);
-  assert.match(result.stdout, /dry-run: provider call skipped/);
+  assert.match(result.stdout, /✓ dry-run · provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
 }
@@ -645,7 +647,8 @@ retry_delay_ms = 0
     assert.strictEqual(requests[0].method, "GET");
     assert.strictEqual(requests[0].url, "/v1/models");
     assert.strictEqual(requests.at(-1).body.model, "remote-first");
-    assert.match(result.stdout, /model remote-first/);
+    assert.match(result.stdout, /◌ remote-first/);
+    assert.doesNotMatch(result.stdout, /model remote-first/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -673,7 +676,8 @@ retry_delay_ms = 0
     assert.match(result.stdout, /remote-first/);
     assert.match(result.stdout, /remote-second/);
     assert.doesNotMatch(result.stdout, /no configured\/fetched model list/);
-    assert.match(result.stdout, /model configured-model/);
+    assert.match(result.stdout, /◌ configured-model/);
+    assert.doesNotMatch(result.stdout, /model configured-model/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
