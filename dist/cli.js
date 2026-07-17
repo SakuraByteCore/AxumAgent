@@ -9,6 +9,7 @@ const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
 const pi_workflow_1 = require("./runtime/pi-workflow");
 const session_1 = require("./runtime/session");
+const events_1 = require("./runtime/events");
 const kilo_shell_1 = require("./shell/kilo-shell");
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_http_1 = __importDefault(require("node:http"));
@@ -205,6 +206,7 @@ function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
         retryDelayMs,
         requestTimeoutMs,
         configPath: loaded?.path || (0, config_1.resolveConfigPath)(env, configPath),
+        runtimeConfig: config,
         json,
     };
 }
@@ -1143,51 +1145,51 @@ async function runDoctor(args, env, stdout, stderr) {
         return 2;
     }
 }
+function createProviderForOptions(options) {
+    if (!options.apiKey)
+        throw new Error("missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"");
+    return new openai_chat_1.OpenAIChatProvider({
+        apiKey: options.apiKey,
+        baseUrl: options.baseUrl,
+        model: options.model,
+        temperature: options.temperature,
+        maxRetries: options.maxRetries,
+        retryDelayMs: options.retryDelayMs,
+        requestTimeoutMs: options.requestTimeoutMs,
+    });
+}
+function renderRuntimeProjection(session) {
+    const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
+    if (events.length === 0)
+        return "◇ runtime\n  waiting for first event";
+    return `◇ runtime\n${(0, events_1.renderRuntimeEvents)(events).slice(0, 1600)}`;
+}
 async function resolveTuiAnswer(options, dryRun) {
-    if (dryRun)
-        return { answer: "dry-run: provider call skipped", exitCode: 0 };
-    if (!options.apiKey) {
-        return { answer: "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"", exitCode: 2 };
-    }
-    try {
-        const provider = new openai_chat_1.OpenAIChatProvider({
-            apiKey: options.apiKey,
-            baseUrl: options.baseUrl,
-            model: options.model,
-            temperature: options.temperature,
-            maxRetries: options.maxRetries,
-            retryDelayMs: options.retryDelayMs,
-            requestTimeoutMs: options.requestTimeoutMs,
-        });
-        const result = await provider.chat(buildChatMessages(options));
-        return { answer: result.content, exitCode: 0 };
-    }
-    catch (error) {
-        return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
-    }
+    return resolveTuiAnswerStream(options, dryRun, () => undefined);
 }
 async function resolveTuiAnswerStream(options, dryRun, onDelta, signal) {
     if (dryRun)
         return { answer: "dry-run: provider call skipped", exitCode: 0 };
-    if (!options.apiKey) {
-        return { answer: "missing API key; set config api_key or api_key = \"env:OPENAI_API_KEY\"", exitCode: 2 };
-    }
     try {
-        const provider = new openai_chat_1.OpenAIChatProvider({
-            apiKey: options.apiKey,
-            baseUrl: options.baseUrl,
-            model: options.model,
-            temperature: options.temperature,
-            maxRetries: options.maxRetries,
-            retryDelayMs: options.retryDelayMs,
-            requestTimeoutMs: options.requestTimeoutMs,
+        const provider = createProviderForOptions(options);
+        const session = new session_1.AxumRuntimeSession({
+            config: options.runtimeConfig,
+            provider,
+            cwd: process.cwd(),
+            mode: (0, kilo_shell_1.findMode)(options.runtimeConfig).id,
+            systemPrompt: options.system || defaultSystemPrompt(),
         });
-        let streamed = "";
-        const result = await provider.chatStream(buildChatMessages(options), (delta) => {
-            streamed += delta;
-            onDelta(streamed);
-        }, signal);
-        return { answer: result.content, exitCode: 0 };
+        const unsubscribe = session.events.subscribe(() => onDelta(renderRuntimeProjection(session)));
+        try {
+            onDelta(renderRuntimeProjection(session));
+            const result = await session.runUserTurn(options.prompt, signal);
+            const eventSummary = (0, events_1.renderRuntimeEvents)(result.events);
+            const answer = result.assistantMessage || eventSummary || "runtime completed without assistant content";
+            return { answer, exitCode: 0 };
+        }
+        finally {
+            unsubscribe();
+        }
     }
     catch (error) {
         return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };

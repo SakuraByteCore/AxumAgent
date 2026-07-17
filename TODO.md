@@ -23,6 +23,7 @@
 - [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, and HTML/Cloudflare failures.
 - [x] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
+- [x] Route TUI prompt execution through the Codex-like runtime session loop instead of direct provider chat calls.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.
 - [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [x] Harden TUI width helpers for narrow terminals with wide Unicode input.

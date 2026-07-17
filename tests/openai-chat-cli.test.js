@@ -785,7 +785,7 @@ retry_delay_ms = 0
     assert.match(result.stdout, /• Working \(0s • esc to interrupt\)/);
     assert.match(result.stdout, /• Working \(1s • esc to interrupt\)/);
     assert.match(result.stdout, /mock answer/);
-    assert.strictEqual(requests.at(-1).body.stream, true);
+    assert.ok(requests.at(-1).body.tools.some((tool) => tool.function.name === "read"));
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -905,6 +905,51 @@ async function testLineTuiParallelSlashCommandPlansSwarm() {
   }
 }
 
+async function testTuiPromptUsesRuntimeToolLoop() {
+  const cfg = writeConfig(`
+provider_config = "http://127.0.0.1:0/v1 test-key mock-tool-model"
+`);
+  const requests = [];
+  let count = 0;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      const parsed = JSON.parse(body || "{}");
+      if (req.method === "GET" && req.url === "/v1/models") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ data: [{ id: "mock-tool-model" }] }));
+        return;
+      }
+      requests.push(parsed);
+      count += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      if (count === 1) {
+        assert.ok(parsed.tools.some((tool) => tool.function.name === "read"));
+        res.end(JSON.stringify({ model: "mock-tool-model", choices: [{ finish_reason: "tool_calls", message: { role: "assistant", content: "", tool_calls: [{ id: "call-read-package", type: "function", function: { name: "read", arguments: JSON.stringify({ file: "package.json" }) } }] } }] }));
+        return;
+      }
+      const toolMessage = parsed.messages.find((message) => message.role === "tool" && message.tool_call_id === "call-read-package");
+      assert.ok(toolMessage, "TUI prompt should feed runtime tool output into the next sampling request");
+      assert.match(toolMessage.content, /axum-agent/);
+      res.end(JSON.stringify({ model: "mock-tool-model", choices: [{ finish_reason: "stop", message: { role: "assistant", content: "tui saw package" } }] }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const port = server.address().port;
+  fs.writeFileSync(cfg.file, `provider_config = "http://127.0.0.1:${port}/v1 test-key mock-tool-model"\n`, "utf8");
+  try {
+    const result = await runCli(["tui", "--config", cfg.file, "inspect package"]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /tui saw package/);
+    assert.strictEqual(requests.length, 2);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
   const { AxumRuntimeSession } = require("../dist/runtime/session.js");
@@ -994,5 +1039,6 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testProviderSafetyGuardExportsCorrections();
   await testRuntimeToolExecutorsHonorGates();
   await testLineTuiParallelSlashCommandPlansSwarm();
+  await testTuiPromptUsesRuntimeToolLoop();
   await testCodexLikeRuntimeLoopsThroughToolCalls();
 })();
