@@ -45,12 +45,14 @@ function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function runTtyCli(args, steps) {
+async function runTtyCli(args, steps, size = {}) {
   requireScriptCommand();
   const command = [process.execPath, path.join(repoRoot, "bin", "axum.js"), ...args].map((part) => JSON.stringify(part)).join(" ");
+  const columns = String(size.columns || 88);
+  const rows = String(size.rows || 24);
   const child = spawn("script", ["-q", "/dev/null", "-c", command], {
     cwd: repoRoot,
-    env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "", COLUMNS: "88", LINES: "24" },
+    env: { ...process.env, OPENAI_API_KEY: "", AXUM_CONFIG: "", COLUMNS: columns, LINES: rows },
     stdio: ["pipe", "pipe", "pipe"],
   });
   let stdout = "";
@@ -133,6 +135,18 @@ async function testSlashCommandPaletteClearsOldRows() {
   const commandHeaderCount = (snapshot.match(/⌘ commands/g) || []).length;
   assert.strictEqual(commandHeaderCount, 1, `slash command palette left stale rows:\n${snapshot}`);
   assert.ok(snapshot.includes("▸ /provider") || snapshot.includes("▸ /model"));
+}
+
+async function testNarrowTerminalWidthDoesNotCrash() {
+  const raw = await runTtyCli(["tui", "--dry-run", "--no-alt-screen"], [
+    { delayMs: 350, input: "/" },
+    { delayMs: 350, input: "\x1b[B" },
+    { delayMs: 350, input: "hello\r" },
+    { delayMs: 350, input: "/exit\r" },
+  ], { columns: 51, rows: 24 });
+  const snapshot = await terminalViewport(raw, 51, 24);
+  assert.ok(snapshot.includes("◇ AxumAgent"));
+  assert.ok(!raw.includes("exceeds terminal width"));
 }
 
 async function testBracketedPasteInInput() {
@@ -230,6 +244,7 @@ async function testModelListScreenshot() {
 (async () => {
   await testSlashCommandPaletteScreenshot();
   await testSlashCommandPaletteClearsOldRows();
+  await testNarrowTerminalWidthDoesNotCrash();
   await testBracketedPasteInInput();
   await testLongModelListStaysWithinViewport();
   await testBusyCtrlCOnlyCancelsRequest();

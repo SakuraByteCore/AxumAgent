@@ -1193,7 +1193,10 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     invalidate(): void {}
     render(width: number): string[] {
       const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex, terminal.rows, status).split("\n");
-      return lines.map((line) => clip(pi.truncateToWidth(line, width), width));
+      return lines.map((line) => {
+        const truncated = pi.truncateToWidth(line, width);
+        return truncated + " ".repeat(Math.max(0, width - pi.visibleWidth(truncated)));
+      });
     }
     handleInput(data: string): void {
       void handlePiInput(data);
