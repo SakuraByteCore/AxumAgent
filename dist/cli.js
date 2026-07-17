@@ -622,6 +622,7 @@ const SLASH_COMMANDS = [
     { name: "/help", description: "show commands" },
     { name: "/provider", description: "show/set provider url/key" },
     { name: "/model", description: "fetch/list/switch models" },
+    { name: "/parallel", description: "plan sub-agent tasks" },
     { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 function wrap(text, width) {
@@ -901,8 +902,21 @@ function providerStatus(options) {
         `provider url: ${options.baseUrl}`,
         `provider key: ${maskSecret(options.apiKey)}`,
         `config: ${options.configPath ?? (0, config_1.defaultConfigPath)()}`,
-        "commands: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number]",
+        "commands: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number] · /parallel <goal> :: <task> | <task>",
     ].join("\n");
+}
+function applyParallelSlashCommand(input, mode = "build", persist = true) {
+    const trimmed = input.trim();
+    if (!trimmed || !trimmed.includes("::")) {
+        return "usage: /parallel <goal> :: <task one> | <task two>";
+    }
+    const [goal, taskText] = trimmed.split(/::(.+)/s).map((part) => part.trim());
+    const tasks = (taskText || "").split("|").map((task) => task.trim()).filter(Boolean);
+    if (!goal || tasks.length === 0)
+        return "usage: /parallel <goal> :: <task one> | <task two>";
+    const plan = (0, pi_workflow_1.buildSwarmPlan)(goal, tasks, { mode });
+    const checkpointPath = persist ? (0, pi_workflow_1.persistSwarmPlan)(plan) : undefined;
+    return (0, pi_workflow_1.renderSwarmPlan)(plan, checkpointPath);
 }
 async function applyModelCommand(options, env, value) {
     const trimmed = value.trim();
@@ -1265,7 +1279,13 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return;
         }
         if (prompt === "/help") {
-            answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /exit (/quit)";
+            answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /exit (/quit)";
+            status = undefined;
+            requestRender();
+            return;
+        }
+        if (prompt === "/parallel" || prompt.startsWith("/parallel ")) {
+            answer = applyParallelSlashCommand(prompt.slice("/parallel".length), "build", !dryRun);
             status = undefined;
             requestRender();
             return;
@@ -1464,7 +1484,12 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             return lastExitCode;
         }
         if (prompt === "/help") {
-            stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /exit (/quit)\n");
+            stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /exit (/quit)\n");
+            rl.prompt();
+            continue;
+        }
+        if (prompt === "/parallel" || prompt.startsWith("/parallel ")) {
+            stdout.write(`${applyParallelSlashCommand(prompt.slice("/parallel".length), "build", !dryRun)}\n`);
             rl.prompt();
             continue;
         }

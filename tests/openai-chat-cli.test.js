@@ -809,6 +809,20 @@ async function testRuntimeToolExecutorsHonorGates() {
   }
 }
 
+async function testLineTuiParallelSlashCommandPlansSwarm() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "axum-home-test-"));
+  try {
+    const result = await runCli(["tui", "--dry-run"], { HOME: home }, "/parallel refactor runtime :: inspect workflow | inspect tools\n/exit\n");
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /◇ Axum parallel/);
+    assert.match(result.stdout, /agent-1 \[build\] inspect workflow/);
+    assert.match(result.stdout, /agent-2 \[build\] inspect tools/);
+    assert.doesNotMatch(result.stdout, /◆ checkpoint/);
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await testBasicChatFromConfig();
   await testVersionFlag();
@@ -841,4 +855,5 @@ async function testRuntimeToolExecutorsHonorGates() {
   await testParallelDryRunPlansSubAgents();
   await testProviderSafetyGuardExportsCorrections();
   await testRuntimeToolExecutorsHonorGates();
+  await testLineTuiParallelSlashCommandPlansSwarm();
 })();

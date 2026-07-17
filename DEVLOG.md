@@ -7,6 +7,7 @@ Work added:
 - Added a Kilo/Codex-inspired tool registry for precise local edit, safe command sandbox, and LSP symbol lookup surfaces.
 - Added permission-gated runtime executors for precise local edits, safe allowlisted commands, and lightweight TypeScript symbol lookup.
 - Added `axum parallel` as the first swarm/sub-agent planning surface, persisting planned fan-out tasks with a hash-anchor merge policy.
+- Added TUI `/parallel <goal> :: <task> | <task>` so the interactive shell can plan swarm fan-out without leaving the session.
 - Added provider-layer safety guard helpers that correct unsupported message/tool-call shapes before OpenAI-compatible transport.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.

@@ -5,6 +5,7 @@
 ▸ /help         show commands
   /provider     show/set provider url/key
   /model        fetch/list/switch models
+  /parallel     plan sub-agent tasks
   /exit / /quit exit TUI
 
 ▌ /█
