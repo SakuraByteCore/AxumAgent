@@ -782,6 +782,33 @@ async function testProviderSafetyGuardExportsCorrections() {
   assert.match(guarded.corrections.join("\n"), /raw_shell is not allowed/);
 }
 
+async function testRuntimeToolExecutorsHonorGates() {
+  const { runPreciseEdit, runSafeExec, runLspSymbols } = require("../dist/runtime/tools.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-tools-test-"));
+  try {
+    fs.mkdirSync(path.join(dir, "src"));
+    fs.writeFileSync(path.join(dir, "src", "sample.ts"), "export function alpha() {\n  return 1;\n}\n", "utf8");
+    const gate = { cwd: dir, allowedTools: ["precise_edit", "safe_exec", "lsp_symbols"], allowedCommands: [process.execPath] };
+
+    const symbols = runLspSymbols(gate, { query: "alpha" });
+    assert.strictEqual(symbols.ok, true);
+    assert.deepStrictEqual(symbols.result.matches.map((item) => item.name), ["alpha"]);
+
+    const edit = runPreciseEdit(gate, { file: "src/sample.ts", oldText: "return 1;", newText: "return 2;" });
+    assert.strictEqual(edit.ok, true);
+    assert.match(fs.readFileSync(path.join(dir, "src", "sample.ts"), "utf8"), /return 2;/);
+    assert.ok(edit.anchors[0].hash);
+
+    const execResult = await runSafeExec(gate, { command: process.execPath, args: ["-e", "console.log('safe')"] });
+    assert.strictEqual(execResult.ok, true);
+    assert.strictEqual(execResult.result.stdout.trim(), "safe");
+
+    assert.throws(() => runPreciseEdit({ cwd: dir, allowedTools: ["read"] }, { file: "src/sample.ts", oldText: "return 2;", newText: "return 3;" }), /tool not allowed/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await testBasicChatFromConfig();
   await testVersionFlag();
@@ -813,4 +840,5 @@ async function testProviderSafetyGuardExportsCorrections() {
   await testWorkflowDryRunUsesPiRuntimeShape();
   await testParallelDryRunPlansSubAgents();
   await testProviderSafetyGuardExportsCorrections();
+  await testRuntimeToolExecutorsHonorGates();
 })();

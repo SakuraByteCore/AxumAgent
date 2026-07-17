@@ -5,6 +5,7 @@
 Work added:
 - Reworked the workflow skeleton from basic pi-style events into a Codex-style Plan/Execute shape with request/tool hash anchors and bounded auto-fix loop metadata.
 - Added a Kilo/Codex-inspired tool registry for precise local edit, safe command sandbox, and LSP symbol lookup surfaces.
+- Added permission-gated runtime executors for precise local edits, safe allowlisted commands, and lightweight TypeScript symbol lookup.
 - Added `axum parallel` as the first swarm/sub-agent planning surface, persisting planned fan-out tasks with a hash-anchor merge policy.
 - Added provider-layer safety guard helpers that correct unsupported message/tool-call shapes before OpenAI-compatible transport.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
