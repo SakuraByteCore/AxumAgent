@@ -1,5 +1,15 @@
 # DEVLOG
 
+## 2026-07-17
+
+Work added:
+- Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
+- Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
+
+Validation:
+- `npm test` passes.
+
+
 ## 2026-07-13
 
 Direction changed toward a pi-aligned CLI with a TypeScript user-facing layer.

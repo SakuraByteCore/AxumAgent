@@ -149,6 +149,17 @@ async function testNarrowTerminalWidthDoesNotCrash() {
   assert.ok(!raw.includes("exceeds terminal width"));
 }
 
+async function testNarrowTerminalWideTextDoesNotCrash() {
+  const raw = await runTtyCli(["tui", "--dry-run", "--no-alt-screen"], [
+    { delayMs: 350, input: "中文宽字符测试✓◇◌·\r" },
+    { delayMs: 350, input: "/exit\r" },
+  ], { columns: 51, rows: 24 });
+  const snapshot = await terminalViewport(raw, 51, 24);
+  assert.ok(snapshot.includes("AxumAgent"));
+  assert.ok(snapshot.includes("dry-run"));
+  assert.ok(!raw.includes("exceeds terminal width"));
+}
+
 async function testBracketedPasteInInput() {
   const raw = await runTtyCli(["tui", "--dry-run", "--no-alt-screen"], [
     { delayMs: 350, input: "\x1b[200~hello from shift insert\x1b[201~" },
@@ -245,6 +256,7 @@ async function testModelListScreenshot() {
   await testSlashCommandPaletteScreenshot();
   await testSlashCommandPaletteClearsOldRows();
   await testNarrowTerminalWidthDoesNotCrash();
+  await testNarrowTerminalWideTextDoesNotCrash();
   await testBracketedPasteInInput();
   await testLongModelListStaysWithinViewport();
   await testBusyCtrlCOnlyCancelsRequest();
