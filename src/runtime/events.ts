@@ -58,106 +58,99 @@ export function renderRuntimeEvents(events: AxumEvent[]): string {
 }
 
 interface RuntimeDashboardState {
+  goal: string;
   phase: string;
   now: string;
   next: string;
-  steps: string[];
-  evidence: string[];
-  commands: string[];
-  files: string[];
-  blocked: string[];
-  calls: Map<string, { name: string; arguments: Record<string, unknown> }>;
+  progress: string[];
+  issues: string[];
+  latestEvidence: string;
+  commandsRun: number;
+  commandsFailed: number;
+  filesRead: Set<string>;
+  filesChanged: Set<string>;
+  calls: Map<string, { name: string; arguments: Record<string, unknown>; summary: string }>;
 }
 
 export function renderRuntimeDashboard(events: AxumEvent[]): string {
   const state: RuntimeDashboardState = {
+    goal: "waiting for the next task",
     phase: "Idle",
-    now: "waiting for user prompt",
+    now: "ready for input",
     next: "send a prompt to start runtime work",
-    steps: [],
-    evidence: [],
-    commands: [],
-    files: [],
-    blocked: [],
+    progress: [],
+    issues: [],
+    latestEvidence: "none yet",
+    commandsRun: 0,
+    commandsFailed: 0,
+    filesRead: new Set(),
+    filesChanged: new Set(),
     calls: new Map(),
   };
 
   for (const event of events) updateDashboardState(state, event);
 
   return [
-    "◇ workflow",
-    `  ▶ ${state.phase} · ${state.now}`,
-    `  next: ${state.next}`,
-    "◇ steps",
-    ...(state.steps.length > 0 ? lastLines(state.steps, 7).map((line) => `  ${line}`) : ["  · no runtime steps yet"]),
-    "◇ evidence",
-    ...(state.evidence.length > 0 ? dedupeLast(state.evidence, 8).map((line) => `  ${line}`) : ["  no tool, file, or command evidence yet"]),
-    "◇ commands",
-    ...(state.commands.length > 0 ? lastLines(state.commands, 5).map((line) => `  ${line}`) : ["  no command activity"]),
-    "◇ files",
-    ...(state.files.length > 0 ? dedupeLast(state.files, 5).map((line) => `  ${line}`) : ["  no file activity"]),
-    "◇ blocked",
-    ...(state.blocked.length > 0 ? lastLines(state.blocked, 4).map((line) => `  ${line}`) : ["  none"]),
+    "◇ current task",
+    `  goal: ${clipDetail(state.goal, 96)}`,
+    `  status: ${state.phase}`,
+    `  now: ${clipDetail(state.now, 96)}`,
+    `  next: ${clipDetail(state.next, 96)}`,
+    "◇ progress",
+    ...(state.progress.length > 0 ? lastLines(state.progress, 5).map((line) => `  ${line}`) : ["  · no task progress yet"]),
+    "◇ results",
+    `  commands: ${state.commandsRun} run · ${state.commandsFailed} failed`,
+    `  files: ${state.filesRead.size} read · ${state.filesChanged.size} changed`,
+    `  latest: ${clipDetail(state.latestEvidence, 96)}`,
+    "◇ issues",
+    ...(state.issues.length > 0 ? lastLines(state.issues, 4).map((line) => `  ${line}`) : ["  none"]),
   ].join("\n");
 }
 
 function updateDashboardState(state: RuntimeDashboardState, event: AxumEvent): void {
   const payload = event.payload as Record<string, unknown> | undefined;
   if (event.kind === "turn_started") {
+    state.goal = getPrompt(payload) ?? "runtime turn";
     state.phase = "Planning";
-    state.now = "starting turn";
-    state.next = "capture context, then sample the model";
-    state.steps.push("▶ started turn");
+    state.now = "starting task";
+    state.next = "gather context";
+    pushProgress(state, "▶ starting task");
     return;
   }
   if (event.kind === "context_captured") {
     state.phase = "Reading";
-    state.now = "captured runtime context";
-    state.next = "sample the model with current context";
-    state.steps.push("✓ captured context");
+    state.now = "context captured";
+    state.next = "choose the next action";
+    pushProgress(state, "✓ captured context");
     return;
   }
   if (event.kind === "model_sampling_started") {
-    const iteration = typeof payload?.iteration === "number" ? ` #${payload.iteration}` : "";
     state.phase = "Thinking";
-    state.now = `model sampling${iteration}`;
-    state.next = "answer directly or request a tool";
-    state.steps.push(`▶ model sampling${iteration}`);
+    state.now = state.progress.length > 0 ? "deciding the next task step" : "planning the task";
+    state.next = "use a tool or answer directly";
     return;
   }
   if (event.kind === "assistant_message") {
     state.phase = "Answering";
-    state.now = "assistant message received";
-    state.next = "finish turn unless more tool work is needed";
-    state.steps.push("✓ assistant response ready");
+    state.now = "preparing the assistant response";
+    state.next = "finish the turn unless another step is needed";
+    pushProgress(state, "✓ response ready");
     return;
   }
   if (event.kind === "tool_call_requested" && payload) {
     const callId = typeof payload.id === "string" ? payload.id : String(event.id);
     const name = typeof payload.name === "string" ? payload.name : "tool";
     const args = isRecord(payload.arguments) ? payload.arguments : {};
-    state.calls.set(callId, { name, arguments: args });
-    const request = renderToolRequest(name, args);
+    const summary = summarizeToolAction(name, args);
+    state.calls.set(callId, { name, arguments: args, summary });
     state.phase = phaseForTool(name);
-    state.now = request;
-    state.next = "wait for tool result";
-    state.steps.push(`▶ ${request}`);
-    state.evidence.push(`tool ${request} requested`);
-    if (name === "safe_exec") {
-      const command = renderCommand(args);
-      state.commands.push(`$ ${command}  running`);
-      state.evidence.push(`cmd ${command} running`);
-    }
-    if (name === "read") {
-      const file = stringField(args, "file") ?? stringField(args, "path") ?? "<missing>";
-      state.files.push(`read ${file}`);
-      state.evidence.push(`file read ${file}`);
-    }
-    if (name === "precise_edit") {
-      const file = stringField(args, "file") ?? "<missing>";
-      state.files.push(`edit ${file}`);
-      state.evidence.push(`file edit ${file}`);
-    }
+    state.now = summary;
+    state.next = "wait for result";
+    pushProgress(state, `▶ ${summary}`);
+    state.latestEvidence = evidenceForToolRequest(name, args, summary);
+    if (name === "safe_exec") state.commandsRun += 1;
+    if (name === "read") state.filesRead.add(fileForArgs(args));
+    if (name === "precise_edit") state.filesChanged.add(fileForArgs(args));
     return;
   }
   if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
@@ -165,56 +158,107 @@ function updateDashboardState(state: RuntimeDashboardState, event: AxumEvent): v
     const call = state.calls.get(callId);
     const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
     const content = typeof payload.content === "string" ? payload.content : "";
+    const summary = call?.summary ?? summarizeToolAction(name, call?.arguments ?? {});
     if (event.kind === "permission_denied") {
-      const blocked = `${renderToolRequest(name, call?.arguments ?? {})}: ${clipDetail(content, 180)}`;
       state.phase = "Blocked";
-      state.now = blocked;
+      state.now = `${summary} blocked`;
       state.next = "adjust the request or grant a safer allowed path";
-      state.steps.push(`✗ blocked ${renderToolRequest(name, call?.arguments ?? {})}`);
-      state.blocked.push(blocked);
-      state.evidence.push(`blocked ${blocked}`);
-      if (name === "safe_exec") state.commands.push(renderCommandResult(call?.arguments ?? {}, content, true));
+      state.issues.push(`${summary}: ${clipDetail(content, 140)}`);
+      pushProgress(state, `✗ ${summary} blocked`);
+      if (name === "safe_exec") state.commandsFailed += 1;
+      if (state.latestEvidence === "none yet") state.latestEvidence = `blocked: ${summary}`;
       return;
     }
-    state.phase = "Executing";
-    state.now = `${name} completed`;
-    state.next = "feed result back into the model";
-    state.steps.push(`✓ ${name} completed`);
-    state.evidence.push(`tool ${name} completed${content ? `: ${summarizeToolContent(content, 120)}` : ""}`);
-    if (name === "safe_exec") state.commands.push(renderCommandResult(call?.arguments ?? {}, content, false));
+    state.phase = "Running";
+    state.now = `${summary} finished`;
+    state.next = "decide the next task step";
+    pushProgress(state, `✓ ${summary}`);
+    state.latestEvidence = resultEvidence(name, call?.arguments ?? {}, content);
     return;
   }
   if (event.kind === "provider_warning" && payload) {
     const message = typeof payload.message === "string" ? payload.message : "provider warning";
     state.phase = "Provider";
-    state.now = clipDetail(message, 120);
+    state.now = clipDetail(message, 96);
     state.next = "retry, fall back, or show the provider error";
-    state.steps.push(`! provider warning: ${clipDetail(message, 120)}`);
-    state.evidence.push(`provider warning: ${clipDetail(message, 160)}`);
+    state.issues.push(`provider: ${clipDetail(message, 140)}`);
+    state.latestEvidence = `provider warning: ${clipDetail(message, 96)}`;
     return;
   }
   if (event.kind === "turn_completed") {
     state.phase = "Done";
-    state.now = "turn completed";
+    state.now = "task completed";
     state.next = "ready for the next prompt";
-    state.steps.push("✓ completed turn");
+    pushProgress(state, "✓ completed task");
     return;
   }
   if (event.kind === "turn_failed") {
     const message = typeof payload?.message === "string" ? payload.message : "turn failed";
     state.phase = "Blocked";
-    state.now = `failed: ${clipDetail(message, 120)}`;
+    state.now = `failed: ${clipDetail(message, 96)}`;
     state.next = "fix the blocker before retrying";
-    state.steps.push(`✗ failed: ${clipDetail(message, 120)}`);
-    state.blocked.push(clipDetail(message, 180));
+    state.issues.push(clipDetail(message, 140));
+    pushProgress(state, `✗ failed: ${clipDetail(message, 96)}`);
   }
+}
+
+function getPrompt(payload: Record<string, unknown> | undefined): string | undefined {
+  if (!payload) return undefined;
+  const direct = stringField(payload, "prompt") ?? stringField(payload, "message") ?? stringField(payload, "goal");
+  if (direct) return direct;
+  const request = payload.request;
+  if (isRecord(request)) return stringField(request, "prompt") ?? stringField(request, "message") ?? stringField(request, "goal");
+  return undefined;
 }
 
 function phaseForTool(name: string): string {
   if (name === "read") return "Reading";
   if (name === "precise_edit") return "Editing";
   if (name === "safe_exec") return "Running";
-  return "Executing";
+  return "Working";
+}
+
+function summarizeToolAction(name: string, args: Record<string, unknown>): string {
+  if (name === "safe_exec") return summarizeCommandAction(renderCommand(args));
+  if (name === "read") return `read ${fileForArgs(args)}`;
+  if (name === "precise_edit") return `edit ${fileForArgs(args)}`;
+  return name.replace(/_/g, " ");
+}
+
+function summarizeCommandAction(command: string): string {
+  const [program, ...rest] = command.split(/\s+/g).filter(Boolean);
+  const compactCommand = clipDetail(command, 72);
+  if (!program) return "run command";
+  if (program === "ls") return `inspect ${firstPathArg(rest) ?? "directory"}`;
+  if (program === "find") return `scan ${firstPathArg(rest) ?? "workspace"}`;
+  if (program === "grep") return `search ${firstPathArg(rest.slice(1)) ?? "workspace"}`;
+  if (program === "cat" || program === "head" || program === "tail" || program === "sed") return `inspect ${firstPathArg(rest) ?? "file"}`;
+  if (program === "wc") return `count ${firstPathArg(rest) ?? "workspace"}`;
+  if (program === "npm") return rest.length > 0 ? `run npm ${rest.join(" ")}` : "run npm";
+  if (program === "git") return rest.length > 0 ? `check git ${rest[0]}` : "check git";
+  return `run ${compactCommand}`;
+}
+
+function firstPathArg(args: string[]): string | undefined {
+  return args.find((arg) => arg && !arg.startsWith("-") && arg !== "|" && arg !== "&&" && arg !== ";");
+}
+
+function evidenceForToolRequest(name: string, args: Record<string, unknown>, summary: string): string {
+  if (name === "safe_exec") return `${summary} → running`;
+  if (name === "read" || name === "precise_edit") return summary;
+  return `${summary} requested`;
+}
+
+function resultEvidence(name: string, args: Record<string, unknown>, content: string): string {
+  const action = summarizeToolAction(name, args);
+  if (name === "safe_exec") {
+    const parsed = parseJsonObject(content);
+    const stdout = typeof parsed?.stdout === "string" ? parsed.stdout.trim() : "";
+    const stderr = typeof parsed?.stderr === "string" ? parsed.stderr.trim() : "";
+    const output = stdout || stderr;
+    return output ? `${action} → ok: ${summarizeOutput(output, 72)}` : `${action} → ok`;
+  }
+  return `${action} → done`;
 }
 
 function renderEventDetail(event: AxumEvent): string | undefined {
@@ -241,33 +285,14 @@ function stringField(value: Record<string, unknown>, key: string): string | unde
   return typeof field === "string" ? field : undefined;
 }
 
-function renderToolRequest(name: string, args: Record<string, unknown>): string {
-  if (name === "safe_exec") return `safe_exec ${renderCommand(args)}`;
-  if (name === "read") return `read ${stringField(args, "file") ?? stringField(args, "path") ?? "<missing>"}`;
-  if (name === "precise_edit") return `precise_edit ${stringField(args, "file") ?? "<missing>"}`;
-  return name;
+function fileForArgs(args: Record<string, unknown>): string {
+  return stringField(args, "file") ?? stringField(args, "path") ?? "<missing>";
 }
 
 function renderCommand(args: Record<string, unknown>): string {
   const command = stringField(args, "command") ?? "<missing>";
   const rawArgs = Array.isArray(args.args) ? args.args.filter((arg): arg is string => typeof arg === "string") : [];
   return redactSensitiveText([command, ...rawArgs].join(" "));
-}
-
-function renderCommandResult(args: Record<string, unknown>, content: string, denied: boolean): string {
-  if (denied) return `$ ${renderCommand(args)}  denied: ${clipDetail(content, 120)}`;
-  const parsed = parseJsonObject(content);
-  const stdout = typeof parsed?.stdout === "string" ? parsed.stdout.trim() : "";
-  const stderr = typeof parsed?.stderr === "string" ? parsed.stderr.trim() : "";
-  const summary = stdout || stderr ? summarizeOutput(stdout || stderr, 140) : "no output";
-  return `$ ${renderCommand(args)}  ok: ${summary}`;
-}
-
-function summarizeToolContent(content: string, max: number): string {
-  const parsed = parseJsonObject(content);
-  const stdout = typeof parsed?.stdout === "string" ? parsed.stdout.trim() : "";
-  const stderr = typeof parsed?.stderr === "string" ? parsed.stderr.trim() : "";
-  return stdout || stderr ? summarizeOutput(stdout || stderr, max) : clipDetail(content, max);
 }
 
 function parseJsonObject(content: string): Record<string, unknown> | undefined {
@@ -299,13 +324,14 @@ function redactSensitiveText(value: string): string {
     .replace(/([?&](?:api[_-]?key|token|secret|password|passwd|pwd)=)[^\s&]+/gi, "$1***")
     .replace(/(sk-[A-Za-z0-9]{12,})/g, "sk-***")
     .replace(/(gh[pousr]_[A-Za-z0-9_]{12,})/g, "gh***")
-    .replace(/([A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,})/g, "jwt.***");
+    .replace(/([A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})/g, "jwt.***");
+}
+
+function pushProgress(state: RuntimeDashboardState, line: string): void {
+  if (state.progress[state.progress.length - 1] === line) return;
+  state.progress.push(line);
 }
 
 function lastLines(lines: string[], max: number): string[] {
   return lines.slice(-max);
-}
-
-function dedupeLast(lines: string[], max: number): string[] {
-  return [...new Set(lines)].slice(-max);
 }
