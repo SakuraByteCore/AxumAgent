@@ -1,4 +1,4 @@
-import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveOpenAIProviderConfig, selectedProvider, type AxumConfig, type LoadedConfig } from "./config";
+import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, resolveSecret, saveDefaultProvider, saveOpenAIProviderConfig, selectedProvider, type AxumConfig, type LoadedConfig } from "./config";
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPlan, renderSwarmPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
 import { AxumRuntimeSession } from "./runtime/session";
@@ -424,6 +424,18 @@ function providerRows(env: NodeJS.ProcessEnv, explicitPath?: string): Array<Reco
   });
 }
 
+function renderProviderRows(env: NodeJS.ProcessEnv, explicitPath?: string): string {
+  const rows = providerRows(env, explicitPath);
+  return [
+    "providers",
+    ...rows.map((row, index) => {
+      const mark = row.default ? "*" : " ";
+      return `${mark} ${index + 1}. ${row.id}  ${row.baseUrl}  ${row.model}  key:${row.key}`;
+    }),
+    "use: /provider use <id|number>",
+  ].join("\n");
+}
+
 async function runProviders(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
   try {
     const extracted = extractConfigPath(args);
@@ -658,6 +670,7 @@ function clip(text: string, width: number): string {
 const SLASH_COMMANDS = [
   { name: "/help", description: "show commands" },
   { name: "/provider", description: "show/set provider url/key" },
+  { name: "/providers", description: "list configured providers" },
   { name: "/model", description: "fetch/list/switch models" },
   { name: "/parallel", description: "plan sub-agent tasks" },
   { name: "/tasks", description: "show recent runtime/task state" },
@@ -978,7 +991,7 @@ function providerStatus(options: ChatCommandOptions): string {
     `provider key source: ${options.apiKeySource}`,
     `model ${options.model}`,
     `config: ${options.configPath ?? defaultConfigPath()}`,
-    "commands: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number] · /parallel <goal> :: <task> | <task>",
+    "commands: /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number] · /parallel <goal> :: <task> | <task>",
   ].join("\n");
 }
 
@@ -1012,9 +1025,24 @@ async function applyModelCommand(options: ChatCommandOptions, env: NodeJS.Proces
   return { options: next, message: `${fetchNote}\n${switched.message}\nprovider model saved to ${saved.path}` };
 }
 
+function applyProviderUseCommand(options: ChatCommandOptions, env: NodeJS.ProcessEnv, value: string): { options: ChatCommandOptions; message: string } {
+  const target = value.trim();
+  if (!target) return { options, message: renderProviderRows(env, options.configPath) };
+  const rows = providerRows(env, options.configPath);
+  const index = Number(target);
+  const selected = Number.isInteger(index) && index >= 1 ? String(rows[index - 1]?.id ?? "") : target;
+  if (!selected || !rows.some((row) => row.id === selected)) return { options, message: `provider not found: ${target}` };
+  const saved = saveDefaultProvider(env, options.configPath, selected);
+  const next = parseChatArgs(["--provider", selected], env, saved, saved.path, false);
+  return { options: next, message: `provider switched to ${selected}\nmodel ${next.model}\nconfig: ${saved.path}` };
+}
+
 async function applyProviderCommand(options: ChatCommandOptions, env: NodeJS.ProcessEnv, value: string): Promise<{ options: ChatCommandOptions; message: string }> {
   const trimmed = value.trim();
   if (!trimmed) return { options, message: providerStatus(options) };
+  if (trimmed === "list" || trimmed === "profiles" || trimmed === "providers") return { options, message: renderProviderRows(env, options.configPath) };
+  const useMatch = trimmed.match(/^use\s+(.+)$/i);
+  if (useMatch) return applyProviderUseCommand(options, env, useMatch[1]);
   if (trimmed === "model" || trimmed === "models") return { options, message: renderModelList(options) };
   const modelMatch = trimmed.match(/^models?\s+(.+)$/i);
   if (modelMatch) {
@@ -1399,7 +1427,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return;
     }
     if (prompt === "/help") {
-      answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+      answer = "commands: /help · /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+      status = undefined;
+      requestRender();
+      return;
+    }
+    if (prompt === "/providers") {
+      answer = renderProviderRows(process.env, screenOptions.configPath);
       status = undefined;
       requestRender();
       return;
@@ -1569,7 +1603,12 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+      stdout.write("commands: /help · /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+      rl.prompt();
+      continue;
+    }
+    if (prompt === "/providers") {
+      stdout.write(`${renderProviderRows(process.env, options.configPath)}\n`);
       rl.prompt();
       continue;
     }

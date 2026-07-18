@@ -280,6 +280,34 @@ model = "secondary-model"
   }
 }
 
+async function testTuiSwitchesDefaultProvider() {
+  const cfg = writeConfig(`
+provider = "primary"
+
+[providers.primary]
+type = "openai-chat"
+base_url = "https://primary.example/v1"
+api_key = "env:PRIMARY_KEY"
+model = "primary-model"
+
+[providers.secondary]
+type = "openai-chat"
+base_url = "https://secondary.example/v1"
+api_key = "env:SECONDARY_KEY"
+model = "secondary-model"
+`);
+  try {
+    const result = await runCli(["tui", "--config", cfg.file, "--dry-run"], {}, "/providers\n/provider use 2\n/provider\n/exit\n");
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /providers/);
+    assert.match(result.stdout, /provider switched to secondary/);
+    assert.match(result.stdout, /provider url: https:\/\/secondary\.example\/v1/);
+    assert.match(fs.readFileSync(cfg.file, "utf8"), /provider = "secondary"/);
+  } finally {
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testProvidersShowsRootProviderConfig() {
   const cfg = writeConfig(`
 provider_config = "https://root.example/v1 env:ROOT_KEY root-model"
@@ -1136,6 +1164,7 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testOneLineProviderConfig();
   await testProviderFlagSelectsConfiguredProvider();
   await testProvidersListsConfiguredProviders();
+  await testTuiSwitchesDefaultProvider();
   await testProvidersShowsRootProviderConfig();
   await testInitCreatesConfigWithoutOverwriting();
   await testConfigWebSavesProviderFields();

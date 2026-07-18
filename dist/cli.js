@@ -417,6 +417,17 @@ function providerRows(env, explicitPath) {
         };
     });
 }
+function renderProviderRows(env, explicitPath) {
+    const rows = providerRows(env, explicitPath);
+    return [
+        "providers",
+        ...rows.map((row, index) => {
+            const mark = row.default ? "*" : " ";
+            return `${mark} ${index + 1}. ${row.id}  ${row.baseUrl}  ${row.model}  key:${row.key}`;
+        }),
+        "use: /provider use <id|number>",
+    ].join("\n");
+}
 async function runProviders(args, env, stdout, stderr) {
     try {
         const extracted = extractConfigPath(args);
@@ -651,6 +662,7 @@ function clip(text, width) {
 const SLASH_COMMANDS = [
     { name: "/help", description: "show commands" },
     { name: "/provider", description: "show/set provider url/key" },
+    { name: "/providers", description: "list configured providers" },
     { name: "/model", description: "fetch/list/switch models" },
     { name: "/parallel", description: "plan sub-agent tasks" },
     { name: "/tasks", description: "show recent runtime/task state" },
@@ -960,7 +972,7 @@ function providerStatus(options) {
         `provider key source: ${options.apiKeySource}`,
         `model ${options.model}`,
         `config: ${options.configPath ?? (0, config_1.defaultConfigPath)()}`,
-        "commands: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number] · /parallel <goal> :: <task> | <task>",
+        "commands: /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number] · /parallel <goal> :: <task> | <task>",
     ].join("\n");
 }
 function applyParallelSlashCommand(input, mode = "build", persist = true) {
@@ -992,10 +1004,28 @@ async function applyModelCommand(options, env, value) {
     next = parseChatArgs([], env, saved, saved.path, false);
     return { options: next, message: `${fetchNote}\n${switched.message}\nprovider model saved to ${saved.path}` };
 }
+function applyProviderUseCommand(options, env, value) {
+    const target = value.trim();
+    if (!target)
+        return { options, message: renderProviderRows(env, options.configPath) };
+    const rows = providerRows(env, options.configPath);
+    const index = Number(target);
+    const selected = Number.isInteger(index) && index >= 1 ? String(rows[index - 1]?.id ?? "") : target;
+    if (!selected || !rows.some((row) => row.id === selected))
+        return { options, message: `provider not found: ${target}` };
+    const saved = (0, config_1.saveDefaultProvider)(env, options.configPath, selected);
+    const next = parseChatArgs(["--provider", selected], env, saved, saved.path, false);
+    return { options: next, message: `provider switched to ${selected}\nmodel ${next.model}\nconfig: ${saved.path}` };
+}
 async function applyProviderCommand(options, env, value) {
     const trimmed = value.trim();
     if (!trimmed)
         return { options, message: providerStatus(options) };
+    if (trimmed === "list" || trimmed === "profiles" || trimmed === "providers")
+        return { options, message: renderProviderRows(env, options.configPath) };
+    const useMatch = trimmed.match(/^use\s+(.+)$/i);
+    if (useMatch)
+        return applyProviderUseCommand(options, env, useMatch[1]);
     if (trimmed === "model" || trimmed === "models")
         return { options, message: renderModelList(options) };
     const modelMatch = trimmed.match(/^models?\s+(.+)$/i);
@@ -1382,7 +1412,13 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return;
         }
         if (prompt === "/help") {
-            answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+            answer = "commands: /help · /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+            status = undefined;
+            requestRender();
+            return;
+        }
+        if (prompt === "/providers") {
+            answer = renderProviderRows(process.env, screenOptions.configPath);
             status = undefined;
             requestRender();
             return;
@@ -1550,7 +1586,12 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             return lastExitCode;
         }
         if (prompt === "/help") {
-            stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+            stdout.write("commands: /help · /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+            rl.prompt();
+            continue;
+        }
+        if (prompt === "/providers") {
+            stdout.write(`${renderProviderRows(process.env, options.configPath)}\n`);
             rl.prompt();
             continue;
         }

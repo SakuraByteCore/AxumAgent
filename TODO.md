@@ -14,7 +14,7 @@
 - [x] Add initial pi-style workflow event/checkpoint/permission-gate skeleton.
 - [x] Expand TS CLI from one-shot `chat` into Codex-like session/event/tool-loop execution with runtime events.
 - [x] Add CLI/TUI/doctor `--provider <id>` selection and `axum providers` discovery for configured providers.
-- [ ] Add richer profile switching polish beyond provider selection.
+- [x] Add richer profile switching polish beyond provider selection.
 - [x] Add Codex-style Plan/Execute workflow skeleton with hash-anchor auto-fix metadata.
 - [x] Add high-precision tool registry for precise edit, safe exec sandbox, and LSP symbol lookup surfaces.
 - [x] Add `axum parallel` swarm planning surface for sub-agent task fan-out.

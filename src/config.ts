@@ -90,6 +90,17 @@ export function saveOpenAIProviderConfig(env: NodeJS.ProcessEnv, explicitPath: s
   return { path: configPath, config: next };
 }
 
+export function saveDefaultProvider(env: NodeJS.ProcessEnv, explicitPath: string | undefined, providerId: string): LoadedConfig {
+  const configPath = resolveConfigPath(env, explicitPath);
+  const existing = fs.existsSync(configPath) ? (parse(fs.readFileSync(configPath, "utf8")) as unknown as AxumConfig) : {};
+  const providers = existing.providers ?? {};
+  if (!providers[providerId]) throw new Error(`provider not found in config: ${providerId}`);
+  const next: AxumConfig = { ...existing, provider: providerId, providers };
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, stringify(next as never), "utf8");
+  return { path: configPath, config: next };
+}
+
 export function selectedProvider(config: AxumConfig | undefined): { id: string; config?: ProviderConfig } {
   const id = config?.provider || "openai-chat";
   return { id, config: config?.providers?.[id] };

@@ -8,6 +8,7 @@ exports.defaultConfigPath = defaultConfigPath;
 exports.resolveConfigPath = resolveConfigPath;
 exports.loadConfig = loadConfig;
 exports.saveOpenAIProviderConfig = saveOpenAIProviderConfig;
+exports.saveDefaultProvider = saveDefaultProvider;
 exports.selectedProvider = selectedProvider;
 exports.resolveSecret = resolveSecret;
 exports.numberFromConfig = numberFromConfig;
@@ -47,6 +48,17 @@ function saveOpenAIProviderConfig(env, explicitPath, patch) {
         type: providers[providerId]?.type || "openai-chat",
         ...patch,
     };
+    const next = { ...existing, provider: providerId, providers };
+    fs_1.default.mkdirSync(path_1.default.dirname(configPath), { recursive: true });
+    fs_1.default.writeFileSync(configPath, (0, toml_1.stringify)(next), "utf8");
+    return { path: configPath, config: next };
+}
+function saveDefaultProvider(env, explicitPath, providerId) {
+    const configPath = resolveConfigPath(env, explicitPath);
+    const existing = fs_1.default.existsSync(configPath) ? (0, toml_1.parse)(fs_1.default.readFileSync(configPath, "utf8")) : {};
+    const providers = existing.providers ?? {};
+    if (!providers[providerId])
+        throw new Error(`provider not found in config: ${providerId}`);
     const next = { ...existing, provider: providerId, providers };
     fs_1.default.mkdirSync(path_1.default.dirname(configPath), { recursive: true });
     fs_1.default.writeFileSync(configPath, (0, toml_1.stringify)(next), "utf8");
