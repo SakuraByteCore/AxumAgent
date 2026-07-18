@@ -510,7 +510,9 @@ model = "json-model"
     assert.strictEqual(result.code, 1);
     const report = JSON.parse(result.stdout);
     assert.strictEqual(report.status, "failed");
+    assert.match(report.modelsError, /\(403, http 403 html challenge\)/);
     assert.match(report.modelsError, /Cloudflare\/browser challenge/);
+    assert.match(report.chatError, /\(403, http 403 html challenge\)/);
     assert.match(report.chatError, /Cloudflare\/browser challenge/);
     assert.doesNotMatch(JSON.stringify(report), /<!DOCTYPE html>/i);
   } finally {
@@ -651,12 +653,17 @@ async function testTuiConfiguresProviderInOneLine() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
   const file = path.join(dir, "config.toml");
   try {
-    const result = await runCli(["tui", "--config", file], {}, `/provider set http://127.0.0.1:${port}/v1 test-key one-line-model\nhello configured\n/exit\n`);
+    const result = await runCli(["tui", "--config", file], {}, `/provider set http://127.0.0.1:${port}/v1 test-key one-line-model\n/provider\nhello configured\n/exit\n`);
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /provider saved/);
+    assert.match(result.stdout, /provider key: \*\*\*/);
+    assert.match(result.stdout, /provider key source: literal/);
     assert.match(result.stdout, /model one-line-model/);
     assert.strictEqual(requests[0].method, "POST");
     assert.strictEqual(requests[0].url, "/v1/chat/completions");
+    assert.strictEqual(requests[0].headers.authorization, "Bearer test-key");
+    assert.strictEqual(requests[0].headers["content-type"], "application/json");
+    assert.strictEqual(requests[0].headers.accept, "application/json");
     assert.strictEqual(requests[0].body.model, "one-line-model");
     const saved = fs.readFileSync(file, "utf8");
     assert.match(saved, /base_url = "http:\/\/127\.0\.0\.1:\d+\/v1"/);

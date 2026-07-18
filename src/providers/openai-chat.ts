@@ -153,8 +153,21 @@ export function summarizeProviderErrorBody(raw: unknown, response?: Response): s
   return text.length > 800 ? `${text.slice(0, 800)}…` : text;
 }
 
+export function classifyProviderErrorBody(raw: unknown, response?: Response): string {
+  if (typeof raw === "object" && raw && "error" in raw) return "json error";
+  if (typeof raw !== "string") return response?.ok === false ? "http error" : "unknown";
+  const text = collapseWhitespace(raw);
+  const contentType = response?.headers.get("content-type") ?? "";
+  const server = response?.headers.get("server") ?? "";
+  const isHtml = /text\/html/i.test(contentType) || /^<!doctype html/i.test(text) || /^<html/i.test(text);
+  const isCloudflare = /cloudflare/i.test(server) || /Just a moment|challenge-platform|cf_chl|Cloudflare challenge/i.test(text);
+  if (isCloudflare) return `http ${response?.status ?? "unknown"} html challenge`;
+  if (isHtml) return "wrong base url or html response";
+  return response?.ok === false ? "http error" : "unknown";
+}
+
 function providerErrorMessage(label: string, response: Response, raw: unknown): string {
-  return `${label} failed (${response.status}): ${summarizeProviderErrorBody(raw, response) || response.statusText}`;
+  return `${label} failed (${response.status}, ${classifyProviderErrorBody(raw, response)}): ${summarizeProviderErrorBody(raw, response) || response.statusText}`;
 }
 
 export class OpenAIChatProvider {
@@ -223,7 +236,7 @@ export class OpenAIChatProvider {
           signal,
         });
       } catch (error) {
-        throw new RetryableOpenAIChatError(`OpenAI Models request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw new RetryableOpenAIChatError(`OpenAI Models request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
       }
       return { response, raw: await readResponseBody(response) };
     });
@@ -302,7 +315,7 @@ export class OpenAIChatProvider {
           signal: requestSignal,
         });
       } catch (error) {
-        throw new RetryableOpenAIChatError(`OpenAI Chat request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw new RetryableOpenAIChatError(`OpenAI Chat request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
       }
       return { response, raw: await readResponseBody(response) };
     }, signal);
@@ -345,7 +358,7 @@ export class OpenAIChatProvider {
           signal: requestSignal,
         });
       } catch (error) {
-        throw new RetryableOpenAIChatError(`OpenAI Chat stream request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+        throw new RetryableOpenAIChatError(`OpenAI Chat stream request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
       }
 
       if (!response.ok) {

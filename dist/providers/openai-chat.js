@@ -4,6 +4,7 @@ exports.OpenAIChatProvider = void 0;
 exports.sanitizeMessagesForProvider = sanitizeMessagesForProvider;
 exports.sanitizeToolCallsForProvider = sanitizeToolCallsForProvider;
 exports.summarizeProviderErrorBody = summarizeProviderErrorBody;
+exports.classifyProviderErrorBody = classifyProviderErrorBody;
 function normalizeBaseUrl(baseUrl) {
     return baseUrl.replace(/\/+$/, "");
 }
@@ -78,8 +79,24 @@ function summarizeProviderErrorBody(raw, response) {
         return "provider returned HTML instead of JSON; check the base URL, API path, or gateway/proxy compatibility";
     return text.length > 800 ? `${text.slice(0, 800)}…` : text;
 }
+function classifyProviderErrorBody(raw, response) {
+    if (typeof raw === "object" && raw && "error" in raw)
+        return "json error";
+    if (typeof raw !== "string")
+        return response?.ok === false ? "http error" : "unknown";
+    const text = collapseWhitespace(raw);
+    const contentType = response?.headers.get("content-type") ?? "";
+    const server = response?.headers.get("server") ?? "";
+    const isHtml = /text\/html/i.test(contentType) || /^<!doctype html/i.test(text) || /^<html/i.test(text);
+    const isCloudflare = /cloudflare/i.test(server) || /Just a moment|challenge-platform|cf_chl|Cloudflare challenge/i.test(text);
+    if (isCloudflare)
+        return `http ${response?.status ?? "unknown"} html challenge`;
+    if (isHtml)
+        return "wrong base url or html response";
+    return response?.ok === false ? "http error" : "unknown";
+}
 function providerErrorMessage(label, response, raw) {
-    return `${label} failed (${response.status}): ${summarizeProviderErrorBody(raw, response) || response.statusText}`;
+    return `${label} failed (${response.status}, ${classifyProviderErrorBody(raw, response)}): ${summarizeProviderErrorBody(raw, response) || response.statusText}`;
 }
 class OpenAIChatProvider {
     baseUrl;
@@ -150,7 +167,7 @@ class OpenAIChatProvider {
                 });
             }
             catch (error) {
-                throw new RetryableOpenAIChatError(`OpenAI Models request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+                throw new RetryableOpenAIChatError(`OpenAI Models request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
             }
             return { response, raw: await readResponseBody(response) };
         });
@@ -231,7 +248,7 @@ class OpenAIChatProvider {
                 });
             }
             catch (error) {
-                throw new RetryableOpenAIChatError(`OpenAI Chat request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+                throw new RetryableOpenAIChatError(`OpenAI Chat request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
             }
             return { response, raw: await readResponseBody(response) };
         }, signal);
@@ -274,7 +291,7 @@ class OpenAIChatProvider {
                 });
             }
             catch (error) {
-                throw new RetryableOpenAIChatError(`OpenAI Chat stream request transport failed: ${error instanceof Error ? error.message : String(error)}`);
+                throw new RetryableOpenAIChatError(`OpenAI Chat stream request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
             }
             if (!response.ok) {
                 const raw = await readResponseBody(response);

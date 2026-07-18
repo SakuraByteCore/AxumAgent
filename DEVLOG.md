@@ -13,7 +13,7 @@ Work added:
 - Replaced the fake workflow-only execution path with a Codex-like TypeScript runtime split into protocol, event bus, session, turn loop, and tool-runner layers.
 - Routed `axum chat` through the runtime session so model sampling can request gated tools, feed tool output back into the next sampling request, and emit turn lifecycle events.
 - Added OpenAI Chat tool-call transport support while preserving retry behavior and tool-role message forwarding.
-- Hardened OpenAI-compatible provider diagnostics: HTML/Cloudflare challenge responses are summarized, `doctor` falls back to a chat probe when `/models` is unavailable, reports literal/env/missing key source, and includes masked request previews; provider listing now reflects root-level `provider_config`.
+- Hardened OpenAI-compatible provider diagnostics: HTML/Cloudflare challenge responses are categorized (`http 403 html challenge`, HTML/base-URL mismatch, JSON API error, or transport failure), `doctor` falls back to a chat probe when `/models` is unavailable, reports literal/env/missing key source, and includes masked request previews; provider listing now reflects root-level `provider_config`.
 - Routed TUI prompt execution through `AxumRuntimeSession`, projecting runtime events into the interface while model/tool execution now uses the same Codex-like loop as `axum chat`.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
