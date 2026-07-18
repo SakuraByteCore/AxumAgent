@@ -740,6 +740,53 @@ async function testListModelsRetriesTransientTransportFailures() {
   assert.deepStrictEqual(delays, [1500]);
 }
 
+async function testChatWithToolsFallbackSuccessKeepsWarning() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  let calls = 0;
+  const provider = new OpenAIChatProvider({
+    baseUrl: "http://provider.test/v1",
+    apiKey: "test",
+    model: "mock-model",
+    maxRetries: 2,
+    retryDelayMs: 0,
+    fetchImpl: async (_url, init) => {
+      calls += 1;
+      const body = JSON.parse(init.body);
+      if (body.tools) throw new Error("tool transport offline");
+      return new Response(JSON.stringify({
+        model: "mock-model",
+        choices: [{ index: 0, message: { role: "assistant", content: "fallback answer" }, finish_reason: "stop" }],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  const result = await provider.chatWithTools([{ role: "user", content: "hello" }], [{ type: "function", function: { name: "read", parameters: { type: "object", properties: {} } } }]);
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(result.content, "fallback answer");
+  assert.match(result.warnings?.[0] || "", /retried without tools/);
+}
+
+async function testChatWithToolsContinuesRetriesAfterFallbackTransportFailure() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const delays = [];
+  const requests = [];
+  const provider = new OpenAIChatProvider({
+    baseUrl: "http://provider.test/v1",
+    apiKey: "test",
+    model: "mock-model",
+    maxRetries: 3,
+    retryDelayMs: 0,
+    sleepImpl: async (ms) => { delays.push(ms); },
+    fetchImpl: async (_url, init) => {
+      const body = JSON.parse(init.body);
+      requests.push(Boolean(body.tools));
+      throw new Error("temporary network failure");
+    },
+  });
+  await assert.rejects(() => provider.chatWithTools([{ role: "user", content: "hello" }], [{ type: "function", function: { name: "read", parameters: { type: "object", properties: {} } } }]), /transport failed/);
+  assert.deepStrictEqual(requests, [true, false, true, true, true]);
+  assert.deepStrictEqual(delays, [0, 0, 0]);
+}
+
 async function testTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "hello"]);
   assert.strictEqual(result.code, 0, result.stderr);
@@ -1359,6 +1406,8 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testProviderDefaultsUseBoundedRetryJitter();
   await testLegacyRetryDelayConfigStaysFixed();
   await testListModelsRetriesTransientTransportFailures();
+  await testChatWithToolsFallbackSuccessKeepsWarning();
+  await testChatWithToolsContinuesRetriesAfterFallbackTransportFailure();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
   await testInteractiveTuiShowsSlashCommands();

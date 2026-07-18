@@ -318,7 +318,10 @@ export class OpenAIChatProvider {
             };
           } catch (fallbackError) {
             lastError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
-            break;
+            const fallbackRetryable = fallbackError instanceof RetryableOpenAIChatError;
+            if (!fallbackRetryable || attempt >= this.maxRetries) break;
+            await this.sleepImpl(this.retryDelay());
+            continue;
           }
         }
         const retryable = error instanceof RetryableOpenAIChatError;
