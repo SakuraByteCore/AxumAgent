@@ -1200,6 +1200,24 @@ async function testRuntimeDashboardShowsAuditableToolWork() {
   assert.match(rendered, /command not allowed/);
 }
 
+async function testRuntimeDashboardRedactsSensitiveOutput() {
+  const { renderRuntimeDashboard } = require("../dist/runtime/events.js");
+  const rendered = renderRuntimeDashboard([
+    { id: 1, turnId: "turn-1", kind: "tool_call_requested", payload: { id: "call-1", name: "safe_exec", arguments: { command: "curl", args: ["-H", "Authorization: Bearer sk-supersecret1234567890", "https://example.com?token=plain-secret"] } }, createdAt: new Date().toISOString() },
+    { id: 2, turnId: "turn-1", kind: "tool_call_completed", payload: { callId: "call-1", name: "safe_exec", ok: true, content: JSON.stringify({ stdout: "api_key=abc123456789\nline2\nline3\npassword=hunter2\n", stderr: "" }) }, createdAt: new Date().toISOString() },
+    { id: 3, turnId: "turn-1", kind: "permission_denied", payload: { callId: "call-2", name: "safe_exec", ok: false, content: "Bearer ghp_secretsecretsecretsecret and jwt aaaabbbbccccdddd.eeeeffffgggghhhh.iiiijjjjkkkkllll" }, createdAt: new Date().toISOString() },
+  ]);
+  assert.match(rendered, /Authorization: \*\*\*/);
+  assert.match(rendered, /token=\*\*\*/);
+  assert.match(rendered, /api_key=\*\*\*/);
+  assert.match(rendered, /password=\*\*\*/);
+  assert.match(rendered, /Bearer \*\*\*/);
+  assert.doesNotMatch(rendered, /supersecret/);
+  assert.doesNotMatch(rendered, /hunter2/);
+  assert.doesNotMatch(rendered, /ghp_secret/);
+  assert.match(rendered, /more lines/);
+}
+
 async function testRuntimeStopsRepeatedPermissionDenials() {
   const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
   const { AxumRuntimeSession } = require("../dist/runtime/session.js");
@@ -1280,5 +1298,6 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testTuiPromptUsesRuntimeToolLoop();
   await testCodexLikeRuntimeLoopsThroughToolCalls();
   await testRuntimeDashboardShowsAuditableToolWork();
+  await testRuntimeDashboardRedactsSensitiveOutput();
   await testRuntimeStopsRepeatedPermissionDenials();
 })();

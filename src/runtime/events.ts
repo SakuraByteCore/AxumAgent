@@ -115,7 +115,7 @@ function renderEventDetail(event: AxumEvent): string | undefined {
   if (event.kind === "tool_call_completed" || event.kind === "permission_denied") {
     const name = typeof payload.name === "string" ? payload.name : "tool";
     const content = typeof payload.content === "string" ? payload.content : "";
-    return content ? `${name}: ${content.slice(0, 120)}` : name;
+    return content ? `${name}: ${clipDetail(content, 120)}` : name;
   }
   if (event.kind === "provider_warning" || event.kind === "turn_failed") {
     return typeof payload.message === "string" ? payload.message.slice(0, 160) : undefined;
@@ -142,7 +142,7 @@ function renderToolRequest(name: string, args: Record<string, unknown>): string 
 function renderCommand(args: Record<string, unknown>): string {
   const command = stringField(args, "command") ?? "<missing>";
   const rawArgs = Array.isArray(args.args) ? args.args.filter((arg): arg is string => typeof arg === "string") : [];
-  return [command, ...rawArgs].join(" ").replace(/(api[_-]?key|token|authorization)=\S+/gi, "$1=***");
+  return redactSensitiveText([command, ...rawArgs].join(" "));
 }
 
 function renderCommandResult(args: Record<string, unknown>, content: string, denied: boolean): string {
@@ -150,7 +150,7 @@ function renderCommandResult(args: Record<string, unknown>, content: string, den
   const parsed = parseJsonObject(content);
   const stdout = typeof parsed?.stdout === "string" ? parsed.stdout.trim() : "";
   const stderr = typeof parsed?.stderr === "string" ? parsed.stderr.trim() : "";
-  const summary = stdout || stderr ? clipDetail(stdout || stderr, 140) : "no output";
+  const summary = stdout || stderr ? summarizeOutput(stdout || stderr, 140) : "no output";
   return `$ ${renderCommand(args)}  ok: ${summary}`;
 }
 
@@ -164,8 +164,25 @@ function parseJsonObject(content: string): Record<string, unknown> | undefined {
 }
 
 function clipDetail(value: string, max: number): string {
-  const compact = value.replace(/\s+/g, " ").trim();
+  const compact = redactSensitiveText(value).replace(/\s+/g, " ").trim();
   return compact.length > max ? `${compact.slice(0, Math.max(0, max - 1))}…` : compact;
+}
+
+function summarizeOutput(value: string, max: number): string {
+  const redacted = redactSensitiveText(value);
+  const lines = redacted.split(/\r?\n/g).map((line) => line.trim()).filter(Boolean);
+  const compact = lines.length > 3 ? [...lines.slice(0, 2), `… ${lines.length - 3} more lines`, lines[lines.length - 1]].join(" | ") : lines.join(" | ");
+  return clipDetail(compact || redacted, max);
+}
+
+function redactSensitiveText(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+\-/]+=*/gi, "Bearer ***")
+    .replace(/(authorization\s*[:=]\s*)\S+/gi, "$1***")
+    .replace(/((?:api[_-]?key|token|secret|password|passwd|pwd)\s*[:=]\s*)\S+/gi, "$1***")
+    .replace(/(sk-[A-Za-z0-9]{12,})/g, "sk-***")
+    .replace(/(gh[pousr]_[A-Za-z0-9_]{12,})/g, "gh***")
+    .replace(/([A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,})/g, "jwt.***");
 }
 
 function lastLines(lines: string[], max: number): string[] {
