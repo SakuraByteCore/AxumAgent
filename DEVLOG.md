@@ -17,6 +17,7 @@ Work added:
 - Routed TUI prompt execution through `AxumRuntimeSession`, projecting runtime events into the interface while model/tool execution now uses the same Codex-like loop as `axum chat`.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
+- Replaced Axum's raw TUI input/cursor/history/paste implementation with the `@earendil-works/pi-tui` editor component while keeping Axum-owned slash commands and runtime dispatch.
 
 Validation:
 - `npm test` passes after workflow/tool/swarm/runtime/provider-diagnostic/TUI-runtime guard changes.

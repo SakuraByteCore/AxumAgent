@@ -1207,75 +1207,10 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
     let answer;
     let status;
     let lastExitCode = 0;
-    let input = "";
-    let cursorIndex = 0;
-    let slashSelection = 0;
-    const inputHistory = [];
-    let historyIndex;
-    let draftInputBeforeHistory = "";
     let stopped = false;
     let busy = false;
     let activeRequestController;
-    let isBracketedPaste = false;
-    let pasteBuffer = "";
-    const normalizePastedInput = (value) => value
-        .replace(/\r\n/g, "\n")
-        .replace(/\r/g, "\n")
-        .replace(/\t/g, "    ")
-        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-    const insertInputText = (value) => {
-        const printable = normalizePastedInput(value);
-        if (!printable)
-            return;
-        resetHistoryRecall();
-        input = `${input.slice(0, cursorIndex)}${printable}${input.slice(cursorIndex)}`;
-        cursorIndex += printable.length;
-        slashSelection = 0;
-        requestRender();
-    };
-    const recordInputHistory = (value) => {
-        const trimmed = value.trim();
-        if (!trimmed || trimmed === "/exit" || trimmed === "/quit")
-            return;
-        if (inputHistory.at(-1) !== trimmed)
-            inputHistory.push(trimmed);
-        historyIndex = undefined;
-        draftInputBeforeHistory = "";
-    };
-    const recallPreviousInput = () => {
-        if (inputHistory.length === 0)
-            return;
-        if (historyIndex === undefined) {
-            draftInputBeforeHistory = input;
-            historyIndex = inputHistory.length - 1;
-        }
-        else {
-            historyIndex = Math.max(0, historyIndex - 1);
-        }
-        input = inputHistory[historyIndex];
-        cursorIndex = input.length;
-        slashSelection = 0;
-    };
-    const recallNextInput = () => {
-        if (historyIndex === undefined)
-            return;
-        if (historyIndex >= inputHistory.length - 1) {
-            historyIndex = undefined;
-            input = draftInputBeforeHistory;
-            cursorIndex = input.length;
-            draftInputBeforeHistory = "";
-        }
-        else {
-            historyIndex += 1;
-            input = inputHistory[historyIndex];
-            cursorIndex = input.length;
-        }
-        slashSelection = 0;
-    };
-    const resetHistoryRecall = () => {
-        historyIndex = undefined;
-        draftInputBeforeHistory = "";
-    };
+    let slashSelection = 0;
     const requestRender = () => tui.requestRender();
     const stop = (code = lastExitCode) => {
         if (stopped)
@@ -1284,21 +1219,39 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         lastExitCode = code;
         tui.stop();
     };
-    class AxumPiTuiApp {
-        focused = false;
+    const identity = (text) => text;
+    const editorTheme = {
+        borderColor: identity,
+        selectList: {
+            selectedPrefix: identity,
+            selectedText: identity,
+            description: identity,
+            scrollInfo: identity,
+            noMatch: identity,
+        },
+    };
+    const editor = new pi.Editor(tui, editorTheme, { paddingX: 1, autocompleteMaxVisible: 6 });
+    class AxumPiTuiChrome {
         invalidate() { }
         render(width) {
-            const lines = renderTuiScreen(screenOptions, answer, width, input, slashSelection, cursorIndex, terminal.rows, status).split("\n");
+            const input = editor.getText();
+            const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, status)
+                .split("\n")
+                .slice(0, -2);
+            const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
+            const lines = [
+                ...body,
+                ...(commandLines.length > 0 ? [...commandLines] : []),
+                "",
+                "▌ prompt",
+            ];
             return lines.map((line) => {
                 const truncated = pi.truncateToWidth(line, width);
                 return truncated + " ".repeat(Math.max(0, width - pi.visibleWidth(truncated)));
             });
         }
-        handleInput(data) {
-            void handlePiInput(data);
-        }
     }
-    const app = new AxumPiTuiApp();
+    const chrome = new AxumPiTuiChrome();
     async function submitPrompt(prompt) {
         if (!prompt) {
             requestRender();
@@ -1344,7 +1297,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             requestRender();
             return;
         }
-        recordInputHistory(prompt);
+        editor.addToHistory(prompt);
         screenOptions = { ...options, prompt };
         if (dryRun) {
             answer = "dry-run: provider call skipped";
@@ -1354,6 +1307,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return;
         }
         busy = true;
+        editor.disableSubmit = true;
         activeRequestController = new AbortController();
         const startedAt = Date.now();
         status = workingStatus(startedAt);
@@ -1375,114 +1329,61 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         finally {
             activeRequestController = undefined;
             busy = false;
+            editor.disableSubmit = false;
             status = undefined;
             clearInterval(timer);
             requestRender();
         }
     }
-    async function handlePiInput(data) {
+    editor.onChange = () => {
+        slashSelection = 0;
+        requestRender();
+    };
+    editor.onSubmit = (text) => {
+        editor.setText("");
+        slashSelection = 0;
+        void submitPrompt(text.trim());
+    };
+    tui.addInputListener((data) => {
         if (busy && (pi.matchesKey(data, pi.Key.ctrl("c")) || data === "\u001b")) {
             activeRequestController?.abort();
             status = "• Cancelling request…";
             requestRender();
-            return;
+            return { consume: true };
         }
         if (pi.matchesKey(data, pi.Key.ctrl("c"))) {
             stop(lastExitCode);
-            return;
+            return { consume: true };
         }
         if (busy)
-            return;
-        const pasteStart = "[200~";
-        const pasteEnd = "[201~";
-        if (isBracketedPaste || data.includes(pasteStart)) {
-            let chunk = data;
-            if (!isBracketedPaste) {
-                const startIndex = data.indexOf(pasteStart);
-                insertInputText(data.slice(0, startIndex));
-                chunk = data.slice(startIndex + pasteStart.length);
-                pasteBuffer = "";
-                isBracketedPaste = true;
+            return { consume: true };
+        const input = editor.getText();
+        if (input.startsWith("/")) {
+            const matches = matchingSlashCommands(input);
+            if (pi.matchesKey(data, pi.Key.up) && matches.length > 0) {
+                slashSelection = (slashSelection + matches.length - 1) % matches.length;
+                requestRender();
+                return { consume: true };
             }
-            pasteBuffer += chunk;
-            const endIndex = pasteBuffer.indexOf(pasteEnd);
-            if (endIndex === -1)
-                return;
-            insertInputText(pasteBuffer.slice(0, endIndex));
-            const remaining = pasteBuffer.slice(endIndex + pasteEnd.length);
-            pasteBuffer = "";
-            isBracketedPaste = false;
-            if (remaining)
-                await handlePiInput(remaining);
-            return;
-        }
-        if (pi.matchesKey(data, pi.Key.tab) && input.startsWith("/")) {
-            const completed = completeSlashCommand(input, slashSelection);
-            if (completed) {
-                input = completed;
-                cursorIndex = input.length;
+            if (pi.matchesKey(data, pi.Key.down) && matches.length > 0) {
+                slashSelection = (slashSelection + 1) % matches.length;
+                requestRender();
+                return { consume: true };
+            }
+            if (pi.matchesKey(data, pi.Key.tab)) {
+                const completed = completeSlashCommand(input, slashSelection);
+                if (completed)
+                    editor.setText(completed);
                 slashSelection = 0;
+                requestRender();
+                return { consume: true };
             }
-            requestRender();
-            return;
         }
-        if (pi.matchesKey(data, pi.Key.up)) {
-            if (historyIndex === undefined && input.startsWith("/")) {
-                const matches = matchingSlashCommands(input);
-                slashSelection = matches.length === 0 ? 0 : (slashSelection + matches.length - 1) % matches.length;
-            }
-            else {
-                recallPreviousInput();
-            }
-            requestRender();
-            return;
-        }
-        if (pi.matchesKey(data, pi.Key.down)) {
-            if (historyIndex === undefined && input.startsWith("/")) {
-                const matches = matchingSlashCommands(input);
-                slashSelection = matches.length === 0 ? 0 : (slashSelection + 1) % matches.length;
-            }
-            else {
-                recallNextInput();
-            }
-            requestRender();
-            return;
-        }
-        if (pi.matchesKey(data, pi.Key.left)) {
-            cursorIndex = Math.max(0, cursorIndex - 1);
-            requestRender();
-            return;
-        }
-        if (pi.matchesKey(data, pi.Key.right)) {
-            cursorIndex = Math.min(input.length, cursorIndex + 1);
-            requestRender();
-            return;
-        }
-        if (pi.matchesKey(data, pi.Key.backspace)) {
-            resetHistoryRecall();
-            if (cursorIndex > 0) {
-                input = `${input.slice(0, cursorIndex - 1)}${input.slice(cursorIndex)}`;
-                cursorIndex -= 1;
-            }
-            slashSelection = 0;
-            requestRender();
-            return;
-        }
-        if (pi.matchesKey(data, pi.Key.enter)) {
-            const prompt = input.trim();
-            input = "";
-            cursorIndex = 0;
-            slashSelection = 0;
-            resetHistoryRecall();
-            await submitPrompt(prompt);
-            return;
-        }
-        if (data.startsWith("\u001b"))
-            return;
-        insertInputText(data);
-    }
-    tui.addChild(app);
-    tui.setFocus(app);
+        return undefined;
+    });
+    tui.addChild(chrome);
+    tui.addChild(editor);
+    tui.setFocus(editor);
     if (useAltScreen)
         terminal.write("\u001b[?1049h");
     terminal.write("\u001b[?2004h");

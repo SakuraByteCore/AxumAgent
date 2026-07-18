@@ -28,5 +28,6 @@
 - [x] Add smoke tests for shell modes and workflow dry-run shape.
 - [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [x] Harden TUI width helpers for narrow terminals with wide Unicode input.
+- [x] Replace raw TUI input/cursor/history/paste state with the pi-tui editor component.
 - [x] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.
