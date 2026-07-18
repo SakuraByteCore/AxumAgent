@@ -1311,7 +1311,7 @@ function renderRuntimeProjection(session) {
     const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
     if (events.length === 0)
         return "◇ runtime\n  waiting for first event";
-    return `◇ runtime\n${(0, events_1.renderRuntimeEvents)(events).slice(0, 1600)}`;
+    return (0, events_1.renderRuntimeDashboard)(events).slice(0, 2200);
 }
 async function resolveTuiAnswer(options, dryRun) {
     return resolveTuiAnswerStream(options, dryRun, () => undefined);

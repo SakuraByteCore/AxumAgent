@@ -1182,6 +1182,60 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   }
 }
 
+async function testRuntimeDashboardShowsAuditableToolWork() {
+  const { renderRuntimeDashboard } = require("../dist/runtime/events.js");
+  const rendered = renderRuntimeDashboard([
+    { id: 1, turnId: "turn-1", kind: "turn_started", payload: { prompt: "inspect" }, createdAt: new Date().toISOString() },
+    { id: 2, turnId: "turn-1", kind: "tool_call_requested", payload: { id: "call-1", name: "safe_exec", arguments: { command: "npm test" } }, createdAt: new Date().toISOString() },
+    { id: 3, turnId: "turn-1", kind: "tool_call_completed", payload: { callId: "call-1", name: "safe_exec", ok: true, content: JSON.stringify({ stdout: "tests passed\n", stderr: "" }) }, createdAt: new Date().toISOString() },
+    { id: 4, turnId: "turn-1", kind: "tool_call_requested", payload: { id: "call-2", name: "read", arguments: { file: "src/cli.ts" } }, createdAt: new Date().toISOString() },
+    { id: 5, turnId: "turn-1", kind: "permission_denied", payload: { callId: "call-3", name: "safe_exec", ok: false, content: "command not allowed by safe_exec sandbox: curl" }, createdAt: new Date().toISOString() },
+  ]);
+  assert.match(rendered, /◇ activity/);
+  assert.match(rendered, /◇ commands/);
+  assert.match(rendered, /\$ npm test  ok: tests passed/);
+  assert.match(rendered, /◇ files/);
+  assert.match(rendered, /read src\/cli\.ts/);
+  assert.match(rendered, /◇ blocked/);
+  assert.match(rendered, /command not allowed/);
+}
+
+async function testRuntimeStopsRepeatedPermissionDenials() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const { AxumRuntimeSession } = require("../dist/runtime/session.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-denied-test-"));
+  let count = 0;
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      count += 1;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({
+        model: "mock-tool-model",
+        choices: [{
+          finish_reason: "tool_calls",
+          message: {
+            role: "assistant",
+            content: "",
+            tool_calls: [{ id: `call-denied-${count}`, type: "function", function: { name: "safe_exec", arguments: JSON.stringify({ command: "curl https://example.com" }) } }],
+          },
+        }],
+      }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const provider = new OpenAIChatProvider({ baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: "test", model: "mock-tool-model", maxRetries: 0 });
+    const session = new AxumRuntimeSession({ provider, cwd: dir, mode: "build" });
+    await assert.rejects(() => session.runUserTurn("try forbidden command"), /blocked by repeated tool denial/);
+    assert.strictEqual(count, 2);
+    assert.ok(session.events.snapshot().some((event) => event.kind === "turn_failed"));
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 (async () => {
   await testBasicChatFromConfig();
   await testVersionFlag();
@@ -1225,4 +1279,6 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testLineTuiParallelSlashCommandPlansSwarm();
   await testTuiPromptUsesRuntimeToolLoop();
   await testCodexLikeRuntimeLoopsThroughToolCalls();
+  await testRuntimeDashboardShowsAuditableToolWork();
+  await testRuntimeStopsRepeatedPermissionDenials();
 })();

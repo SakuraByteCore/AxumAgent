@@ -2,7 +2,7 @@ import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, res
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPlan, renderSwarmPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
 import { AxumRuntimeSession } from "./runtime/session";
-import { renderRuntimeEvents } from "./runtime/events";
+import { renderRuntimeDashboard, renderRuntimeEvents } from "./runtime/events";
 import { runtimeToolSpecs } from "./runtime/turn";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
@@ -1318,7 +1318,7 @@ function createProviderForOptions(options: ChatCommandOptions): OpenAIChatProvid
 function renderRuntimeProjection(session: AxumRuntimeSession): string {
   const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
   if (events.length === 0) return "◇ runtime\n  waiting for first event";
-  return `◇ runtime\n${renderRuntimeEvents(events).slice(0, 1600)}`;
+  return renderRuntimeDashboard(events).slice(0, 2200);
 }
 
 async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): Promise<{ answer: string; exitCode: number }> {

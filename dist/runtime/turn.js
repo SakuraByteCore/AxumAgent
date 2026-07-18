@@ -84,6 +84,7 @@ async function runCodexLikeTurn(options, userPrompt, signal) {
     ];
     const toolOutputs = [];
     const tools = runtimeToolSpecs(runner.mode.tools);
+    const deniedCounts = new Map();
     options.eventBus.emit("turn_started", { prompt: userPrompt, mode: runner.mode.id }, id);
     options.eventBus.emit("context_captured", { cwd: runner.gate.cwd, allowedTools: runner.mode.tools }, id);
     let assistantMessage = "";
@@ -108,6 +109,16 @@ async function runCodexLikeTurn(options, userPrompt, signal) {
             toolOutputs.push(output);
             options.eventBus.emit(output.ok ? "tool_call_completed" : "permission_denied", output, id);
             messages.push({ role: "tool", tool_call_id: call.id, content: output.content });
+            if (!output.ok) {
+                const signature = `${output.name}:${output.content}`;
+                const count = (deniedCounts.get(signature) ?? 0) + 1;
+                deniedCounts.set(signature, count);
+                if (count >= 2) {
+                    const message = `blocked by repeated tool denial: ${output.name}: ${output.content}`;
+                    options.eventBus.emit("turn_failed", { message }, id);
+                    throw new Error(message);
+                }
+            }
         }
     }
     const message = `turn exceeded max tool iterations (${maxToolIterations})`;

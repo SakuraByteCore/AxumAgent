@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AxumEventBus = void 0;
 exports.renderRuntimeEvents = renderRuntimeEvents;
+exports.renderRuntimeDashboard = renderRuntimeDashboard;
 class AxumEventBus {
     nextId = 1;
     events = [];
@@ -56,6 +57,62 @@ function renderRuntimeEvents(events) {
         return `  ${event.id}. ${labels[event.kind] ?? event.kind}${detail ? ` · ${detail}` : ""}${event.turnId ? ` · ${event.turnId}` : ""}`;
     }).join("\n");
 }
+function renderRuntimeDashboard(events) {
+    const activity = [];
+    const commands = [];
+    const files = [];
+    const blocked = [];
+    const calls = new Map();
+    for (const event of events) {
+        const payload = event.payload;
+        if (event.kind === "turn_started")
+            activity.push("started turn");
+        if (event.kind === "model_sampling_started")
+            activity.push(`thinking${typeof payload?.iteration === "number" ? ` #${payload.iteration}` : ""}`);
+        if (event.kind === "turn_completed")
+            activity.push("completed turn");
+        if (event.kind === "turn_failed") {
+            const message = typeof payload?.message === "string" ? payload.message : "turn failed";
+            activity.push(`failed: ${clipDetail(message, 120)}`);
+            blocked.push(clipDetail(message, 180));
+        }
+        if (event.kind === "tool_call_requested" && payload) {
+            const callId = typeof payload.id === "string" ? payload.id : String(event.id);
+            const name = typeof payload.name === "string" ? payload.name : "tool";
+            const args = isRecord(payload.arguments) ? payload.arguments : {};
+            calls.set(callId, { name, arguments: args });
+            activity.push(`requested ${renderToolRequest(name, args)}`);
+            if (name === "safe_exec")
+                commands.push(`$ ${renderCommand(args)}  (running)`);
+            if (name === "read")
+                files.push(`read ${stringField(args, "file") ?? stringField(args, "path") ?? "<missing>"}`);
+            if (name === "precise_edit")
+                files.push(`edit ${stringField(args, "file") ?? "<missing>"}`);
+        }
+        if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
+            const callId = typeof payload.callId === "string" ? payload.callId : "";
+            const call = calls.get(callId);
+            const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
+            const content = typeof payload.content === "string" ? payload.content : "";
+            const prefix = event.kind === "permission_denied" ? "denied" : "ok";
+            activity.push(`${prefix} ${name}`);
+            if (name === "safe_exec")
+                commands.push(renderCommandResult(call?.arguments ?? {}, content, event.kind === "permission_denied"));
+            if (event.kind === "permission_denied")
+                blocked.push(`${renderToolRequest(name, call?.arguments ?? {})}: ${clipDetail(content, 180)}`);
+        }
+    }
+    return [
+        "◇ activity",
+        ...lastLines(activity, 8).map((line) => `  ${line}`),
+        "◇ commands",
+        ...(commands.length > 0 ? lastLines(commands, 6).map((line) => `  ${line}`) : ["  no command activity"]),
+        "◇ files",
+        ...(files.length > 0 ? dedupeLast(files, 6).map((line) => `  ${line}`) : ["  no file activity"]),
+        "◇ blocked",
+        ...(blocked.length > 0 ? lastLines(blocked, 4).map((line) => `  ${line}`) : ["  none"]),
+    ].join("\n");
+}
 function renderEventDetail(event) {
     const payload = event.payload;
     if (!payload)
@@ -71,4 +128,53 @@ function renderEventDetail(event) {
         return typeof payload.message === "string" ? payload.message.slice(0, 160) : undefined;
     }
     return undefined;
+}
+function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function stringField(value, key) {
+    const field = value[key];
+    return typeof field === "string" ? field : undefined;
+}
+function renderToolRequest(name, args) {
+    if (name === "safe_exec")
+        return `safe_exec ${renderCommand(args)}`;
+    if (name === "read")
+        return `read ${stringField(args, "file") ?? stringField(args, "path") ?? "<missing>"}`;
+    if (name === "precise_edit")
+        return `precise_edit ${stringField(args, "file") ?? "<missing>"}`;
+    return name;
+}
+function renderCommand(args) {
+    const command = stringField(args, "command") ?? "<missing>";
+    const rawArgs = Array.isArray(args.args) ? args.args.filter((arg) => typeof arg === "string") : [];
+    return [command, ...rawArgs].join(" ").replace(/(api[_-]?key|token|authorization)=\S+/gi, "$1=***");
+}
+function renderCommandResult(args, content, denied) {
+    if (denied)
+        return `$ ${renderCommand(args)}  denied: ${clipDetail(content, 120)}`;
+    const parsed = parseJsonObject(content);
+    const stdout = typeof parsed?.stdout === "string" ? parsed.stdout.trim() : "";
+    const stderr = typeof parsed?.stderr === "string" ? parsed.stderr.trim() : "";
+    const summary = stdout || stderr ? clipDetail(stdout || stderr, 140) : "no output";
+    return `$ ${renderCommand(args)}  ok: ${summary}`;
+}
+function parseJsonObject(content) {
+    try {
+        const parsed = JSON.parse(content);
+        return isRecord(parsed) ? parsed : undefined;
+    }
+    catch {
+        return undefined;
+    }
+}
+function clipDetail(value, max) {
+    const compact = value.replace(/\s+/g, " ").trim();
+    return compact.length > max ? `${compact.slice(0, Math.max(0, max - 1))}…` : compact;
+}
+function lastLines(lines, max) {
+    return lines.slice(-max);
+}
+function dedupeLast(lines, max) {
+    return [...new Set(lines)].slice(-max);
 }
