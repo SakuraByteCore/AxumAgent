@@ -1393,11 +1393,31 @@ function renderRuntimeProjection(session: AxumRuntimeSession): string {
   return renderRuntimeDashboard(events).slice(0, 2200);
 }
 
+function renderRuntimeVisibleOutput(session: AxumRuntimeSession): { answer: string; projection: string } {
+  const projection = renderRuntimeProjection(session);
+  const events = session.events.snapshot();
+  const assistantText = events.reduce((latest, event) => {
+    if (event.kind === "assistant_message_delta") {
+      const payload = event.payload as { content?: unknown };
+      return typeof payload.content === "string" ? payload.content : latest;
+    }
+    if (event.kind === "assistant_message") {
+      const payload = event.payload as { content?: unknown };
+      return typeof payload.content === "string" ? payload.content : latest;
+    }
+    return latest;
+  }, "");
+  return {
+    answer: assistantText ? `${assistantText}\n\n${projection}`.slice(0, 3200) : projection,
+    projection,
+  };
+}
+
 async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): Promise<{ answer: string; exitCode: number }> {
   return resolveTuiAnswerStream(options, dryRun, () => undefined);
 }
 
-async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boolean, onDelta: (answer: string) => void, signal?: AbortSignal): Promise<{ answer: string; exitCode: number }> {
+async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boolean, onDelta: (answer: string, projection?: string) => void, signal?: AbortSignal): Promise<{ answer: string; exitCode: number }> {
   if (dryRun) return { answer: "dry-run: provider call skipped", exitCode: 0 };
   try {
     const provider = createProviderForOptions(options);
@@ -1408,9 +1428,13 @@ async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boole
       mode: findMode(options.runtimeConfig).id,
       systemPrompt: options.system || defaultSystemPrompt(),
     });
-    const unsubscribe = session.events.subscribe(() => onDelta(renderRuntimeProjection(session)));
+    const emitVisibleOutput = (): void => {
+      const rendered = renderRuntimeVisibleOutput(session);
+      onDelta(rendered.answer, rendered.projection);
+    };
+    const unsubscribe = session.events.subscribe(emitVisibleOutput);
     try {
-      onDelta(renderRuntimeProjection(session));
+      emitVisibleOutput();
       const result = await session.runUserTurn(options.prompt, signal);
       const eventSummary = renderRuntimeEvents(result.events);
       const answer = result.assistantMessage || eventSummary || "runtime completed without assistant content";
@@ -1590,9 +1614,9 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       requestRender();
     }, 250);
     try {
-      const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
+      const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed, projection) => {
         answer = streamed;
-        latestRuntimeProjection = streamed;
+        latestRuntimeProjection = projection ?? streamed;
         status = workingStatus(startedAt, latestRuntimeProjection);
         requestRender();
       }, activeRequestController.signal);
@@ -1750,8 +1774,8 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       repaint(nextOptions, workingStatus(startedAt, latestProjection));
       const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt, latestProjection)), 250);
       try {
-        const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed) => {
-          latestProjection = streamed;
+        const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed, projection) => {
+          latestProjection = projection ?? streamed;
           repaint(nextOptions, `${streamed}\n${workingStatus(startedAt, latestProjection)}`);
         });
         lastExitCode = result.exitCode;

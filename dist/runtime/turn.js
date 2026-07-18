@@ -88,9 +88,13 @@ async function runCodexLikeTurn(options, userPrompt, signal) {
     options.eventBus.emit("turn_started", { prompt: userPrompt, mode: runner.mode.id }, id);
     options.eventBus.emit("context_captured", { cwd: runner.gate.cwd, allowedTools: runner.mode.tools }, id);
     let assistantMessage = "";
+    let visibleAssistantContent = "";
     for (let iteration = 0; iteration <= maxToolIterations; iteration += 1) {
         options.eventBus.emit("model_sampling_started", { iteration, tools: tools.map((tool) => tool.function.name) }, id);
-        const response = await options.provider.chatWithTools(messages, tools, signal);
+        const response = await options.provider.chatWithTools(messages, tools, signal, (delta) => {
+            visibleAssistantContent += delta;
+            options.eventBus.emit("assistant_message_delta", { delta, content: visibleAssistantContent, iteration }, id);
+        });
         for (const warning of response.warnings ?? []) {
             options.eventBus.emit("provider_warning", { message: warning }, id);
         }

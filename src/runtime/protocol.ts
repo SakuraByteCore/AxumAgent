@@ -14,6 +14,7 @@ export type AxumEventKind =
   | "merge_review_completed"
   | "model_sampling_started"
   | "provider_warning"
+  | "assistant_message_delta"
   | "assistant_message"
   | "tool_call_requested"
   | "tool_call_completed"

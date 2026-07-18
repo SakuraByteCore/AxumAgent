@@ -649,7 +649,7 @@ retry_delay_ms = 0
     const result = await runCli(["chat", "--config", cfg.file, "slow request"]);
 
     assert.strictEqual(result.code, 1);
-    assert.match(result.stderr, /OpenAI Chat request timed out after 50ms/);
+    assert.match(result.stderr, /OpenAI Chat (stream )?request timed out after 50ms/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -1220,16 +1220,20 @@ provider_config = "http://127.0.0.1:0/v1 test-key mock-tool-model"
       }
       requests.push(parsed);
       count += 1;
-      res.writeHead(200, { "content-type": "application/json" });
+      res.writeHead(200, { "content-type": "text/event-stream" });
       if (count === 1) {
+        assert.strictEqual(parsed.stream, true);
         assert.ok(parsed.tools.some((tool) => tool.function.name === "read"));
-        res.end(JSON.stringify({ model: "mock-tool-model", choices: [{ finish_reason: "tool_calls", message: { role: "assistant", content: "", tool_calls: [{ id: "call-read-package", type: "function", function: { name: "read", arguments: JSON.stringify({ file: "package.json" }) } }] } }] }));
+        res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-read-package", type: "function", function: { name: "read", arguments: JSON.stringify({ file: "package.json" }) } }] }, finish_reason: "tool_calls" }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
         return;
       }
       const toolMessage = parsed.messages.find((message) => message.role === "tool" && message.tool_call_id === "call-read-package");
       assert.ok(toolMessage, "TUI prompt should feed runtime tool output into the next sampling request");
       assert.match(toolMessage.content, /axum-agent/);
-      res.end(JSON.stringify({ model: "mock-tool-model", choices: [{ finish_reason: "stop", message: { role: "assistant", content: "tui saw package" } }] }));
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { content: "tui saw " }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { content: "package" }, finish_reason: "stop" }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1261,26 +1265,20 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
       const parsed = JSON.parse(body || "{}");
       requests.push(parsed);
       count += 1;
-      res.writeHead(200, { "content-type": "application/json" });
+      res.writeHead(200, { "content-type": "text/event-stream" });
       if (count === 1) {
+        assert.strictEqual(parsed.stream, true);
         assert.ok(parsed.tools.some((tool) => tool.function.name === "read"));
-        res.end(JSON.stringify({
-          model: "mock-tool-model",
-          choices: [{
-            finish_reason: "tool_calls",
-            message: {
-              role: "assistant",
-              content: "",
-              tool_calls: [{ id: "call-read-1", type: "function", function: { name: "read", arguments: JSON.stringify({ file: "note.txt" }) } }],
-            },
-          }],
-        }));
+        res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "call-read-1", type: "function", function: { name: "read", arguments: JSON.stringify({ file: "note.txt" }) } }] }, finish_reason: "tool_calls" }] })}\n\n`);
+        res.end("data: [DONE]\n\n");
         return;
       }
       const toolMessage = parsed.messages.find((message) => message.role === "tool" && message.tool_call_id === "call-read-1");
       assert.ok(toolMessage, "runtime should feed tool output back into the next sampling request");
       assert.match(toolMessage.content, /runtime evidence/);
-      res.end(JSON.stringify({ model: "mock-tool-model", choices: [{ finish_reason: "stop", message: { role: "assistant", content: "saw runtime evidence" } }] }));
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { content: "saw runtime " }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { content: "evidence" }, finish_reason: "stop" }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1293,6 +1291,48 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
     assert.ok(result.events.some((event) => event.kind === "tool_call_requested"));
     assert.ok(result.events.some((event) => event.kind === "tool_call_completed"));
     assert.strictEqual(requests.length, 2);
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+async function testRuntimeStreamsAssistantMessageDeltas() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const { AxumRuntimeSession } = require("../dist/runtime/session.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-stream-test-"));
+  let requestBody;
+  const server = http.createServer((req, res) => {
+    let body = "";
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      requestBody = JSON.parse(body || "{}");
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { content: "visible " }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { content: "reply" }, finish_reason: "stop" }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const provider = new OpenAIChatProvider({ baseUrl: `http://127.0.0.1:${server.address().port}/v1`, apiKey: "test", model: "mock-tool-model", maxRetries: 0 });
+    const session = new AxumRuntimeSession({ provider, cwd: dir, mode: "build" });
+    const seen = [];
+    const unsubscribe = session.events.subscribe((event) => {
+      if (event.kind === "assistant_message_delta") seen.push(event.payload);
+    });
+    try {
+      const result = await session.runUserTurn("stream visible answer");
+      assert.strictEqual(result.assistantMessage, "visible reply");
+      assert.strictEqual(requestBody.stream, true);
+      assert.ok(requestBody.tools.some((tool) => tool.function.name === "read"));
+      assert.deepStrictEqual(seen.map((payload) => payload.delta), ["visible ", "reply"]);
+      assert.deepStrictEqual(seen.map((payload) => payload.content), ["visible ", "visible reply"]);
+      assert.ok(result.events.some((event) => event.kind === "assistant_message"));
+    } finally {
+      unsubscribe();
+    }
   } finally {
     server.close();
     fs.rmSync(dir, { recursive: true, force: true });
@@ -1358,18 +1398,9 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
     req.resume();
     req.on("end", () => {
       count += 1;
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({
-        model: "mock-tool-model",
-        choices: [{
-          finish_reason: "tool_calls",
-          message: {
-            role: "assistant",
-            content: "",
-            tool_calls: [{ id: `call-denied-${count}`, type: "function", function: { name: "safe_exec", arguments: JSON.stringify({ command: "curl https://example.com" }) } }],
-          },
-        }],
-      }));
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `call-denied-${count}`, type: "function", function: { name: "safe_exec", arguments: JSON.stringify({ command: "curl https://example.com" }) } }] }, finish_reason: "tool_calls" }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -1434,6 +1465,7 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testLineTuiParallelSlashCommandPlansSwarm();
   await testTuiPromptUsesRuntimeToolLoop();
   await testCodexLikeRuntimeLoopsThroughToolCalls();
+  await testRuntimeStreamsAssistantMessageDeltas();
   await testRuntimeDashboardShowsAuditableToolWork();
   await testRuntimeDashboardRedactsSensitiveOutput();
   await testRuntimeStopsRepeatedPermissionDenials();

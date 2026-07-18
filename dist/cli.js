@@ -1389,6 +1389,25 @@ function renderRuntimeProjection(session) {
         return "◇ runtime\n  waiting for first event";
     return (0, events_1.renderRuntimeDashboard)(events).slice(0, 2200);
 }
+function renderRuntimeVisibleOutput(session) {
+    const projection = renderRuntimeProjection(session);
+    const events = session.events.snapshot();
+    const assistantText = events.reduce((latest, event) => {
+        if (event.kind === "assistant_message_delta") {
+            const payload = event.payload;
+            return typeof payload.content === "string" ? payload.content : latest;
+        }
+        if (event.kind === "assistant_message") {
+            const payload = event.payload;
+            return typeof payload.content === "string" ? payload.content : latest;
+        }
+        return latest;
+    }, "");
+    return {
+        answer: assistantText ? `${assistantText}\n\n${projection}`.slice(0, 3200) : projection,
+        projection,
+    };
+}
 async function resolveTuiAnswer(options, dryRun) {
     return resolveTuiAnswerStream(options, dryRun, () => undefined);
 }
@@ -1404,9 +1423,13 @@ async function resolveTuiAnswerStream(options, dryRun, onDelta, signal) {
             mode: (0, kilo_shell_1.findMode)(options.runtimeConfig).id,
             systemPrompt: options.system || defaultSystemPrompt(),
         });
-        const unsubscribe = session.events.subscribe(() => onDelta(renderRuntimeProjection(session)));
+        const emitVisibleOutput = () => {
+            const rendered = renderRuntimeVisibleOutput(session);
+            onDelta(rendered.answer, rendered.projection);
+        };
+        const unsubscribe = session.events.subscribe(emitVisibleOutput);
         try {
-            onDelta(renderRuntimeProjection(session));
+            emitVisibleOutput();
             const result = await session.runUserTurn(options.prompt, signal);
             const eventSummary = (0, events_1.renderRuntimeEvents)(result.events);
             const answer = result.assistantMessage || eventSummary || "runtime completed without assistant content";
@@ -1577,9 +1600,9 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             requestRender();
         }, 250);
         try {
-            const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
+            const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed, projection) => {
                 answer = streamed;
-                latestRuntimeProjection = streamed;
+                latestRuntimeProjection = projection ?? streamed;
                 status = workingStatus(startedAt, latestRuntimeProjection);
                 requestRender();
             }, activeRequestController.signal);
@@ -1738,8 +1761,8 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             repaint(nextOptions, workingStatus(startedAt, latestProjection));
             const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt, latestProjection)), 250);
             try {
-                const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed) => {
-                    latestProjection = streamed;
+                const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed, projection) => {
+                    latestProjection = projection ?? streamed;
                     repaint(nextOptions, `${streamed}\n${workingStatus(startedAt, latestProjection)}`);
                 });
                 lastExitCode = result.exitCode;

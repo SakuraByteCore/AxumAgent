@@ -73,6 +73,7 @@ interface OpenAIChatChoice {
   delta?: {
     role?: string;
     content?: string | null;
+    tool_calls?: AxumToolCall[];
   };
 }
 
@@ -300,18 +301,18 @@ export class OpenAIChatProvider {
     return this.withRetries("OpenAI Chat stream request", () => this.chatStreamOnce(messages, onDelta, signal));
   }
 
-  async chatWithTools(messages: ChatMessage[], tools: ChatToolSpec[], signal?: AbortSignal): Promise<OpenAIChatResult> {
+  async chatWithTools(messages: ChatMessage[], tools: ChatToolSpec[], signal?: AbortSignal, onDelta?: (delta: string) => void): Promise<OpenAIChatResult> {
     let lastError: Error | undefined;
     let attemptedToolFallback = false;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       try {
-        return await this.chatOnce(messages, signal, tools);
+        return onDelta ? await this.chatStreamOnce(messages, onDelta, signal, tools) : await this.chatOnce(messages, signal, tools);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         if (tools.length > 0 && !attemptedToolFallback && !signal?.aborted && /transport failed/.test(lastError.message)) {
           attemptedToolFallback = true;
           try {
-            const fallback = await this.chatOnce(messages, signal);
+            const fallback = onDelta ? await this.chatStreamOnce(messages, onDelta, signal) : await this.chatOnce(messages, signal);
             return {
               ...fallback,
               warnings: [`provider tool-call request failed (${lastError.message}); retried without tools`],
@@ -375,7 +376,7 @@ export class OpenAIChatProvider {
     };
   }
 
-  private async chatStreamOnce(messages: ChatMessage[], onDelta: (delta: string) => void, signal?: AbortSignal): Promise<OpenAIChatResult> {
+  private async chatStreamOnce(messages: ChatMessage[], onDelta: (delta: string) => void, signal?: AbortSignal, tools?: ChatToolSpec[]): Promise<OpenAIChatResult> {
     const guardedMessages = sanitizeMessagesForProvider(messages).value;
     return this.withRequestTimeout("OpenAI Chat stream request", async (requestSignal) => {
       let response: Response;
@@ -392,6 +393,7 @@ export class OpenAIChatProvider {
             messages: guardedMessages,
             stream: true,
             ...(typeof this.temperature === "number" ? { temperature: this.temperature } : {}),
+            ...(tools && tools.length > 0 ? { tools, tool_choice: "auto" } : {}),
           }),
           signal: requestSignal,
         });
@@ -407,18 +409,31 @@ export class OpenAIChatProvider {
       }
 
       if (!response.body) throw new Error("OpenAI Chat stream response did not include a body");
-      const content = await readSseContent(response.body, onDelta);
-      if (!content) throw new Error("OpenAI Chat stream response did not contain delta content");
-      return { model: this.model, content, raw: { streamed: true } };
+      const streamed = await readSseChat(response.body, onDelta);
+      if (!streamed.content && streamed.toolCalls.length === 0) throw new Error("OpenAI Chat stream response did not contain delta content or tool calls");
+      return {
+        model: streamed.model ?? this.model,
+        content: streamed.content,
+        raw: { streamed: true },
+        toolCalls: sanitizeToolCallsForProvider(streamed.toolCalls, tools?.map((tool) => tool.function.name) ?? []).value,
+        finishReason: streamed.finishReason,
+      };
     }, signal);
   }
 }
 
 async function readSseContent(body: ReadableStream<Uint8Array>, onDelta: (delta: string) => void): Promise<string> {
+  return (await readSseChat(body, onDelta)).content;
+}
+
+async function readSseChat(body: ReadableStream<Uint8Array>, onDelta: (delta: string) => void): Promise<{ content: string; toolCalls: AxumToolCall[]; finishReason?: string; model?: string }> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let content = "";
+  let finishReason: string | undefined;
+  let model: string | undefined;
+  const toolCalls = new Map<number, AxumToolCall>();
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -432,16 +447,32 @@ async function readSseContent(body: ReadableStream<Uint8Array>, onDelta: (delta:
         const data = line.slice(5).trim();
         if (!data || data === "[DONE]") continue;
         const json = JSON.parse(data) as OpenAIChatResponse;
-        const delta = json.choices?.[0]?.delta?.content ?? "";
+        model = json.model ?? model;
+        const choice = json.choices?.[0];
+        finishReason = choice?.finish_reason ?? finishReason;
+        const delta = choice?.delta?.content ?? "";
         if (delta) {
           content += delta;
           onDelta(delta);
+        }
+        for (const partial of choice?.delta?.tool_calls ?? []) {
+          const index = typeof (partial as { index?: unknown }).index === "number" ? (partial as { index: number }).index : toolCalls.size;
+          const existing = toolCalls.get(index) ?? { type: partial.type ?? "function", function: {} };
+          const nextFunction = {
+            name: `${existing.function?.name ?? ""}${partial.function?.name ?? ""}` || undefined,
+            arguments: `${existing.function?.arguments ?? ""}${partial.function?.arguments ?? ""}` || undefined,
+          };
+          toolCalls.set(index, {
+            id: partial.id ?? existing.id,
+            type: partial.type ?? existing.type ?? "function",
+            function: nextFunction,
+          });
         }
       }
       boundary = buffer.indexOf("\n\n");
     }
   }
-  return content;
+  return { content, toolCalls: [...toolCalls.values()], finishReason, model };
 }
 
 class RetryableOpenAIChatError extends Error {}
