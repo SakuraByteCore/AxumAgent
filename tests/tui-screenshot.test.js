@@ -122,6 +122,7 @@ async function testSlashCommandPaletteScreenshot() {
   assert.ok(snapshot.includes("/provider"));
   assert.ok(snapshot.includes("/model"));
   assert.doesNotMatch(snapshot, /╭─ Prompt/);
+  assert.doesNotMatch(snapshot, /▌ prompt/);
   assertSnapshot("slash-command-palette", snapshot);
 }
 
@@ -186,6 +187,7 @@ async function testLongModelListStaysWithinViewport() {
     assert.ok(snapshot.includes("  1  model-01"));
     assert.ok(snapshot.includes("▸ 41  model-41  current"));
     assert.ok(snapshot.includes("hidden before current"));
+    assert.doesNotMatch(snapshot, /▌ prompt/);
     assert.ok(!snapshot.includes(" 21  model-21"));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

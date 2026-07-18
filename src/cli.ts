@@ -817,6 +817,16 @@ function framedSection(title: string, body: string[], width: number): string[] {
   ];
 }
 
+function renderPlainInputDeck(inputText: string, width: number): string[] {
+  const safeWidth = Math.max(24, width);
+  const horizontal = "─".repeat(safeWidth);
+  return [
+    horizontal,
+    ...wrapPreservingShortLine(inputText, safeWidth).map((line) => clip(line, safeWidth)),
+    horizontal,
+  ];
+}
+
 function compactPathForTui(cwd: string, width: number): string {
   const name = path.basename(cwd) || cwd;
   const compact = `.${path.sep}${name}`;
@@ -859,7 +869,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const safeInput = visibleInput(input);
   const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
   const inputText = `${safeInput.slice(0, safeCursorIndex)}█${safeInput.slice(safeCursorIndex)}`;
-  const inputPanel = showInputPanel ? framedSection("Prompt", wrapPreservingShortLine(`▌ ${inputText || "█"}`, Math.max(1, safeWidth - 4)), safeWidth) : [];
+  const inputPanel = showInputPanel ? renderPlainInputDeck(inputText || "█", safeWidth) : [];
   const commandLines = renderSlashCommandSuggestions(safeInput, safeWidth, slashSelection);
 
   const screen = [
@@ -1477,7 +1487,6 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         ...body,
         ...(commandLines.length > 0 ? [...commandLines] : []),
         "",
-        "▌ prompt",
       ];
       return lines.map((line) => {
         const truncated = pi.truncateToWidth(line, width);

@@ -749,7 +749,8 @@ async function testTuiDryRun() {
   assert.doesNotMatch(result.stdout, /mode YOLO/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands/);
   assert.doesNotMatch(result.stdout, /Run \/help for commands █/);
-  assert.match(result.stdout, /▌ █/);
+  assert.match(result.stdout, /\n█\s*\n/);
+  assert.doesNotMatch(result.stdout, /▌ █/);
   assert.match(result.stdout, /✓ dry-run · provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);
   assert.doesNotMatch(result.stdout, /▌ assistant/);
@@ -770,7 +771,8 @@ async function testInteractiveTuiDryRun() {
   assert.doesNotMatch(result.stdout, /waiting for input/);
   assert.doesNotMatch(result.stdout, /\(type a message\)/);
   assert.doesNotMatch(result.stdout, /No messages yet\./);
-  assert.match(result.stdout, /▌ █/);
+  assert.match(result.stdout, /\n█\s*\n/);
+  assert.doesNotMatch(result.stdout, /▌ █/);
   assert.match(result.stdout, /hello interactive/);
   assert.match(result.stdout, /✓ dry-run · provider call skipped/);
   assert.doesNotMatch(result.stdout, /▌ user/);

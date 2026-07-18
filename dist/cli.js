@@ -802,6 +802,15 @@ function framedSection(title, body, width) {
         clip(bottom, safeWidth),
     ];
 }
+function renderPlainInputDeck(inputText, width) {
+    const safeWidth = Math.max(24, width);
+    const horizontal = "─".repeat(safeWidth);
+    return [
+        horizontal,
+        ...wrapPreservingShortLine(inputText, safeWidth).map((line) => clip(line, safeWidth)),
+        horizontal,
+    ];
+}
 function compactPathForTui(cwd, width) {
     const name = node_path_1.default.basename(cwd) || cwd;
     const compact = `.${node_path_1.default.sep}${name}`;
@@ -841,7 +850,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     const safeInput = visibleInput(input);
     const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
     const inputText = `${safeInput.slice(0, safeCursorIndex)}█${safeInput.slice(safeCursorIndex)}`;
-    const inputPanel = showInputPanel ? framedSection("Prompt", wrapPreservingShortLine(`▌ ${inputText || "█"}`, Math.max(1, safeWidth - 4)), safeWidth) : [];
+    const inputPanel = showInputPanel ? renderPlainInputDeck(inputText || "█", safeWidth) : [];
     const commandLines = renderSlashCommandSuggestions(safeInput, safeWidth, slashSelection);
     const screen = [
         ...header,
@@ -1469,7 +1478,6 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
                 ...body,
                 ...(commandLines.length > 0 ? [...commandLines] : []),
                 "",
-                "▌ prompt",
             ];
             return lines.map((line) => {
                 const truncated = pi.truncateToWidth(line, width);
