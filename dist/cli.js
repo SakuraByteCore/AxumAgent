@@ -703,66 +703,86 @@ function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
     if (!input.startsWith("/"))
         return [];
     const matches = matchingSlashCommands(input);
+    const bodyWidth = Math.max(24, width - 4);
     if (matches.length === 0)
-        return ["⌘ commands", "  no matching commands"];
+        return framedSection("Commands", ["no matching commands"], width);
     const selected = clampSelection(selectedIndex, matches.length);
-    const labelWidth = Math.max(...matches.map((command) => slashCommandDisplayName(command).length));
-    const commandWidth = Math.min(Math.max(labelWidth, 10), Math.max(10, Math.floor(width * 0.32)));
+    const labelWidth = Math.min(Math.max(...matches.map((command) => slashCommandDisplayName(command).length), 10), Math.max(10, Math.floor(bodyWidth * 0.38)));
     const rows = matches.map((command, index) => {
         const marker = index === selected ? "▸" : " ";
-        const commandCell = padCell(slashCommandDisplayName(command), commandWidth);
-        return `${marker} ${commandCell} ${command.description}`;
+        const label = padCell(slashCommandDisplayName(command), labelWidth);
+        return `${marker} ${label}  ${command.description}`;
     });
-    return ["⌘ commands", ...rows];
+    return framedSection("Commands", rows, width);
 }
 function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
     return Math.max(72, Math.min(columns, 110));
 }
-function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status = undefined) {
-    const inner = width - 4;
-    const hasPrompt = options.prompt.trim().length > 0;
-    const hasStatus = status !== undefined;
-    const hasAnswer = answer !== undefined;
-    const promptLines = hasPrompt ? options.prompt.split(/\n/).flatMap((line) => wrap(line, inner - 6)).map((line) => `  ${line}`) : [];
-    const rawAnswerLines = hasAnswer ? renderAssistantOutput(answer).split(/\n/).flatMap((line) => wrapPreservingShortLine(line, inner - 6)).map((line) => `  ${line}`) : [];
-    const maxAnswerLines = Math.max(4, height - (hasStatus ? 8 : 7));
-    const answerLines = rawAnswerLines.length > maxAnswerLines
-        ? [...rawAnswerLines.slice(0, maxAnswerLines - 1), `  … ${rawAnswerLines.length - maxAnswerLines + 1} more`]
-        : rawAnswerLines;
-    const headerLines = [
-        "◇ AxumAgent v0.1.0",
-        `  ◌ ${options.model} · ${process.cwd()}`,
+function framedSection(title, body, width) {
+    const safeWidth = Math.max(24, width);
+    const inner = Math.max(1, safeWidth - 4);
+    const titleText = ` ${title} `;
+    const top = `╭─${titleText}${"─".repeat(Math.max(0, safeWidth - visibleWidth(titleText) - 3))}`;
+    const bottom = `╰${"─".repeat(Math.max(0, safeWidth - 1))}`;
+    const content = body.length === 0 ? [""] : body;
+    return [
+        clip(top, safeWidth),
+        ...content.flatMap((line) => wrapPreservingShortLine(line, inner)).map((line) => `│ ${clip(line, inner)} │`),
+        clip(bottom, safeWidth),
     ];
-    const cursor = "█";
+}
+function compactPathForTui(cwd, width) {
+    if (visibleWidth(cwd) <= width)
+        return cwd;
+    const parts = cwd.split(node_path_1.default.sep).filter(Boolean);
+    if (parts.length <= 2)
+        return `…${cwd.slice(Math.max(0, cwd.length - width + 1))}`;
+    const tail = parts.slice(-2).join(node_path_1.default.sep);
+    return `…${node_path_1.default.sep}${tail}`;
+}
+function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status = undefined) {
+    const safeWidth = Math.max(36, width);
+    const contentBudget = Math.max(4, height - 12);
+    const hasPrompt = options.prompt.trim().length > 0;
+    const hasAnswer = answer !== undefined;
+    const hasStatus = status !== undefined;
+    const header = framedSection("Session", [
+        "◇ AxumAgent v0.1.0",
+        `◌ ${options.model} · ${compactPathForTui(process.cwd(), safeWidth - 10)}`,
+    ], safeWidth);
+    const conversation = [];
+    if (hasPrompt) {
+        conversation.push(...framedSection("You", options.prompt.split(/\n/g), safeWidth));
+    }
+    if (hasAnswer || hasStatus) {
+        const rawLines = [
+            ...(hasAnswer ? renderAssistantOutput(answer).split(/\n/g) : []),
+            ...(hasStatus ? [status] : []),
+        ];
+        const wrapped = rawLines.flatMap((line) => wrapPreservingShortLine(line, Math.max(1, safeWidth - 4)));
+        const clipped = wrapped.length > contentBudget
+            ? [
+                ...wrapped.slice(0, Math.max(1, contentBudget - 3)),
+                `… ${wrapped.length - contentBudget + 1} more`,
+                ...wrapped.slice(-2),
+            ]
+            : wrapped;
+        conversation.push(...framedSection("Axum", clipped, safeWidth));
+    }
     const safeInput = visibleInput(input);
     const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
-    const inputText = `${safeInput.slice(0, safeCursorIndex)}${cursor}${safeInput.slice(safeCursorIndex)}`;
-    const inputLines = wrap(inputText, inner - 4);
-    const renderedInput = inputLines.map((line, index) => `${index === 0 ? "▌" : " "} ${line}`);
-    const statusLine = `${options.model} · ${process.cwd()}`;
-    const conversationLines = [];
-    if (hasPrompt || hasAnswer || hasStatus) {
-        if (hasPrompt)
-            conversationLines.push(...promptLines.map((line, index) => (index === 0 ? `›${line.slice(1)}` : line)));
-        if (hasPrompt && hasAnswer)
-            conversationLines.push("");
-        if (hasAnswer)
-            conversationLines.push(...answerLines);
-        if (hasStatus)
-            conversationLines.push(...(hasPrompt || hasAnswer ? [""] : []), status);
-    }
-    const commandLines = renderSlashCommandSuggestions(safeInput, width, slashSelection);
-    return [
-        ...headerLines,
+    const inputText = `${safeInput.slice(0, safeCursorIndex)}█${safeInput.slice(safeCursorIndex)}`;
+    const inputPanel = framedSection("Prompt", wrapPreservingShortLine(`▌ ${inputText || "█"}`, Math.max(1, safeWidth - 4)), safeWidth);
+    const commandLines = renderSlashCommandSuggestions(safeInput, safeWidth, slashSelection);
+    const screen = [
+        ...header,
         "",
-        ...conversationLines,
-        ...(conversationLines.length > 0 ? [""] : []),
-        ...commandLines,
-        ...(commandLines.length > 0 ? [""] : []),
-        ...renderedInput,
-        clip(statusLine, width),
-    ].join("\n");
+        ...(conversation.length > 0 ? [...conversation, ""] : []),
+        ...(commandLines.length > 0 ? [...commandLines, ""] : []),
+        ...inputPanel,
+    ];
+    return screen.map((line) => clip(line, safeWidth)).join("\n");
 }
 function workingStatus(startedAt) {
     const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
@@ -1237,7 +1257,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             const input = editor.getText();
             const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, status)
                 .split("\n")
-                .slice(0, -2);
+                .slice(0, -3);
             const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
             const lines = [
                 ...body,

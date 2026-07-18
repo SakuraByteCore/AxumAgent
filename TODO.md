@@ -29,5 +29,6 @@
 - [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [x] Harden TUI width helpers for narrow terminals with wide Unicode input.
 - [x] Replace raw TUI input/cursor/history/paste state with the pi-tui editor component.
+- [x] Rework TUI chrome into panelized pi-style session/output/command sections instead of loose string rows.
 - [x] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.

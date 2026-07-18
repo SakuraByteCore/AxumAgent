@@ -1,12 +1,15 @@
-◇ AxumAgent v0.1.0
-  ◌ gpt-4o-mini · <cwd>
+╭─ Session ────────────────────────────────────────────────────────────────────────────
+│ ◇ AxumAgent v0.1.0                                                                   │
+│ ◌ gpt-4o-mini · <cwd>                           │
+╰───────────────────────────────────────────────────────────────────────────────────────
 
-⌘ commands
-▸ /help         show commands
-  /provider     show/set provider url/key
-  /model        fetch/list/switch models
-  /parallel     plan sub-agent tasks
-  /exit / /quit exit TUI
+╭─ Commands ───────────────────────────────────────────────────────────────────────────
+│ ▸ /help          show commands                                                       │
+│   /provider      show/set provider url/key                                           │
+│   /model         fetch/list/switch models                                            │
+│   /parallel      plan sub-agent tasks                                                │
+│   /exit / /quit  exit TUI                                                            │
+╰───────────────────────────────────────────────────────────────────────────────────────
 
 ▌ prompt
 ────────────────────────────────────────────────────────────────────────────────────────
