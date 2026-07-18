@@ -132,12 +132,12 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
   if (config?.providers && !config.providers[providerId]) throw new Error(`provider not found in config: ${providerId}`);
   const provider = providerId === (config?.provider || "openai-chat") ? selectedProvider(config).config : config?.providers?.[providerId];
   const rest: string[] = [];
-  const configuredModels = [...(config?.models ?? []), ...(provider?.models ?? [])].filter((model): model is string => typeof model === "string" && model.length > 0);
+  const configuredModels = [...(provider?.models ?? []), ...(config?.models ?? [])].filter((model): model is string => typeof model === "string" && model.length > 0);
   const rootProviderLine = parseProviderConfigLine(config?.provider_config ?? config?.providerConfig, "provider_config");
   const providerLine = parseProviderConfigLine(provider?.provider_config ?? provider?.providerConfig, "providers.openai-chat.provider_config");
   const oneLineConfig = { ...rootProviderLine, ...providerLine };
-  let model = config?.model || provider?.model || oneLineConfig.model || configuredModels[0] || env.AXUM_MODEL || DEFAULT_MODEL;
-  let modelWasExplicit = Boolean(config?.model || provider?.model || oneLineConfig.model || configuredModels[0] || env.AXUM_MODEL);
+  let model = provider?.model || oneLineConfig.model || config?.model || configuredModels[0] || env.AXUM_MODEL || DEFAULT_MODEL;
+  let modelWasExplicit = Boolean(provider?.model || oneLineConfig.model || config?.model || configuredModels[0] || env.AXUM_MODEL);
   let baseUrl = provider?.base_url || provider?.baseUrl || oneLineConfig.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
   let apiKeyEnv = provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
   let apiKey: string | undefined = resolveSecret(provider?.api_key || provider?.apiKey || oneLineConfig.apiKey, env);

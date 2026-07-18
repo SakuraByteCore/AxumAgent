@@ -657,6 +657,32 @@ async function testTuiConfiguresProviderInOneLine() {
   }
 }
 
+async function testTuiProviderSetOverridesRootModel() {
+  const { server, requests, port } = await startMockServer({ models: ["deepseek-v4-pro"] });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
+  const file = path.join(dir, "config.toml");
+  fs.writeFileSync(file, `model = "gpt-4o-mini"
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "old-key"
+model = "old-model"
+models = ["old-model"]
+`, "utf8");
+  try {
+    const result = await runCli(["tui", "--config", file], {}, `/provider set http://127.0.0.1:${port}/v1 test-key deepseek-v4-pro\nhello configured\n/exit\n`);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /model deepseek-v4-pro/);
+    assert.doesNotMatch(result.stdout, /model gpt-4o-mini/);
+    assert.strictEqual(requests.at(-1).body.model, "deepseek-v4-pro");
+  } finally {
+    server.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 async function testTuiConfiguresProviderUrlAndKeyWhenMissing() {
   const { server, requests, port } = await startMockServer({ models: ["configured-first", "configured-second"] });
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-config-test-"));
@@ -1050,6 +1076,7 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testInteractiveTuiDryRun();
   await testInteractiveTuiShowsSlashCommands();
   await testTuiConfiguresProviderInOneLine();
+  await testTuiProviderSetOverridesRootModel();
   await testTuiConfiguresProviderUrlAndKeyWhenMissing();
   await testTuiFetchesModelListAndSwitchesWithModelCommand();
   await testTuiFetchesFirstModelWhenConfigOmitsModel();
