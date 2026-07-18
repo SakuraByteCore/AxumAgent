@@ -1259,7 +1259,14 @@ async function testRuntimeDashboardShowsAuditableToolWork() {
     { id: 4, turnId: "turn-1", kind: "tool_call_requested", payload: { id: "call-2", name: "read", arguments: { file: "src/cli.ts" } }, createdAt: new Date().toISOString() },
     { id: 5, turnId: "turn-1", kind: "permission_denied", payload: { callId: "call-3", name: "safe_exec", ok: false, content: "command not allowed by safe_exec sandbox: curl" }, createdAt: new Date().toISOString() },
   ]);
-  assert.match(rendered, /◇ activity/);
+  assert.match(rendered, /◇ workflow/);
+  assert.match(rendered, /▶ Blocked · safe_exec/);
+  assert.match(rendered, /next: adjust the request or grant a safer allowed path/);
+  assert.match(rendered, /◇ steps/);
+  assert.match(rendered, /▶ safe_exec npm test/);
+  assert.match(rendered, /✓ safe_exec completed/);
+  assert.match(rendered, /◇ evidence/);
+  assert.match(rendered, /cmd npm test running/);
   assert.match(rendered, /◇ commands/);
   assert.match(rendered, /\$ npm test  ok: tests passed/);
   assert.match(rendered, /◇ files/);
