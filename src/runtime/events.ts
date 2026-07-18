@@ -229,18 +229,20 @@ function summarizeCommandAction(command: string): string {
   const [program, ...rest] = command.split(/\s+/g).filter(Boolean);
   const compactCommand = clipDetail(command, 72);
   if (!program) return "run command";
-  if (program === "ls") return `inspect ${firstPathArg(rest) ?? "directory"}`;
-  if (program === "find") return `scan ${firstPathArg(rest) ?? "workspace"}`;
-  if (program === "grep") return `search ${firstPathArg(rest.slice(1)) ?? "workspace"}`;
-  if (program === "cat" || program === "head" || program === "tail" || program === "sed") return `inspect ${firstPathArg(rest) ?? "file"}`;
-  if (program === "wc") return `count ${firstPathArg(rest) ?? "workspace"}`;
+  if (program === "ls") return `inspect ${firstPathLabel(rest) ?? "directory"}`;
+  if (program === "find") return `scan ${firstPathLabel(rest) ?? "workspace"}`;
+  if (program === "grep") return `search ${firstPathLabel(rest.slice(1)) ?? "workspace"}`;
+  if (program === "cat" || program === "head" || program === "tail" || program === "sed") return `inspect ${firstPathLabel(rest) ?? "file"}`;
+  if (program === "wc") return `count ${firstPathLabel(rest) ?? "workspace"}`;
   if (program === "npm") return rest.length > 0 ? `run npm ${rest.join(" ")}` : "run npm";
   if (program === "git") return rest.length > 0 ? `check git ${rest[0]}` : "check git";
   return `run ${compactCommand}`;
 }
 
-function firstPathArg(args: string[]): string | undefined {
-  return args.find((arg) => arg && !arg.startsWith("-") && arg !== "|" && arg !== "&&" && arg !== ";");
+function firstPathLabel(args: string[]): string | undefined {
+  const value = args.find((arg) => arg && !arg.startsWith("-") && arg !== "|" && arg !== "&&" && arg !== ";");
+  if (!value || value === "." || value === "./") return value ? "workspace" : undefined;
+  return value.replace(/^\.\//, "");
 }
 
 function evidenceForToolRequest(name: string, args: Record<string, unknown>, summary: string): string {
