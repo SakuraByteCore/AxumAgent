@@ -57,10 +57,11 @@ function runPreciseEdit(gate, request) {
 }
 async function runSafeExec(gate, request) {
     assertToolAllowed(gate, "safe_exec");
-    const allowed = gate.allowedCommands ?? ["npm", "node", "npx"];
-    if (!allowed.includes(request.command))
-        throw new Error(`command not allowed by safe_exec sandbox: ${request.command}`);
-    const { stdout, stderr } = await execFileAsync(request.command, request.args ?? [], {
+    const parsed = normalizeSafeExecRequest(request);
+    const allowed = gate.allowedCommands ?? ["npm", "node", "npx", "git", "pwd", "ls"];
+    if (!allowed.includes(parsed.command))
+        throw new Error(`command not allowed by safe_exec sandbox: ${parsed.command}`);
+    const { stdout, stderr } = await execFileAsync(parsed.command, parsed.args, {
         cwd: node_path_1.default.resolve(gate.cwd),
         timeout: gate.timeoutMs ?? 120_000,
         maxBuffer: 1024 * 1024 * 4,
@@ -70,8 +71,45 @@ async function runSafeExec(gate, request) {
         tool: "safe_exec",
         ok: true,
         result: { stdout, stderr },
-        anchors: [(0, pi_workflow_1.createHashAnchor)(`safe_exec:${request.command}`, `${request.command} ${(request.args ?? []).join(" ")}\n${stdout}\n${stderr}`)],
+        anchors: [(0, pi_workflow_1.createHashAnchor)(`safe_exec:${parsed.command}`, `${parsed.command} ${parsed.args.join(" ")}\n${stdout}\n${stderr}`)],
     };
+}
+function normalizeSafeExecRequest(request) {
+    const command = request.command.trim();
+    if (request.args && request.args.length > 0)
+        return { command, args: request.args };
+    const parts = splitCommandLine(command);
+    return { command: parts[0] ?? command, args: parts.slice(1) };
+}
+function splitCommandLine(command) {
+    const parts = [];
+    let current = "";
+    let quote;
+    for (let i = 0; i < command.length; i += 1) {
+        const char = command[i];
+        if (quote) {
+            if (char === quote)
+                quote = undefined;
+            else
+                current += char;
+            continue;
+        }
+        if (char === '"' || char === "'") {
+            quote = char;
+            continue;
+        }
+        if (/\s/.test(char)) {
+            if (current) {
+                parts.push(current);
+                current = "";
+            }
+            continue;
+        }
+        current += char;
+    }
+    if (current)
+        parts.push(current);
+    return parts;
 }
 function runLspSymbols(gate, request = {}) {
     assertToolAllowed(gate, "lsp_symbols");

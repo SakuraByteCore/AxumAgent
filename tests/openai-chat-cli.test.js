@@ -1006,6 +1006,10 @@ async function testRuntimeToolExecutorsHonorGates() {
     assert.strictEqual(execResult.ok, true);
     assert.strictEqual(execResult.result.stdout.trim(), "safe");
 
+    const shellLikeExec = await runSafeExec(gate, { command: `${process.execPath} -e "console.log('split-safe')"` });
+    assert.strictEqual(shellLikeExec.ok, true);
+    assert.strictEqual(shellLikeExec.result.stdout.trim(), "split-safe");
+
     assert.throws(() => runPreciseEdit({ cwd: dir, allowedTools: ["read"] }, { file: "src/sample.ts", oldText: "return 2;", newText: "return 3;" }), /tool not allowed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

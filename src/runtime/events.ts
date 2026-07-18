@@ -51,5 +51,23 @@ export function renderRuntimeEvents(events: AxumEvent[]): string {
     turn_completed: "turn completed",
     turn_failed: "turn failed",
   };
-  return events.map((event) => `  ${event.id}. ${labels[event.kind] ?? event.kind}${event.turnId ? ` · ${event.turnId}` : ""}`).join("\n");
+  return events.map((event) => {
+    const detail = renderEventDetail(event);
+    return `  ${event.id}. ${labels[event.kind] ?? event.kind}${detail ? ` · ${detail}` : ""}${event.turnId ? ` · ${event.turnId}` : ""}`;
+  }).join("\n");
+}
+
+function renderEventDetail(event: AxumEvent): string | undefined {
+  const payload = event.payload as Record<string, unknown> | undefined;
+  if (!payload) return undefined;
+  if (event.kind === "tool_call_requested") return typeof payload.name === "string" ? payload.name : undefined;
+  if (event.kind === "tool_call_completed" || event.kind === "permission_denied") {
+    const name = typeof payload.name === "string" ? payload.name : "tool";
+    const content = typeof payload.content === "string" ? payload.content : "";
+    return content ? `${name}: ${content.slice(0, 120)}` : name;
+  }
+  if (event.kind === "provider_warning" || event.kind === "turn_failed") {
+    return typeof payload.message === "string" ? payload.message.slice(0, 160) : undefined;
+  }
+  return undefined;
 }

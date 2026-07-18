@@ -131,7 +131,7 @@ Useful environment variables:
 
 ## Safety boundary
 
-This is still an early CLI/provider/runtime slice, not a hardened autonomous agent runtime. The session/event/tool-loop path now exists, and `axum parallel` has a pi-style child-task state model plus merge-review metadata, but managed child-agent execution is not enabled yet. The next hardening step is to connect queued/running child tasks to isolated execution, cancellation, failure handling, and merge review without letting the TUI state become the source of truth.
+This is still an early CLI/provider/runtime slice, not a hardened autonomous agent runtime. The session/event/tool-loop path now exists, and `axum parallel` has a pi-style child-task state model plus merge-review metadata, but managed child-agent execution is not enabled yet. Runtime tool execution is project-sandboxed: `read` and `precise_edit` stay inside the current workspace, while `safe_exec` accepts allowlisted commands such as `npm test` by splitting simple shell-like command strings into command/args without enabling arbitrary shell operators. The next hardening step is to connect queued/running child tasks to isolated execution, cancellation, failure handling, and merge review without letting the TUI state become the source of truth.
 
 ## Release checklist
 
