@@ -8,6 +8,7 @@
 │   /provider      show/set provider url/key                                           │
 │   /model         fetch/list/switch models                                            │
 │   /parallel      plan sub-agent tasks                                                │
+│   /tasks         show recent runtime/task state                                      │
 │   /exit / /quit  exit TUI                                                            │
 ╰───────────────────────────────────────────────────────────────────────────────────────
 

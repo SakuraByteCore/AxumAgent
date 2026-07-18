@@ -660,6 +660,7 @@ const SLASH_COMMANDS = [
   { name: "/provider", description: "show/set provider url/key" },
   { name: "/model", description: "fetch/list/switch models" },
   { name: "/parallel", description: "plan sub-agent tasks" },
+  { name: "/tasks", description: "show recent runtime/task state" },
   { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 
@@ -723,6 +724,15 @@ function completeSlashCommand(input: string, selectedIndex: number): string | un
   const query = slashCommandQuery(input);
   const completed = slashCommandLabels(selected).find((label) => label.slice(1).startsWith(query)) ?? selected.name;
   return `${completed} `;
+}
+
+function isCompleteSlashCommand(input: string): boolean {
+  const trimmed = input.trim();
+  return SLASH_COMMANDS.some((command) => slashCommandLabels(command).includes(trimmed));
+}
+
+function isBareSlashCommandQuery(input: string): boolean {
+  return input.startsWith("/") && !/\s/.test(input.trim());
 }
 
 function padCell(text: string, width: number): string {
@@ -1333,6 +1343,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   let busy = false;
   let activeRequestController: AbortController | undefined;
   let slashSelection = 0;
+  let latestRuntimeProjection = "◇ tasks\n  no runtime task activity yet\n  use /parallel <goal> :: <task> | <task> to plan child tasks";
 
   const requestRender = (): void => tui.requestRender();
   const stop = (code = lastExitCode): void => {
@@ -1388,7 +1399,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return;
     }
     if (prompt === "/help") {
-      answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /exit (/quit)";
+      answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+      status = undefined;
+      requestRender();
+      return;
+    }
+    if (prompt === "/tasks") {
+      answer = latestRuntimeProjection;
       status = undefined;
       requestRender();
       return;
@@ -1447,6 +1464,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     try {
       const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
         answer = streamed;
+        latestRuntimeProjection = streamed;
         requestRender();
       }, activeRequestController.signal);
       const wasCancelled = activeRequestController.signal.aborted;
@@ -1506,6 +1524,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
         requestRender();
         return { consume: true };
       }
+      if (pi.matchesKey(data, pi.Key.enter) && matches.length > 0 && isBareSlashCommandQuery(input) && !isCompleteSlashCommand(input)) {
+        const completed = completeSlashCommand(input, slashSelection);
+        if (completed) editor.setText(completed);
+        slashSelection = 0;
+        requestRender();
+        return { consume: true };
+      }
     }
     return undefined;
   });
@@ -1544,7 +1569,12 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       return lastExitCode;
     }
     if (prompt === "/help") {
-      stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /exit (/quit)\n");
+      stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+      rl.prompt();
+      continue;
+    }
+    if (prompt === "/tasks") {
+      stdout.write("tasks: no persistent line-mode runtime task activity; use /parallel <goal> :: <task> | <task> to plan child tasks\n");
       rl.prompt();
       continue;
     }

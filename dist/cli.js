@@ -653,6 +653,7 @@ const SLASH_COMMANDS = [
     { name: "/provider", description: "show/set provider url/key" },
     { name: "/model", description: "fetch/list/switch models" },
     { name: "/parallel", description: "plan sub-agent tasks" },
+    { name: "/tasks", description: "show recent runtime/task state" },
     { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
 function wrap(text, width) {
@@ -716,6 +717,13 @@ function completeSlashCommand(input, selectedIndex) {
     const query = slashCommandQuery(input);
     const completed = slashCommandLabels(selected).find((label) => label.slice(1).startsWith(query)) ?? selected.name;
     return `${completed} `;
+}
+function isCompleteSlashCommand(input) {
+    const trimmed = input.trim();
+    return SLASH_COMMANDS.some((command) => slashCommandLabels(command).includes(trimmed));
+}
+function isBareSlashCommandQuery(input) {
+    return input.startsWith("/") && !/\s/.test(input.trim());
 }
 function padCell(text, width) {
     const textWidth = visibleWidth(text);
@@ -1322,6 +1330,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
     let busy = false;
     let activeRequestController;
     let slashSelection = 0;
+    let latestRuntimeProjection = "◇ tasks\n  no runtime task activity yet\n  use /parallel <goal> :: <task> | <task> to plan child tasks";
     const requestRender = () => tui.requestRender();
     const stop = (code = lastExitCode) => {
         if (stopped)
@@ -1373,7 +1382,13 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return;
         }
         if (prompt === "/help") {
-            answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /exit (/quit)";
+            answer = "commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+            status = undefined;
+            requestRender();
+            return;
+        }
+        if (prompt === "/tasks") {
+            answer = latestRuntimeProjection;
             status = undefined;
             requestRender();
             return;
@@ -1430,6 +1445,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         try {
             const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
                 answer = streamed;
+                latestRuntimeProjection = streamed;
                 requestRender();
             }, activeRequestController.signal);
             const wasCancelled = activeRequestController.signal.aborted;
@@ -1489,6 +1505,14 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
                 requestRender();
                 return { consume: true };
             }
+            if (pi.matchesKey(data, pi.Key.enter) && matches.length > 0 && isBareSlashCommandQuery(input) && !isCompleteSlashCommand(input)) {
+                const completed = completeSlashCommand(input, slashSelection);
+                if (completed)
+                    editor.setText(completed);
+                slashSelection = 0;
+                requestRender();
+                return { consume: true };
+            }
         }
         return undefined;
     });
@@ -1526,7 +1550,12 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             return lastExitCode;
         }
         if (prompt === "/help") {
-            stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /exit (/quit)\n");
+            stdout.write("commands: /help · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+            rl.prompt();
+            continue;
+        }
+        if (prompt === "/tasks") {
+            stdout.write("tasks: no persistent line-mode runtime task activity; use /parallel <goal> :: <task> | <task> to plan child tasks\n");
             rl.prompt();
             continue;
         }
