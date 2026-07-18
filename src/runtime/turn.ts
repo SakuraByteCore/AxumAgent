@@ -70,7 +70,7 @@ export function runtimeToolSpecs(allowedTools: string[]): ChatToolSpec[] {
       type: "function",
       function: {
         name: "safe_exec",
-        description: "Run an allowlisted project command with timeout inside the workspace.",
+        description: "Run an allowlisted project command with timeout inside the workspace. Common read-only inspection commands include pwd, ls, find, grep, cat, sed, head, tail, wc, and read-only git subcommands.",
         parameters: { type: "object", properties: { command: { type: "string" }, args: { type: "array", items: { type: "string" } } }, required: ["command"] },
       },
     },

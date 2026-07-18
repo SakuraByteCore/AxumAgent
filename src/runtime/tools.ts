@@ -92,7 +92,7 @@ export function runPreciseEdit(gate: AxumToolGate, request: PreciseEditRequest):
 export async function runSafeExec(gate: AxumToolGate, request: SafeExecRequest): Promise<AxumToolResult<{ stdout: string; stderr: string }>> {
   assertToolAllowed(gate, "safe_exec");
   const parsed = normalizeSafeExecRequest(request);
-  const allowed = gate.allowedCommands ?? ["npm", "node", "npx", "git", "pwd", "ls", "find"];
+  const allowed = gate.allowedCommands ?? ["npm", "node", "npx", "git", "pwd", "ls", "find", "grep", "cat", "sed", "head", "tail", "wc"];
   if (!allowed.includes(parsed.command)) throw new Error(`command not allowed by safe_exec sandbox: ${parsed.command}`);
   validateSafeExecArgs(parsed.command, parsed.args);
   const { stdout, stderr } = await execFileAsync(parsed.command, parsed.args, {
@@ -117,20 +117,31 @@ function normalizeSafeExecRequest(request: SafeExecRequest): { command: string; 
 }
 
 function validateSafeExecArgs(command: string, args: string[]): void {
+  const readOnlyWorkspaceCommands = new Set(["find", "grep", "cat", "sed", "head", "tail", "wc", "ls"]);
+  if (readOnlyWorkspaceCommands.has(command)) validateWorkspaceOnlyArgs(command, args);
   if (command === "find") {
     const denied = new Set(["-delete", "-exec", "-execdir", "-ok", "-okdir"]);
     for (const arg of args) {
       if (denied.has(arg)) throw new Error(`find action not allowed by safe_exec sandbox: ${arg}`);
-      if (arg.startsWith("/") || arg === ".." || arg.startsWith("../") || arg.includes("/../")) {
-        throw new Error(`find path escapes project sandbox: ${arg}`);
-      }
     }
   }
-  if (command === "ls") {
-    for (const arg of args) {
-      if (arg.startsWith("/") || arg === ".." || arg.startsWith("../") || arg.includes("/../")) {
-        throw new Error(`ls path escapes project sandbox: ${arg}`);
-      }
+  if (command === "sed") {
+    const denied = new Set(["-i", "--in-place"]);
+    for (const arg of args) if (denied.has(arg) || arg.startsWith("--in-place=")) throw new Error(`sed write action not allowed by safe_exec sandbox: ${arg}`);
+  }
+  if (command === "git") {
+    const subcommand = args.find((arg) => !arg.startsWith("-"));
+    const allowedGit = new Set(["status", "diff", "log", "show", "branch", "rev-parse", "ls-files", "grep"]);
+    if (!subcommand || !allowedGit.has(subcommand)) throw new Error(`git subcommand not allowed by safe_exec sandbox: ${subcommand ?? "<missing>"}`);
+    validateWorkspaceOnlyArgs(command, args);
+  }
+}
+
+function validateWorkspaceOnlyArgs(command: string, args: string[]): void {
+  for (const arg of args) {
+    if (arg === "--") continue;
+    if (arg.startsWith("/") || arg === ".." || arg.startsWith("../") || arg.includes("/../")) {
+      throw new Error(`${command} path escapes project sandbox: ${arg}`);
     }
   }
 }

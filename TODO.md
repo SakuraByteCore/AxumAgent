@@ -23,6 +23,7 @@
 - [x] Add provider-layer safety guard helpers for message/tool-call correction before model transport.
 - [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, key-source/request previews, and HTML/Cloudflare failures.
 - [x] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
+- [x] Broaden guarded current-workspace inspection commands so TUI tool loops do not trip on routine read-only checks.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
 - [x] Route TUI prompt execution through the Codex-like runtime session loop instead of direct provider chat calls.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.

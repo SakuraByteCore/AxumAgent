@@ -1049,6 +1049,20 @@ async function testRuntimeToolExecutorsHonorGates() {
       () => runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "find . -delete" }),
       /find action not allowed/,
     );
+    const grepResult = await runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "grep -R alpha src" });
+    assert.strictEqual(grepResult.ok, true);
+    assert.match(grepResult.result.stdout, /alpha/);
+    const catResult = await runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "cat src/sample.ts" });
+    assert.strictEqual(catResult.ok, true);
+    assert.match(catResult.result.stdout, /alpha/);
+    await assert.rejects(
+      () => runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "cat /etc/passwd" }),
+      /cat path escapes project sandbox/,
+    );
+    await assert.rejects(
+      () => runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "sed -i s/alpha/beta/ src/sample.ts" }),
+      /sed write action not allowed/,
+    );
 
     assert.throws(() => runPreciseEdit({ cwd: dir, allowedTools: ["read"] }, { file: "src/sample.ts", oldText: "return 2;", newText: "return 3;" }), /tool not allowed/);
   } finally {
