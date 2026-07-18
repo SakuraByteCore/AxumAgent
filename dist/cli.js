@@ -1448,11 +1448,21 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         },
     };
     const editor = new pi.Editor(tui, editorTheme, { paddingX: 1, autocompleteMaxVisible: 6 });
+    const renderInputStatusBorder = (width, value) => {
+        const safeWidth = Math.max(1, width);
+        const label = ` ${value} `;
+        if (pi.visibleWidth(label) >= safeWidth)
+            return pi.truncateToWidth(label, safeWidth);
+        const remaining = safeWidth - pi.visibleWidth(label);
+        const left = Math.floor(remaining / 2);
+        const right = remaining - left;
+        return `${"─".repeat(left)}${label}${"─".repeat(right)}`;
+    };
     class AxumPiTuiChrome {
         invalidate() { }
         render(width) {
             const input = editor.getText();
-            const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, status, false)
+            const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, undefined, false)
                 .split("\n");
             const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
             const lines = [
@@ -1467,7 +1477,21 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             });
         }
     }
+    class AxumPiInputDeck {
+        invalidate() {
+            editor.invalidate?.();
+        }
+        render(width) {
+            const lines = editor.render(width);
+            if (!status || lines.length === 0)
+                return lines;
+            const decorated = [...lines];
+            decorated[decorated.length - 1] = renderInputStatusBorder(width, status);
+            return decorated;
+        }
+    }
     const chrome = new AxumPiTuiChrome();
+    const inputDeck = new AxumPiInputDeck();
     async function submitPrompt(prompt) {
         if (!prompt) {
             requestRender();
@@ -1620,7 +1644,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         return undefined;
     });
     tui.addChild(chrome);
-    tui.addChild(editor);
+    tui.addChild(inputDeck);
     tui.setFocus(editor);
     if (useAltScreen)
         terminal.write("\u001b[?1049h");

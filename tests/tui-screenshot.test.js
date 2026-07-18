@@ -204,6 +204,8 @@ async function testBusyCtrlCOnlyCancelsRequest() {
       { delayMs: 700, input: "/exit\r" },
     ]);
     assert.ok(raw.includes("• Working"));
+    assert.match(raw, /─+ • Working \([^\r\n]*esc to interrupt\) ─+/);
+    assert.doesNotMatch(raw, /│ • Working \([^\r\n]*esc to interrupt\) │/);
     assert.ok(raw.includes("request cancelled; ready for the next prompt"));
   } finally {
     server.close();

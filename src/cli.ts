@@ -1456,11 +1456,21 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   };
   const editor = new pi.Editor(tui, editorTheme, { paddingX: 1, autocompleteMaxVisible: 6 });
 
+  const renderInputStatusBorder = (width: number, value: string): string => {
+    const safeWidth = Math.max(1, width);
+    const label = ` ${value} `;
+    if (pi.visibleWidth(label) >= safeWidth) return pi.truncateToWidth(label, safeWidth);
+    const remaining = safeWidth - pi.visibleWidth(label);
+    const left = Math.floor(remaining / 2);
+    const right = remaining - left;
+    return `${"─".repeat(left)}${label}${"─".repeat(right)}`;
+  };
+
   class AxumPiTuiChrome implements PiComponent {
     invalidate(): void {}
     render(width: number): string[] {
       const input = editor.getText();
-      const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, status, false)
+      const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, undefined, false)
         .split("\n");
       const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
       const lines = [
@@ -1476,7 +1486,21 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     }
   }
 
+  class AxumPiInputDeck implements PiComponent {
+    invalidate(): void {
+      editor.invalidate?.();
+    }
+    render(width: number): string[] {
+      const lines = editor.render(width);
+      if (!status || lines.length === 0) return lines;
+      const decorated = [...lines];
+      decorated[decorated.length - 1] = renderInputStatusBorder(width, status);
+      return decorated;
+    }
+  }
+
   const chrome = new AxumPiTuiChrome();
+  const inputDeck = new AxumPiInputDeck();
 
   async function submitPrompt(prompt: string): Promise<void> {
     if (!prompt) {
@@ -1632,7 +1656,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   });
 
   tui.addChild(chrome);
-  tui.addChild(editor);
+  tui.addChild(inputDeck);
   tui.setFocus(editor);
   if (useAltScreen) terminal.write("\u001b[?1049h");
   terminal.write("\u001b[?2004h");
