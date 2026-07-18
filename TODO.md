@@ -21,7 +21,7 @@
 - [x] Add TUI `/parallel` slash surface for swarm planning.
 - [x] Add pi-style child-task status and merge-review metadata for future managed swarm execution.
 - [x] Add provider-layer safety guard helpers for message/tool-call correction before model transport.
-- [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, and HTML/Cloudflare failures.
+- [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, key-source/request previews, and HTML/Cloudflare failures.
 - [x] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
 - [x] Route TUI prompt execution through the Codex-like runtime session loop instead of direct provider chat calls.

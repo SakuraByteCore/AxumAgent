@@ -452,6 +452,17 @@ model = "json-model"
     assert.strictEqual(report.modelCount, 1);
     assert.strictEqual(report.firstModel, "json-model");
     assert.strictEqual(report.providerKey, "***");
+    assert.strictEqual(report.providerKeySource, "literal");
+    assert.strictEqual(report.requestPreview.models.method, "GET");
+    assert.strictEqual(report.requestPreview.models.url, `http://127.0.0.1:${port}/v1/models`);
+    assert.strictEqual(report.requestPreview.models.headers.Authorization, "Bearer ***");
+    assert.strictEqual(report.requestPreview.models.headers.Accept, "application/json");
+    assert.strictEqual(report.requestPreview.chat.method, "POST");
+    assert.strictEqual(report.requestPreview.chat.url, `http://127.0.0.1:${port}/v1/chat/completions`);
+    assert.strictEqual(report.requestPreview.chat.headers.Authorization, "Bearer ***");
+    assert.strictEqual(report.requestPreview.chat.headers["Content-Type"], "application/json");
+    assert.strictEqual(report.requestPreview.chat.body.model, "json-model");
+    assert.doesNotMatch(JSON.stringify(report), /test-key/);
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });

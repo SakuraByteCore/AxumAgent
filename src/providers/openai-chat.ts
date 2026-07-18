@@ -219,7 +219,7 @@ export class OpenAIChatProvider {
       try {
         response = await this.fetchImpl(`${this.baseUrl}/models`, {
           method: "GET",
-          headers: { "authorization": `Bearer ${this.apiKey}` },
+          headers: { "Authorization": `Bearer ${this.apiKey}`, "Accept": "application/json" },
           signal,
         });
       } catch (error) {
@@ -289,8 +289,9 @@ export class OpenAIChatProvider {
         response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
-            "authorization": `Bearer ${this.apiKey}`,
-            "content-type": "application/json",
+            "Authorization": `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
           },
           body: JSON.stringify({
             model: this.model,
@@ -331,8 +332,9 @@ export class OpenAIChatProvider {
         response = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
-            "authorization": `Bearer ${this.apiKey}`,
-            "content-type": "application/json",
+            "Authorization": `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+            "Accept": "application/json",
           },
           body: JSON.stringify({
             model: this.model,

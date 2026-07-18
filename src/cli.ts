@@ -23,6 +23,7 @@ interface ChatCommandOptions {
   modelWasExplicit: boolean;
   baseUrl: string;
   apiKeyEnv: string;
+  apiKeySource: string;
   apiKey?: string;
   system?: string;
   temperature?: number;
@@ -91,6 +92,17 @@ function parseProviderConfigLine(value: string | undefined, source: string): { b
   return { baseUrl, apiKey, model };
 }
 
+function resolveApiKeyCandidate(value: string | undefined, env: NodeJS.ProcessEnv, fallbackEnv: string): { key?: string; source: string } {
+  if (value?.startsWith("env:")) {
+    const name = value.slice(4);
+    const key = env[name];
+    return { key, source: key ? `env:${name}` : `env:${name}:missing` };
+  }
+  if (value) return { key: value, source: "literal" };
+  const key = env[fallbackEnv];
+  return { key, source: key ? `env:${fallbackEnv}` : `env:${fallbackEnv}:missing` };
+}
+
 function extractConfigPath(args: string[]): { configPath?: string; args: string[] } {
   const next: string[] = [];
   let configPath: string | undefined;
@@ -140,7 +152,10 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
   let modelWasExplicit = Boolean(provider?.model || oneLineConfig.model || config?.model || configuredModels[0] || env.AXUM_MODEL);
   let baseUrl = provider?.base_url || provider?.baseUrl || oneLineConfig.baseUrl || env.AXUM_OPENAI_BASE_URL || env.OPENAI_BASE_URL || DEFAULT_BASE_URL;
   let apiKeyEnv = provider?.api_key_env || provider?.apiKeyEnv || env.AXUM_OPENAI_API_KEY_ENV || DEFAULT_API_KEY_ENV;
-  let apiKey: string | undefined = resolveSecret(provider?.api_key || provider?.apiKey || oneLineConfig.apiKey, env);
+  let apiKeyCandidate = provider?.api_key || provider?.apiKey || oneLineConfig.apiKey;
+  let resolvedApiKey = resolveApiKeyCandidate(apiKeyCandidate, env, apiKeyEnv);
+  let apiKey: string | undefined = resolvedApiKey.key;
+  let apiKeySource = resolvedApiKey.source;
   let system: string | undefined;
   let temperature: number | undefined;
   let maxRetries = numberFromConfig(provider?.max_retries ?? provider?.maxRetries) ?? (env.AXUM_OPENAI_MAX_RETRIES
@@ -167,9 +182,17 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
       i += 1;
     } else if (arg === "--api-key-env") {
       apiKeyEnv = takeValue(args, i, arg);
+      if (!apiKeyCandidate) {
+        resolvedApiKey = resolveApiKeyCandidate(undefined, env, apiKeyEnv);
+        apiKey = resolvedApiKey.key;
+        apiKeySource = resolvedApiKey.source;
+      }
       i += 1;
     } else if (arg === "--api-key") {
-      apiKey = takeValue(args, i, arg);
+      apiKeyCandidate = takeValue(args, i, arg);
+      resolvedApiKey = resolveApiKeyCandidate(apiKeyCandidate, env, apiKeyEnv);
+      apiKey = resolvedApiKey.key;
+      apiKeySource = resolvedApiKey.source;
       i += 1;
     } else if (arg === "--system") {
       system = takeValue(args, i, arg);
@@ -208,7 +231,8 @@ function parseChatArgs(args: string[], env: NodeJS.ProcessEnv, loaded?: LoadedCo
     modelWasExplicit,
     baseUrl,
     apiKeyEnv,
-    apiKey: apiKey || env[apiKeyEnv],
+    apiKey,
+    apiKeySource,
     system,
     temperature,
     maxRetries,
@@ -940,6 +964,8 @@ function providerStatus(options: ChatCommandOptions): string {
   return [
     `provider url: ${options.baseUrl}`,
     `provider key: ${maskSecret(options.apiKey)}`,
+    `provider key source: ${options.apiKeySource}`,
+    `model ${options.model}`,
     `config: ${options.configPath ?? defaultConfigPath()}`,
     "commands: /provider set <url> <key> <model> · /provider url <url> · /provider key <key> · /provider model <id|number> · /model [id|number] · /parallel <goal> :: <task> | <task>",
   ].join("\n");
@@ -1078,6 +1104,33 @@ async function runChat(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.Wr
   }
 }
 
+function providerDebugPreview(options: ChatCommandOptions): Record<string, unknown> {
+  return {
+    models: {
+      method: "GET",
+      url: `${options.baseUrl.replace(/\/+$/, "")}/models`,
+      headers: {
+        Authorization: options.apiKey ? `Bearer ${maskSecret(options.apiKey)}` : "missing",
+        Accept: "application/json",
+      },
+    },
+    chat: {
+      method: "POST",
+      url: `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+      headers: {
+        Authorization: options.apiKey ? `Bearer ${maskSecret(options.apiKey)}` : "missing",
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: {
+        model: options.model,
+        messages: "<system + user probe>",
+        stream: false,
+      },
+    },
+  };
+}
+
 async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.WriteStream, stderr: NodeJS.WriteStream): Promise<number> {
   try {
     const extracted = extractConfigPath(args);
@@ -1095,7 +1148,9 @@ async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.
       provider: options.providerId,
       providerUrl: options.baseUrl,
       providerKey: options.apiKey ? maskSecret(options.apiKey) : "missing",
+      providerKeySource: options.apiKeySource,
       model: options.model,
+      requestPreview: providerDebugPreview(options),
     };
     const lines = [
       "AxumAgent doctor",
@@ -1103,7 +1158,10 @@ async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.
       `provider: ${options.providerId}`,
       `provider url: ${options.baseUrl}`,
       `provider key: ${options.apiKey ? maskSecret(options.apiKey) : "missing"}`,
+      `provider key source: ${options.apiKeySource}`,
       `model: ${options.model}`,
+      `models request: GET ${options.baseUrl.replace(/\/+$/, "")}/models`,
+      `chat request: POST ${options.baseUrl.replace(/\/+$/, "")}/chat/completions`,
     ];
     const writeReport = (exitCode: number) => {
       if (json) stdout.write(`${JSON.stringify(report, null, 2)}\n`);
