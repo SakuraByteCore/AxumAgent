@@ -43,6 +43,7 @@ export function renderRuntimeEvents(events: AxumEvent[]): string {
     merge_review_started: "merge review started",
     merge_review_completed: "merge review completed",
     model_sampling_started: "model sampling",
+    provider_warning: "provider warning",
     assistant_message: "assistant message",
     tool_call_requested: "tool requested",
     tool_call_completed: "tool completed",

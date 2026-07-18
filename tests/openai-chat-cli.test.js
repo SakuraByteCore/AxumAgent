@@ -17,6 +17,10 @@ function startMockServer(options = {}) {
     req.on("end", () => {
       const parsedBody = JSON.parse(body || "{}");
       requests.push({ method: req.method, url: req.url, headers: req.headers, body: parsedBody });
+      if (options.destroyToolRequests && parsedBody.tools) {
+        req.socket.destroy();
+        return;
+      }
       if (options.htmlChallenge) {
         res.writeHead(403, { "content-type": "text/html; charset=UTF-8", server: "cloudflare" });
         res.end("<!DOCTYPE html><html><head><title>Just a moment...</title></head><body>Cloudflare challenge</body></html>");
@@ -463,6 +467,56 @@ model = "json-model"
     assert.strictEqual(report.requestPreview.chat.headers["Content-Type"], "application/json");
     assert.strictEqual(report.requestPreview.chat.body.model, "json-model");
     assert.doesNotMatch(JSON.stringify(report), /test-key/);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testDoctorRunsRuntimeEquivalentProbe() {
+  const { server, requests, port } = await startMockServer({ models: ["runtime-model"] });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+model = "runtime-model"
+`);
+  try {
+    const result = await runCli(["doctor", "--config", cfg.file, "--json"]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.strictEqual(report.runtimeEndpoint, "ok");
+    const runtimeRequest = requests.find((request) => Array.isArray(request.body.tools));
+    assert.ok(runtimeRequest, "doctor should probe the runtime/TUI tool-call request shape");
+    assert.strictEqual(runtimeRequest.headers.authorization, "Bearer test-key");
+    assert.strictEqual(runtimeRequest.body.model, "runtime-model");
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
+async function testRuntimeFallsBackWhenToolPayloadBreaksTransport() {
+  const { server, requests, port } = await startMockServer({ destroyToolRequests: true });
+  const cfg = writeConfig(`
+provider = "openai-chat"
+
+[providers.openai-chat]
+type = "openai-chat"
+base_url = "http://127.0.0.1:${port}/v1"
+api_key = "test-key"
+model = "fallback-model"
+max_retries = 0
+`);
+  try {
+    const result = await runCli(["chat", "--config", cfg.file, "hello"]);
+    assert.strictEqual(result.code, 0, result.stderr);
+    assert.match(result.stdout, /mock answer/);
+    assert.ok(requests.some((request) => Array.isArray(request.body.tools)), "first runtime request should include tools");
+    assert.ok(requests.some((request) => request.method === "POST" && request.url === "/v1/chat/completions" && !request.body.tools), "fallback request should omit tools");
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
@@ -1085,6 +1139,8 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testConfigWebDoesNotExposeResolvedEnvSecret();
   await testDoctorChecksProviderModels();
   await testDoctorJsonReport();
+  await testDoctorRunsRuntimeEquivalentProbe();
+  await testRuntimeFallsBackWhenToolPayloadBreaksTransport();
   await testDoctorFallsBackToChatProbeWhenModelsUnavailable();
   await testProviderHtmlChallengeErrorsAreSummarized();
   await testDefaultSystemPromptKeepsShortInputsConcise();

@@ -104,6 +104,9 @@ export async function runCodexLikeTurn(options: AxumTurnOptions, userPrompt: str
   for (let iteration = 0; iteration <= maxToolIterations; iteration += 1) {
     options.eventBus.emit("model_sampling_started", { iteration, tools: tools.map((tool) => tool.function.name) }, id);
     const response = await options.provider.chatWithTools(messages, tools, signal);
+    for (const warning of response.warnings ?? []) {
+      options.eventBus.emit("provider_warning", { message: warning }, id);
+    }
     assistantMessage = response.content || assistantMessage;
     const calls = normalizeToolCalls(response.toolCalls ?? []);
     if (calls.length === 0) {

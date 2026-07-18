@@ -3,6 +3,7 @@ import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPlan, renderSwarmPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
 import { AxumRuntimeSession } from "./runtime/session";
 import { renderRuntimeEvents } from "./runtime/events";
+import { runtimeToolSpecs } from "./runtime/turn";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
 import http from "node:http";
@@ -1183,6 +1184,17 @@ async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.
       retryDelayMs: options.retryDelayMs,
       requestTimeoutMs: options.requestTimeoutMs,
     });
+    const runRuntimeProbe = async (): Promise<void> => {
+      const mode = findMode(loaded?.config);
+      const result = await provider.chatWithTools([{ role: "user", content: "Reply with OK only." }], runtimeToolSpecs(mode.tools));
+      report.runtimeEndpoint = "ok";
+      report.runtimeProbe = result.content.slice(0, 80);
+      if (result.warnings?.length) {
+        report.runtimeWarnings = result.warnings;
+        lines.push(...result.warnings.map((warning) => `runtime warning: ${warning}`));
+      }
+      lines.push("runtime/tui request: ok");
+    };
     try {
       const models = await provider.listModels();
       const warning = models.length > 0 && !models.includes(options.model) ? "configured model was not returned by /models" : undefined;
@@ -1194,6 +1206,17 @@ async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.
       lines.push(`models endpoint: ok (${models.length})`);
       if (models.length > 0) lines.push(`first model: ${models[0]}`);
       if (warning) lines.push(`warning: ${warning}`);
+      try {
+        await runRuntimeProbe();
+      } catch (runtimeError) {
+        const runtimeMessage = runtimeError instanceof Error ? runtimeError.message : String(runtimeError);
+        report.status = "failed";
+        report.runtimeEndpoint = "failed";
+        report.runtimeError = runtimeMessage;
+        report.error = runtimeMessage;
+        lines.push("runtime/tui request: failed", runtimeMessage, "status: failed");
+        return writeReport(1);
+      }
       lines.push("status: ok");
       return writeReport(0);
     } catch (error) {
@@ -1207,7 +1230,19 @@ async function runDoctor(args: string[], env: NodeJS.ProcessEnv, stdout: NodeJS.
         report.chatEndpoint = "ok";
         report.chatProbe = chatProbe.content.slice(0, 80);
         report.warning = "/models failed, but /chat/completions succeeded";
-        lines.push("chat endpoint: ok", "warning: /models failed, but /chat/completions succeeded", "status: ok");
+        lines.push("chat endpoint: ok", "warning: /models failed, but /chat/completions succeeded");
+        try {
+          await runRuntimeProbe();
+        } catch (runtimeError) {
+          const runtimeMessage = runtimeError instanceof Error ? runtimeError.message : String(runtimeError);
+          report.status = "failed";
+          report.runtimeEndpoint = "failed";
+          report.runtimeError = runtimeMessage;
+          report.error = runtimeMessage;
+          lines.push("runtime/tui request: failed", runtimeMessage, "status: failed");
+          return writeReport(1);
+        }
+        lines.push("status: ok");
         return writeReport(0);
       } catch (chatError) {
         const chatMessage = chatError instanceof Error ? chatError.message : String(chatError);

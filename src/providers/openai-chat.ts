@@ -33,6 +33,7 @@ export interface OpenAIChatResult {
   raw: unknown;
   toolCalls?: AxumToolCall[];
   finishReason?: string;
+  warnings?: string[];
 }
 
 export interface AxumToolCall {
@@ -281,11 +282,25 @@ export class OpenAIChatProvider {
 
   async chatWithTools(messages: ChatMessage[], tools: ChatToolSpec[], signal?: AbortSignal): Promise<OpenAIChatResult> {
     let lastError: Error | undefined;
+    let attemptedToolFallback = false;
     for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
       try {
         return await this.chatOnce(messages, signal, tools);
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        if (tools.length > 0 && !attemptedToolFallback && !signal?.aborted && /transport failed/.test(lastError.message)) {
+          attemptedToolFallback = true;
+          try {
+            const fallback = await this.chatOnce(messages, signal);
+            return {
+              ...fallback,
+              warnings: [`provider tool-call request failed (${lastError.message}); retried without tools`],
+            };
+          } catch (fallbackError) {
+            lastError = fallbackError instanceof Error ? fallbackError : new Error(String(fallbackError));
+            break;
+          }
+        }
         const retryable = error instanceof RetryableOpenAIChatError;
         if (!retryable || attempt >= this.maxRetries) break;
         await sleep(this.retryDelayMs * Math.max(1, attempt + 1));
