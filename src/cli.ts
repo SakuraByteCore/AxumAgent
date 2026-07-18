@@ -745,11 +745,10 @@ function framedSection(title: string, body: string[], width: number): string[] {
 }
 
 function compactPathForTui(cwd: string, width: number): string {
-  if (visibleWidth(cwd) <= width) return cwd;
   const parts = cwd.split(path.sep).filter(Boolean);
-  if (parts.length <= 2) return `…${cwd.slice(Math.max(0, cwd.length - width + 1))}`;
-  const tail = parts.slice(-2).join(path.sep);
-  return `…${path.sep}${tail}`;
+  const compact = parts.length > 2 ? `…${path.sep}${parts.slice(-2).join(path.sep)}` : cwd;
+  if (visibleWidth(compact) <= width) return compact;
+  return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }
 
 function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status: string | undefined = undefined): string {

@@ -733,13 +733,11 @@ function framedSection(title, body, width) {
     ];
 }
 function compactPathForTui(cwd, width) {
-    if (visibleWidth(cwd) <= width)
-        return cwd;
     const parts = cwd.split(node_path_1.default.sep).filter(Boolean);
-    if (parts.length <= 2)
-        return `…${cwd.slice(Math.max(0, cwd.length - width + 1))}`;
-    const tail = parts.slice(-2).join(node_path_1.default.sep);
-    return `…${node_path_1.default.sep}${tail}`;
+    const compact = parts.length > 2 ? `…${node_path_1.default.sep}${parts.slice(-2).join(node_path_1.default.sep)}` : cwd;
+    if (visibleWidth(compact) <= width)
+        return compact;
+    return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }
 function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status = undefined) {
     const safeWidth = Math.max(36, width);
