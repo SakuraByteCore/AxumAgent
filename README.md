@@ -74,8 +74,9 @@ type = "openai-chat"
 base_url = "https://api.openai.com/v1"
 api_key = "env:OPENAI_API_KEY"
 models = ["gpt-4o-mini"]
-max_retries = 10
-retry_delay_ms = 250
+max_retries = 8
+retry_min_delay_ms = 500
+retry_max_delay_ms = 1500
 request_timeout_ms = 600000
 ```
 
@@ -116,7 +117,7 @@ node bin/axum.js doctor --provider secondary --json
 node bin/axum.js chat --request-timeout-ms 900000 "Run a longer request"
 ```
 
-`axum workflow` renders a compact Unicode stage view by default and folds intermediate workflow steps; pass `--verbose` to expand them. `axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. `axum providers` lists configured providers and masks literal keys; use `--json` for scripts. `axum chat`, `axum tui`, and `axum doctor` accept `--provider <id>` to temporarily use another provider from `providers.<id>` without changing the default config. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`. `axum doctor` checks the resolved provider config, `/v1/models`, and the same runtime/tool-call request shape used by TUI; use `axum doctor --json` for scripts and CI diagnostics, including key source, masked request previews, and categorized HTML/Cloudflare/API/transport failures. If a provider breaks the tool-call transport, the runtime retries once without tools instead of failing the whole TUI turn. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
+`axum workflow` renders a compact Unicode stage view by default and folds intermediate workflow steps; pass `--verbose` to expand them. `axum chat` supports OpenAI Chat Completions and OpenAI-compatible providers through `/v1/chat/completions`. Transient provider transport/upstream failures retry 8 times by default with bounded 500–1500ms jitter; legacy `retry_delay_ms` keeps fixed-delay compatibility when explicitly set. `axum providers` lists configured providers and masks literal keys; use `--json` for scripts. `axum chat`, `axum tui`, and `axum doctor` accept `--provider <id>` to temporarily use another provider from `providers.<id>` without changing the default config. `axum tui` can also read OpenAI-compatible model lists through `/v1/models`, and model-list fetches use the same retry policy. `axum doctor` checks the resolved provider config, `/v1/models`, and the same runtime/tool-call request shape used by TUI; use `axum doctor --json` for scripts and CI diagnostics, including key source, masked request previews, and categorized HTML/Cloudflare/API/transport failures. If a provider breaks the tool-call transport, the runtime retries once without tools instead of failing the whole TUI turn. `axum config-web` does not echo stored raw API keys; leave the key field blank to keep an existing key.
 
 Useful environment variables:
 
@@ -125,8 +126,10 @@ Useful environment variables:
 - `AXUM_MODEL`: fallback model id, otherwise `gpt-4o-mini`.
 - `AXUM_OPENAI_BASE_URL`: fallback OpenAI-compatible base URL, otherwise `https://api.openai.com/v1`.
 - `AXUM_OPENAI_API_KEY_ENV`: fallback env var name for API keys.
-- `AXUM_OPENAI_MAX_RETRIES`: fallback retry count for transient failures, otherwise `10`.
-- `AXUM_OPENAI_RETRY_DELAY_MS`: fallback base retry delay in milliseconds, otherwise `250`.
+- `AXUM_OPENAI_MAX_RETRIES`: fallback retry count for transient failures, otherwise `8`.
+- `AXUM_OPENAI_RETRY_MIN_DELAY_MS`: fallback minimum retry delay in milliseconds, otherwise `500`.
+- `AXUM_OPENAI_RETRY_MAX_DELAY_MS`: fallback maximum retry delay in milliseconds, otherwise `1500`.
+- `AXUM_OPENAI_RETRY_DELAY_MS`: legacy fixed retry delay in milliseconds; overrides min/max when set.
 - `AXUM_OPENAI_REQUEST_TIMEOUT_MS`: request timeout in milliseconds, otherwise `600000`; set `0` to disable.
 
 ## Safety boundary

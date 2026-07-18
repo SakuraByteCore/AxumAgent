@@ -35,7 +35,7 @@ Work added:
 - Node shim now runs the TypeScript CLI directly.
 - Mock HTTP regression test proving `axum chat` sends `/v1/chat/completions` requests with model, system/user messages, and bearer auth.
 - Removed the old Rust workspace and prebuilt artifacts to avoid large disk usage and keep the project TS-only.
-- OpenAI-compatible chat requests now retry transient transport/upstream failures 10 times by default, configurable with CLI flags or environment variables.
+- OpenAI-compatible provider requests now retry transient transport/upstream failures 8 times by default with bounded 500–1500ms jitter; legacy fixed `retry_delay_ms` remains compatible, and `/models` fetches use the same retry policy.
 - Added user-level TOML config loading (`~/.axum/config.toml`, `AXUM_CONFIG`, or `--config`) so provider settings can live outside project directories.
 - Prepared npm packaging as `axum-agent` with committed dist output, `axum` binary, package exports, package metadata, MIT license, and dry-run pack script.
 - Added a lightweight pi-style terminal UI command, `axum tui`, with a boxed terminal layout and `--dry-run` preview mode.

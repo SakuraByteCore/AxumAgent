@@ -20,8 +20,9 @@ const promises_1 = require("node:readline/promises");
 const DEFAULT_MODEL = "gpt-4o-mini";
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_API_KEY_ENV = "OPENAI_API_KEY";
-const DEFAULT_MAX_RETRIES = 10;
-const DEFAULT_RETRY_DELAY_MS = 250;
+const DEFAULT_MAX_RETRIES = 8;
+const DEFAULT_RETRY_MIN_DELAY_MS = 500;
+const DEFAULT_RETRY_MAX_DELAY_MS = 1500;
 const DEFAULT_REQUEST_TIMEOUT_MS = 600_000;
 const DEFAULT_SYSTEM_PROMPT = [
     "You are AxumAgent, a concise terminal assistant.",
@@ -99,7 +100,7 @@ function extractConfigPath(args) {
     return { configPath, args: next };
 }
 function hasPositionalPrompt(args) {
-    const flagsWithValues = new Set(["--provider", "--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms", "--request-timeout-ms"]);
+    const flagsWithValues = new Set(["--provider", "--model", "-m", "--base-url", "--api-key-env", "--api-key", "--system", "--temperature", "--max-retries", "--retry-delay-ms", "--retry-min-delay-ms", "--retry-max-delay-ms", "--request-timeout-ms"]);
     for (let i = 0; i < args.length; i += 1) {
         const arg = args[i];
         if (flagsWithValues.has(arg)) {
@@ -142,9 +143,16 @@ function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
     let maxRetries = (0, config_1.numberFromConfig)(provider?.max_retries ?? provider?.maxRetries) ?? (env.AXUM_OPENAI_MAX_RETRIES
         ? parseNonNegativeInteger(env.AXUM_OPENAI_MAX_RETRIES, "AXUM_OPENAI_MAX_RETRIES")
         : DEFAULT_MAX_RETRIES);
-    let retryDelayMs = (0, config_1.numberFromConfig)(provider?.retry_delay_ms ?? provider?.retryDelayMs) ?? (env.AXUM_OPENAI_RETRY_DELAY_MS
+    const legacyRetryDelayMs = (0, config_1.numberFromConfig)(provider?.retry_delay_ms ?? provider?.retryDelayMs) ?? (env.AXUM_OPENAI_RETRY_DELAY_MS
         ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_DELAY_MS, "AXUM_OPENAI_RETRY_DELAY_MS")
-        : DEFAULT_RETRY_DELAY_MS);
+        : undefined);
+    let retryDelayMs = legacyRetryDelayMs ?? 0;
+    let retryMinDelayMs = legacyRetryDelayMs ?? (0, config_1.numberFromConfig)(provider?.retry_min_delay_ms ?? provider?.retryMinDelayMs) ?? (env.AXUM_OPENAI_RETRY_MIN_DELAY_MS
+        ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_MIN_DELAY_MS, "AXUM_OPENAI_RETRY_MIN_DELAY_MS")
+        : DEFAULT_RETRY_MIN_DELAY_MS);
+    let retryMaxDelayMs = legacyRetryDelayMs ?? (0, config_1.numberFromConfig)(provider?.retry_max_delay_ms ?? provider?.retryMaxDelayMs) ?? (env.AXUM_OPENAI_RETRY_MAX_DELAY_MS
+        ? parseNonNegativeInteger(env.AXUM_OPENAI_RETRY_MAX_DELAY_MS, "AXUM_OPENAI_RETRY_MAX_DELAY_MS")
+        : DEFAULT_RETRY_MAX_DELAY_MS);
     let requestTimeoutMs = (0, config_1.numberFromConfig)(provider?.request_timeout_ms ?? provider?.requestTimeoutMs) ?? (env.AXUM_OPENAI_REQUEST_TIMEOUT_MS
         ? parseNonNegativeInteger(env.AXUM_OPENAI_REQUEST_TIMEOUT_MS, "AXUM_OPENAI_REQUEST_TIMEOUT_MS")
         : DEFAULT_REQUEST_TIMEOUT_MS);
@@ -193,6 +201,18 @@ function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
         }
         else if (arg === "--retry-delay-ms") {
             retryDelayMs = parseNonNegativeInteger(takeValue(args, i, arg), arg);
+            retryMinDelayMs = retryDelayMs;
+            retryMaxDelayMs = retryDelayMs;
+            i += 1;
+        }
+        else if (arg === "--retry-min-delay-ms") {
+            retryMinDelayMs = parseNonNegativeInteger(takeValue(args, i, arg), arg);
+            retryDelayMs = 0;
+            i += 1;
+        }
+        else if (arg === "--retry-max-delay-ms") {
+            retryMaxDelayMs = parseNonNegativeInteger(takeValue(args, i, arg), arg);
+            retryDelayMs = 0;
             i += 1;
         }
         else if (arg === "--request-timeout-ms") {
@@ -229,6 +249,8 @@ function parseChatArgs(args, env, loaded, configPath, requirePrompt = true) {
         temperature,
         maxRetries,
         retryDelayMs,
+        retryMinDelayMs,
+        retryMaxDelayMs,
         requestTimeoutMs,
         configPath: loaded?.path || (0, config_1.resolveConfigPath)(env, configPath),
         runtimeConfig: config,
@@ -281,8 +303,10 @@ function renderHelp() {
         "Chat/TUI options:",
         "      --system <text>       Optional system message",
         "      --temperature <0..2>  Optional temperature",
-        "      --max-retries <n>     Retry transient failures (default: AXUM_OPENAI_MAX_RETRIES or 10)",
-        "      --retry-delay-ms <n>  Base retry delay in milliseconds (default: AXUM_OPENAI_RETRY_DELAY_MS or 250)",
+        "      --max-retries <n>     Retry transient failures (default: AXUM_OPENAI_MAX_RETRIES or 8)",
+        "      --retry-delay-ms <n>  Legacy fixed retry delay in milliseconds; overrides min/max when set",
+        "      --retry-min-delay-ms <n>  Minimum retry delay in milliseconds (default: AXUM_OPENAI_RETRY_MIN_DELAY_MS or 500)",
+        "      --retry-max-delay-ms <n>  Maximum retry delay in milliseconds (default: AXUM_OPENAI_RETRY_MAX_DELAY_MS or 1500)",
         "      --request-timeout-ms <n>  Request timeout in milliseconds; 0 disables (default: AXUM_OPENAI_REQUEST_TIMEOUT_MS or 600000)",
         "      --json                Print provider/doctor result as JSON",
         "      --dry-run             Render the terminal UI without calling a provider (tui only)",
@@ -296,7 +320,7 @@ function renderHelp() {
         "      --port <port>         Config web port (default: 8787)",
         "",
         "Environment:",
-        "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_DELAY_MS, AXUM_OPENAI_REQUEST_TIMEOUT_MS",
+        "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_MIN_DELAY_MS, AXUM_OPENAI_RETRY_MAX_DELAY_MS, AXUM_OPENAI_RETRY_DELAY_MS, AXUM_OPENAI_REQUEST_TIMEOUT_MS",
         "",
         "Config:",
         `  Default path: ${(0, config_1.defaultConfigPath)()}`,
@@ -361,7 +385,8 @@ async function runInit(args, env, stdout, stderr) {
             model: options.model,
             models: [options.model],
             max_retries: DEFAULT_MAX_RETRIES,
-            retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+            retry_min_delay_ms: DEFAULT_RETRY_MIN_DELAY_MS,
+            retry_max_delay_ms: DEFAULT_RETRY_MAX_DELAY_MS,
             request_timeout_ms: DEFAULT_REQUEST_TIMEOUT_MS,
         });
         stdout.write(`axum config ${existedBefore ? "updated" : "created"}: ${saved.path}\n`);
@@ -892,6 +917,8 @@ async function hydrateTuiModelsWithStatus(options, dryRun) {
             temperature: options.temperature,
             maxRetries: options.maxRetries,
             retryDelayMs: options.retryDelayMs,
+            retryMinDelayMs: options.retryMinDelayMs,
+            retryMaxDelayMs: options.retryMaxDelayMs,
             requestTimeoutMs: options.requestTimeoutMs,
         });
         const fetched = uniqueModels(await provider.listModels());
@@ -915,6 +942,8 @@ async function fetchTuiModelsWithStatus(options) {
             temperature: options.temperature,
             maxRetries: options.maxRetries,
             retryDelayMs: options.retryDelayMs,
+            retryMinDelayMs: options.retryMinDelayMs,
+            retryMaxDelayMs: options.retryMaxDelayMs,
             requestTimeoutMs: options.requestTimeoutMs,
         });
         const fetched = uniqueModels(await provider.listModels());
@@ -1135,6 +1164,8 @@ async function runChat(args, env, stdout, stderr) {
             temperature: options.temperature,
             maxRetries: options.maxRetries,
             retryDelayMs: options.retryDelayMs,
+            retryMinDelayMs: options.retryMinDelayMs,
+            retryMaxDelayMs: options.retryMaxDelayMs,
             requestTimeoutMs: options.requestTimeoutMs,
         });
         const session = new session_1.AxumRuntimeSession({
@@ -1236,6 +1267,8 @@ async function runDoctor(args, env, stdout, stderr) {
             model: options.model,
             maxRetries: 0,
             retryDelayMs: options.retryDelayMs,
+            retryMinDelayMs: options.retryMinDelayMs,
+            retryMaxDelayMs: options.retryMaxDelayMs,
             requestTimeoutMs: options.requestTimeoutMs,
         });
         const runRuntimeProbe = async () => {
@@ -1336,6 +1369,8 @@ function createProviderForOptions(options) {
         temperature: options.temperature,
         maxRetries: options.maxRetries,
         retryDelayMs: options.retryDelayMs,
+        retryMinDelayMs: options.retryMinDelayMs,
+        retryMaxDelayMs: options.retryMaxDelayMs,
         requestTimeoutMs: options.requestTimeoutMs,
     });
 }

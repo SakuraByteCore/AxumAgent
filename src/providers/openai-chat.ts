@@ -23,8 +23,12 @@ export interface OpenAIChatProviderOptions {
   temperature?: number;
   maxRetries?: number;
   retryDelayMs?: number;
+  retryMinDelayMs?: number;
+  retryMaxDelayMs?: number;
   requestTimeoutMs?: number;
   fetchImpl?: typeof fetch;
+  sleepImpl?: (ms: number) => Promise<void>;
+  random?: () => number;
 }
 
 export interface OpenAIChatResult {
@@ -178,18 +182,26 @@ export class OpenAIChatProvider {
   readonly temperature?: number;
   readonly maxRetries: number;
   readonly retryDelayMs: number;
+  readonly retryMinDelayMs: number;
+  readonly retryMaxDelayMs: number;
   readonly requestTimeoutMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly sleepImpl: (ms: number) => Promise<void>;
+  private readonly random: () => number;
 
   constructor(options: OpenAIChatProviderOptions) {
     this.baseUrl = normalizeBaseUrl(options.baseUrl ?? "https://api.openai.com/v1");
     this.apiKey = options.apiKey ?? "";
     this.model = options.model;
     this.temperature = options.temperature;
-    this.maxRetries = options.maxRetries ?? 10;
-    this.retryDelayMs = options.retryDelayMs ?? 250;
+    this.maxRetries = options.maxRetries ?? 8;
+    this.retryDelayMs = options.retryDelayMs ?? 0;
+    this.retryMinDelayMs = options.retryDelayMs ?? options.retryMinDelayMs ?? 500;
+    this.retryMaxDelayMs = options.retryDelayMs ?? options.retryMaxDelayMs ?? 1500;
     this.requestTimeoutMs = options.requestTimeoutMs ?? 600_000;
     this.fetchImpl = options.fetchImpl ?? fetch;
+    this.sleepImpl = options.sleepImpl ?? sleep;
+    this.random = options.random ?? Math.random;
 
     if (!this.model) throw new Error("model is required");
     if (!this.apiKey) throw new Error("apiKey is required");
@@ -199,9 +211,39 @@ export class OpenAIChatProvider {
     if (!Number.isInteger(this.retryDelayMs) || this.retryDelayMs < 0) {
       throw new Error("retryDelayMs must be a non-negative integer");
     }
+    if (!Number.isInteger(this.retryMinDelayMs) || this.retryMinDelayMs < 0) {
+      throw new Error("retryMinDelayMs must be a non-negative integer");
+    }
+    if (!Number.isInteger(this.retryMaxDelayMs) || this.retryMaxDelayMs < 0) {
+      throw new Error("retryMaxDelayMs must be a non-negative integer");
+    }
+    if (this.retryMinDelayMs > this.retryMaxDelayMs) {
+      throw new Error("retryMinDelayMs must be less than or equal to retryMaxDelayMs");
+    }
     if (!Number.isInteger(this.requestTimeoutMs) || this.requestTimeoutMs < 0) {
       throw new Error("requestTimeoutMs must be a non-negative integer");
     }
+  }
+
+  private retryDelay(): number {
+    if (this.retryMinDelayMs === this.retryMaxDelayMs) return this.retryMinDelayMs;
+    const span = this.retryMaxDelayMs - this.retryMinDelayMs;
+    return Math.min(this.retryMaxDelayMs, this.retryMinDelayMs + Math.floor(this.random() * (span + 1)));
+  }
+
+  private async withRetries<T>(label: string, run: () => Promise<T>): Promise<T> {
+    let lastError: Error | undefined;
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      try {
+        return await run();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const retryable = error instanceof RetryableOpenAIChatError;
+        if (!retryable || attempt >= this.maxRetries) break;
+        await this.sleepImpl(this.retryDelay());
+      }
+    }
+    throw lastError ?? new Error(`${label} failed`);
   }
 
   private async withRequestTimeout<T>(label: string, run: (signal?: AbortSignal) => Promise<T>, externalSignal?: AbortSignal): Promise<T> {
@@ -228,7 +270,7 @@ export class OpenAIChatProvider {
   }
 
   async listModels(): Promise<string[]> {
-    const raw = await this.withRequestTimeout("OpenAI Models request", async (signal) => {
+    const raw = await this.withRetries("OpenAI Models request", () => this.withRequestTimeout("OpenAI Models request", async (signal) => {
       let response: Response;
       try {
         response = await this.fetchImpl(`${this.baseUrl}/models`, {
@@ -240,7 +282,7 @@ export class OpenAIChatProvider {
         throw new RetryableOpenAIChatError(`OpenAI Models request transport failed (network/dns/tls/fetch): ${error instanceof Error ? error.message : String(error)}`);
       }
       return { response, raw: await readResponseBody(response) };
-    });
+    }));
     const { response } = raw;
     if (!response.ok) {
       throw new Error(providerErrorMessage("OpenAI Models request", response, raw.raw));
@@ -251,33 +293,11 @@ export class OpenAIChatProvider {
   }
 
   async chat(messages: ChatMessage[], signal?: AbortSignal): Promise<OpenAIChatResult> {
-    let lastError: Error | undefined;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
-      try {
-        return await this.chatOnce(messages, signal);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        const retryable = error instanceof RetryableOpenAIChatError;
-        if (!retryable || attempt >= this.maxRetries) break;
-        await sleep(this.retryDelayMs * Math.max(1, attempt + 1));
-      }
-    }
-    throw lastError ?? new Error("OpenAI Chat request failed");
+    return this.withRetries("OpenAI Chat request", () => this.chatOnce(messages, signal));
   }
 
   async chatStream(messages: ChatMessage[], onDelta: (delta: string) => void, signal?: AbortSignal): Promise<OpenAIChatResult> {
-    let lastError: Error | undefined;
-    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
-      try {
-        return await this.chatStreamOnce(messages, onDelta, signal);
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        const retryable = error instanceof RetryableOpenAIChatError;
-        if (!retryable || attempt >= this.maxRetries) break;
-        await sleep(this.retryDelayMs * Math.max(1, attempt + 1));
-      }
-    }
-    throw lastError ?? new Error("OpenAI Chat stream request failed");
+    return this.withRetries("OpenAI Chat stream request", () => this.chatStreamOnce(messages, onDelta, signal));
   }
 
   async chatWithTools(messages: ChatMessage[], tools: ChatToolSpec[], signal?: AbortSignal): Promise<OpenAIChatResult> {
@@ -303,7 +323,7 @@ export class OpenAIChatProvider {
         }
         const retryable = error instanceof RetryableOpenAIChatError;
         if (!retryable || attempt >= this.maxRetries) break;
-        await sleep(this.retryDelayMs * Math.max(1, attempt + 1));
+        await this.sleepImpl(this.retryDelay());
       }
     }
     throw lastError ?? new Error("OpenAI Chat request failed");

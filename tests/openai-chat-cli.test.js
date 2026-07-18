@@ -681,6 +681,65 @@ retry_delay_ms = 0
   }
 }
 
+async function testProviderDefaultsUseBoundedRetryJitter() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const delays = [];
+  const provider = new OpenAIChatProvider({
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "test",
+    model: "mock-model",
+    fetchImpl: async () => { throw new Error("offline"); },
+    sleepImpl: async (ms) => { delays.push(ms); },
+    random: () => 0,
+  });
+  assert.strictEqual(provider.maxRetries, 8);
+  assert.strictEqual(provider.retryMinDelayMs, 500);
+  assert.strictEqual(provider.retryMaxDelayMs, 1500);
+  await assert.rejects(() => provider.chat([{ role: "user", content: "hello" }]), /transport failed/);
+  assert.strictEqual(delays.length, 8);
+  assert.ok(delays.every((delay) => delay >= 500 && delay <= 1500), `unexpected delays: ${delays.join(",")}`);
+}
+
+async function testLegacyRetryDelayConfigStaysFixed() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const delays = [];
+  const provider = new OpenAIChatProvider({
+    baseUrl: "http://127.0.0.1:1/v1",
+    apiKey: "test",
+    model: "mock-model",
+    maxRetries: 2,
+    retryDelayMs: 0,
+    fetchImpl: async () => { throw new Error("offline"); },
+    sleepImpl: async (ms) => { delays.push(ms); },
+  });
+  await assert.rejects(() => provider.chat([{ role: "user", content: "hello" }]), /transport failed/);
+  assert.deepStrictEqual(delays, [0, 0]);
+}
+
+async function testListModelsRetriesTransientTransportFailures() {
+  const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
+  const delays = [];
+  let calls = 0;
+  const provider = new OpenAIChatProvider({
+    baseUrl: "http://provider.test/v1",
+    apiKey: "test",
+    model: "mock-model",
+    maxRetries: 2,
+    retryMinDelayMs: 500,
+    retryMaxDelayMs: 1500,
+    random: () => 1,
+    sleepImpl: async (ms) => { delays.push(ms); },
+    fetchImpl: async () => {
+      calls += 1;
+      if (calls < 2) throw new Error("temporary dns failure");
+      return new Response(JSON.stringify({ data: [{ id: "model-a" }] }), { status: 200, headers: { "content-type": "application/json" } });
+    },
+  });
+  assert.deepStrictEqual(await provider.listModels(), ["model-a"]);
+  assert.strictEqual(calls, 2);
+  assert.deepStrictEqual(delays, [1500]);
+}
+
 async function testTuiDryRun() {
   const result = await runCli(["tui", "--dry-run", "hello"]);
   assert.strictEqual(result.code, 0, result.stderr);
@@ -1286,6 +1345,9 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testDefaultSystemPromptKeepsShortInputsConcise();
   await testRequestTimeoutConfig();
   await testRetryConfig();
+  await testProviderDefaultsUseBoundedRetryJitter();
+  await testLegacyRetryDelayConfigStaysFixed();
+  await testListModelsRetriesTransientTransportFailures();
   await testTuiDryRun();
   await testInteractiveTuiDryRun();
   await testInteractiveTuiShowsSlashCommands();

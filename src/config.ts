@@ -17,6 +17,10 @@ export interface ProviderConfig {
   maxRetries?: number;
   retry_delay_ms?: number;
   retryDelayMs?: number;
+  retry_min_delay_ms?: number;
+  retryMinDelayMs?: number;
+  retry_max_delay_ms?: number;
+  retryMaxDelayMs?: number;
   request_timeout_ms?: number;
   requestTimeoutMs?: number;
   provider_config?: string;
