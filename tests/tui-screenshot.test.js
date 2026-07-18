@@ -121,6 +121,7 @@ async function testSlashCommandPaletteScreenshot() {
   assert.ok(snapshot.includes("▸ /help"));
   assert.ok(snapshot.includes("/provider"));
   assert.ok(snapshot.includes("/model"));
+  assert.doesNotMatch(snapshot, /╭─ Prompt/);
   assertSnapshot("slash-command-palette", snapshot);
 }
 

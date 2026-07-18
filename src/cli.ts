@@ -799,7 +799,7 @@ function compactPathForTui(cwd: string, width: number): string {
   return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }
 
-function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status: string | undefined = undefined): string {
+function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status: string | undefined = undefined, showInputPanel = true): string {
   const safeWidth = Math.max(36, width);
   const contentBudget = Math.max(4, height - 12);
   const hasPrompt = options.prompt.trim().length > 0;
@@ -834,7 +834,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   const safeInput = visibleInput(input);
   const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
   const inputText = `${safeInput.slice(0, safeCursorIndex)}█${safeInput.slice(safeCursorIndex)}`;
-  const inputPanel = framedSection("Prompt", wrapPreservingShortLine(`▌ ${inputText || "█"}`, Math.max(1, safeWidth - 4)), safeWidth);
+  const inputPanel = showInputPanel ? framedSection("Prompt", wrapPreservingShortLine(`▌ ${inputText || "█"}`, Math.max(1, safeWidth - 4)), safeWidth) : [];
   const commandLines = renderSlashCommandSuggestions(safeInput, safeWidth, slashSelection);
 
   const screen = [
@@ -842,7 +842,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
     "",
     ...(conversation.length > 0 ? [...conversation, ""] : []),
     ...(commandLines.length > 0 ? [...commandLines, ""] : []),
-    ...inputPanel,
+    ...(inputPanel.length > 0 ? inputPanel : []),
   ];
   return screen.map((line) => clip(line, safeWidth)).join("\n");
 }
@@ -1425,9 +1425,8 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     invalidate(): void {}
     render(width: number): string[] {
       const input = editor.getText();
-      const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, status)
-        .split("\n")
-        .slice(0, -3);
+      const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, status, false)
+        .split("\n");
       const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
       const lines = [
         ...body,
