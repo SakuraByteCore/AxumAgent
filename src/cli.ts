@@ -745,8 +745,8 @@ function framedSection(title: string, body: string[], width: number): string[] {
 }
 
 function compactPathForTui(cwd: string, width: number): string {
-  const parts = cwd.split(path.sep).filter(Boolean);
-  const compact = parts.length > 2 ? `…${path.sep}${parts.slice(-2).join(path.sep)}` : cwd;
+  const name = path.basename(cwd) || cwd;
+  const compact = `.${path.sep}${name}`;
   if (visibleWidth(compact) <= width) return compact;
   return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }

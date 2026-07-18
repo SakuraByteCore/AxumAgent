@@ -733,8 +733,8 @@ function framedSection(title, body, width) {
     ];
 }
 function compactPathForTui(cwd, width) {
-    const parts = cwd.split(node_path_1.default.sep).filter(Boolean);
-    const compact = parts.length > 2 ? `…${node_path_1.default.sep}${parts.slice(-2).join(node_path_1.default.sep)}` : cwd;
+    const name = node_path_1.default.basename(cwd) || cwd;
+    const compact = `.${node_path_1.default.sep}${name}`;
     if (visibleWidth(compact) <= width)
         return compact;
     return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
