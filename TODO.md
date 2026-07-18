@@ -24,7 +24,7 @@
 - [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, key-source/request previews, and HTML/Cloudflare failures.
 - [x] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
 - [x] Broaden guarded current-workspace inspection commands so TUI tool loops do not trip on routine read-only checks.
-- [x] Render TUI runtime work as auditable Activity/Commands/Files/Blocked sections with redacted/folded command output and stop repeated sandbox-denial loops quickly.
+- [x] Render TUI runtime work as auditable Activity/Commands/Files/Blocked sections with redacted/folded command output, human-readable Working timers, latest-activity status, and quick repeated-denial stops.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
 - [x] Route TUI prompt execution through the Codex-like runtime session loop instead of direct provider chat calls.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.

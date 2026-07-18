@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderHelp = renderHelp;
+exports.formatElapsedDuration = formatElapsedDuration;
 exports.runAxumCli = runAxumCli;
 const config_1 = require("./config");
 const openai_chat_1 = require("./providers/openai-chat");
@@ -826,9 +827,40 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     ];
     return screen.map((line) => clip(line, safeWidth)).join("\n");
 }
-function workingStatus(startedAt) {
-    const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
-    return `• Working (${elapsedSeconds}s • esc to interrupt)`;
+function formatElapsedDuration(elapsedMs) {
+    const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+    if (seconds < 60)
+        return `${seconds}s`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    if (minutes < 60)
+        return `${minutes}m ${remainingSeconds}s`;
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    return `${hours}h ${remainingMinutes}m`;
+}
+function latestRuntimeActivity(projection) {
+    if (!projection)
+        return undefined;
+    const lines = projection.split(/\n/g);
+    const activityIndex = lines.findIndex((line) => line.trim() === "◇ activity");
+    if (activityIndex < 0)
+        return undefined;
+    const activityLines = [];
+    for (const line of lines.slice(activityIndex + 1)) {
+        if (line.startsWith("◇ "))
+            break;
+        const trimmed = line.trim();
+        if (trimmed)
+            activityLines.push(trimmed);
+    }
+    const latest = activityLines.at(-1);
+    return latest && latest.length <= 80 ? latest : latest?.slice(0, 79).concat("…");
+}
+function workingStatus(startedAt, projection) {
+    const elapsed = formatElapsedDuration(Date.now() - startedAt);
+    const activity = latestRuntimeActivity(projection);
+    return `• Working (${elapsed}${activity ? ` · ${activity}` : ""} • esc to interrupt)`;
 }
 function uniqueModels(models) {
     const seen = new Set();
@@ -1472,16 +1504,17 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
         editor.disableSubmit = true;
         activeRequestController = new AbortController();
         const startedAt = Date.now();
-        status = workingStatus(startedAt);
+        status = workingStatus(startedAt, latestRuntimeProjection);
         requestRender();
         const timer = setInterval(() => {
-            status = workingStatus(startedAt);
+            status = workingStatus(startedAt, latestRuntimeProjection);
             requestRender();
         }, 250);
         try {
             const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed) => {
                 answer = streamed;
                 latestRuntimeProjection = streamed;
+                status = workingStatus(startedAt, latestRuntimeProjection);
                 requestRender();
             }, activeRequestController.signal);
             const wasCancelled = activeRequestController.signal.aborted;
@@ -1635,10 +1668,14 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
         }
         else {
             const startedAt = Date.now();
-            repaint(nextOptions, workingStatus(startedAt));
-            const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt)), 250);
+            let latestProjection = "";
+            repaint(nextOptions, workingStatus(startedAt, latestProjection));
+            const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt, latestProjection)), 250);
             try {
-                const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed) => repaint(nextOptions, streamed));
+                const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed) => {
+                    latestProjection = streamed;
+                    repaint(nextOptions, `${streamed}\n${workingStatus(startedAt, latestProjection)}`);
+                });
                 lastExitCode = result.exitCode;
                 repaint(nextOptions, result.answer);
             }

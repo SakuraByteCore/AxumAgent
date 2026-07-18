@@ -908,14 +908,23 @@ retry_delay_ms = 0
   try {
     const result = await runCli(["tui", "--config", cfg.file], {}, "hello timer\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
-    assert.match(result.stdout, /• Working \(0s • esc to interrupt\)/);
-    assert.match(result.stdout, /• Working \(1s • esc to interrupt\)/);
+    assert.match(result.stdout, /• Working \(0s(?: · [^)]+)? • esc to interrupt\)/);
+    assert.match(result.stdout, /• Working \(1s(?: · [^)]+)? • esc to interrupt\)/);
     assert.match(result.stdout, /mock answer/);
     assert.ok(requests.at(-1).body.tools.some((tool) => tool.function.name === "read"));
   } finally {
     server.close();
     fs.rmSync(cfg.dir, { recursive: true, force: true });
   }
+}
+
+async function testWorkingTimerFormatsLongDurations() {
+  const { formatElapsedDuration } = require("../dist/cli.js");
+  assert.strictEqual(formatElapsedDuration(0), "0s");
+  assert.strictEqual(formatElapsedDuration(59_999), "59s");
+  assert.strictEqual(formatElapsedDuration(60_000), "1m 0s");
+  assert.strictEqual(formatElapsedDuration(329_000), "5m 29s");
+  assert.strictEqual(formatElapsedDuration(3_840_000), "1h 4m");
 }
 
 async function testMissingKey() {
@@ -1287,6 +1296,7 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testTuiFetchesFirstModelWhenConfigOmitsModel();
   await testTuiFetchesModelListEvenWhenConfigHasModel();
   await testInteractiveTuiWorkingTimer();
+  await testWorkingTimerFormatsLongDurations();
   await testMissingKey();
   await testKiloStyleModesList();
   await testWorkflowDryRunUsesPiRuntimeShape();
