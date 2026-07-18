@@ -1038,6 +1038,18 @@ async function testRuntimeToolExecutorsHonorGates() {
     assert.strictEqual(shellLikeExec.ok, true);
     assert.strictEqual(shellLikeExec.result.stdout.trim(), "split-safe");
 
+    const findResult = await runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "find . -name sample.ts" });
+    assert.strictEqual(findResult.ok, true);
+    assert.match(findResult.result.stdout, /src\/sample\.ts/);
+    await assert.rejects(
+      () => runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "find / -name sample.ts" }),
+      /find path escapes project sandbox/,
+    );
+    await assert.rejects(
+      () => runSafeExec({ cwd: dir, allowedTools: ["safe_exec"] }, { command: "find . -delete" }),
+      /find action not allowed/,
+    );
+
     assert.throws(() => runPreciseEdit({ cwd: dir, allowedTools: ["read"] }, { file: "src/sample.ts", oldText: "return 2;", newText: "return 3;" }), /tool not allowed/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

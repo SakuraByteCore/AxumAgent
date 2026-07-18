@@ -92,8 +92,9 @@ export function runPreciseEdit(gate: AxumToolGate, request: PreciseEditRequest):
 export async function runSafeExec(gate: AxumToolGate, request: SafeExecRequest): Promise<AxumToolResult<{ stdout: string; stderr: string }>> {
   assertToolAllowed(gate, "safe_exec");
   const parsed = normalizeSafeExecRequest(request);
-  const allowed = gate.allowedCommands ?? ["npm", "node", "npx", "git", "pwd", "ls"];
+  const allowed = gate.allowedCommands ?? ["npm", "node", "npx", "git", "pwd", "ls", "find"];
   if (!allowed.includes(parsed.command)) throw new Error(`command not allowed by safe_exec sandbox: ${parsed.command}`);
+  validateSafeExecArgs(parsed.command, parsed.args);
   const { stdout, stderr } = await execFileAsync(parsed.command, parsed.args, {
     cwd: path.resolve(gate.cwd),
     timeout: gate.timeoutMs ?? 120_000,
@@ -113,6 +114,25 @@ function normalizeSafeExecRequest(request: SafeExecRequest): { command: string; 
   if (request.args && request.args.length > 0) return { command, args: request.args };
   const parts = splitCommandLine(command);
   return { command: parts[0] ?? command, args: parts.slice(1) };
+}
+
+function validateSafeExecArgs(command: string, args: string[]): void {
+  if (command === "find") {
+    const denied = new Set(["-delete", "-exec", "-execdir", "-ok", "-okdir"]);
+    for (const arg of args) {
+      if (denied.has(arg)) throw new Error(`find action not allowed by safe_exec sandbox: ${arg}`);
+      if (arg.startsWith("/") || arg === ".." || arg.startsWith("../") || arg.includes("/../")) {
+        throw new Error(`find path escapes project sandbox: ${arg}`);
+      }
+    }
+  }
+  if (command === "ls") {
+    for (const arg of args) {
+      if (arg.startsWith("/") || arg === ".." || arg.startsWith("../") || arg.includes("/../")) {
+        throw new Error(`ls path escapes project sandbox: ${arg}`);
+      }
+    }
+  }
 }
 
 function splitCommandLine(command: string): string[] {
