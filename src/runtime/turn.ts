@@ -43,7 +43,7 @@ export function runtimeToolSpecs(allowedTools: string[]): ChatToolSpec[] {
       function: {
         name: "read",
         description: "Read a project file within the current workspace sandbox.",
-        parameters: { type: "object", properties: { file: { type: "string" } }, required: ["file"] },
+        parameters: { type: "object", properties: { file: { type: "string" }, description: { type: "string" }, intent: { type: "string" } }, required: ["file"] },
       },
     },
     lsp_symbols: {
@@ -51,7 +51,7 @@ export function runtimeToolSpecs(allowedTools: string[]): ChatToolSpec[] {
       function: {
         name: "lsp_symbols",
         description: "List TypeScript symbols by optional query before editing.",
-        parameters: { type: "object", properties: { query: { type: "string" }, files: { type: "array", items: { type: "string" } } } },
+        parameters: { type: "object", properties: { query: { type: "string" }, files: { type: "array", items: { type: "string" } }, description: { type: "string" }, intent: { type: "string" } } },
       },
     },
     precise_edit: {
@@ -61,7 +61,7 @@ export function runtimeToolSpecs(allowedTools: string[]): ChatToolSpec[] {
         description: "Replace one unique text range in a project file, optionally guarded by an expected sha256 hash.",
         parameters: {
           type: "object",
-          properties: { file: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, expectedHash: { type: "string" } },
+          properties: { file: { type: "string" }, oldText: { type: "string" }, newText: { type: "string" }, expectedHash: { type: "string" }, description: { type: "string" }, intent: { type: "string" } },
           required: ["file", "oldText", "newText"],
         },
       },
@@ -71,7 +71,7 @@ export function runtimeToolSpecs(allowedTools: string[]): ChatToolSpec[] {
       function: {
         name: "safe_exec",
         description: "Run an allowlisted project command with timeout inside the workspace. Common read-only inspection commands include pwd, ls, find, grep, cat, sed, head, tail, wc, and read-only git subcommands.",
-        parameters: { type: "object", properties: { command: { type: "string" }, args: { type: "array", items: { type: "string" } } }, required: ["command"] },
+        parameters: { type: "object", properties: { command: { type: "string" }, args: { type: "array", items: { type: "string" } }, description: { type: "string" }, intent: { type: "string" } }, required: ["command"] },
       },
     },
   };
