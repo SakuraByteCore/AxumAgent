@@ -848,8 +848,31 @@ async function testParallelDryRunPlansSubAgents() {
   assert.match(result.stdout, /coordinator main-agent · refactor core workflow/);
   assert.match(result.stdout, /✓ 2 sub-agents planned/);
   assert.match(result.stdout, /agent-1 \[build\] inspect runtime/);
-  assert.match(result.stdout, /merge policy · hash-anchor-review/);
+  assert.match(result.stdout, /merge policy · hash-anchor-review · review pending/);
   assert.doesNotMatch(result.stdout, /◆ checkpoint/);
+}
+
+async function testParallelStateModelTracksChildTasksAndMergeReview() {
+  const { buildSwarmPlan, transitionChildTask } = require("../dist/runtime/pi-workflow.js");
+  const plan = buildSwarmPlan("refactor runtime", ["inspect protocol", "inspect tools"], { mode: "debug", cwd: __dirname });
+
+  assert.strictEqual(plan.tasks.length, 2);
+  assert.deepStrictEqual(plan.tasks.map((task) => task.status), ["planned", "planned"]);
+  assert.ok(plan.tasks.every((task) => task.createdAt === plan.createdAt));
+  assert.deepStrictEqual(plan.mergeReview, {
+    status: "pending",
+    policy: "hash-anchor-review",
+    taskIds: ["agent-1", "agent-2"],
+  });
+
+  const running = transitionChildTask(plan.tasks[0], "running", { at: "2026-07-18T05:00:00.000Z" });
+  assert.strictEqual(running.status, "running");
+  assert.strictEqual(running.startedAt, "2026-07-18T05:00:00.000Z");
+
+  const failed = transitionChildTask(running, "failed", { error: "merge conflict", at: "2026-07-18T05:01:00.000Z" });
+  assert.strictEqual(failed.status, "failed");
+  assert.strictEqual(failed.error, "merge conflict");
+  assert.strictEqual(failed.completedAt, "2026-07-18T05:01:00.000Z");
 }
 
 async function testProviderSafetyGuardExportsCorrections() {
@@ -1036,6 +1059,7 @@ async function testCodexLikeRuntimeLoopsThroughToolCalls() {
   await testKiloStyleModesList();
   await testWorkflowDryRunUsesPiRuntimeShape();
   await testParallelDryRunPlansSubAgents();
+  await testParallelStateModelTracksChildTasksAndMergeReview();
   await testProviderSafetyGuardExportsCorrections();
   await testRuntimeToolExecutorsHonorGates();
   await testLineTuiParallelSlashCommandPlansSwarm();

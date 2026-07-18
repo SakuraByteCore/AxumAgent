@@ -131,7 +131,7 @@ Useful environment variables:
 
 ## Safety boundary
 
-This is still an early CLI/provider slice, not a hardened autonomous agent runtime. The next hardening step is to add explicit session/event/tool-loop semantics before expanding file or shell tools.
+This is still an early CLI/provider/runtime slice, not a hardened autonomous agent runtime. The session/event/tool-loop path now exists, and `axum parallel` has a pi-style child-task state model plus merge-review metadata, but managed child-agent execution is not enabled yet. The next hardening step is to connect queued/running child tasks to isolated execution, cancellation, failure handling, and merge review without letting the TUI state become the source of truth.
 
 ## Release checklist
 

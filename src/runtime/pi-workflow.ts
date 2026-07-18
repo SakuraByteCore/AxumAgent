@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { findMode, type AxumShellMode } from "../shell/kilo-shell";
 import type { AxumConfig } from "../config";
+import type { AxumChildTask, AxumChildTaskStatus, AxumMergeReview } from "./protocol";
 
 export type AxumWorkflowPhase = "received" | "plan" | "execute" | "auto-fix" | "permission-gated" | "ready";
 export type AxumWorkflowStage = "plan" | "execute";
@@ -48,12 +49,7 @@ export interface AxumWorkflowPlan {
   events: AxumWorkflowEvent[];
 }
 
-export interface AxumParallelTask {
-  id: string;
-  prompt: string;
-  mode: string;
-  status: "planned";
-}
+export type AxumParallelTask = AxumChildTask;
 
 export interface AxumSwarmPlan {
   prompt: string;
@@ -61,6 +57,7 @@ export interface AxumSwarmPlan {
   coordinator: "main-agent";
   tasks: AxumParallelTask[];
   mergePolicy: "hash-anchor-review";
+  mergeReview: AxumMergeReview;
   createdAt: string;
 }
 
@@ -130,18 +127,38 @@ export function buildSwarmPlan(prompt: string, tasks: string[], options: { mode?
   if (!trimmedPrompt) throw new Error("parallel prompt is required");
   const normalizedTasks = tasks.map((task) => task.trim()).filter(Boolean);
   if (normalizedTasks.length === 0) throw new Error("parallel requires at least one --task");
+  const createdAt = new Date().toISOString();
+  const plannedTasks = normalizedTasks.map((task, index) => ({
+    id: `agent-${index + 1}`,
+    prompt: task,
+    mode: options.mode || "build",
+    status: "planned" as const,
+    createdAt,
+  }));
   return {
     prompt: trimmedPrompt,
     stateDir: resolveProjectStateDir(options.cwd),
     coordinator: "main-agent",
-    tasks: normalizedTasks.map((task, index) => ({
-      id: `agent-${index + 1}`,
-      prompt: task,
-      mode: options.mode || "build",
-      status: "planned",
-    })),
+    tasks: plannedTasks,
     mergePolicy: "hash-anchor-review",
-    createdAt: new Date().toISOString(),
+    mergeReview: {
+      status: "pending",
+      policy: "hash-anchor-review",
+      taskIds: plannedTasks.map((task) => task.id),
+    },
+    createdAt,
+  };
+}
+
+export function transitionChildTask(task: AxumParallelTask, status: Exclude<AxumChildTaskStatus, "planned">, details: { summary?: string; error?: string; at?: string } = {}): AxumParallelTask {
+  const at = details.at ?? new Date().toISOString();
+  return {
+    ...task,
+    status,
+    ...(status === "running" && !task.startedAt ? { startedAt: at } : {}),
+    ...(["succeeded", "failed", "cancelled"].includes(status) ? { completedAt: at } : {}),
+    ...(details.summary ? { summary: details.summary } : {}),
+    ...(details.error ? { error: details.error } : {}),
   };
 }
 
@@ -196,7 +213,7 @@ export function renderSwarmPlan(plan: AxumSwarmPlan, checkpointPath?: string): s
     `  ✓ ${plan.tasks.length} sub-agents planned`,
   ];
   for (const task of plan.tasks) lines.push(`  ├─ ${task.id} [${task.mode}] ${task.prompt}`);
-  lines.push(`  ✓ merge policy · ${plan.mergePolicy}`);
+  lines.push(`  ✓ merge policy · ${plan.mergePolicy} · review ${plan.mergeReview.status}`);
   if (checkpointPath) lines.push(`  ◆ checkpoint ${checkpointPath}`);
   return lines.join("\n");
 }

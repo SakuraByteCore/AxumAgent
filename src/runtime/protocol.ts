@@ -1,8 +1,17 @@
 export type AxumSubmissionOp = "user_input" | "tool_output" | "cancel";
+export type AxumChildTaskStatus = "planned" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
 export type AxumEventKind =
   | "session_configured"
   | "turn_started"
   | "context_captured"
+  | "child_task_planned"
+  | "child_task_queued"
+  | "child_task_started"
+  | "child_task_completed"
+  | "child_task_failed"
+  | "child_task_cancelled"
+  | "merge_review_started"
+  | "merge_review_completed"
   | "model_sampling_started"
   | "assistant_message"
   | "tool_call_requested"
@@ -47,6 +56,25 @@ export interface AxumRuntimeToolOutput {
   name: string;
   ok: boolean;
   content: string;
+}
+
+export interface AxumChildTask {
+  id: string;
+  prompt: string;
+  mode: string;
+  status: AxumChildTaskStatus;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  summary?: string;
+  error?: string;
+}
+
+export interface AxumMergeReview {
+  status: "pending" | "running" | "accepted" | "changes_requested" | "failed";
+  policy: "hash-anchor-review";
+  taskIds: string[];
+  summary?: string;
 }
 
 export interface AxumTurnResult {

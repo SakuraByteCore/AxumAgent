@@ -7,6 +7,7 @@ exports.resolveProjectStateDir = resolveProjectStateDir;
 exports.createHashAnchor = createHashAnchor;
 exports.buildWorkflowPlan = buildWorkflowPlan;
 exports.buildSwarmPlan = buildSwarmPlan;
+exports.transitionChildTask = transitionChildTask;
 exports.persistWorkflowPlan = persistWorkflowPlan;
 exports.persistSwarmPlan = persistSwarmPlan;
 exports.renderWorkflowPlan = renderWorkflowPlan;
@@ -78,18 +79,37 @@ function buildSwarmPlan(prompt, tasks, options = {}) {
     const normalizedTasks = tasks.map((task) => task.trim()).filter(Boolean);
     if (normalizedTasks.length === 0)
         throw new Error("parallel requires at least one --task");
+    const createdAt = new Date().toISOString();
+    const plannedTasks = normalizedTasks.map((task, index) => ({
+        id: `agent-${index + 1}`,
+        prompt: task,
+        mode: options.mode || "build",
+        status: "planned",
+        createdAt,
+    }));
     return {
         prompt: trimmedPrompt,
         stateDir: resolveProjectStateDir(options.cwd),
         coordinator: "main-agent",
-        tasks: normalizedTasks.map((task, index) => ({
-            id: `agent-${index + 1}`,
-            prompt: task,
-            mode: options.mode || "build",
-            status: "planned",
-        })),
+        tasks: plannedTasks,
         mergePolicy: "hash-anchor-review",
-        createdAt: new Date().toISOString(),
+        mergeReview: {
+            status: "pending",
+            policy: "hash-anchor-review",
+            taskIds: plannedTasks.map((task) => task.id),
+        },
+        createdAt,
+    };
+}
+function transitionChildTask(task, status, details = {}) {
+    const at = details.at ?? new Date().toISOString();
+    return {
+        ...task,
+        status,
+        ...(status === "running" && !task.startedAt ? { startedAt: at } : {}),
+        ...(["succeeded", "failed", "cancelled"].includes(status) ? { completedAt: at } : {}),
+        ...(details.summary ? { summary: details.summary } : {}),
+        ...(details.error ? { error: details.error } : {}),
     };
 }
 function persistWorkflowPlan(plan) {
@@ -143,7 +163,7 @@ function renderSwarmPlan(plan, checkpointPath) {
     ];
     for (const task of plan.tasks)
         lines.push(`  ├─ ${task.id} [${task.mode}] ${task.prompt}`);
-    lines.push(`  ✓ merge policy · ${plan.mergePolicy}`);
+    lines.push(`  ✓ merge policy · ${plan.mergePolicy} · review ${plan.mergeReview.status}`);
     if (checkpointPath)
         lines.push(`  ◆ checkpoint ${checkpointPath}`);
     return lines.join("\n");

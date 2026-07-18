@@ -8,6 +8,7 @@ Work added:
 - Added permission-gated runtime executors for precise local edits, safe allowlisted commands, and lightweight TypeScript symbol lookup.
 - Added `axum parallel` as the first swarm/sub-agent planning surface, persisting planned fan-out tasks with a hash-anchor merge policy.
 - Added TUI `/parallel <goal> :: <task> | <task>` so the interactive shell can plan swarm fan-out without leaving the session.
+- Added pi-style child-task statuses and merge-review metadata so future managed swarm execution has runtime-owned state instead of TUI-owned strings.
 - Added provider-layer safety guard helpers that correct unsupported message/tool-call shapes before OpenAI-compatible transport.
 - Replaced the fake workflow-only execution path with a Codex-like TypeScript runtime split into protocol, event bus, session, turn loop, and tool-runner layers.
 - Routed `axum chat` through the runtime session so model sampling can request gated tools, feed tool output back into the next sampling request, and emit turn lifecycle events.
