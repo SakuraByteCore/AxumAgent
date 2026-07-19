@@ -16,7 +16,8 @@ Work added:
 - Wired normal Ratatui prompt submissions into the Rust provider chat path and render assistant/error rows back into the transcript; streaming deltas remain a follow-up.
 - Wired Rust `ToolSandbox` into the OpenAI-compatible provider loop: `read`, `precise_edit`, and `safe_exec` are advertised as tools, provider `tool_calls` are executed through the sandbox, and tool results are returned to the model for a follow-up completion.
 - Added a Pi-style Plan/Now/Evidence/Result/Next/Issues trace around Rust provider/tool turns, exposed in JSON chat output and TUI transcript when `/tasks` is active.
-- Added the first streamed provider-turn slice: `axum chat --stream` uses OpenAI-compatible SSE parsing for content deltas and writes deltas directly to stdout; streamed tool calls/TUI incremental rendering remain follow-ups.
+- Added the first streamed provider-turn slice: `axum chat --stream` uses OpenAI-compatible SSE parsing for content deltas and writes deltas directly to stdout.
+- Wired the Rust TUI to reuse streamed provider turns when launched with `--stream`, recording the assembled streamed assistant text and trace into the transcript; true in-frame incremental redraw and streamed tool calls remain follow-ups.
 
 Validation:
 - `npm run build` passes.
@@ -24,7 +25,7 @@ Validation:
 - `npm run pack:dry` passes.
 - `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust crate after Phase5 auto-policy wiring.
 - Rust TUI dry-run smoke renders expected header, command suggestions, and input line; provider response extraction is covered by unit test.
-- Rust tool sandbox unit tests cover operator rejection, read-only git gating, workspace containment, precise edit, allowed `cat` execution, provider tool-call dispatch through sandbox tools, Pi-style trace rendering, and OpenAI SSE delta parsing.
+- Rust tool sandbox unit tests cover operator rejection, read-only git gating, workspace containment, precise edit, allowed `cat` execution, provider tool-call dispatch through sandbox tools, Pi-style trace rendering, OpenAI SSE delta parsing, and TUI stream flag rendering.
 
 ## 2026-07-17
 

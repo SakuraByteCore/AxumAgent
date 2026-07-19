@@ -1048,7 +1048,7 @@ async fn run_tui(
 ) -> Result<i32> {
     let provider = resolve_provider(config_path, provider_id, Some(&args.chat))?;
     let prompt = args.chat.prompt.join(" ");
-    let mut state = TuiState::new(provider, args.chat.mode);
+    let mut state = TuiState::new(provider, args.chat.mode, args.chat.stream);
     if !prompt.trim().is_empty() {
         state.input = prompt;
         state.cursor = state.input.len();
@@ -1080,10 +1080,11 @@ struct TuiState {
     status: String,
     show_tasks: bool,
     show_commands: bool,
+    stream: bool,
 }
 
 impl TuiState {
-    fn new(provider: ResolvedProvider, mode: AgentMode) -> Self {
+    fn new(provider: ResolvedProvider, mode: AgentMode, stream: bool) -> Self {
         Self {
             provider,
             mode,
@@ -1097,6 +1098,7 @@ impl TuiState {
             status: "Working idle · /help for commands".to_owned(),
             show_tasks: false,
             show_commands: false,
+            stream,
         }
     }
 
@@ -1244,7 +1246,12 @@ fn command_suggestions(input: &str) -> Vec<String> {
 fn render_tui_snapshot(state: &TuiState, width: usize) -> String {
     let mut lines = vec![
         format!("AxumAgent v0.1.0 · mode {}", state.mode),
-        format!("{} · {}", state.provider.model, state.provider.id),
+        format!(
+            "{} · {} · stream {}",
+            state.provider.model,
+            state.provider.id,
+            if state.stream { "on" } else { "off" }
+        ),
         "".to_owned(),
     ];
     lines.extend(state.transcript.iter().cloned());
@@ -1310,7 +1317,12 @@ fn draw_tui(frame: &mut ratatui::Frame<'_>, state: &TuiState) {
             Span::styled("AxumAgent", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(format!(" v0.1.0 · mode {}", state.mode)),
         ]),
-        Line::from(format!("{} · {}", state.provider.model, state.provider.id)),
+        Line::from(format!(
+            "{} · {} · stream {}",
+            state.provider.model,
+            state.provider.id,
+            if state.stream { "on" } else { "off" }
+        )),
     ])
     .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(header, chunks[0]);
@@ -1480,19 +1492,53 @@ async fn submit_tui_input(state: &mut TuiState) -> Result<bool> {
         state.status = "unknown command".to_owned();
         state.show_commands = true;
     } else {
-        state.status = "provider call running".to_owned();
-        match chat_completion_with_trace(&state.provider, state.mode, None, None, &input).await {
-            Ok((response, trace)) => {
-                let text = assistant_text(&response);
-                state.transcript.push(format!("assistant · {text}"));
-                if state.show_tasks {
-                    state.transcript.push(trace.render());
+        state.status = if state.stream {
+            "provider stream running".to_owned()
+        } else {
+            "provider call running".to_owned()
+        };
+        if state.stream {
+            let mut text = String::new();
+            match stream_chat_completion_text(
+                &state.provider,
+                state.mode,
+                None,
+                None,
+                &input,
+                |delta| {
+                    text.push_str(delta);
+                    Ok(())
+                },
+            )
+            .await
+            {
+                Ok(trace) => {
+                    state.transcript.push(format!("assistant · {text}"));
+                    if state.show_tasks {
+                        state.transcript.push(trace.render());
+                    }
+                    state.status = "provider stream rendered".to_owned();
                 }
-                state.status = "provider response rendered".to_owned();
+                Err(error) => {
+                    state.transcript.push(format!("error · {error}"));
+                    state.status = "provider stream failed".to_owned();
+                }
             }
-            Err(error) => {
-                state.transcript.push(format!("error · {error}"));
-                state.status = "provider call failed".to_owned();
+        } else {
+            match chat_completion_with_trace(&state.provider, state.mode, None, None, &input).await
+            {
+                Ok((response, trace)) => {
+                    let text = assistant_text(&response);
+                    state.transcript.push(format!("assistant · {text}"));
+                    if state.show_tasks {
+                        state.transcript.push(trace.render());
+                    }
+                    state.status = "provider response rendered".to_owned();
+                }
+                Err(error) => {
+                    state.transcript.push(format!("error · {error}"));
+                    state.status = "provider call failed".to_owned();
+                }
             }
         }
     }
@@ -1801,7 +1847,7 @@ mod tests {
             retry_max_delay_ms: 1,
             request_timeout_ms: 1,
         };
-        let mut state = TuiState::new(provider, AgentMode::Code);
+        let mut state = TuiState::new(provider, AgentMode::Code, false);
         state.insert_text("abc");
         state.move_left();
         state.kill_line();
@@ -1829,10 +1875,11 @@ mod tests {
             retry_max_delay_ms: 1,
             request_timeout_ms: 1,
         };
-        let mut state = TuiState::new(provider, AgentMode::Plan);
+        let mut state = TuiState::new(provider, AgentMode::Plan, true);
         state.input = "/m".to_owned();
         let snapshot = render_tui_snapshot(&state, 90);
         assert!(snapshot.contains("AxumAgent v0.1.0 · mode plan"));
+        assert!(snapshot.contains("stream on"));
         assert!(snapshot.contains("/model"));
         assert!(snapshot.contains("› /m"));
     }
