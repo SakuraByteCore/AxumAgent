@@ -666,44 +666,148 @@ where
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
     let mut bytes = 0usize;
+    let mut tool_calls = StreamToolCallAccumulator::default();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         buffer.push_str(&String::from_utf8_lossy(&chunk));
         while let Some(pos) = buffer.find('\n') {
             let line = buffer[..pos].trim_end_matches('\r').to_owned();
             buffer.drain(..=pos);
-            if let Some(delta) = parse_sse_content_delta(&line) {
-                bytes += delta.len();
-                on_delta(&delta)?;
+            if let Some(delta) = parse_sse_delta(&line) {
+                if let Some(content) = delta.content {
+                    bytes += content.len();
+                    on_delta(&content)?;
+                }
+                tool_calls.push(delta.tool_calls);
             }
         }
     }
-    if let Some(delta) = parse_sse_content_delta(buffer.trim_end_matches('\r')) {
-        bytes += delta.len();
-        on_delta(&delta)?;
+    if let Some(delta) = parse_sse_delta(buffer.trim_end_matches('\r')) {
+        if let Some(content) = delta.content {
+            bytes += content.len();
+            on_delta(&content)?;
+        }
+        tool_calls.push(delta.tool_calls);
     }
     trace
         .evidence
         .push(format!("streamed_content_bytes={bytes}"));
-    trace
-        .result
-        .push("assistant stream completed without local tool calls".to_owned());
+    let assembled_tool_calls = tool_calls.finish();
+    if assembled_tool_calls.is_empty() {
+        trace
+            .result
+            .push("assistant stream completed without local tool calls".to_owned());
+    } else {
+        trace.evidence.push(format!(
+            "streamed_tool_calls={}",
+            assembled_tool_calls.len()
+        ));
+        trace
+            .issues
+            .push("streamed tool-call execution is not wired yet; rerun without --stream for tool execution".to_owned());
+        trace
+            .result
+            .push("assistant stream completed with deferred tool calls".to_owned());
+    }
     trace
         .next
         .push("wire streamed deltas into Ratatui transcript".to_owned());
     Ok(trace)
 }
 
-fn parse_sse_content_delta(line: &str) -> Option<String> {
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct StreamDelta {
+    content: Option<String>,
+    tool_calls: Vec<StreamToolCallChunk>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct StreamToolCallChunk {
+    index: usize,
+    id: Option<String>,
+    name: Option<String>,
+    arguments: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct AssembledToolCall {
+    id: Option<String>,
+    name: Option<String>,
+    arguments: String,
+}
+
+#[derive(Debug, Default)]
+struct StreamToolCallAccumulator {
+    calls: BTreeMap<usize, AssembledToolCall>,
+}
+
+impl StreamToolCallAccumulator {
+    fn push(&mut self, chunks: Vec<StreamToolCallChunk>) {
+        for chunk in chunks {
+            let call = self.calls.entry(chunk.index).or_default();
+            if chunk.id.is_some() {
+                call.id = chunk.id;
+            }
+            if chunk.name.is_some() {
+                call.name = chunk.name;
+            }
+            call.arguments.push_str(&chunk.arguments);
+        }
+    }
+
+    fn finish(self) -> Vec<AssembledToolCall> {
+        self.calls.into_values().collect()
+    }
+}
+
+fn parse_sse_delta(line: &str) -> Option<StreamDelta> {
     let data = line.trim().strip_prefix("data:")?.trim();
     if data.is_empty() || data == "[DONE]" {
         return None;
     }
     let value: serde_json::Value = serde_json::from_str(data).ok()?;
-    value
-        .pointer("/choices/0/delta/content")
+    let choice = value.pointer("/choices/0")?;
+    let content = choice
+        .pointer("/delta/content")
         .and_then(|value| value.as_str())
-        .map(str::to_owned)
+        .map(str::to_owned);
+    let tool_calls = choice
+        .pointer("/delta/tool_calls")
+        .and_then(|value| value.as_array())
+        .map(|calls| {
+            calls
+                .iter()
+                .map(|call| StreamToolCallChunk {
+                    index: call
+                        .get("index")
+                        .and_then(|value| value.as_u64())
+                        .unwrap_or(0) as usize,
+                    id: call
+                        .get("id")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_owned),
+                    name: call
+                        .pointer("/function/name")
+                        .and_then(|value| value.as_str())
+                        .map(str::to_owned),
+                    arguments: call
+                        .pointer("/function/arguments")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .to_owned(),
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    Some(StreamDelta {
+        content,
+        tool_calls,
+    })
+}
+
+#[cfg(test)]
+fn parse_sse_content_delta(line: &str) -> Option<String> {
+    parse_sse_delta(line).and_then(|delta| delta.content)
 }
 
 async fn chat_completion_with_trace(
@@ -1766,6 +1870,20 @@ mod tests {
         assert_eq!(parse_sse_content_delta(line).as_deref(), Some("hel"));
         assert_eq!(parse_sse_content_delta("data: [DONE]"), None);
         assert_eq!(parse_sse_content_delta(": ping"), None);
+    }
+
+    #[test]
+    fn assembles_streamed_tool_call_deltas() {
+        let first = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read","arguments":"{\"pa"}}]}}]}"#;
+        let second = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"README.md\"}"}}]}}]}"#;
+        let mut accumulator = StreamToolCallAccumulator::default();
+        accumulator.push(parse_sse_delta(first).unwrap().tool_calls);
+        accumulator.push(parse_sse_delta(second).unwrap().tool_calls);
+        let calls = accumulator.finish();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(calls[0].name.as_deref(), Some("read"));
+        assert_eq!(calls[0].arguments, r#"{"path":"README.md"}"#);
     }
 
     #[test]
