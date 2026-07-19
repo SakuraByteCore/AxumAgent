@@ -30,7 +30,8 @@
 - [x] Continue KiloCode-aligned rewrite by moving slash command registry and provider/model picker out of `src/cli.ts`.
 - [x] Start Rust/clap migration with Phase1 config/provider/init/chat/doctor/providers/modes/workflow/run command surface.
 - [x] Phase2 first slice: add Rust Ratatui TUI frame with session header, transcript, command suggestions, input editor, history, cursor movement, paste/text insertion, Ctrl-Z undo, Ctrl-K/Ctrl-U kill-ring behavior, `/tasks`, `/providers`, `/provider`, `/model`, and `/mode` command handling.
-- [ ] Phase2 follow-up: wire streamed provider turns into the Ratatui transcript and finish full KiloCode-level polish beyond the first working TUI slice.
+- [x] Phase2 follow-up first slice: route normal Ratatui prompt submissions through the Rust provider chat path and render assistant/error rows back into the transcript.
+- [ ] Phase2 follow-up: add streamed provider deltas and finish full KiloCode-level polish beyond the first working TUI slice.
 - [x] Phase3 first slice: add Rust `ToolSandbox` with workspace path containment, `read`, exact-once `precise_edit`, and `safe_exec` allowlist for `pwd`, `ls`, `find`, `grep`, `cat`, `sed`, `head`, `tail`, `wc`, and read-only `git` subcommands while rejecting shell operators.
 - [ ] Phase3 follow-up: wire Rust `ToolSandbox` into real provider tool turns and complete the Pi-style Plan/Now/Evidence/Result/Next/Issues state machine.
 - [x] Phase4 first slice: wire Code/Plan/Ask/Debug/Review into Rust `chat`, `tui`, and `run --auto` runtime prompts instead of leaving modes as display-only selection.

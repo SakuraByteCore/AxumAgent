@@ -483,6 +483,49 @@ fn is_retryable(error: &reqwest::Error) -> bool {
             .is_some_and(|s| s.is_server_error() || s == StatusCode::TOO_MANY_REQUESTS)
 }
 
+async fn chat_completion_value(
+    provider: &ResolvedProvider,
+    mode: AgentMode,
+    system: Option<&str>,
+    temperature: Option<f32>,
+    prompt: &str,
+) -> Result<serde_json::Value> {
+    let api_key = provider
+        .api_key
+        .clone()
+        .ok_or_else(|| anyhow!("provider api key missing ({})", provider.api_key_source))?;
+    let client = client(provider)?;
+    let mut messages = vec![];
+    messages.push(json!({"role":"system","content": mode_system_prompt(mode)}));
+    if let Some(system) = system {
+        messages.push(json!({"role":"system","content": system}));
+    }
+    messages.push(json!({"role":"user","content": prompt}));
+    let mut body = json!({"model": provider.model, "messages": messages});
+    if let Some(temp) = temperature {
+        body["temperature"] = json!(temp);
+    }
+    let url = format!(
+        "{}/chat/completions",
+        provider.base_url.trim_end_matches('/')
+    );
+    Ok(retrying(provider, || {
+        client.post(&url).bearer_auth(&api_key).json(&body).send()
+    })
+    .await?
+    .error_for_status()?
+    .json()
+    .await?)
+}
+
+fn assistant_text(response: &serde_json::Value) -> String {
+    response
+        .pointer("/choices/0/message/content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_owned()
+}
+
 async fn run_chat(
     config_path: Option<PathBuf>,
     provider_id: Option<String>,
@@ -493,40 +536,18 @@ async fn run_chat(
         return Err(anyhow!("chat prompt is required"));
     }
     let provider = resolve_provider(config_path, provider_id, Some(&args))?;
-    let api_key = provider
-        .api_key
-        .clone()
-        .ok_or_else(|| anyhow!("provider api key missing ({})", provider.api_key_source))?;
-    let client = client(&provider)?;
-    let mut messages = vec![];
-    messages.push(json!({"role":"system","content": mode_system_prompt(args.mode)}));
-    if let Some(system) = args.system.as_ref() {
-        messages.push(json!({"role":"system","content": system}));
-    }
-    messages.push(json!({"role":"user","content": prompt}));
-    let mut body = json!({"model": provider.model, "messages": messages});
-    if let Some(temp) = args.temperature {
-        body["temperature"] = json!(temp);
-    }
-    let url = format!(
-        "{}/chat/completions",
-        provider.base_url.trim_end_matches('/')
-    );
-    let res: serde_json::Value = retrying(&provider, || {
-        client.post(&url).bearer_auth(&api_key).json(&body).send()
-    })
-    .await?
-    .error_for_status()?
-    .json()
+    let res = chat_completion_value(
+        &provider,
+        args.mode,
+        args.system.as_deref(),
+        args.temperature,
+        &prompt,
+    )
     .await?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&res)?);
     } else {
-        let text = res
-            .pointer("/choices/0/message/content")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
-        println!("{text}");
+        println!("{}", assistant_text(&res));
     }
     Ok(0)
 }
@@ -1087,9 +1108,18 @@ async fn submit_tui_input(state: &mut TuiState) -> Result<bool> {
         state.status = "unknown command".to_owned();
         state.show_commands = true;
     } else {
-        state.status =
-            "provider call pending; use `axum chat` for noninteractive Phase2 calls".to_owned();
-        state.transcript.push("assistant · provider turn is wired through chat path; full streamed TUI turns land in Phase3".to_owned());
+        state.status = "provider call running".to_owned();
+        match chat_completion_value(&state.provider, state.mode, None, None, &input).await {
+            Ok(response) => {
+                let text = assistant_text(&response);
+                state.transcript.push(format!("assistant · {text}"));
+                state.status = "provider response rendered".to_owned();
+            }
+            Err(error) => {
+                state.transcript.push(format!("error · {error}"));
+                state.status = "provider call failed".to_owned();
+            }
+        }
     }
     Ok(false)
 }
@@ -1300,6 +1330,12 @@ mod tests {
         assert!(prompt.contains("Do not ask for interactive permission prompts"));
         assert!(prompt.contains("safe_exec only allows"));
         assert!(prompt.contains("shell operators are forbidden"));
+    }
+
+    #[test]
+    fn assistant_text_extracts_openai_message_content() {
+        let response = json!({"choices":[{"message":{"content":"hello from provider"}}]});
+        assert_eq!(assistant_text(&response), "hello from provider");
     }
 
     #[test]
