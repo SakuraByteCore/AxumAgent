@@ -20,6 +20,7 @@ use std::{
     collections::BTreeMap,
     env, fs, io,
     path::{Path, PathBuf},
+    process::Command as ProcessCommand,
     time::Duration,
 };
 use tokio::time::sleep;
@@ -595,11 +596,16 @@ fn run_modes() -> Result<i32> {
 
 fn run_workflow(args: WorkflowArgs) -> Result<i32> {
     let prompt = args.prompt.join(" ");
+    let workspace = env::current_dir()?;
+    let sandbox = ToolSandbox::new(&workspace)?;
+    let evidence = sandbox
+        .safe_exec("pwd", &[])
+        .unwrap_or_else(|error| format!("sandbox evidence unavailable: {error}"));
     println!("◇ plan\n  mode: {}\n  prompt: {}", args.mode, prompt);
-    println!("◇ now\n  Phase3 Rust workflow engine pending");
-    println!("◇ evidence\n  Rust clap command surface is active");
-    println!("◇ result\n  workflow skeleton rendered");
-    println!("◇ next\n  implement Pi-style state machine in Phase3");
+    println!("◇ now\n  Phase3 Rust workflow/tool sandbox first slice active");
+    println!("◇ evidence\n  safe_exec pwd: {}", evidence.trim());
+    println!("◇ result\n  workflow skeleton rendered with sandboxed evidence");
+    println!("◇ next\n  wire read/precise_edit/safe_exec into provider tool turns");
     println!("◇ issues\n  none");
     Ok(0)
 }
@@ -1078,6 +1084,112 @@ fn parse_agent_mode(value: &str) -> Option<AgentMode> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ToolSandbox {
+    workspace: PathBuf,
+}
+
+impl ToolSandbox {
+    pub fn new(workspace: impl Into<PathBuf>) -> Result<Self> {
+        let workspace = workspace.into();
+        let canonical = fs::canonicalize(&workspace)
+            .with_context(|| format!("resolve workspace {}", workspace.display()))?;
+        Ok(Self {
+            workspace: canonical,
+        })
+    }
+
+    pub fn resolve_workspace_path(&self, path: impl AsRef<Path>) -> Result<PathBuf> {
+        let candidate = if path.as_ref().is_absolute() {
+            path.as_ref().to_path_buf()
+        } else {
+            self.workspace.join(path)
+        };
+        let parent = candidate.parent().unwrap_or(&self.workspace);
+        let canonical_parent = fs::canonicalize(parent)
+            .with_context(|| format!("resolve parent {}", parent.display()))?;
+        if !canonical_parent.starts_with(&self.workspace) {
+            return Err(anyhow!("path escapes workspace: {}", candidate.display()));
+        }
+        Ok(canonical_parent.join(candidate.file_name().unwrap_or_default()))
+    }
+
+    pub fn read(&self, path: impl AsRef<Path>) -> Result<String> {
+        let path = self.resolve_workspace_path(path)?;
+        fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))
+    }
+
+    pub fn precise_edit(&self, path: impl AsRef<Path>, old: &str, new: &str) -> Result<()> {
+        let path = self.resolve_workspace_path(path)?;
+        let text = fs::read_to_string(&path).with_context(|| format!("read {}", path.display()))?;
+        let count = text.matches(old).count();
+        if count != 1 {
+            return Err(anyhow!(
+                "precise_edit requires exactly one match, found {count}"
+            ));
+        }
+        fs::write(&path, text.replacen(old, new, 1))
+            .with_context(|| format!("write {}", path.display()))
+    }
+
+    pub fn safe_exec(&self, program: &str, args: &[String]) -> Result<String> {
+        validate_safe_exec(program, args)?;
+        let output = ProcessCommand::new(program)
+            .args(args)
+            .current_dir(&self.workspace)
+            .output()
+            .with_context(|| format!("run {program}"))?;
+        let mut text = String::new();
+        text.push_str(&String::from_utf8_lossy(&output.stdout));
+        text.push_str(&String::from_utf8_lossy(&output.stderr));
+        if !output.status.success() {
+            return Err(anyhow!(
+                "command exited with {}: {}",
+                output.status,
+                text.trim()
+            ));
+        }
+        Ok(text)
+    }
+}
+
+pub fn validate_safe_exec(program: &str, args: &[String]) -> Result<()> {
+    let allowed = [
+        "pwd", "ls", "find", "grep", "cat", "sed", "head", "tail", "wc", "git",
+    ];
+    if !allowed.contains(&program) {
+        return Err(anyhow!("command not allowed: {program}"));
+    }
+    for token in std::iter::once(program).chain(args.iter().map(String::as_str)) {
+        if contains_shell_operator(token) {
+            return Err(anyhow!("shell operators are not allowed in safe_exec"));
+        }
+    }
+    if program == "git" {
+        let Some(subcommand) = args.first().map(String::as_str) else {
+            return Err(anyhow!("git subcommand required"));
+        };
+        let allowed_git = ["status", "diff", "log", "show", "branch", "remote"];
+        if !allowed_git.contains(&subcommand) {
+            return Err(anyhow!("git subcommand is not read-only: {subcommand}"));
+        }
+    }
+    Ok(())
+}
+
+fn contains_shell_operator(token: &str) -> bool {
+    token.contains('|')
+        || token.contains(';')
+        || token.contains('&')
+        || token.contains('<')
+        || token.contains('>')
+        || token.contains('`')
+        || token.contains('$')
+        || token.contains('\n')
+        || token.contains("&&")
+        || token.contains("||")
+}
+
 async fn run_auto(
     config_path: Option<PathBuf>,
     provider_id: Option<String>,
@@ -1184,5 +1296,51 @@ mod tests {
         assert!(snapshot.contains("AxumAgent v0.1.0 · mode plan"));
         assert!(snapshot.contains("/model"));
         assert!(snapshot.contains("› /m"));
+    }
+
+    #[test]
+    fn safe_exec_rejects_shell_operators_and_write_git() {
+        assert!(validate_safe_exec("ls", &["-la".to_owned()]).is_ok());
+        assert!(validate_safe_exec("git", &["status".to_owned(), "--short".to_owned()]).is_ok());
+        assert!(validate_safe_exec("sh", &[]).is_err());
+        assert!(validate_safe_exec("git", &["commit".to_owned()]).is_err());
+        assert!(validate_safe_exec("grep", &["foo|bar".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn sandbox_read_and_precise_edit_stay_in_workspace() {
+        let workspace = make_temp_workspace();
+        let file = workspace.join("note.txt");
+        fs::write(&file, "alpha beta gamma").unwrap();
+        let sandbox = ToolSandbox::new(&workspace).unwrap();
+        assert_eq!(sandbox.read("note.txt").unwrap(), "alpha beta gamma");
+        sandbox.precise_edit("note.txt", "beta", "BETA").unwrap();
+        assert_eq!(sandbox.read("note.txt").unwrap(), "alpha BETA gamma");
+        assert!(sandbox.read("../outside.txt").is_err());
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn sandbox_safe_exec_runs_allowed_readonly_command() {
+        let workspace = make_temp_workspace();
+        fs::write(workspace.join("note.txt"), "hello").unwrap();
+        let sandbox = ToolSandbox::new(&workspace).unwrap();
+        let output = sandbox.safe_exec("cat", &["note.txt".to_owned()]).unwrap();
+        assert_eq!(output, "hello");
+        fs::remove_dir_all(workspace).unwrap();
+    }
+
+    fn make_temp_workspace() -> PathBuf {
+        let mut path = env::temp_dir();
+        path.push(format!(
+            "axum-agent-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 }

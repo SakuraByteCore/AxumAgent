@@ -31,7 +31,8 @@
 - [x] Start Rust/clap migration with Phase1 config/provider/init/chat/doctor/providers/modes/workflow/run command surface.
 - [x] Phase2 first slice: add Rust Ratatui TUI frame with session header, transcript, command suggestions, input editor, history, cursor movement, paste/text insertion, Ctrl-Z undo, Ctrl-K/Ctrl-U kill-ring behavior, `/tasks`, `/providers`, `/provider`, `/model`, and `/mode` command handling.
 - [ ] Phase2 follow-up: wire streamed provider turns into the Ratatui transcript and finish full KiloCode-level polish beyond the first working TUI slice.
-- [ ] Phase3: port Pi-style workflow state machine and sandboxed read/precise_edit/safe_exec tool execution to Rust.
+- [x] Phase3 first slice: add Rust `ToolSandbox` with workspace path containment, `read`, exact-once `precise_edit`, and `safe_exec` allowlist for `pwd`, `ls`, `find`, `grep`, `cat`, `sed`, `head`, `tail`, `wc`, and read-only `git` subcommands while rejecting shell operators.
+- [ ] Phase3 follow-up: wire Rust `ToolSandbox` into real provider tool turns and complete the Pi-style Plan/Now/Evidence/Result/Next/Issues state machine.
 - [ ] Phase4: wire Code/Plan/Ask/Debug/Review modes through runtime behavior, not just CLI selection.
 - [ ] Phase5: complete `axum run --auto` autonomous execution with sandbox policy and CI-safe noninteractive behavior.
 - [ ] Finish KiloCode-aligned rewrite by moving or replacing the interactive TUI loop out of `src/cli.ts`.
