@@ -33,7 +33,7 @@
 - [ ] Phase2 follow-up: wire streamed provider turns into the Ratatui transcript and finish full KiloCode-level polish beyond the first working TUI slice.
 - [x] Phase3 first slice: add Rust `ToolSandbox` with workspace path containment, `read`, exact-once `precise_edit`, and `safe_exec` allowlist for `pwd`, `ls`, `find`, `grep`, `cat`, `sed`, `head`, `tail`, `wc`, and read-only `git` subcommands while rejecting shell operators.
 - [ ] Phase3 follow-up: wire Rust `ToolSandbox` into real provider tool turns and complete the Pi-style Plan/Now/Evidence/Result/Next/Issues state machine.
-- [ ] Phase4: wire Code/Plan/Ask/Debug/Review modes through runtime behavior, not just CLI selection.
+- [x] Phase4 first slice: wire Code/Plan/Ask/Debug/Review into Rust `chat`, `tui`, and `run --auto` runtime prompts instead of leaving modes as display-only selection.
 - [ ] Phase5: complete `axum run --auto` autonomous execution with sandbox policy and CI-safe noninteractive behavior.
 - [ ] Finish KiloCode-aligned rewrite by moving or replacing the interactive TUI loop out of `src/cli.ts`.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.

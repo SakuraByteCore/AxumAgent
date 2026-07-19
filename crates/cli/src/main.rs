@@ -91,6 +91,8 @@ struct ChatArgs {
     request_timeout_ms: Option<u64>,
     #[arg(long)]
     json: bool,
+    #[arg(long, value_enum, default_value_t = AgentMode::Code)]
+    mode: AgentMode,
     #[arg(value_name = "PROMPT", trailing_var_arg = true)]
     prompt: Vec<String>,
 }
@@ -103,8 +105,6 @@ struct TuiArgs {
     dry_run: bool,
     #[arg(long)]
     no_alt_screen: bool,
-    #[arg(long, value_enum, default_value_t = AgentMode::Code)]
-    mode: AgentMode,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -175,6 +175,26 @@ impl std::fmt::Display for AgentMode {
     }
 }
 
+fn mode_system_prompt(mode: AgentMode) -> &'static str {
+    match mode {
+        AgentMode::Code => {
+            "You are AxumAgent in Code mode. Implement changes directly, prefer concise execution, and validate with the smallest meaningful checks."
+        }
+        AgentMode::Plan => {
+            "You are AxumAgent in Plan mode. Produce structured plans, identify gates and risks, and do not execute code changes unless explicitly asked."
+        }
+        AgentMode::Ask => {
+            "You are AxumAgent in Ask mode. Answer questions, explain tradeoffs, and ask one blocking question only when necessary."
+        }
+        AgentMode::Debug => {
+            "You are AxumAgent in Debug mode. Reproduce failures, isolate root causes, inspect evidence, and propose or apply minimal durable fixes."
+        }
+        AgentMode::Review => {
+            "You are AxumAgent in Review mode. Audit diffs and behavior for regressions, contracts, compatibility, safety, tests, and merge readiness."
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct AxumConfig {
     provider: Option<String>,
@@ -230,11 +250,11 @@ async fn run(cli: Cli) -> Result<i32> {
             retry_max_delay_ms: None,
             request_timeout_ms: None,
             json: false,
+            mode: AgentMode::Code,
             prompt: vec![],
         },
         dry_run: false,
         no_alt_screen: false,
-        mode: AgentMode::Code,
     })) {
         Command::Init(args) => run_init(cli.config, args),
         Command::Chat(args) => run_chat(cli.config, cli.provider, args).await,
@@ -479,6 +499,7 @@ async fn run_chat(
         .ok_or_else(|| anyhow!("provider api key missing ({})", provider.api_key_source))?;
     let client = client(&provider)?;
     let mut messages = vec![];
+    messages.push(json!({"role":"system","content": mode_system_prompt(args.mode)}));
     if let Some(system) = args.system.as_ref() {
         messages.push(json!({"role":"system","content": system}));
     }
@@ -634,7 +655,7 @@ async fn run_tui(
 ) -> Result<i32> {
     let provider = resolve_provider(config_path, provider_id, Some(&args.chat))?;
     let prompt = args.chat.prompt.join(" ");
-    let mut state = TuiState::new(provider, args.mode);
+    let mut state = TuiState::new(provider, args.chat.mode);
     if !prompt.trim().is_empty() {
         state.input = prompt;
         state.cursor = state.input.len();
@@ -1212,6 +1233,7 @@ async fn run_auto(
         retry_max_delay_ms: None,
         request_timeout_ms: None,
         json: false,
+        mode: args.mode,
         prompt: args.prompt,
     };
     run_chat(config_path, provider_id, chat).await
@@ -1234,6 +1256,13 @@ mod tests {
     fn modes_render_stable_names() {
         assert_eq!(AgentMode::Code.to_string(), "code");
         assert_eq!(AgentMode::Review.to_string(), "review");
+    }
+
+    #[test]
+    fn modes_have_distinct_runtime_prompts() {
+        assert!(mode_system_prompt(AgentMode::Code).contains("Implement changes"));
+        assert!(mode_system_prompt(AgentMode::Plan).contains("do not execute code changes"));
+        assert!(mode_system_prompt(AgentMode::Review).contains("merge readiness"));
     }
 
     #[test]

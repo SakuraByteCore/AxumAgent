@@ -11,12 +11,13 @@ Work added:
 - Added Rust validation scripts to `package.json` and documented the migration shape in README/TODO.
 - Continued into Phase2 with a first Ratatui TUI slice: session header, transcript pane, status/input pane, slash command suggestions, `/tasks`, `/providers`, `/provider`, `/model`, `/mode`, history navigation, cursor movement, paste/text insertion, Ctrl-Z undo, and Ctrl-K/Ctrl-U/Ctrl-Y kill-ring behavior.
 - Continued into Phase3 with a first Rust tool sandbox slice: workspace path containment, read, exact-once precise edit, safe exec allowlist, read-only git allowlist, and shell-operator rejection; workflow skeleton now records sandboxed `pwd` evidence.
+- Continued into Phase4 with distinct Code/Plan/Ask/Debug/Review system prompts wired into Rust `chat`, `tui`, and `run --auto`, so mode selection affects runtime behavior instead of only rendering labels.
 
 Validation:
 - `npm run build` passes.
 - `npm test` passes after snapshot updates.
 - `npm run pack:dry` passes.
-- `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust crate.
+- `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust crate after Phase4 mode prompt wiring.
 - Rust TUI dry-run smoke renders expected header, command suggestions, and input line.
 - Rust tool sandbox unit tests cover operator rejection, read-only git gating, workspace containment, precise edit, and allowed `cat` execution.
 
