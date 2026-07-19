@@ -1016,8 +1016,9 @@ retry_delay_ms = 0
   try {
     const result = await runCli(["tui", "--config", cfg.file], {}, "hello timer\n/exit\n");
     assert.strictEqual(result.code, 0, result.stderr);
-    assert.match(result.stdout, /• Working \(0s(?: · [^)]+)? • esc to interrupt\)/);
-    assert.match(result.stdout, /• Working \(1s(?: · [^)]+)? • esc to interrupt\)/);
+    assert.match(result.stdout, /• Working \(0s • esc to interrupt\)/);
+    assert.match(result.stdout, /• Working \(1s • esc to interrupt\)/);
+    assert.doesNotMatch(result.stdout, /• Working \([^)]* · /);
     assert.match(result.stdout, /mock answer/);
     assert.ok(requests.at(-1).body.tools.some((tool) => tool.function.name === "read"));
   } finally {
@@ -1393,6 +1394,44 @@ async function testRuntimeDashboardRedactsSensitiveOutput() {
   assert.doesNotMatch(rendered, /aaaabbbbccccdddd/);
 }
 
+async function testTuiSummarizesRepeatedPermissionDenials() {
+  const cfg = writeConfig(`
+provider_config = "http://127.0.0.1:0/v1 test-key mock-tool-model"
+`);
+  let count = 0;
+  const server = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      if (req.method === "GET" && req.url === "/v1/models") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ data: [{ id: "mock-tool-model" }] }));
+        return;
+      }
+      count += 1;
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(`data: ${JSON.stringify({ model: "mock-tool-model", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: `call-missing-${count}`, type: "function", function: { name: "read", arguments: JSON.stringify({ file: "missing.txt" }) } }] }, finish_reason: "tool_calls" }] })}\n\n`);
+      res.end("data: [DONE]\n\n");
+    });
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  fs.writeFileSync(cfg.file, `provider_config = "http://127.0.0.1:${server.address().port}/v1 test-key mock-tool-model"\n`, "utf8");
+  try {
+    const result = await runCli(["tui", "--config", cfg.file, "try missing file"]);
+    assert.strictEqual(result.code, 1);
+    assert.match(result.stdout, /› try missing file/);
+    assert.match(result.stdout, /✗ Blocked Read missing\.txt/);
+    assert.match(result.stdout, /file not found/);
+    assert.match(result.stdout, /✗ Tool blocked after repeated denial/);
+    assert.doesNotMatch(result.stdout, /blocked by repeated tool denial: read: ENOENT/);
+    assert.doesNotMatch(result.stdout, /no such file or directory, open/);
+    assert.doesNotMatch(result.stdout, /\/data\/data\//);
+    assert.strictEqual(count, 2);
+  } finally {
+    server.close();
+    fs.rmSync(cfg.dir, { recursive: true, force: true });
+  }
+}
+
 async function testRuntimeStopsRepeatedPermissionDenials() {
   const { OpenAIChatProvider } = require("../dist/providers/openai-chat.js");
   const { AxumRuntimeSession } = require("../dist/runtime/session.js");
@@ -1472,5 +1511,6 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testRuntimeStreamsAssistantMessageDeltas();
   await testRuntimeDashboardShowsAuditableToolWork();
   await testRuntimeDashboardRedactsSensitiveOutput();
+  await testTuiSummarizesRepeatedPermissionDenials();
   await testRuntimeStopsRepeatedPermissionDenials();
 })();

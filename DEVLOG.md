@@ -19,6 +19,7 @@ Work added:
 - Reworked the TUI runtime projection into a user-facing Activity view with Plan/Now/Evidence/Result/Next/Issues sections, visible intent, evidence meaning, command/file counters, blocked-action explanations, and optional tool-call `description`/`intent` fields while keeping raw events as the audit/debug layer.
 - Added Codex-style visible assistant streaming for runtime turns: OpenAI-compatible streaming now supports tool-call deltas, the runtime emits `assistant_message_delta`, and the TUI renders assistant text as the primary live output while keeping Activity projection as the auxiliary `/tasks`/status view.
 - Reworked the default TUI runtime surface from a single Axum dashboard box into transcript-style rows: user prompts, assistant stream text, tool work, warnings, and blocked actions render as message/work cells, while the Plan/Now/Evidence Activity dashboard is kept out of the primary reply path for `/tasks`/debug use.
+- Aligned TUI runtime progress closer to Codex: user prompts now use `›`, Working status no longer pulls dashboard/activity text, tool rows use pending/success/failure markers, provider warnings and turn failures render as distinct rows, and repeated tool-denial failures summarize without exposing raw `ENOENT` paths as the final assistant answer.
 - Hardened TUI display-width helpers so clipping, wrapping, and slash-command padding use terminal cell width instead of JavaScript string length for wide/combining Unicode.
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
 - Replaced Axum's raw TUI input/cursor/history/paste implementation with the `@earendil-works/pi-tui` editor component while keeping Axum-owned slash commands and runtime dispatch.
@@ -27,6 +28,7 @@ Work added:
 Validation:
 - `npm test` passes after workflow/tool/swarm/runtime/provider-diagnostic/TUI-runtime guard changes.
 - `npm run pack:dry` passes; package dry-run includes the new `dist/runtime/events.js`, `protocol.js`, `session.js`, `tool-runner.js`, and `turn.js` files.
+- `npm test` and `npm run pack:dry` pass after the Codex-style TUI progress/error display alignment.
 
 
 ## 2026-07-13

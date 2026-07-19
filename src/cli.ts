@@ -846,7 +846,7 @@ function renderTranscriptLines(text: string, width: number): string[] {
   const inner = Math.max(1, width - 2);
   const lines = text.split(/\n/g);
   return lines.flatMap((line, index) => {
-    const prefix = index === 0 ? "• " : "  ";
+    const prefix = index === 0 ? "› " : "  ";
     return wrapPreservingShortLine(line, Math.max(1, inner - visibleWidth(prefix))).map((wrapped, wrappedIndex) => {
       const linePrefix = index === 0 && wrappedIndex === 0 ? prefix : "  ";
       return `${linePrefix}${wrapped}`;
@@ -913,25 +913,9 @@ export function formatElapsedDuration(elapsedMs: number): string {
   return `${hours}h ${remainingMinutes}m`;
 }
 
-function latestRuntimeActivity(projection: string | undefined): string | undefined {
-  if (!projection) return undefined;
-  const lines = projection.split(/\n/g);
-  const activityIndex = lines.findIndex((line) => line.trim() === "◇ activity");
-  if (activityIndex < 0) return undefined;
-  const activityLines: string[] = [];
-  for (const line of lines.slice(activityIndex + 1)) {
-    if (line.startsWith("◇ ")) break;
-    const trimmed = line.trim();
-    if (trimmed) activityLines.push(trimmed);
-  }
-  const latest = activityLines.at(-1);
-  return latest && latest.length <= 80 ? latest : latest?.slice(0, 79).concat("…");
-}
-
-function workingStatus(startedAt: number, projection?: string): string {
+function workingStatus(startedAt: number): string {
   const elapsed = formatElapsedDuration(Date.now() - startedAt);
-  const activity = latestRuntimeActivity(projection);
-  return `• Working (${elapsed}${activity ? ` · ${activity}` : ""} • esc to interrupt)`;
+  return `• Working (${elapsed} • esc to interrupt)`;
 }
 
 
@@ -1437,10 +1421,19 @@ function runtimeToolTitle(name: string, args: Record<string, unknown>): string {
   return `${name} tool`;
 }
 
+function runtimeFailureSummary(message: unknown): string {
+  const text = message instanceof Error ? message.message : String(message ?? "");
+  if (/blocked by repeated tool denial/i.test(text)) return "Tool blocked after repeated denial";
+  if (/max tool iterations/i.test(text)) return "Runtime stopped after too many tool iterations";
+  return "Runtime turn failed";
+}
+
 function runtimeToolResultSummary(content: string): string {
   const clean = redactTuiText(content).replace(/\s+/g, " ").trim();
   if (!clean) return "completed";
-  return truncateToVisibleWidth(clean, 120);
+  if (/ENOENT|no such file or directory/i.test(clean)) return "file not found";
+  if (/blocked by repeated tool denial/i.test(clean)) return "tool blocked after repeated denial";
+  return truncateToVisibleWidth(clean, 96);
 }
 
 function renderRuntimeTranscript(session: AxumRuntimeSession): string {
@@ -1466,7 +1459,7 @@ function renderRuntimeTranscript(session: AxumRuntimeSession): string {
       const title = runtimeToolTitle(name, runtimeArgs(payload));
       const lineIndex = lines.length;
       calls.set(callId, { name, title, lineIndex });
-      lines.push(`• ${title} …`);
+      lines.push(`⏳ ${title}`);
       continue;
     }
     if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
@@ -1475,8 +1468,9 @@ function renderRuntimeTranscript(session: AxumRuntimeSession): string {
       const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
       const title = call?.title ?? runtimeToolTitle(name, {});
       const content = typeof payload.content === "string" ? payload.content : "";
+      const marker = event.kind === "permission_denied" ? "✗" : "✓";
       const prefix = event.kind === "permission_denied" ? "Blocked" : "Finished";
-      const line = `• ${prefix} ${title}`;
+      const line = `${marker} ${prefix} ${title}`;
       if (call) lines[call.lineIndex] = line;
       else lines.push(line);
       if (content) lines.push(`  ${runtimeToolResultSummary(content)}`);
@@ -1484,12 +1478,12 @@ function renderRuntimeTranscript(session: AxumRuntimeSession): string {
     }
     if (event.kind === "provider_warning") {
       const message = runtimeStringField(payload, "message") ?? "provider warning";
-      lines.push(`• Warning: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
+      lines.push(`⚠ Warning: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
       continue;
     }
     if (event.kind === "turn_failed") {
       const message = runtimeStringField(payload, "message") ?? "runtime turn failed";
-      lines.push(`• Error: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
+      lines.push(`✗ ${runtimeFailureSummary(message)}`);
     }
   }
   if (assistantText) lines.push(...assistantText.trimEnd().split(/\n/g).map((line, index) => index === 0 ? `• ${line}` : `  ${line}`));
@@ -1511,6 +1505,7 @@ async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): P
 
 async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boolean, onDelta: (answer: string, projection?: string) => void, signal?: AbortSignal): Promise<{ answer: string; exitCode: number }> {
   if (dryRun) return { answer: "dry-run: provider call skipped", exitCode: 0 };
+  let latestAnswer = "";
   try {
     const provider = createProviderForOptions(options);
     const session = new AxumRuntimeSession({
@@ -1522,6 +1517,7 @@ async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boole
     });
     const emitVisibleOutput = (): void => {
       const rendered = renderRuntimeVisibleOutput(session);
+      latestAnswer = rendered.answer;
       onDelta(rendered.answer, rendered.projection);
     };
     const unsubscribe = session.events.subscribe(emitVisibleOutput);
@@ -1536,7 +1532,7 @@ async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boole
       unsubscribe();
     }
   } catch (error) {
-    return { answer: error instanceof Error ? error.message : String(error), exitCode: 1 };
+    return { answer: latestAnswer || `✗ ${runtimeFailureSummary(error)}`, exitCode: 1 };
   }
 }
 
@@ -1700,17 +1696,17 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     editor.disableSubmit = true;
     activeRequestController = new AbortController();
     const startedAt = Date.now();
-    status = workingStatus(startedAt, latestRuntimeProjection);
+    status = workingStatus(startedAt);
     requestRender();
     const timer = setInterval(() => {
-      status = workingStatus(startedAt, latestRuntimeProjection);
+      status = workingStatus(startedAt);
       requestRender();
     }, 250);
     try {
       const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed, projection) => {
         answer = streamed;
         latestRuntimeProjection = projection ?? streamed;
-        status = workingStatus(startedAt, latestRuntimeProjection);
+        status = workingStatus(startedAt);
         requestRender();
       }, activeRequestController.signal);
       const wasCancelled = activeRequestController.signal.aborted;
@@ -1864,12 +1860,12 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
     } else {
       const startedAt = Date.now();
       let latestProjection = "";
-      repaint(nextOptions, workingStatus(startedAt, latestProjection));
-      const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt, latestProjection)), 250);
+      repaint(nextOptions, workingStatus(startedAt));
+      const timer = setInterval(() => repaint(nextOptions, workingStatus(startedAt)), 250);
       try {
         const result = await resolveTuiAnswerStream(nextOptions, dryRun, (streamed, projection) => {
           latestProjection = projection ?? streamed;
-          repaint(nextOptions, `${streamed}\n${workingStatus(startedAt, latestProjection)}`);
+          repaint(nextOptions, `${streamed}\n${workingStatus(startedAt)}`);
         });
         lastExitCode = result.exitCode;
         repaint(nextOptions, result.answer);
