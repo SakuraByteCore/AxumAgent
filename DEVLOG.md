@@ -24,11 +24,13 @@ Work added:
 - Added a 51-column TTY regression with Chinese/wide-symbol input to guard against pi-tui `exceeds terminal width` crashes after the Termux fix.
 - Replaced Axum's raw TUI input/cursor/history/paste implementation with the `@earendil-works/pi-tui` editor component while keeping Axum-owned slash commands and runtime dispatch.
 - Reworked the TUI chrome into panelized Session/You/Axum/Commands/Prompt sections so raw TTY and fallback rendering share the same cleaner pi-style screen shape instead of loose string rows.
+- Pulled latest KiloCode (`Kilo-Org/kilocode` `938919a`) and started the ag rewrite as a bounded Kilo-aligned split: moved terminal text-width helpers into `src/tui/text.ts`, moved runtime-visible transcript/projection rendering into `src/tui/runtime-view.ts`, exported those modules from the package, and changed the empty runtime fallback from `• Working…` to `• Working` so runtime status no longer uses a speech-like ellipsis.
 
 Validation:
 - `npm test` passes after workflow/tool/swarm/runtime/provider-diagnostic/TUI-runtime guard changes.
 - `npm run pack:dry` passes; package dry-run includes the new `dist/runtime/events.js`, `protocol.js`, `session.js`, `tool-runner.js`, and `turn.js` files.
 - `npm test` and `npm run pack:dry` pass after the Codex-style TUI progress/error display alignment.
+- `npm run build` passes after the first Kilo-aligned TUI/runtime boundary split; full test and pack dry-run must pass before pushing this change.
 
 
 ## 2026-07-13

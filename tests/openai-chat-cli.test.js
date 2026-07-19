@@ -1394,6 +1394,19 @@ async function testRuntimeDashboardRedactsSensitiveOutput() {
   assert.doesNotMatch(rendered, /aaaabbbbccccdddd/);
 }
 
+async function testRuntimeVisibleOutputUsesStaticWorkingFallback() {
+  const { renderRuntimeVisibleOutput } = require("../dist/tui/runtime-view.js");
+  const rendered = renderRuntimeVisibleOutput({ events: { snapshot: () => [] } });
+  assert.strictEqual(rendered.answer, "• Working");
+  assert.doesNotMatch(rendered.answer, /Working…/);
+}
+
+async function testRuntimeStatusTextDoesNotUseSpeechEllipsis() {
+  const source = fs.readFileSync(path.resolve(__dirname, "..", "src", "cli.ts"), "utf8");
+  assert.doesNotMatch(source, /Working…/);
+  assert.doesNotMatch(source, /Cancelling request…/);
+}
+
 async function testTuiSummarizesRepeatedPermissionDenials() {
   const cfg = writeConfig(`
 provider_config = "http://127.0.0.1:0/v1 test-key mock-tool-model"
@@ -1511,6 +1524,8 @@ async function testRuntimeStopsRepeatedPermissionDenials() {
   await testRuntimeStreamsAssistantMessageDeltas();
   await testRuntimeDashboardShowsAuditableToolWork();
   await testRuntimeDashboardRedactsSensitiveOutput();
+  await testRuntimeVisibleOutputUsesStaticWorkingFallback();
+  await testRuntimeStatusTextDoesNotUseSpeechEllipsis();
   await testTuiSummarizesRepeatedPermissionDenials();
   await testRuntimeStopsRepeatedPermissionDenials();
 })();

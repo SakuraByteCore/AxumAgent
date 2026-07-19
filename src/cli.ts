@@ -2,8 +2,10 @@ import { defaultConfigPath, loadConfig, numberFromConfig, resolveConfigPath, res
 import { OpenAIChatProvider, type ChatMessage } from "./providers/openai-chat";
 import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPlan, renderSwarmPlan, renderWorkflowPlan } from "./runtime/pi-workflow";
 import { AxumRuntimeSession } from "./runtime/session";
-import { renderRuntimeDashboard, renderRuntimeEvents } from "./runtime/events";
+import { renderRuntimeEvents } from "./runtime/events";
 import { runtimeToolSpecs } from "./runtime/turn";
+import { clip, truncateToVisibleWidth, visibleWidth, wrapPreservingShortLine } from "./tui/text";
+import { renderRuntimeVisibleOutput, runtimeFailureSummary } from "./tui/runtime-view";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
 import http from "node:http";
@@ -640,56 +642,9 @@ async function runConfigWeb(args: string[], env: NodeJS.ProcessEnv, stdout: Node
   }
 }
 
-function stripAnsi(text: string): string {
-  return text.replace(/\u001b\[[0-9;]*m/g, "");
-}
-
-function charDisplayWidth(char: string): number {
-  const code = char.codePointAt(0) ?? 0;
-  if (code === 0 || code < 0x20 || (code >= 0x7f && code < 0xa0)) return 0;
-  if (
-    (code >= 0x0300 && code <= 0x036f)
-    || (code >= 0x1ab0 && code <= 0x1aff)
-    || (code >= 0x1dc0 && code <= 0x1dff)
-    || (code >= 0x20d0 && code <= 0x20ff)
-    || (code >= 0xfe00 && code <= 0xfe0f)
-  ) return 0;
-  if (
-    (code >= 0x1100 && code <= 0x115f)
-    || code === 0x2329
-    || code === 0x232a
-    || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f)
-    || (code >= 0xac00 && code <= 0xd7a3)
-    || (code >= 0xf900 && code <= 0xfaff)
-    || (code >= 0xfe10 && code <= 0xfe19)
-    || (code >= 0xfe30 && code <= 0xfe6f)
-    || (code >= 0xff00 && code <= 0xff60)
-    || (code >= 0xffe0 && code <= 0xffe6)
-  ) return 2;
-  return 1;
-}
-
-function visibleWidth(text: string): number {
-  return Array.from(stripAnsi(text)).reduce((total, char) => total + charDisplayWidth(char), 0);
-}
-
-function truncateToVisibleWidth(text: string, width: number): string {
-  if (width <= 0) return "";
-  let used = 0;
-  let result = "";
-  for (const char of Array.from(stripAnsi(text))) {
-    const charWidth = charDisplayWidth(char);
-    if (used + charWidth > width) break;
-    result += char;
-    used += charWidth;
-  }
-  return result;
-}
-
-function clip(text: string, width: number): string {
-  const textWidth = visibleWidth(text);
-  if (textWidth <= width) return text + " ".repeat(width - textWidth);
-  return `${truncateToVisibleWidth(text, Math.max(0, width - 1))}…`;
+function renderAssistantOutput(answer: string): string {
+  if (answer === "dry-run: provider call skipped") return "✓ dry-run · provider call skipped";
+  return answer;
 }
 
 const SLASH_COMMANDS = [
@@ -701,43 +656,6 @@ const SLASH_COMMANDS = [
   { name: "/tasks", description: "show recent runtime/task state" },
   { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
-
-function wrap(text: string, width: number): string[] {
-  const safeWidth = Math.max(1, width);
-  const words = text.split(/\s+/g).filter(Boolean);
-  if (words.length === 0) return [""];
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    if (!line) {
-      line = word;
-    } else if (visibleWidth(`${line} ${word}`) <= safeWidth) {
-      line += ` ${word}`;
-    } else {
-      lines.push(line);
-      line = word;
-    }
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-function wrapPreservingShortLine(text: string, width: number): string[] {
-  return visibleWidth(text) <= width ? [text] : wrap(text, width);
-}
-
-function renderAssistantOutput(answer: string): string {
-  if (answer === "dry-run: provider call skipped") return "✓ dry-run · provider call skipped";
-  return answer;
-}
-
-function redactTuiText(value: string): string {
-  return value
-    .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer ***")
-    .replace(/(api[_-]?key|token|secret|password)=([^\s&]+)/gi, "$1=***")
-    .replace(/gh[pousr]_[A-Za-z0-9_]{20,}/g, "gh*_***")
-    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "jwt.***");
-}
 
 function slashCommandQuery(input: string): string {
   if (!input.startsWith("/")) return "";
@@ -1391,114 +1309,6 @@ function createProviderForOptions(options: ChatCommandOptions): OpenAIChatProvid
   });
 }
 
-function renderRuntimeProjection(session: AxumRuntimeSession): string {
-  const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
-  if (events.length === 0) return "◇ runtime\n  waiting for first event";
-  return renderRuntimeDashboard(events).slice(0, 2200);
-}
-
-function runtimeStringField(value: unknown, key: string): string | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const field = (value as Record<string, unknown>)[key];
-  return typeof field === "string" && field.trim() ? field : undefined;
-}
-
-function runtimeArgs(payload: unknown): Record<string, unknown> {
-  if (!payload || typeof payload !== "object") return {};
-  const args = (payload as Record<string, unknown>).arguments;
-  return args && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : {};
-}
-
-function runtimeArgText(args: Record<string, unknown>, key: string): string | undefined {
-  const value = args[key];
-  return typeof value === "string" && value.trim() ? value : undefined;
-}
-
-function runtimeToolTitle(name: string, args: Record<string, unknown>): string {
-  if (name === "safe_exec") return `Ran ${runtimeArgText(args, "command") ?? "command"}`;
-  if (name === "read") return `Read ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
-  if (name === "precise_edit") return `Edited ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
-  return `${name} tool`;
-}
-
-function runtimeFailureSummary(message: unknown): string {
-  const text = message instanceof Error ? message.message : String(message ?? "");
-  if (/blocked by repeated tool denial/i.test(text)) return "Tool blocked after repeated denial";
-  if (/max tool iterations/i.test(text)) return "Runtime stopped after too many tool iterations";
-  return "Runtime turn failed";
-}
-
-function runtimeToolResultSummary(content: string): string {
-  const clean = redactTuiText(content).replace(/\s+/g, " ").trim();
-  if (!clean) return "completed";
-  if (/ENOENT|no such file or directory/i.test(clean)) return "file not found";
-  if (/blocked by repeated tool denial/i.test(clean)) return "tool blocked after repeated denial";
-  return truncateToVisibleWidth(clean, 96);
-}
-
-function renderRuntimeTranscript(session: AxumRuntimeSession): string {
-  const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
-  const lines: string[] = [];
-  const calls = new Map<string, { name: string; title: string; lineIndex: number }>();
-  let assistantText = "";
-  for (const event of events) {
-    const payload = event.payload as Record<string, unknown> | undefined;
-    if (event.kind === "assistant_message_delta") {
-      const content = typeof payload?.content === "string" ? payload.content : "";
-      if (content) assistantText = content;
-      continue;
-    }
-    if (event.kind === "assistant_message") {
-      const content = typeof payload?.content === "string" ? payload.content : "";
-      if (content) assistantText = content;
-      continue;
-    }
-    if (event.kind === "tool_call_requested" && payload) {
-      const callId = typeof payload.id === "string" ? payload.id : String(event.id);
-      const name = typeof payload.name === "string" ? payload.name : "tool";
-      const title = runtimeToolTitle(name, runtimeArgs(payload));
-      const lineIndex = lines.length;
-      calls.set(callId, { name, title, lineIndex });
-      lines.push(`⏳ ${title}`);
-      continue;
-    }
-    if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
-      const callId = typeof payload.callId === "string" ? payload.callId : "";
-      const call = calls.get(callId);
-      const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
-      const title = call?.title ?? runtimeToolTitle(name, {});
-      const content = typeof payload.content === "string" ? payload.content : "";
-      const marker = event.kind === "permission_denied" ? "✗" : "✓";
-      const prefix = event.kind === "permission_denied" ? "Blocked" : "Finished";
-      const line = `${marker} ${prefix} ${title}`;
-      if (call) lines[call.lineIndex] = line;
-      else lines.push(line);
-      if (content) lines.push(`  ${runtimeToolResultSummary(content)}`);
-      continue;
-    }
-    if (event.kind === "provider_warning") {
-      const message = runtimeStringField(payload, "message") ?? "provider warning";
-      lines.push(`⚠ Warning: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
-      continue;
-    }
-    if (event.kind === "turn_failed") {
-      const message = runtimeStringField(payload, "message") ?? "runtime turn failed";
-      lines.push(`✗ ${runtimeFailureSummary(message)}`);
-    }
-  }
-  if (assistantText) lines.push(...assistantText.trimEnd().split(/\n/g).map((line, index) => index === 0 ? `• ${line}` : `  ${line}`));
-  return lines.join("\n");
-}
-
-function renderRuntimeVisibleOutput(session: AxumRuntimeSession): { answer: string; projection: string } {
-  const projection = renderRuntimeProjection(session);
-  const transcript = renderRuntimeTranscript(session);
-  return {
-    answer: transcript || "• Working…",
-    projection,
-  };
-}
-
 async function resolveTuiAnswer(options: ChatCommandOptions, dryRun: boolean): Promise<{ answer: string; exitCode: number }> {
   return resolveTuiAnswerStream(options, dryRun, () => undefined);
 }
@@ -1736,7 +1546,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   tui.addInputListener((data) => {
     if (busy && (pi.matchesKey(data, pi.Key.ctrl("c")) || data === "\u001b")) {
       activeRequestController?.abort();
-      status = "• Cancelling request…";
+      status = "• Cancelling request";
       requestRender();
       return { consume: true };
     }

@@ -12,6 +12,8 @@ const pi_workflow_1 = require("./runtime/pi-workflow");
 const session_1 = require("./runtime/session");
 const events_1 = require("./runtime/events");
 const turn_1 = require("./runtime/turn");
+const text_1 = require("./tui/text");
+const runtime_view_1 = require("./tui/runtime-view");
 const kilo_shell_1 = require("./shell/kilo-shell");
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_http_1 = __importDefault(require("node:http"));
@@ -636,54 +638,10 @@ async function runConfigWeb(args, env, stdout, stderr) {
         return 2;
     }
 }
-function stripAnsi(text) {
-    return text.replace(/\u001b\[[0-9;]*m/g, "");
-}
-function charDisplayWidth(char) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code === 0 || code < 0x20 || (code >= 0x7f && code < 0xa0))
-        return 0;
-    if ((code >= 0x0300 && code <= 0x036f)
-        || (code >= 0x1ab0 && code <= 0x1aff)
-        || (code >= 0x1dc0 && code <= 0x1dff)
-        || (code >= 0x20d0 && code <= 0x20ff)
-        || (code >= 0xfe00 && code <= 0xfe0f))
-        return 0;
-    if ((code >= 0x1100 && code <= 0x115f)
-        || code === 0x2329
-        || code === 0x232a
-        || (code >= 0x2e80 && code <= 0xa4cf && code !== 0x303f)
-        || (code >= 0xac00 && code <= 0xd7a3)
-        || (code >= 0xf900 && code <= 0xfaff)
-        || (code >= 0xfe10 && code <= 0xfe19)
-        || (code >= 0xfe30 && code <= 0xfe6f)
-        || (code >= 0xff00 && code <= 0xff60)
-        || (code >= 0xffe0 && code <= 0xffe6))
-        return 2;
-    return 1;
-}
-function visibleWidth(text) {
-    return Array.from(stripAnsi(text)).reduce((total, char) => total + charDisplayWidth(char), 0);
-}
-function truncateToVisibleWidth(text, width) {
-    if (width <= 0)
-        return "";
-    let used = 0;
-    let result = "";
-    for (const char of Array.from(stripAnsi(text))) {
-        const charWidth = charDisplayWidth(char);
-        if (used + charWidth > width)
-            break;
-        result += char;
-        used += charWidth;
-    }
-    return result;
-}
-function clip(text, width) {
-    const textWidth = visibleWidth(text);
-    if (textWidth <= width)
-        return text + " ".repeat(width - textWidth);
-    return `${truncateToVisibleWidth(text, Math.max(0, width - 1))}…`;
+function renderAssistantOutput(answer) {
+    if (answer === "dry-run: provider call skipped")
+        return "✓ dry-run · provider call skipped";
+    return answer;
 }
 const SLASH_COMMANDS = [
     { name: "/help", description: "show commands" },
@@ -694,44 +652,6 @@ const SLASH_COMMANDS = [
     { name: "/tasks", description: "show recent runtime/task state" },
     { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
 ];
-function wrap(text, width) {
-    const safeWidth = Math.max(1, width);
-    const words = text.split(/\s+/g).filter(Boolean);
-    if (words.length === 0)
-        return [""];
-    const lines = [];
-    let line = "";
-    for (const word of words) {
-        if (!line) {
-            line = word;
-        }
-        else if (visibleWidth(`${line} ${word}`) <= safeWidth) {
-            line += ` ${word}`;
-        }
-        else {
-            lines.push(line);
-            line = word;
-        }
-    }
-    if (line)
-        lines.push(line);
-    return lines;
-}
-function wrapPreservingShortLine(text, width) {
-    return visibleWidth(text) <= width ? [text] : wrap(text, width);
-}
-function renderAssistantOutput(answer) {
-    if (answer === "dry-run: provider call skipped")
-        return "✓ dry-run · provider call skipped";
-    return answer;
-}
-function redactTuiText(value) {
-    return value
-        .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer ***")
-        .replace(/(api[_-]?key|token|secret|password)=([^\s&]+)/gi, "$1=***")
-        .replace(/gh[pousr]_[A-Za-z0-9_]{20,}/g, "gh*_***")
-        .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "jwt.***");
-}
 function slashCommandQuery(input) {
     if (!input.startsWith("/"))
         return "";
@@ -771,10 +691,10 @@ function isBareSlashCommandQuery(input) {
     return input.startsWith("/") && !/\s/.test(input.trim());
 }
 function padCell(text, width) {
-    const textWidth = visibleWidth(text);
+    const textWidth = (0, text_1.visibleWidth)(text);
     if (textWidth <= width)
         return text + " ".repeat(width - textWidth);
-    return `${truncateToVisibleWidth(text, Math.max(0, width - 1))}…`;
+    return `${(0, text_1.truncateToVisibleWidth)(text, Math.max(0, width - 1))}…`;
 }
 function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
     if (!input.startsWith("/"))
@@ -800,13 +720,13 @@ function framedSection(title, body, width) {
     const safeWidth = Math.max(24, width);
     const inner = Math.max(1, safeWidth - 4);
     const titleText = ` ${title} `;
-    const top = `╭─${titleText}${"─".repeat(Math.max(0, safeWidth - visibleWidth(titleText) - 3))}`;
+    const top = `╭─${titleText}${"─".repeat(Math.max(0, safeWidth - (0, text_1.visibleWidth)(titleText) - 3))}`;
     const bottom = `╰${"─".repeat(Math.max(0, safeWidth - 1))}`;
     const content = body.length === 0 ? [""] : body;
     return [
-        clip(top, safeWidth),
-        ...content.flatMap((line) => wrapPreservingShortLine(line, inner)).map((line) => `│ ${clip(line, inner)} │`),
-        clip(bottom, safeWidth),
+        (0, text_1.clip)(top, safeWidth),
+        ...content.flatMap((line) => (0, text_1.wrapPreservingShortLine)(line, inner)).map((line) => `│ ${(0, text_1.clip)(line, inner)} │`),
+        (0, text_1.clip)(bottom, safeWidth),
     ];
 }
 function renderPlainInputDeck(inputText, width) {
@@ -814,14 +734,14 @@ function renderPlainInputDeck(inputText, width) {
     const horizontal = "─".repeat(safeWidth);
     return [
         horizontal,
-        ...wrapPreservingShortLine(inputText, safeWidth).map((line) => clip(line, safeWidth)),
+        ...(0, text_1.wrapPreservingShortLine)(inputText, safeWidth).map((line) => (0, text_1.clip)(line, safeWidth)),
         horizontal,
     ];
 }
 function compactPathForTui(cwd, width) {
     const name = node_path_1.default.basename(cwd) || cwd;
     const compact = `.${node_path_1.default.sep}${name}`;
-    if (visibleWidth(compact) <= width)
+    if ((0, text_1.visibleWidth)(compact) <= width)
         return compact;
     return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }
@@ -830,7 +750,7 @@ function renderTranscriptLines(text, width) {
     const lines = text.split(/\n/g);
     return lines.flatMap((line, index) => {
         const prefix = index === 0 ? "› " : "  ";
-        return wrapPreservingShortLine(line, Math.max(1, inner - visibleWidth(prefix))).map((wrapped, wrappedIndex) => {
+        return (0, text_1.wrapPreservingShortLine)(line, Math.max(1, inner - (0, text_1.visibleWidth)(prefix))).map((wrapped, wrappedIndex) => {
             const linePrefix = index === 0 && wrappedIndex === 0 ? prefix : "  ";
             return `${linePrefix}${wrapped}`;
         });
@@ -855,7 +775,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
             ...(hasAnswer ? renderAssistantOutput(answer).split(/\n/g) : []),
             ...(hasStatus ? [status] : []),
         ];
-        const wrapped = rawLines.flatMap((line) => wrapPreservingShortLine(line, Math.max(1, safeWidth - 4)));
+        const wrapped = rawLines.flatMap((line) => (0, text_1.wrapPreservingShortLine)(line, Math.max(1, safeWidth - 4)));
         const clipped = wrapped.length > contentBudget
             ? [
                 ...wrapped.slice(0, Math.max(1, contentBudget - 3)),
@@ -877,7 +797,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
         ...(commandLines.length > 0 ? [...commandLines, ""] : []),
         ...(inputPanel.length > 0 ? inputPanel : []),
     ];
-    return screen.map((line) => clip(line, safeWidth)).join("\n");
+    return screen.map((line) => (0, text_1.clip)(line, safeWidth)).join("\n");
 }
 function formatElapsedDuration(elapsedMs) {
     const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
@@ -1382,122 +1302,6 @@ function createProviderForOptions(options) {
         requestTimeoutMs: options.requestTimeoutMs,
     });
 }
-function renderRuntimeProjection(session) {
-    const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
-    if (events.length === 0)
-        return "◇ runtime\n  waiting for first event";
-    return (0, events_1.renderRuntimeDashboard)(events).slice(0, 2200);
-}
-function runtimeStringField(value, key) {
-    if (!value || typeof value !== "object")
-        return undefined;
-    const field = value[key];
-    return typeof field === "string" && field.trim() ? field : undefined;
-}
-function runtimeArgs(payload) {
-    if (!payload || typeof payload !== "object")
-        return {};
-    const args = payload.arguments;
-    return args && typeof args === "object" && !Array.isArray(args) ? args : {};
-}
-function runtimeArgText(args, key) {
-    const value = args[key];
-    return typeof value === "string" && value.trim() ? value : undefined;
-}
-function runtimeToolTitle(name, args) {
-    if (name === "safe_exec")
-        return `Ran ${runtimeArgText(args, "command") ?? "command"}`;
-    if (name === "read")
-        return `Read ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
-    if (name === "precise_edit")
-        return `Edited ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
-    return `${name} tool`;
-}
-function runtimeFailureSummary(message) {
-    const text = message instanceof Error ? message.message : String(message ?? "");
-    if (/blocked by repeated tool denial/i.test(text))
-        return "Tool blocked after repeated denial";
-    if (/max tool iterations/i.test(text))
-        return "Runtime stopped after too many tool iterations";
-    return "Runtime turn failed";
-}
-function runtimeToolResultSummary(content) {
-    const clean = redactTuiText(content).replace(/\s+/g, " ").trim();
-    if (!clean)
-        return "completed";
-    if (/ENOENT|no such file or directory/i.test(clean))
-        return "file not found";
-    if (/blocked by repeated tool denial/i.test(clean))
-        return "tool blocked after repeated denial";
-    return truncateToVisibleWidth(clean, 96);
-}
-function renderRuntimeTranscript(session) {
-    const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
-    const lines = [];
-    const calls = new Map();
-    let assistantText = "";
-    for (const event of events) {
-        const payload = event.payload;
-        if (event.kind === "assistant_message_delta") {
-            const content = typeof payload?.content === "string" ? payload.content : "";
-            if (content)
-                assistantText = content;
-            continue;
-        }
-        if (event.kind === "assistant_message") {
-            const content = typeof payload?.content === "string" ? payload.content : "";
-            if (content)
-                assistantText = content;
-            continue;
-        }
-        if (event.kind === "tool_call_requested" && payload) {
-            const callId = typeof payload.id === "string" ? payload.id : String(event.id);
-            const name = typeof payload.name === "string" ? payload.name : "tool";
-            const title = runtimeToolTitle(name, runtimeArgs(payload));
-            const lineIndex = lines.length;
-            calls.set(callId, { name, title, lineIndex });
-            lines.push(`⏳ ${title}`);
-            continue;
-        }
-        if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
-            const callId = typeof payload.callId === "string" ? payload.callId : "";
-            const call = calls.get(callId);
-            const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
-            const title = call?.title ?? runtimeToolTitle(name, {});
-            const content = typeof payload.content === "string" ? payload.content : "";
-            const marker = event.kind === "permission_denied" ? "✗" : "✓";
-            const prefix = event.kind === "permission_denied" ? "Blocked" : "Finished";
-            const line = `${marker} ${prefix} ${title}`;
-            if (call)
-                lines[call.lineIndex] = line;
-            else
-                lines.push(line);
-            if (content)
-                lines.push(`  ${runtimeToolResultSummary(content)}`);
-            continue;
-        }
-        if (event.kind === "provider_warning") {
-            const message = runtimeStringField(payload, "message") ?? "provider warning";
-            lines.push(`⚠ Warning: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
-            continue;
-        }
-        if (event.kind === "turn_failed") {
-            const message = runtimeStringField(payload, "message") ?? "runtime turn failed";
-            lines.push(`✗ ${runtimeFailureSummary(message)}`);
-        }
-    }
-    if (assistantText)
-        lines.push(...assistantText.trimEnd().split(/\n/g).map((line, index) => index === 0 ? `• ${line}` : `  ${line}`));
-    return lines.join("\n");
-}
-function renderRuntimeVisibleOutput(session) {
-    const projection = renderRuntimeProjection(session);
-    const transcript = renderRuntimeTranscript(session);
-    return {
-        answer: transcript || "• Working…",
-        projection,
-    };
-}
 async function resolveTuiAnswer(options, dryRun) {
     return resolveTuiAnswerStream(options, dryRun, () => undefined);
 }
@@ -1515,7 +1319,7 @@ async function resolveTuiAnswerStream(options, dryRun, onDelta, signal) {
             systemPrompt: options.system || defaultSystemPrompt(),
         });
         const emitVisibleOutput = () => {
-            const rendered = renderRuntimeVisibleOutput(session);
+            const rendered = (0, runtime_view_1.renderRuntimeVisibleOutput)(session);
             latestAnswer = rendered.answer;
             onDelta(rendered.answer, rendered.projection);
         };
@@ -1523,7 +1327,7 @@ async function resolveTuiAnswerStream(options, dryRun, onDelta, signal) {
         try {
             emitVisibleOutput();
             const result = await session.runUserTurn(options.prompt, signal);
-            const rendered = renderRuntimeVisibleOutput(session);
+            const rendered = (0, runtime_view_1.renderRuntimeVisibleOutput)(session);
             const eventSummary = (0, events_1.renderRuntimeEvents)(result.events);
             const answer = rendered.answer || result.assistantMessage || eventSummary || "runtime completed without assistant content";
             return { answer, exitCode: 0 };
@@ -1533,7 +1337,7 @@ async function resolveTuiAnswerStream(options, dryRun, onDelta, signal) {
         }
     }
     catch (error) {
-        return { answer: latestAnswer || `✗ ${runtimeFailureSummary(error)}`, exitCode: 1 };
+        return { answer: latestAnswer || `✗ ${(0, runtime_view_1.runtimeFailureSummary)(error)}`, exitCode: 1 };
     }
 }
 const importEsm = new Function("specifier", "return import(specifier)");
@@ -1725,7 +1529,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
     tui.addInputListener((data) => {
         if (busy && (pi.matchesKey(data, pi.Key.ctrl("c")) || data === "\u001b")) {
             activeRequestController?.abort();
-            status = "• Cancelling request…";
+            status = "• Cancelling request";
             requestRender();
             return { consume: true };
         }
