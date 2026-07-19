@@ -9,12 +9,14 @@ Work added:
 - Direction changed again by explicit user confirmation: start the Rust/clap/Ratatui migration and treat the pi-tui alignment as superseded.
 - Added Phase1 Rust CLI crate under `crates/cli`: clap command surface for `init`, `chat`, `tui`, `doctor`, `providers`, `modes`, `workflow`, `parallel`, `config-web`, and `run --auto`; serde-compatible `~/.axum/config.toml`; OpenAI-compatible reqwest provider calls with retry/backoff; scriptable `doctor --json`; five agent modes; and Phase2/3 placeholders that do not pretend Ratatui/tool runtime work is finished.
 - Added Rust validation scripts to `package.json` and documented the migration shape in README/TODO.
+- Continued into Phase2 with a first Ratatui TUI slice: session header, transcript pane, status/input pane, slash command suggestions, `/tasks`, `/providers`, `/provider`, `/model`, `/mode`, history navigation, cursor movement, paste/text insertion, Ctrl-Z undo, and Ctrl-K/Ctrl-U/Ctrl-Y kill-ring behavior.
 
 Validation:
 - `npm run build` passes.
 - `npm test` passes after snapshot updates.
 - `npm run pack:dry` passes.
-- `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust Phase1 crate.
+- `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust crate.
+- Rust TUI dry-run smoke renders expected header, command suggestions, and input line.
 
 ## 2026-07-17
 

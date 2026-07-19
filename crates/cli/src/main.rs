@@ -1,11 +1,24 @@
 use anyhow::{Context, Result, anyhow};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    execute,
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
+};
+use ratatui::{
+    Terminal,
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Paragraph, Wrap},
+};
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
-    env, fs,
+    env, fs, io,
     path::{Path, PathBuf},
     time::Duration,
 };
@@ -614,15 +627,455 @@ async fn run_tui(
     args: TuiArgs,
 ) -> Result<i32> {
     let provider = resolve_provider(config_path, provider_id, Some(&args.chat))?;
-    println!("AxumAgent Rust TUI");
-    println!("mode: {}", args.mode);
-    println!("provider: {}", provider.id);
-    println!("model: {}", provider.model);
-    if !provider.models.is_empty() {
-        println!("models: {}", provider.models.join(", "));
+    let prompt = args.chat.prompt.join(" ");
+    let mut state = TuiState::new(provider, args.mode);
+    if !prompt.trim().is_empty() {
+        state.input = prompt;
+        state.cursor = state.input.len();
     }
-    println!("Ratatui interactive surface is Phase2; use `axum chat` for Phase1 provider calls.");
+    if args.dry_run || !crossterm::terminal::is_raw_mode_enabled().unwrap_or(false) && !at_tty() {
+        println!("{}", render_tui_snapshot(&state, 90));
+        return Ok(0);
+    }
+    run_ratatui_loop(state, args.no_alt_screen).await?;
     Ok(0)
+}
+
+fn at_tty() -> bool {
+    std::io::IsTerminal::is_terminal(&io::stdout())
+        && std::io::IsTerminal::is_terminal(&io::stdin())
+}
+
+#[derive(Debug, Clone)]
+struct TuiState {
+    provider: ResolvedProvider,
+    mode: AgentMode,
+    transcript: Vec<String>,
+    input: String,
+    cursor: usize,
+    history: Vec<String>,
+    history_index: Option<usize>,
+    undo_stack: Vec<String>,
+    killed: String,
+    status: String,
+    show_tasks: bool,
+    show_commands: bool,
+}
+
+impl TuiState {
+    fn new(provider: ResolvedProvider, mode: AgentMode) -> Self {
+        Self {
+            provider,
+            mode,
+            transcript: vec!["AxumAgent Rust TUI ready".to_owned()],
+            input: String::new(),
+            cursor: 0,
+            history: vec![],
+            history_index: None,
+            undo_stack: vec![],
+            killed: String::new(),
+            status: "Working idle · /help for commands".to_owned(),
+            show_tasks: false,
+            show_commands: false,
+        }
+    }
+
+    fn push_undo(&mut self) {
+        if self.undo_stack.last() != Some(&self.input) {
+            self.undo_stack.push(self.input.clone());
+            if self.undo_stack.len() > 64 {
+                self.undo_stack.remove(0);
+            }
+        }
+    }
+
+    fn insert_char(&mut self, ch: char) {
+        self.push_undo();
+        self.input.insert(self.cursor, ch);
+        self.cursor += ch.len_utf8();
+        self.history_index = None;
+    }
+
+    fn insert_text(&mut self, text: &str) {
+        self.push_undo();
+        self.input.insert_str(self.cursor, text);
+        self.cursor += text.len();
+        self.history_index = None;
+    }
+
+    fn backspace(&mut self) {
+        if self.cursor == 0 {
+            return;
+        }
+        self.push_undo();
+        let prev = self.input[..self.cursor]
+            .char_indices()
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(0);
+        self.input.drain(prev..self.cursor);
+        self.cursor = prev;
+    }
+
+    fn delete(&mut self) {
+        if self.cursor >= self.input.len() {
+            return;
+        }
+        self.push_undo();
+        let next = self.input[self.cursor..]
+            .char_indices()
+            .nth(1)
+            .map(|(i, _)| self.cursor + i)
+            .unwrap_or(self.input.len());
+        self.input.drain(self.cursor..next);
+    }
+
+    fn move_left(&mut self) {
+        if self.cursor > 0 {
+            self.cursor = self.input[..self.cursor]
+                .char_indices()
+                .last()
+                .map(|(i, _)| i)
+                .unwrap_or(0);
+        }
+    }
+
+    fn move_right(&mut self) {
+        if self.cursor < self.input.len() {
+            self.cursor = self.input[self.cursor..]
+                .char_indices()
+                .nth(1)
+                .map(|(i, _)| self.cursor + i)
+                .unwrap_or(self.input.len());
+        }
+    }
+
+    fn kill_line(&mut self) {
+        self.push_undo();
+        self.killed = self.input[self.cursor..].to_owned();
+        self.input.truncate(self.cursor);
+    }
+
+    fn yank(&mut self) {
+        let killed = self.killed.clone();
+        self.insert_text(&killed);
+    }
+
+    fn undo(&mut self) {
+        if let Some(previous) = self.undo_stack.pop() {
+            self.input = previous;
+            self.cursor = self.input.len();
+        }
+    }
+
+    fn history_prev(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+        let idx = self
+            .history_index
+            .unwrap_or(self.history.len())
+            .saturating_sub(1);
+        self.history_index = Some(idx);
+        self.input = self.history[idx].clone();
+        self.cursor = self.input.len();
+    }
+
+    fn history_next(&mut self) {
+        let Some(idx) = self.history_index else {
+            return;
+        };
+        if idx + 1 >= self.history.len() {
+            self.history_index = None;
+            self.input.clear();
+        } else {
+            let next = idx + 1;
+            self.history_index = Some(next);
+            self.input = self.history[next].clone();
+        }
+        self.cursor = self.input.len();
+    }
+}
+
+fn slash_commands() -> &'static [(&'static str, &'static str)] {
+    &[
+        ("/help", "show commands"),
+        ("/tasks", "toggle Plan/Now/Evidence activity dashboard"),
+        ("/providers", "list configured providers"),
+        ("/provider", "show active provider"),
+        ("/model", "show/fetch/switch model"),
+        ("/mode", "switch Code/Plan/Ask/Debug/Review"),
+        ("/exit", "exit TUI"),
+        ("/quit", "exit TUI"),
+    ]
+}
+
+fn command_suggestions(input: &str) -> Vec<String> {
+    if !input.starts_with('/') {
+        return vec![];
+    }
+    slash_commands()
+        .iter()
+        .filter(|(cmd, _)| cmd.starts_with(input.trim()))
+        .map(|(cmd, desc)| format!("{cmd:<12} {desc}"))
+        .collect()
+}
+
+fn render_tui_snapshot(state: &TuiState, width: usize) -> String {
+    let mut lines = vec![
+        format!("AxumAgent v0.1.0 · mode {}", state.mode),
+        format!("{} · {}", state.provider.model, state.provider.id),
+        "".to_owned(),
+    ];
+    lines.extend(state.transcript.iter().cloned());
+    if state.show_tasks {
+        lines.extend([
+            "".to_owned(),
+            "tasks".to_owned(),
+            "Plan · collect user intent".to_owned(),
+            "Now · interactive TUI".to_owned(),
+            "Evidence · Ratatui frame active".to_owned(),
+            "Result · pending provider turn".to_owned(),
+            "Next · submit prompt or slash command".to_owned(),
+            "Issues · none".to_owned(),
+        ]);
+    }
+    let suggestions = command_suggestions(&state.input);
+    if !suggestions.is_empty() || state.show_commands {
+        lines.push("".to_owned());
+        lines.push("commands".to_owned());
+        lines.extend(if suggestions.is_empty() {
+            slash_commands()
+                .iter()
+                .map(|(cmd, desc)| format!("{cmd:<12} {desc}"))
+                .collect()
+        } else {
+            suggestions
+        });
+    }
+    lines.push("".to_owned());
+    lines.push(format!("{}", state.status));
+    lines.push(format!("› {}", state.input));
+    lines
+        .into_iter()
+        .map(|line| {
+            if line.len() > width {
+                line[..width].to_owned()
+            } else {
+                line
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn draw_tui(frame: &mut ratatui::Frame<'_>, state: &TuiState) {
+    let area = frame.area();
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(5),
+            Constraint::Length(if state.show_tasks { 8 } else { 0 }),
+            Constraint::Length(if state.show_commands || state.input.starts_with('/') {
+                7
+            } else {
+                0
+            }),
+            Constraint::Length(4),
+        ])
+        .split(area);
+    let header = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("AxumAgent", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(format!(" v0.1.0 · mode {}", state.mode)),
+        ]),
+        Line::from(format!("{} · {}", state.provider.model, state.provider.id)),
+    ])
+    .block(Block::default().borders(Borders::BOTTOM));
+    frame.render_widget(header, chunks[0]);
+
+    let transcript = Paragraph::new(state.transcript.join("\n"))
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("transcript").borders(Borders::ALL));
+    frame.render_widget(transcript, chunks[1]);
+
+    if state.show_tasks {
+        let tasks = Paragraph::new("Plan · collect user intent\nNow · interactive TUI\nEvidence · Ratatui frame active\nResult · pending provider turn\nNext · submit prompt or slash command\nIssues · none")
+            .block(Block::default().title("tasks").borders(Borders::ALL));
+        frame.render_widget(tasks, chunks[2]);
+    }
+
+    if state.show_commands || state.input.starts_with('/') {
+        let suggestions = command_suggestions(&state.input);
+        let text = if suggestions.is_empty() {
+            slash_commands()
+                .iter()
+                .map(|(cmd, desc)| format!("{cmd:<12} {desc}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            suggestions.join("\n")
+        };
+        let commands =
+            Paragraph::new(text).block(Block::default().title("commands").borders(Borders::ALL));
+        frame.render_widget(commands, chunks[3]);
+    }
+
+    let input = Paragraph::new(format!("{}\n› {}", state.status, state.input))
+        .wrap(Wrap { trim: false })
+        .block(Block::default().title("input").borders(Borders::ALL));
+    let input_idx = chunks.len() - 1;
+    frame.render_widget(input, chunks[input_idx]);
+    let cursor_x = chunks[input_idx].x + 3 + state.input[..state.cursor].chars().count() as u16;
+    let cursor_y = chunks[input_idx].y + 2;
+    frame.set_cursor_position((
+        cursor_x.min(chunks[input_idx].right().saturating_sub(1)),
+        cursor_y,
+    ));
+}
+
+async fn run_ratatui_loop(mut state: TuiState, no_alt_screen: bool) -> Result<()> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    if !no_alt_screen {
+        execute!(stdout, EnterAlternateScreen)?;
+    }
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+    let result = async {
+        loop {
+            terminal.draw(|frame| draw_tui(frame, &state))?;
+            if let Event::Key(key) = event::read()? {
+                if handle_tui_key(&mut state, key).await? {
+                    break;
+                }
+            }
+        }
+        Result::<()>::Ok(())
+    }
+    .await;
+    disable_raw_mode()?;
+    if !no_alt_screen {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    }
+    terminal.show_cursor()?;
+    result
+}
+
+async fn handle_tui_key(state: &mut TuiState, key: KeyEvent) -> Result<bool> {
+    match (key.code, key.modifiers) {
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(true),
+        (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+            state.push_undo();
+            state.killed = state.input[..state.cursor].to_owned();
+            state.input.drain(..state.cursor);
+            state.cursor = 0;
+        }
+        (KeyCode::Char('k'), KeyModifiers::CONTROL) => state.kill_line(),
+        (KeyCode::Char('y'), KeyModifiers::CONTROL) => state.yank(),
+        (KeyCode::Char('z'), KeyModifiers::CONTROL) => state.undo(),
+        (KeyCode::Char('j'), KeyModifiers::CONTROL) => state.insert_char('\n'),
+        (KeyCode::Char(ch), _) => state.insert_char(ch),
+        (KeyCode::Backspace, _) => state.backspace(),
+        (KeyCode::Delete, _) => state.delete(),
+        (KeyCode::Left, _) => state.move_left(),
+        (KeyCode::Right, _) => state.move_right(),
+        (KeyCode::Home, _) => state.cursor = 0,
+        (KeyCode::End, _) => state.cursor = state.input.len(),
+        (KeyCode::Up, _) => state.history_prev(),
+        (KeyCode::Down, _) => state.history_next(),
+        (KeyCode::Enter, KeyModifiers::SHIFT) => state.insert_char('\n'),
+        (KeyCode::Enter, _) => return submit_tui_input(state).await,
+        (KeyCode::Esc, _) => state.show_commands = false,
+        _ => {}
+    }
+    Ok(false)
+}
+
+async fn submit_tui_input(state: &mut TuiState) -> Result<bool> {
+    let input = state.input.trim().to_owned();
+    if input.is_empty() {
+        return Ok(false);
+    }
+    state.history.push(state.input.clone());
+    state.history_index = None;
+    state.transcript.push(format!("› {input}"));
+    state.input.clear();
+    state.cursor = 0;
+    if input == "/exit" || input == "/quit" {
+        return Ok(true);
+    }
+    if input == "/help" {
+        state.show_commands = true;
+        state.status = "commands visible".to_owned();
+    } else if input == "/tasks" {
+        state.show_tasks = !state.show_tasks;
+        state.status = if state.show_tasks {
+            "tasks visible"
+        } else {
+            "tasks hidden"
+        }
+        .to_owned();
+    } else if input == "/providers" {
+        state.transcript.push(format!(
+            "provider {} · {}",
+            state.provider.id, state.provider.base_url
+        ));
+        state.status = "provider list rendered".to_owned();
+    } else if input == "/provider" {
+        state
+            .transcript
+            .push(format!("active provider: {}", state.provider.id));
+        state.status = "provider rendered".to_owned();
+    } else if input == "/model" {
+        if state.provider.api_key.is_some() {
+            state.status = "fetching models".to_owned();
+            match fetch_models(&state.provider).await {
+                Ok(models) if !models.is_empty() => {
+                    state
+                        .transcript
+                        .push(format!("models: {}", models.join(", ")));
+                    state.status = "model list refreshed".to_owned();
+                }
+                Ok(_) => state.status = "model list empty".to_owned(),
+                Err(error) => state.status = format!("model fetch failed: {error}"),
+            }
+        } else if !state.provider.models.is_empty() {
+            state
+                .transcript
+                .push(format!("models: {}", state.provider.models.join(", ")));
+            state.status = "configured models rendered".to_owned();
+        } else {
+            state.status = format!("model: {}", state.provider.model);
+        }
+    } else if let Some(mode) = input.strip_prefix("/mode ") {
+        if let Some(next) = parse_agent_mode(mode) {
+            state.mode = next;
+            state.status = format!("mode switched: {}", state.mode);
+        } else {
+            state.status = "unknown mode; use code/plan/ask/debug/review".to_owned();
+        }
+    } else if input.starts_with('/') {
+        state.status = "unknown command".to_owned();
+        state.show_commands = true;
+    } else {
+        state.status =
+            "provider call pending; use `axum chat` for noninteractive Phase2 calls".to_owned();
+        state.transcript.push("assistant · provider turn is wired through chat path; full streamed TUI turns land in Phase3".to_owned());
+    }
+    Ok(false)
+}
+
+fn parse_agent_mode(value: &str) -> Option<AgentMode> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "code" => Some(AgentMode::Code),
+        "plan" => Some(AgentMode::Plan),
+        "ask" => Some(AgentMode::Ask),
+        "debug" => Some(AgentMode::Debug),
+        "review" => Some(AgentMode::Review),
+        _ => None,
+    }
 }
 
 async fn run_auto(
@@ -669,5 +1122,67 @@ mod tests {
     fn modes_render_stable_names() {
         assert_eq!(AgentMode::Code.to_string(), "code");
         assert_eq!(AgentMode::Review.to_string(), "review");
+    }
+
+    #[test]
+    fn slash_completion_filters_by_prefix() {
+        let suggestions = command_suggestions("/pro");
+        assert!(
+            suggestions
+                .iter()
+                .any(|line| line.starts_with("/providers"))
+        );
+        assert!(suggestions.iter().any(|line| line.starts_with("/provider")));
+        assert!(!suggestions.iter().any(|line| line.starts_with("/tasks")));
+    }
+
+    #[test]
+    fn tui_editor_supports_history_undo_and_kill_ring() {
+        let provider = ResolvedProvider {
+            id: "test".to_owned(),
+            base_url: "http://127.0.0.1/v1".to_owned(),
+            api_key: None,
+            api_key_source: "env:TEST".to_owned(),
+            model: "m1".to_owned(),
+            models: vec!["m1".to_owned()],
+            max_retries: 0,
+            retry_min_delay_ms: 1,
+            retry_max_delay_ms: 1,
+            request_timeout_ms: 1,
+        };
+        let mut state = TuiState::new(provider, AgentMode::Code);
+        state.insert_text("abc");
+        state.move_left();
+        state.kill_line();
+        assert_eq!(state.input, "ab");
+        state.yank();
+        assert_eq!(state.input, "abc");
+        state.undo();
+        assert_eq!(state.input, "ab");
+        state.history.push("/tasks".to_owned());
+        state.history_prev();
+        assert_eq!(state.input, "/tasks");
+    }
+
+    #[test]
+    fn tui_snapshot_contains_header_commands_and_input() {
+        let provider = ResolvedProvider {
+            id: "openai-chat".to_owned(),
+            base_url: "http://127.0.0.1/v1".to_owned(),
+            api_key: None,
+            api_key_source: "env:OPENAI_API_KEY".to_owned(),
+            model: "m1".to_owned(),
+            models: vec!["m1".to_owned()],
+            max_retries: 0,
+            retry_min_delay_ms: 1,
+            retry_max_delay_ms: 1,
+            request_timeout_ms: 1,
+        };
+        let mut state = TuiState::new(provider, AgentMode::Plan);
+        state.input = "/m".to_owned();
+        let snapshot = render_tui_snapshot(&state, 90);
+        assert!(snapshot.contains("AxumAgent v0.1.0 · mode plan"));
+        assert!(snapshot.contains("/model"));
+        assert!(snapshot.contains("› /m"));
     }
 }

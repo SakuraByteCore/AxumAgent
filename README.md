@@ -15,7 +15,7 @@ AxumAgent is migrating from a TypeScript CLI to a Rust CLI for OpenAI-compatible
 
 ## Current shape
 
-Phase 1 of the Rust migration is active: `cargo build` produces a Rust `axum` binary with clap command coverage, serde-compatible `~/.axum/config.toml`, OpenAI-compatible provider calls via reqwest, `doctor --json`, provider listing, five agent modes, workflow skeleton output, and `run --auto`. Ratatui TUI, sandboxed tool execution, and the full Pi-style runtime state machine are planned for later phases.
+Phase 1 of the Rust migration is active: `cargo build` produces a Rust `axum` binary with clap command coverage, serde-compatible `~/.axum/config.toml`, OpenAI-compatible provider calls via reqwest, `doctor --json`, provider listing, five agent modes, workflow skeleton output, and `run --auto`. Phase 2 has a first Ratatui TUI slice with session header, transcript, input editor, slash suggestions, history/cursor editing, undo, kill-ring basics, `/tasks`, `/providers`, `/provider`, `/model`, and `/mode`. Streamed provider turns, sandboxed tool execution, and the full Pi-style runtime state machine are planned for later phases.
 
 ## Requirements
 
@@ -46,6 +46,7 @@ npm run pack:dry
 node bin/axum.js --help
 cargo build
 ./target/debug/axum --help
+./target/debug/axum tui --dry-run --mode debug /m
 ```
 
 ## Install from npm
