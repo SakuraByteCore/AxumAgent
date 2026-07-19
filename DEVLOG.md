@@ -1,5 +1,17 @@
 # DEVLOG
 
+## 2026-07-19
+
+Work added:
+- Reverted the raw TUI chrome to a pi-tui-default shape: `Text` output, `Editor` input, and `CombinedAutocompleteProvider` for slash/file completion instead of Axum-owned Session/Commands/Prompt panels and manual slash selection.
+- Kept Axum-specific behavior only where necessary for command dispatch, provider/model commands, runtime output, and cancellation status.
+- Updated TUI screenshot regressions for the simpler pi-tui rendering.
+
+Validation:
+- `npm run build` passes.
+- `npm test` passes after snapshot updates.
+- `npm run pack:dry` passes.
+
 ## 2026-07-17
 
 Work added:

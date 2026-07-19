@@ -24,7 +24,7 @@
 - [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, key-source/request previews, and HTML/Cloudflare failures.
 - [x] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
 - [x] Broaden guarded current-workspace inspection commands so TUI tool loops do not trip on routine read-only checks.
-- [x] Render TUI runtime work as transcript-style rows by default, keep the Plan/Now/Evidence activity dashboard behind `/tasks`, show human-readable Working timers on the editor bottom border, use raw pi-tui input without the legacy boxed Prompt panel/fixed prompt label/decorative input prefix, stop repeated denials quickly, and keep bounded provider retry defaults.
+- [x] Render TUI runtime work as transcript-style rows by default, keep the Plan/Now/Evidence activity dashboard behind `/tasks`, show human-readable Working timers as a simple pi-tui status line, use raw pi-tui input without the legacy boxed Prompt panel/fixed prompt label/decorative input prefix, stop repeated denials quickly, and keep bounded provider retry defaults.
 - [x] Align TUI runtime progress with Codex-style semantics: short Working status, `›` user prompts, distinct tool/error rows, and repeated-denial summaries without raw ENOENT/path leakage.
 - [x] Split TUI text helpers and runtime-visible rendering out of the CLI entrypoint as the first KiloCode-aligned boundary.
 - [x] Continue KiloCode-aligned rewrite by moving slash command registry and provider/model picker out of `src/cli.ts`.
@@ -35,6 +35,6 @@
 - [x] Refine workflow CLI rendering with compact Unicode stages, folded middle steps, and `--verbose` expansion.
 - [x] Harden TUI width helpers for narrow terminals with wide Unicode input.
 - [x] Replace raw TUI input/cursor/history/paste state with the pi-tui editor component.
-- [x] Rework TUI chrome into panelized pi-style session/output/command sections instead of loose string rows.
+- [x] Re-align TUI chrome to pi-tui's default Text + Editor shape instead of custom Axum-owned panels.
 - [x] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.

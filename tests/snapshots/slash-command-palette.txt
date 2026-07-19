@@ -1,18 +1,13 @@
-╭─ Session ────────────────────────────────────────────────────────────────────────────
-│ ◇ AxumAgent v0.1.0                                                                   │
-│ ◌ gpt-4o-mini · ./AxumAgent                                                          │
-╰───────────────────────────────────────────────────────────────────────────────────────
-
-╭─ Commands ───────────────────────────────────────────────────────────────────────────
-│ ▸ /help          show commands                                                       │
-│   /provider      show/set provider url/key                                           │
-│   /providers     list configured providers                                           │
-│   /model         fetch/list/switch models                                            │
-│   /parallel      plan sub-agent tasks                                                │
-│   /tasks         show recent runtime/task state                                      │
-│   /exit / /quit  exit TUI                                                            │
-╰───────────────────────────────────────────────────────────────────────────────────────
+AxumAgent v0.1.0
+gpt-4o-mini · ./AxumAgent
 
 ────────────────────────────────────────────────────────────────────────────────────────
  /
 ────────────────────────────────────────────────────────────────────────────────────────
+ → help        show commands
+   provider    show/set provider url/key
+   providers   list configured providers
+   model       fetch/list/switch models
+   parallel    plan sub-agent tasks
+   tasks       show recent runtime/task state
+   (1/7)

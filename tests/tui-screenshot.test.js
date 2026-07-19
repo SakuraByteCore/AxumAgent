@@ -117,10 +117,10 @@ async function testSlashCommandPaletteScreenshot() {
     { delayMs: 350, input: "\x03" },
   ]);
   const snapshot = await normalizeScreen(raw);
-  assert.ok(snapshot.includes("commands"));
-  assert.ok(snapshot.includes("▸ /help"));
-  assert.ok(snapshot.includes("/provider"));
-  assert.ok(snapshot.includes("/model"));
+  assert.ok(snapshot.includes("help"));
+  assert.ok(snapshot.includes("show commands"));
+  assert.ok(snapshot.includes("provider"));
+  assert.ok(snapshot.includes("model"));
   assert.doesNotMatch(snapshot, /╭─ Prompt/);
   assert.doesNotMatch(snapshot, /▌ prompt/);
   assertSnapshot("slash-command-palette", snapshot);
@@ -134,9 +134,8 @@ async function testSlashCommandPaletteClearsOldRows() {
     { delayMs: 350, input: "\x03" },
   ]);
   const snapshot = await normalizeScreen(raw);
-  const commandHeaderCount = (snapshot.match(/Commands/g) || []).length;
-  assert.strictEqual(commandHeaderCount, 1, `slash command palette left stale rows:\n${snapshot}`);
-  assert.ok(snapshot.includes("▸ /provider") || snapshot.includes("▸ /model"));
+  assert.ok(!snapshot.includes("╭─ Commands"));
+  assert.ok(snapshot.includes("show/set provider url/key") || snapshot.includes("fetch/list/switch models"));
 }
 
 async function testNarrowTerminalWidthDoesNotCrash() {
@@ -147,7 +146,7 @@ async function testNarrowTerminalWidthDoesNotCrash() {
     { delayMs: 350, input: "/exit\r" },
   ], { columns: 51, rows: 24 });
   const snapshot = await terminalViewport(raw, 51, 24);
-  assert.ok(snapshot.includes("◇ AxumAgent"));
+  assert.ok(snapshot.includes("AxumAgent"));
   assert.ok(!raw.includes("exceeds terminal width"));
 }
 
@@ -206,7 +205,7 @@ async function testBusyCtrlCOnlyCancelsRequest() {
       { delayMs: 700, input: "/exit\r" },
     ]);
     assert.ok(raw.includes("• Working"));
-    assert.match(raw, /─+ • Working \([^\r\n]*esc to interrupt\) ─+/);
+    assert.match(raw, /• Working \([^\r\n]*esc to interrupt\)/);
     assert.doesNotMatch(raw, /│ • Working \([^\r\n]*esc to interrupt\) │/);
     assert.ok(raw.includes("request cancelled; ready for the next prompt"));
   } finally {

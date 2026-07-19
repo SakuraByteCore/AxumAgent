@@ -6,7 +6,7 @@ import { renderRuntimeEvents } from "./runtime/events";
 import { runtimeToolSpecs } from "./runtime/turn";
 import { clip, visibleWidth, wrapPreservingShortLine } from "./tui/text";
 import { renderRuntimeVisibleOutput, runtimeFailureSummary } from "./tui/runtime-view";
-import { clampSelection, completeSlashCommand, isBareSlashCommandQuery, isCompleteSlashCommand, matchingSlashCommands, renderSlashCommandSuggestions } from "./tui/slash-commands";
+import { SLASH_COMMANDS } from "./tui/slash-commands";
 import { fetchTuiModelsWithStatus, hydrateTuiModels, hydrateTuiModelsWithStatus, renderModelList, switchModel } from "./tui/model-picker";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
@@ -697,17 +697,20 @@ function renderTranscriptLines(text: string, width: number): string[] {
   });
 }
 
+function renderCommandList(): string {
+  return [
+    "commands",
+    ...SLASH_COMMANDS.map((command) => `${command.name}${command.aliases ? ` / ${command.aliases.join(" / ")}` : ""}  ${command.description}`),
+  ].join("\n");
+}
+
 function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status: string | undefined = undefined, showInputPanel = true): string {
-  const safeWidth = Math.max(36, width);
-  const contentBudget = Math.max(4, height - 12);
+  void slashSelection;
+  const safeWidth = Math.max(20, width);
+  const contentBudget = Math.max(4, height - 6);
   const hasPrompt = options.prompt.trim().length > 0;
   const hasAnswer = answer !== undefined;
   const hasStatus = status !== undefined;
-
-  const header = framedSection("Session", [
-    "◇ AxumAgent v0.1.0",
-    `◌ ${options.model} · ${compactPathForTui(process.cwd(), safeWidth - 10)}`,
-  ], safeWidth);
 
   const conversation: string[] = [];
   if (hasPrompt) {
@@ -730,17 +733,18 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
   }
 
   const safeInput = visibleInput(input);
-  const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
+  const safeCursorIndex = safeInput === input ? Math.max(0, Math.min(cursorIndex, input.length)) : safeInput.length;
   const inputText = `${safeInput.slice(0, safeCursorIndex)}█${safeInput.slice(safeCursorIndex)}`;
-  const inputPanel = showInputPanel ? renderPlainInputDeck(inputText || "█", safeWidth) : [];
-  const commandLines = renderSlashCommandSuggestions(safeInput, safeWidth, slashSelection);
+  const inputLines = showInputPanel ? wrapPreservingShortLine(inputText || "█", safeWidth) : [];
+  const commandLines = safeInput.startsWith("/") ? renderCommandList().split("\n") : [];
 
   const screen = [
-    ...header,
+    "AxumAgent v0.1.0",
+    `${options.model} · ${compactPathForTui(process.cwd(), safeWidth)}`,
     "",
     ...(conversation.length > 0 ? [...conversation, ""] : []),
     ...(commandLines.length > 0 ? [...commandLines, ""] : []),
-    ...(inputPanel.length > 0 ? inputPanel : []),
+    ...(inputLines.length > 0 ? inputLines : []),
   ];
   return screen.map((line) => clip(line, safeWidth)).join("\n");
 }
@@ -1191,7 +1195,6 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   let stopped = false;
   let busy = false;
   let activeRequestController: AbortController | undefined;
-  let slashSelection = 0;
   let latestRuntimeProjection = "◇ tasks\n  no runtime task activity yet\n  use /parallel <goal> :: <task> | <task> to plan child tasks";
 
   const requestRender = (): void => tui.requestRender();
@@ -1215,50 +1218,28 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
   };
   const editor = new pi.Editor(tui, editorTheme, { paddingX: 1, autocompleteMaxVisible: 6 });
 
-  const renderInputStatusBorder = (width: number, value: string): string => {
-    const safeWidth = Math.max(1, width);
-    const label = ` ${value} `;
-    if (pi.visibleWidth(label) >= safeWidth) return pi.truncateToWidth(label, safeWidth);
-    const remaining = safeWidth - pi.visibleWidth(label);
-    const left = Math.floor(remaining / 2);
-    const right = remaining - left;
-    return `${"─".repeat(left)}${label}${"─".repeat(right)}`;
+  const output = new pi.Text("", 0, 0);
+  editor.setAutocompleteProvider?.(new pi.CombinedAutocompleteProvider(
+    SLASH_COMMANDS.map((command) => ({ name: command.name.slice(1), description: command.description })),
+    process.cwd(),
+  ));
+
+  const refreshOutput = (): void => {
+    const text = renderTuiScreen(screenOptions, answer, terminal.columns, "", 0, 0, terminal.rows, undefined, false);
+    output.setText(text);
+    requestRender();
   };
 
-  class AxumPiTuiChrome implements PiComponent {
+  class AxumPiStatusLine implements PiComponent {
     invalidate(): void {}
     render(width: number): string[] {
-      const input = editor.getText();
-      const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, undefined, false)
-        .split("\n");
-      const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
-      const lines = [
-        ...body,
-        ...(commandLines.length > 0 ? [...commandLines] : []),
-        "",
-      ];
-      return lines.map((line) => {
+      if (!status) return [];
+      return [status].map((line) => {
         const truncated = pi.truncateToWidth(line, width);
         return truncated + " ".repeat(Math.max(0, width - pi.visibleWidth(truncated)));
       });
     }
   }
-
-  class AxumPiInputDeck implements PiComponent {
-    invalidate(): void {
-      editor.invalidate?.();
-    }
-    render(width: number): string[] {
-      const lines = editor.render(width);
-      if (!status || lines.length === 0) return lines;
-      const decorated = [...lines];
-      decorated[decorated.length - 1] = renderInputStatusBorder(width, status);
-      return decorated;
-    }
-  }
-
-  const chrome = new AxumPiTuiChrome();
-  const inputDeck = new AxumPiInputDeck();
 
   async function submitPrompt(prompt: string): Promise<void> {
     if (!prompt) {
@@ -1270,27 +1251,27 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return;
     }
     if (prompt === "/help") {
-      answer = "commands: /help · /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)";
+      answer = `${renderCommandList()}\n/provider use <id|number>\n/provider set <url> <key> <model>\n/model [id|number]\n/parallel <goal> :: <task> | <task>`;
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
     if (prompt === "/providers") {
       answer = renderProviderRows(process.env, screenOptions.configPath);
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
     if (prompt === "/tasks") {
       answer = latestRuntimeProjection;
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
     if (prompt === "/parallel" || prompt.startsWith("/parallel ")) {
       answer = applyParallelSlashCommand(prompt.slice("/parallel".length), "build", !dryRun);
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
     if (prompt === "/model" || prompt.startsWith("/model ")) {
@@ -1299,7 +1280,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       options = { ...applied.options, prompt: options.prompt };
       answer = applied.message;
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
     if (prompt === "/provider" || prompt.startsWith("/provider ")) {
@@ -1308,13 +1289,13 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       options = { ...applied.options, prompt: options.prompt };
       answer = applied.message;
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
     if (prompt.startsWith("/")) {
-      answer = renderSlashCommandSuggestions(prompt, terminal.columns).join("\n");
+      answer = `unknown command: ${prompt}\ntry /help`;
       status = undefined;
-      requestRender();
+      refreshOutput();
       return;
     }
 
@@ -1324,7 +1305,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       answer = "dry-run: provider call skipped";
       status = undefined;
       lastExitCode = 0;
-      requestRender();
+      refreshOutput();
       return;
     }
 
@@ -1333,17 +1314,17 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     activeRequestController = new AbortController();
     const startedAt = Date.now();
     status = workingStatus(startedAt);
-    requestRender();
+    refreshOutput();
     const timer = setInterval(() => {
       status = workingStatus(startedAt);
-      requestRender();
+      refreshOutput();
     }, 250);
     try {
       const result = await resolveTuiAnswerStream(screenOptions, dryRun, (streamed, projection) => {
         answer = streamed;
         latestRuntimeProjection = projection ?? streamed;
         status = workingStatus(startedAt);
-        requestRender();
+        refreshOutput();
       }, activeRequestController.signal);
       const wasCancelled = activeRequestController.signal.aborted;
       answer = wasCancelled ? "request cancelled; ready for the next prompt" : result.answer;
@@ -1355,17 +1336,15 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       editor.disableSubmit = false;
       status = undefined;
       clearInterval(timer);
-      requestRender();
+      refreshOutput();
     }
   }
 
   editor.onChange = () => {
-    slashSelection = 0;
     requestRender();
   };
   editor.onSubmit = (text: string): void => {
     editor.setText("");
-    slashSelection = 0;
     void submitPrompt(text.trim());
   };
 
@@ -1373,7 +1352,7 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
     if (busy && (pi.matchesKey(data, pi.Key.ctrl("c")) || data === "\u001b")) {
       activeRequestController?.abort();
       status = "• Cancelling request";
-      requestRender();
+      refreshOutput();
       return { consume: true };
     }
     if (pi.matchesKey(data, pi.Key.ctrl("c"))) {
@@ -1381,41 +1360,14 @@ async function runRawInteractiveTui(options: ChatCommandOptions, dryRun: boolean
       return { consume: true };
     }
     if (busy) return { consume: true };
-
-    const input = editor.getText();
-    if (input.startsWith("/")) {
-      const matches = matchingSlashCommands(input);
-      if (pi.matchesKey(data, pi.Key.up) && matches.length > 0) {
-        slashSelection = (slashSelection + matches.length - 1) % matches.length;
-        requestRender();
-        return { consume: true };
-      }
-      if (pi.matchesKey(data, pi.Key.down) && matches.length > 0) {
-        slashSelection = (slashSelection + 1) % matches.length;
-        requestRender();
-        return { consume: true };
-      }
-      if (pi.matchesKey(data, pi.Key.tab)) {
-        const completed = completeSlashCommand(input, slashSelection);
-        if (completed) editor.setText(completed);
-        slashSelection = 0;
-        requestRender();
-        return { consume: true };
-      }
-      if (pi.matchesKey(data, pi.Key.enter) && matches.length > 0 && isBareSlashCommandQuery(input) && !isCompleteSlashCommand(input)) {
-        const completed = completeSlashCommand(input, slashSelection);
-        if (completed) editor.setText(completed);
-        slashSelection = 0;
-        requestRender();
-        return { consume: true };
-      }
-    }
     return undefined;
   });
 
-  tui.addChild(chrome);
-  tui.addChild(inputDeck);
+  tui.addChild(output);
+  tui.addChild(new AxumPiStatusLine());
+  tui.addChild(editor);
   tui.setFocus(editor);
+  refreshOutput();
   if (useAltScreen) terminal.write("\u001b[?1049h");
   terminal.write("\u001b[?2004h");
   const exitCode = await new Promise<number>((resolve) => {
@@ -1446,8 +1398,8 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       rl.close();
       return lastExitCode;
     }
-    if (prompt === "/help") {
-      stdout.write("commands: /help · /providers · /provider use <id|number> · /provider set <url> <key> <model> · /provider [url|key|model] · /model [id|number] · /parallel <goal> :: <task> | <task> · /tasks · /exit (/quit)\n");
+    if (prompt === "/help" || prompt === "/") {
+      stdout.write(`${renderCommandList()}\n/provider use <id|number>\n/provider set <url> <key> <model>\n/model [id|number]\n/parallel <goal> :: <task> | <task>\n`);
       rl.prompt();
       continue;
     }
@@ -1481,7 +1433,7 @@ async function runLineInteractiveTui(options: ChatCommandOptions, dryRun: boolea
       continue;
     }
     if (prompt.startsWith("/")) {
-      stdout.write(`${renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n")}\n`);
+      stdout.write(`unknown command: ${prompt}\ntry /help\n`);
       rl.prompt();
       continue;
     }
