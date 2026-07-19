@@ -5,6 +5,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
+use futures_util::StreamExt;
 use ratatui::{
     Terminal,
     backend::CrosstermBackend,
@@ -18,7 +19,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::BTreeMap,
-    env, fs, io,
+    env, fs,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::Command as ProcessCommand,
     time::Duration,
@@ -91,6 +93,8 @@ struct ChatArgs {
     request_timeout_ms: Option<u64>,
     #[arg(long)]
     json: bool,
+    #[arg(long)]
+    stream: bool,
     #[arg(long, value_enum, default_value_t = AgentMode::Code)]
     mode: AgentMode,
     #[arg(value_name = "PROMPT", trailing_var_arg = true)]
@@ -357,6 +361,7 @@ async fn run(cli: Cli) -> Result<i32> {
             retry_max_delay_ms: None,
             request_timeout_ms: None,
             json: false,
+            stream: false,
             mode: AgentMode::Code,
             prompt: vec![],
         },
@@ -619,6 +624,88 @@ async fn post_chat_completion(
     .await?)
 }
 
+async fn stream_chat_completion_text<F>(
+    provider: &ResolvedProvider,
+    mode: AgentMode,
+    system: Option<&str>,
+    temperature: Option<f32>,
+    prompt: &str,
+    mut on_delta: F,
+) -> Result<PiWorkflowTrace>
+where
+    F: FnMut(&str) -> Result<()>,
+{
+    let api_key = provider
+        .api_key
+        .clone()
+        .ok_or_else(|| anyhow!("provider api key missing ({})", provider.api_key_source))?;
+    let client = client(provider)?;
+    let mut trace = PiWorkflowTrace::for_turn(mode, provider, prompt);
+    trace
+        .now
+        .push("stream OpenAI-compatible chat completion deltas".to_owned());
+    let mut messages = vec![];
+    messages.push(json!({"role":"system","content": mode_system_prompt(mode)}));
+    if let Some(system) = system {
+        messages.push(json!({"role":"system","content": system}));
+    }
+    messages.push(json!({"role":"user","content": prompt}));
+    let mut body = json!({"model": provider.model, "messages": messages, "stream": true});
+    if let Some(temp) = temperature {
+        body["temperature"] = json!(temp);
+    }
+    let url = format!(
+        "{}/chat/completions",
+        provider.base_url.trim_end_matches('/')
+    );
+    let response = retrying(provider, || {
+        client.post(&url).bearer_auth(&api_key).json(&body).send()
+    })
+    .await?
+    .error_for_status()?;
+    let mut stream = response.bytes_stream();
+    let mut buffer = String::new();
+    let mut bytes = 0usize;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+        while let Some(pos) = buffer.find('\n') {
+            let line = buffer[..pos].trim_end_matches('\r').to_owned();
+            buffer.drain(..=pos);
+            if let Some(delta) = parse_sse_content_delta(&line) {
+                bytes += delta.len();
+                on_delta(&delta)?;
+            }
+        }
+    }
+    if let Some(delta) = parse_sse_content_delta(buffer.trim_end_matches('\r')) {
+        bytes += delta.len();
+        on_delta(&delta)?;
+    }
+    trace
+        .evidence
+        .push(format!("streamed_content_bytes={bytes}"));
+    trace
+        .result
+        .push("assistant stream completed without local tool calls".to_owned());
+    trace
+        .next
+        .push("wire streamed deltas into Ratatui transcript".to_owned());
+    Ok(trace)
+}
+
+fn parse_sse_content_delta(line: &str) -> Option<String> {
+    let data = line.trim().strip_prefix("data:")?.trim();
+    if data.is_empty() || data == "[DONE]" {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_str(data).ok()?;
+    value
+        .pointer("/choices/0/delta/content")
+        .and_then(|value| value.as_str())
+        .map(str::to_owned)
+}
+
 async fn chat_completion_with_trace(
     provider: &ResolvedProvider,
     mode: AgentMode,
@@ -797,7 +884,27 @@ async fn run_chat(
     if prompt.trim().is_empty() {
         return Err(anyhow!("chat prompt is required"));
     }
+    if args.json && args.stream {
+        return Err(anyhow!("--json and --stream cannot be combined"));
+    }
     let provider = resolve_provider(config_path, provider_id, Some(&args))?;
+    if args.stream {
+        let _trace = stream_chat_completion_text(
+            &provider,
+            args.mode,
+            args.system.as_deref(),
+            args.temperature,
+            &prompt,
+            |delta| {
+                print!("{delta}");
+                io::stdout().flush()?;
+                Ok(())
+            },
+        )
+        .await?;
+        println!();
+        return Ok(0);
+    }
     let (res, trace) = chat_completion_with_trace(
         &provider,
         args.mode,
@@ -1555,6 +1662,7 @@ async fn run_auto(
         retry_max_delay_ms: None,
         request_timeout_ms: None,
         json: false,
+        stream: false,
         mode: args.mode,
         prompt: if args.prompt.is_empty() {
             vec![prompt]
@@ -1604,6 +1712,14 @@ mod tests {
     fn assistant_text_extracts_openai_message_content() {
         let response = json!({"choices":[{"message":{"content":"hello from provider"}}]});
         assert_eq!(assistant_text(&response), "hello from provider");
+    }
+
+    #[test]
+    fn parses_openai_sse_content_delta() {
+        let line = r#"data: {"choices":[{"delta":{"content":"hel"}}]}"#;
+        assert_eq!(parse_sse_content_delta(line).as_deref(), Some("hel"));
+        assert_eq!(parse_sse_content_delta("data: [DONE]"), None);
+        assert_eq!(parse_sse_content_delta(": ping"), None);
     }
 
     #[test]

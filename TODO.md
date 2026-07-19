@@ -35,7 +35,8 @@
 - [x] Phase3 first slice: add Rust `ToolSandbox` with workspace path containment, `read`, exact-once `precise_edit`, and `safe_exec` allowlist for `pwd`, `ls`, `find`, `grep`, `cat`, `sed`, `head`, `tail`, `wc`, and read-only `git` subcommands while rejecting shell operators.
 - [x] Phase3 follow-up first slice: expose Rust `read`, `precise_edit`, and `safe_exec` as OpenAI-compatible tool definitions, execute provider `tool_calls` through `ToolSandbox`, and return tool results to the model.
 - [x] Phase3 follow-up second slice: wrap Rust provider/tool turns with Pi-style Plan/Now/Evidence/Result/Next/Issues trace records and expose the trace in JSON/TUI task output.
-- [ ] Phase3 follow-up: extend the Pi-style state machine to streamed provider/tool turns.
+- [x] Phase3/streaming first slice: add OpenAI-compatible SSE parser and `axum chat --stream` output path with non-tool streamed deltas.
+- [ ] Phase3 follow-up: extend the Pi-style state machine to streamed provider/tool turns and TUI incremental transcript rendering.
 - [x] Phase4 first slice: wire Code/Plan/Ask/Debug/Review into Rust `chat`, `tui`, and `run --auto` runtime prompts instead of leaving modes as display-only selection.
 - [x] Phase5 first slice: make `axum run --auto` explicitly noninteractive and attach fail-closed sandbox policy/evidence to the runtime prompt.
 - [ ] Finish KiloCode-aligned rewrite by moving or replacing the interactive TUI loop out of `src/cli.ts`.
