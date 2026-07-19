@@ -483,6 +483,35 @@ fn is_retryable(error: &reqwest::Error) -> bool {
             .is_some_and(|s| s.is_server_error() || s == StatusCode::TOO_MANY_REQUESTS)
 }
 
+async fn post_chat_completion(
+    provider: &ResolvedProvider,
+    client: &reqwest::Client,
+    api_key: &str,
+    messages: &[serde_json::Value],
+    temperature: Option<f32>,
+    include_tools: bool,
+) -> Result<serde_json::Value> {
+    let mut body = json!({"model": provider.model, "messages": messages});
+    if let Some(temp) = temperature {
+        body["temperature"] = json!(temp);
+    }
+    if include_tools {
+        body["tools"] = tool_definitions();
+        body["tool_choice"] = json!("auto");
+    }
+    let url = format!(
+        "{}/chat/completions",
+        provider.base_url.trim_end_matches('/')
+    );
+    Ok(retrying(provider, || {
+        client.post(&url).bearer_auth(api_key).json(&body).send()
+    })
+    .await?
+    .error_for_status()?
+    .json()
+    .await?)
+}
+
 async fn chat_completion_value(
     provider: &ResolvedProvider,
     mode: AgentMode,
@@ -495,27 +524,50 @@ async fn chat_completion_value(
         .clone()
         .ok_or_else(|| anyhow!("provider api key missing ({})", provider.api_key_source))?;
     let client = client(provider)?;
+    let workspace = env::current_dir()?;
+    let sandbox = ToolSandbox::new(&workspace)?;
     let mut messages = vec![];
     messages.push(json!({"role":"system","content": mode_system_prompt(mode)}));
+    messages.push(json!({"role":"system","content": tool_policy_prompt()}));
     if let Some(system) = system {
         messages.push(json!({"role":"system","content": system}));
     }
     messages.push(json!({"role":"user","content": prompt}));
-    let mut body = json!({"model": provider.model, "messages": messages});
-    if let Some(temp) = temperature {
-        body["temperature"] = json!(temp);
+    let mut response =
+        post_chat_completion(provider, &client, &api_key, &messages, temperature, true).await?;
+    for _ in 0..3 {
+        let Some(tool_calls) = response
+            .pointer("/choices/0/message/tool_calls")
+            .and_then(|value| value.as_array())
+            .filter(|calls| !calls.is_empty())
+        else {
+            return Ok(response);
+        };
+        let assistant_message = response
+            .pointer("/choices/0/message")
+            .cloned()
+            .unwrap_or_else(|| json!({"role":"assistant","content":""}));
+        messages.push(assistant_message);
+        for call in tool_calls {
+            let id = call
+                .get("id")
+                .and_then(|value| value.as_str())
+                .unwrap_or("tool-call");
+            let name = call
+                .pointer("/function/name")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let arguments = call
+                .pointer("/function/arguments")
+                .and_then(|value| value.as_str())
+                .unwrap_or("{}");
+            let content = execute_tool_call(&sandbox, name, arguments);
+            messages.push(json!({"role":"tool","tool_call_id": id,"content": content}));
+        }
+        response =
+            post_chat_completion(provider, &client, &api_key, &messages, temperature, true).await?;
     }
-    let url = format!(
-        "{}/chat/completions",
-        provider.base_url.trim_end_matches('/')
-    );
-    Ok(retrying(provider, || {
-        client.post(&url).bearer_auth(&api_key).json(&body).send()
-    })
-    .await?
-    .error_for_status()?
-    .json()
-    .await?)
+    Ok(response)
 }
 
 fn assistant_text(response: &serde_json::Value) -> String {
@@ -524,6 +576,73 @@ fn assistant_text(response: &serde_json::Value) -> String {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_owned()
+}
+
+fn tool_policy_prompt() -> &'static str {
+    "You may request local tools only through OpenAI tool calls. Available tools are read, precise_edit, and safe_exec. They are sandboxed to the current workspace. safe_exec only permits pwd, ls, find, grep, cat, sed, head, tail, wc, and read-only git subcommands. Shell operators are forbidden."
+}
+
+fn tool_definitions() -> serde_json::Value {
+    json!([
+        {"type":"function","function":{"name":"read","description":"Read a UTF-8 text file inside the current workspace.","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"precise_edit","description":"Replace exactly one matching text region in a workspace file.","parameters":{"type":"object","properties":{"path":{"type":"string"},"old":{"type":"string"},"new":{"type":"string"}},"required":["path","old","new"],"additionalProperties":false}}},
+        {"type":"function","function":{"name":"safe_exec","description":"Run an allowlisted read-only command in the current workspace.","parameters":{"type":"object","properties":{"program":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["program"],"additionalProperties":false}}}
+    ])
+}
+
+fn execute_tool_call(sandbox: &ToolSandbox, name: &str, arguments: &str) -> String {
+    let parsed: serde_json::Value = match serde_json::from_str(arguments) {
+        Ok(value) => value,
+        Err(error) => return format!("tool error: invalid JSON arguments: {error}"),
+    };
+    let result = match name {
+        "read" => {
+            let path = parsed
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            sandbox.read(path)
+        }
+        "precise_edit" => {
+            let path = parsed
+                .get("path")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let old = parsed
+                .get("old")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let new = parsed
+                .get("new")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            sandbox
+                .precise_edit(path, old, new)
+                .map(|_| "edited".to_owned())
+        }
+        "safe_exec" => {
+            let program = parsed
+                .get("program")
+                .and_then(|value| value.as_str())
+                .unwrap_or("");
+            let args = parsed
+                .get("args")
+                .and_then(|value| value.as_array())
+                .map(|values| {
+                    values
+                        .iter()
+                        .filter_map(|value| value.as_str().map(str::to_owned))
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            sandbox.safe_exec(program, &args)
+        }
+        _ => Err(anyhow!("unknown tool: {name}")),
+    };
+    match result {
+        Ok(output) => output,
+        Err(error) => format!("tool error: {error}"),
+    }
 }
 
 async fn run_chat(
@@ -1336,6 +1455,31 @@ mod tests {
     fn assistant_text_extracts_openai_message_content() {
         let response = json!({"choices":[{"message":{"content":"hello from provider"}}]});
         assert_eq!(assistant_text(&response), "hello from provider");
+    }
+
+    #[test]
+    fn tool_call_executor_dispatches_sandbox_tools() {
+        let workspace = make_temp_workspace();
+        fs::write(workspace.join("note.txt"), "alpha beta").unwrap();
+        let sandbox = ToolSandbox::new(&workspace).unwrap();
+        assert_eq!(
+            execute_tool_call(&sandbox, "read", r#"{"path":"note.txt"}"#),
+            "alpha beta"
+        );
+        assert_eq!(
+            execute_tool_call(
+                &sandbox,
+                "precise_edit",
+                r#"{"path":"note.txt","old":"beta","new":"BETA"}"#,
+            ),
+            "edited"
+        );
+        assert_eq!(sandbox.read("note.txt").unwrap(), "alpha BETA");
+        assert!(
+            execute_tool_call(&sandbox, "safe_exec", r#"{"program":"sh","args":[]}"#)
+                .contains("tool error")
+        );
+        fs::remove_dir_all(workspace).unwrap();
     }
 
     #[test]
