@@ -37,8 +37,8 @@
 - [x] Phase3 follow-up second slice: wrap Rust provider/tool turns with Pi-style Plan/Now/Evidence/Result/Next/Issues trace records and expose the trace in JSON/TUI task output.
 - [x] Phase3/streaming first slice: add OpenAI-compatible SSE parser and `axum chat --stream` output path with non-tool streamed deltas.
 - [x] Phase3/streaming second slice: let Rust TUI reuse `--stream` provider turns and write assembled streamed assistant text plus trace into the transcript.
-- [x] Phase3/streaming third slice: parse and assemble streamed OpenAI tool-call deltas, including split function arguments, while keeping execution deferred in stream mode.
-- [ ] Phase3 follow-up: execute assembled streamed tool calls safely and add true TUI incremental redraw while deltas arrive.
+- [x] Phase3/streaming third slice: parse and assemble streamed OpenAI tool-call deltas, including split function arguments, then execute one completed streamed tool round through `ToolSandbox` before a follow-up completion.
+- [ ] Phase3 follow-up: support multi-round streamed tool execution and true TUI incremental redraw while deltas arrive.
 - [x] Phase4 first slice: wire Code/Plan/Ask/Debug/Review into Rust `chat`, `tui`, and `run --auto` runtime prompts instead of leaving modes as display-only selection.
 - [x] Phase5 first slice: make `axum run --auto` explicitly noninteractive and attach fail-closed sandbox policy/evidence to the runtime prompt.
 - [ ] Finish KiloCode-aligned rewrite by moving or replacing the interactive TUI loop out of `src/cli.ts`.

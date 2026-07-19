@@ -18,7 +18,7 @@ Work added:
 - Added a Pi-style Plan/Now/Evidence/Result/Next/Issues trace around Rust provider/tool turns, exposed in JSON chat output and TUI transcript when `/tasks` is active.
 - Added the first streamed provider-turn slice: `axum chat --stream` uses OpenAI-compatible SSE parsing for content deltas and writes deltas directly to stdout.
 - Wired the Rust TUI to reuse streamed provider turns when launched with `--stream`, recording the assembled streamed assistant text and trace into the transcript; true in-frame incremental redraw remains a follow-up.
-- Added a streamed tool-call delta accumulator for OpenAI-compatible SSE chunks, including split `function.arguments`; stream mode records streamed tool calls as deferred instead of executing partial tool data.
+- Added a streamed tool-call delta accumulator for OpenAI-compatible SSE chunks, including split `function.arguments`; stream mode now executes one fully assembled streamed tool round through `ToolSandbox` and follows up with a non-streamed completion.
 
 Validation:
 - `npm run build` passes.

@@ -640,17 +640,20 @@ where
         .clone()
         .ok_or_else(|| anyhow!("provider api key missing ({})", provider.api_key_source))?;
     let client = client(provider)?;
+    let workspace = env::current_dir()?;
+    let sandbox = ToolSandbox::new(&workspace)?;
     let mut trace = PiWorkflowTrace::for_turn(mode, provider, prompt);
     trace
         .now
         .push("stream OpenAI-compatible chat completion deltas".to_owned());
     let mut messages = vec![];
     messages.push(json!({"role":"system","content": mode_system_prompt(mode)}));
+    messages.push(json!({"role":"system","content": tool_policy_prompt()}));
     if let Some(system) = system {
         messages.push(json!({"role":"system","content": system}));
     }
     messages.push(json!({"role":"user","content": prompt}));
-    let mut body = json!({"model": provider.model, "messages": messages, "stream": true});
+    let mut body = json!({"model": provider.model, "messages": messages, "stream": true, "tools": tool_definitions(), "tool_choice": "auto"});
     if let Some(temp) = temperature {
         body["temperature"] = json!(temp);
     }
@@ -702,12 +705,42 @@ where
             "streamed_tool_calls={}",
             assembled_tool_calls.len()
         ));
-        trace
-            .issues
-            .push("streamed tool-call execution is not wired yet; rerun without --stream for tool execution".to_owned());
+        let assistant_tool_calls = assembled_tool_calls
+            .iter()
+            .enumerate()
+            .map(|(index, call)| {
+                json!({
+                    "id": call.id.clone().unwrap_or_else(|| format!("stream_tool_{index}")),
+                    "type": "function",
+                    "function": {
+                        "name": call.name.clone().unwrap_or_default(),
+                        "arguments": call.arguments,
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        messages
+            .push(json!({"role":"assistant","content":null,"tool_calls": assistant_tool_calls}));
+        for (index, call) in assembled_tool_calls.iter().enumerate() {
+            let id = call
+                .id
+                .clone()
+                .unwrap_or_else(|| format!("stream_tool_{index}"));
+            let name = call.name.as_deref().unwrap_or("");
+            let execution = execute_tool_call_with_status(&sandbox, name, &call.arguments);
+            trace.record_tool(&execution);
+            messages.push(json!({"role":"tool","tool_call_id": id,"content": execution.output}));
+        }
+        let follow_up =
+            post_chat_completion(provider, &client, &api_key, &messages, temperature, false)
+                .await?;
+        let text = assistant_text(&follow_up);
+        if !text.is_empty() {
+            on_delta(&text)?;
+        }
         trace
             .result
-            .push("assistant stream completed with deferred tool calls".to_owned());
+            .push("assistant stream completed after one streamed tool round".to_owned());
     }
     trace
         .next
