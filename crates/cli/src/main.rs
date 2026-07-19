@@ -1211,6 +1211,27 @@ fn contains_shell_operator(token: &str) -> bool {
         || token.contains("||")
 }
 
+fn auto_sandbox_evidence(workspace: &Path) -> String {
+    let Ok(sandbox) = ToolSandbox::new(workspace) else {
+        return "workspace unavailable".to_owned();
+    };
+    let cwd = sandbox
+        .safe_exec("pwd", &[])
+        .unwrap_or_else(|error| format!("pwd unavailable: {error}"));
+    let git = sandbox
+        .safe_exec("git", &["status".to_owned(), "--short".to_owned()])
+        .unwrap_or_else(|_| "git status unavailable or not a repository".to_owned());
+    format!("workspace: {}\ngit_status:\n{}", cwd.trim(), git.trim())
+}
+
+fn auto_system_prompt(mode: AgentMode, evidence: &str) -> String {
+    format!(
+        "{}\nAutonomous mode is enabled. Do not ask for interactive permission prompts. Treat the available local tool policy as fail-closed: read, precise_edit, and safe_exec are sandboxed to the workspace; safe_exec only allows pwd, ls, find, grep, cat, sed, head, tail, wc, and read-only git subcommands; shell operators are forbidden. If a requested action is outside that policy, stop and report the blocker. Current sandbox evidence:\n{}",
+        mode_system_prompt(mode),
+        evidence
+    )
+}
+
 async fn run_auto(
     config_path: Option<PathBuf>,
     provider_id: Option<String>,
@@ -1220,13 +1241,16 @@ async fn run_auto(
         return Err(anyhow!("autonomous run requires --auto"));
     }
     let prompt = args.prompt.join(" ");
-    println!("auto mode enabled; mode: {}; prompt: {}", args.mode, prompt);
+    let workspace = env::current_dir()?;
+    let evidence = auto_sandbox_evidence(&workspace);
+    println!(
+        "auto mode enabled; mode: {}; workspace: {}",
+        args.mode,
+        workspace.display()
+    );
     let chat = ChatArgs {
         model: None,
-        system: Some(format!(
-            "You are AxumAgent in {} mode. Run without interactive permission prompts.",
-            args.mode
-        )),
+        system: Some(auto_system_prompt(args.mode, &evidence)),
         temperature: None,
         max_retries: None,
         retry_min_delay_ms: None,
@@ -1234,7 +1258,11 @@ async fn run_auto(
         request_timeout_ms: None,
         json: false,
         mode: args.mode,
-        prompt: args.prompt,
+        prompt: if args.prompt.is_empty() {
+            vec![prompt]
+        } else {
+            args.prompt
+        },
     };
     run_chat(config_path, provider_id, chat).await
 }
@@ -1263,6 +1291,15 @@ mod tests {
         assert!(mode_system_prompt(AgentMode::Code).contains("Implement changes"));
         assert!(mode_system_prompt(AgentMode::Plan).contains("do not execute code changes"));
         assert!(mode_system_prompt(AgentMode::Review).contains("merge readiness"));
+    }
+
+    #[test]
+    fn auto_prompt_is_noninteractive_and_sandboxed() {
+        let prompt = auto_system_prompt(AgentMode::Debug, "workspace: /tmp/x");
+        assert!(prompt.contains("Autonomous mode is enabled"));
+        assert!(prompt.contains("Do not ask for interactive permission prompts"));
+        assert!(prompt.contains("safe_exec only allows"));
+        assert!(prompt.contains("shell operators are forbidden"));
     }
 
     #[test]
