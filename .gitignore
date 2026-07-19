@@ -6,6 +6,7 @@ pnpm-debug.log*
 .DS_Store
 
 axum
+target
 rs/target
 rs/data/*.db
 rs/data/*.db-*

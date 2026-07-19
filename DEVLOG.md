@@ -6,11 +6,15 @@ Work added:
 - Reverted the raw TUI chrome to a pi-tui-default shape: `Text` output, `Editor` input, and `CombinedAutocompleteProvider` for slash/file completion instead of Axum-owned Session/Commands/Prompt panels and manual slash selection.
 - Kept Axum-specific behavior only where necessary for command dispatch, provider/model commands, runtime output, and cancellation status.
 - Updated TUI screenshot regressions for the simpler pi-tui rendering.
+- Direction changed again by explicit user confirmation: start the Rust/clap/Ratatui migration and treat the pi-tui alignment as superseded.
+- Added Phase1 Rust CLI crate under `crates/cli`: clap command surface for `init`, `chat`, `tui`, `doctor`, `providers`, `modes`, `workflow`, `parallel`, `config-web`, and `run --auto`; serde-compatible `~/.axum/config.toml`; OpenAI-compatible reqwest provider calls with retry/backoff; scriptable `doctor --json`; five agent modes; and Phase2/3 placeholders that do not pretend Ratatui/tool runtime work is finished.
+- Added Rust validation scripts to `package.json` and documented the migration shape in README/TODO.
 
 Validation:
 - `npm run build` passes.
 - `npm test` passes after snapshot updates.
 - `npm run pack:dry` passes.
+- `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust Phase1 crate.
 
 ## 2026-07-17
 

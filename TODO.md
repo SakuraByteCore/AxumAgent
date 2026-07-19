@@ -28,7 +28,12 @@
 - [x] Align TUI runtime progress with Codex-style semantics: short Working status, `›` user prompts, distinct tool/error rows, and repeated-denial summaries without raw ENOENT/path leakage.
 - [x] Split TUI text helpers and runtime-visible rendering out of the CLI entrypoint as the first KiloCode-aligned boundary.
 - [x] Continue KiloCode-aligned rewrite by moving slash command registry and provider/model picker out of `src/cli.ts`.
-- [ ] Finish KiloCode-aligned rewrite by moving the interactive TUI loop out of `src/cli.ts`.
+- [x] Start Rust/clap migration with Phase1 config/provider/init/chat/doctor/providers/modes/workflow/run command surface.
+- [ ] Phase2: replace TypeScript/pi-tui interactive TUI with Ratatui while preserving `/tasks`, `/providers`, `/model`, slash completion, multiline editing, history, cursor movement, paste, undo, and kill-ring.
+- [ ] Phase3: port Pi-style workflow state machine and sandboxed read/precise_edit/safe_exec tool execution to Rust.
+- [ ] Phase4: wire Code/Plan/Ask/Debug/Review modes through runtime behavior, not just CLI selection.
+- [ ] Phase5: complete `axum run --auto` autonomous execution with sandbox policy and CI-safe noninteractive behavior.
+- [ ] Finish KiloCode-aligned rewrite by moving or replacing the interactive TUI loop out of `src/cli.ts`.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
 - [x] Route TUI prompt execution through the Codex-like runtime session loop instead of direct provider chat calls.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.

@@ -2,24 +2,26 @@
 
 [![CI](https://github.com/SakuraByteCore/AxumAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/SakuraByteCore/AxumAgent/actions/workflows/ci.yml)
 
-AxumAgent is a TypeScript CLI for OpenAI-compatible chat providers, with a Kilo-style terminal shell, quick provider setup, and a pi-style workflow runtime foundation.
+AxumAgent is migrating from a TypeScript CLI to a Rust CLI for OpenAI-compatible chat providers, with KiloCode-aligned command structure and a Ratatui TUI roadmap.
 
-- `src/`: TypeScript CLI/provider/runtime layer.
-- `src/config.ts`: user-level TOML config loading.
+- `crates/cli/`: Rust clap/serde/reqwest CLI foundation for config, providers, diagnostics, modes, workflow skeletons, and autonomous `run --auto` entrypoint.
+- `src/`: legacy TypeScript CLI/provider/runtime layer retained while the Rust migration is phased in.
+- `src/config.ts`: user-level TOML config loading used by the legacy CLI.
 - `src/shell/kilo-shell.ts`: Kilo-style shell mode definitions without depending on KiloCode.
 - `src/runtime/pi-workflow.ts`: pi-style workflow events, permission gates, and checkpoint layout.
 - `src/providers/openai-chat.ts`: OpenAI Chat Completions and OpenAI-compatible provider.
-- `bin/axum.js`: npm binary shim that runs the built TypeScript CLI.
-- `dist/`: committed build output for install-time execution.
+- `bin/axum.js`: npm binary shim that currently runs the built TypeScript CLI while Rust CLI adoption is staged.
+- `dist/`: committed TypeScript build output for install-time execution.
 
 ## Current shape
 
-The repository is TypeScript-only and npm-packaged as `axum-agent`. The previous Rust workspace and prebuilt binary artifacts were removed to avoid large local/remote footprint.
+Phase 1 of the Rust migration is active: `cargo build` produces a Rust `axum` binary with clap command coverage, serde-compatible `~/.axum/config.toml`, OpenAI-compatible provider calls via reqwest, `doctor --json`, provider listing, five agent modes, workflow skeleton output, and `run --auto`. Ratatui TUI, sandboxed tool execution, and the full Pi-style runtime state machine are planned for later phases.
 
 ## Requirements
 
 - Node.js.
 - npm.
+- Rust toolchain (`cargo`, `rustc`) for the Rust CLI migration path.
 
 ## Quick start
 
@@ -42,6 +44,8 @@ Local development checks:
 npm test
 npm run pack:dry
 node bin/axum.js --help
+cargo build
+./target/debug/axum --help
 ```
 
 ## Install from npm
