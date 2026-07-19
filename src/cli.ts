@@ -731,6 +731,14 @@ function renderAssistantOutput(answer: string): string {
   return answer;
 }
 
+function redactTuiText(value: string): string {
+  return value
+    .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer ***")
+    .replace(/(api[_-]?key|token|secret|password)=([^\s&]+)/gi, "$1=***")
+    .replace(/gh[pousr]_[A-Za-z0-9_]{20,}/g, "gh*_***")
+    .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "jwt.***");
+}
+
 function slashCommandQuery(input: string): string {
   if (!input.startsWith("/")) return "";
   return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
@@ -834,6 +842,18 @@ function compactPathForTui(cwd: string, width: number): string {
   return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }
 
+function renderTranscriptLines(text: string, width: number): string[] {
+  const inner = Math.max(1, width - 2);
+  const lines = text.split(/\n/g);
+  return lines.flatMap((line, index) => {
+    const prefix = index === 0 ? "• " : "  ";
+    return wrapPreservingShortLine(line, Math.max(1, inner - visibleWidth(prefix))).map((wrapped, wrappedIndex) => {
+      const linePrefix = index === 0 && wrappedIndex === 0 ? prefix : "  ";
+      return `${linePrefix}${wrapped}`;
+    });
+  });
+}
+
 function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status: string | undefined = undefined, showInputPanel = true): string {
   const safeWidth = Math.max(36, width);
   const contentBudget = Math.max(4, height - 12);
@@ -848,7 +868,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
 
   const conversation: string[] = [];
   if (hasPrompt) {
-    conversation.push(...framedSection("You", options.prompt.split(/\n/g), safeWidth));
+    conversation.push(...renderTranscriptLines(options.prompt, safeWidth));
   }
   if (hasAnswer || hasStatus) {
     const rawLines = [
@@ -863,7 +883,7 @@ function renderTuiScreen(options: ChatCommandOptions, answer: string | undefined
         ...wrapped.slice(-2),
       ]
       : wrapped;
-    conversation.push(...framedSection("Axum", clipped, safeWidth));
+    conversation.push(...clipped);
   }
 
   const safeInput = visibleInput(input);
@@ -1393,22 +1413,94 @@ function renderRuntimeProjection(session: AxumRuntimeSession): string {
   return renderRuntimeDashboard(events).slice(0, 2200);
 }
 
-function renderRuntimeVisibleOutput(session: AxumRuntimeSession): { answer: string; projection: string } {
-  const projection = renderRuntimeProjection(session);
-  const events = session.events.snapshot();
-  const assistantText = events.reduce((latest, event) => {
+function runtimeStringField(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" && field.trim() ? field : undefined;
+}
+
+function runtimeArgs(payload: unknown): Record<string, unknown> {
+  if (!payload || typeof payload !== "object") return {};
+  const args = (payload as Record<string, unknown>).arguments;
+  return args && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : {};
+}
+
+function runtimeArgText(args: Record<string, unknown>, key: string): string | undefined {
+  const value = args[key];
+  return typeof value === "string" && value.trim() ? value : undefined;
+}
+
+function runtimeToolTitle(name: string, args: Record<string, unknown>): string {
+  if (name === "safe_exec") return `Ran ${runtimeArgText(args, "command") ?? "command"}`;
+  if (name === "read") return `Read ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
+  if (name === "precise_edit") return `Edited ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
+  return `${name} tool`;
+}
+
+function runtimeToolResultSummary(content: string): string {
+  const clean = redactTuiText(content).replace(/\s+/g, " ").trim();
+  if (!clean) return "completed";
+  return truncateToVisibleWidth(clean, 120);
+}
+
+function renderRuntimeTranscript(session: AxumRuntimeSession): string {
+  const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
+  const lines: string[] = [];
+  const calls = new Map<string, { name: string; title: string; lineIndex: number }>();
+  let assistantText = "";
+  for (const event of events) {
+    const payload = event.payload as Record<string, unknown> | undefined;
     if (event.kind === "assistant_message_delta") {
-      const payload = event.payload as { content?: unknown };
-      return typeof payload.content === "string" ? payload.content : latest;
+      const content = typeof payload?.content === "string" ? payload.content : "";
+      if (content) assistantText = content;
+      continue;
     }
     if (event.kind === "assistant_message") {
-      const payload = event.payload as { content?: unknown };
-      return typeof payload.content === "string" ? payload.content : latest;
+      const content = typeof payload?.content === "string" ? payload.content : "";
+      if (content) assistantText = content;
+      continue;
     }
-    return latest;
-  }, "");
+    if (event.kind === "tool_call_requested" && payload) {
+      const callId = typeof payload.id === "string" ? payload.id : String(event.id);
+      const name = typeof payload.name === "string" ? payload.name : "tool";
+      const title = runtimeToolTitle(name, runtimeArgs(payload));
+      const lineIndex = lines.length;
+      calls.set(callId, { name, title, lineIndex });
+      lines.push(`• ${title} …`);
+      continue;
+    }
+    if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
+      const callId = typeof payload.callId === "string" ? payload.callId : "";
+      const call = calls.get(callId);
+      const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
+      const title = call?.title ?? runtimeToolTitle(name, {});
+      const content = typeof payload.content === "string" ? payload.content : "";
+      const prefix = event.kind === "permission_denied" ? "Blocked" : "Finished";
+      const line = `• ${prefix} ${title}`;
+      if (call) lines[call.lineIndex] = line;
+      else lines.push(line);
+      if (content) lines.push(`  ${runtimeToolResultSummary(content)}`);
+      continue;
+    }
+    if (event.kind === "provider_warning") {
+      const message = runtimeStringField(payload, "message") ?? "provider warning";
+      lines.push(`• Warning: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
+      continue;
+    }
+    if (event.kind === "turn_failed") {
+      const message = runtimeStringField(payload, "message") ?? "runtime turn failed";
+      lines.push(`• Error: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
+    }
+  }
+  if (assistantText) lines.push(...assistantText.trimEnd().split(/\n/g).map((line, index) => index === 0 ? `• ${line}` : `  ${line}`));
+  return lines.join("\n");
+}
+
+function renderRuntimeVisibleOutput(session: AxumRuntimeSession): { answer: string; projection: string } {
+  const projection = renderRuntimeProjection(session);
+  const transcript = renderRuntimeTranscript(session);
   return {
-    answer: assistantText ? `${assistantText}\n\n${projection}`.slice(0, 3200) : projection,
+    answer: transcript || "• Working…",
     projection,
   };
 }
@@ -1436,8 +1528,9 @@ async function resolveTuiAnswerStream(options: ChatCommandOptions, dryRun: boole
     try {
       emitVisibleOutput();
       const result = await session.runUserTurn(options.prompt, signal);
+      const rendered = renderRuntimeVisibleOutput(session);
       const eventSummary = renderRuntimeEvents(result.events);
-      const answer = result.assistantMessage || eventSummary || "runtime completed without assistant content";
+      const answer = rendered.answer || result.assistantMessage || eventSummary || "runtime completed without assistant content";
       return { answer, exitCode: 0 };
     } finally {
       unsubscribe();

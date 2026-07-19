@@ -725,6 +725,13 @@ function renderAssistantOutput(answer) {
         return "✓ dry-run · provider call skipped";
     return answer;
 }
+function redactTuiText(value) {
+    return value
+        .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+=*/gi, "Bearer ***")
+        .replace(/(api[_-]?key|token|secret|password)=([^\s&]+)/gi, "$1=***")
+        .replace(/gh[pousr]_[A-Za-z0-9_]{20,}/g, "gh*_***")
+        .replace(/\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, "jwt.***");
+}
 function slashCommandQuery(input) {
     if (!input.startsWith("/"))
         return "";
@@ -818,6 +825,17 @@ function compactPathForTui(cwd, width) {
         return compact;
     return `…${compact.slice(Math.max(0, compact.length - width + 1))}`;
 }
+function renderTranscriptLines(text, width) {
+    const inner = Math.max(1, width - 2);
+    const lines = text.split(/\n/g);
+    return lines.flatMap((line, index) => {
+        const prefix = index === 0 ? "• " : "  ";
+        return wrapPreservingShortLine(line, Math.max(1, inner - visibleWidth(prefix))).map((wrapped, wrappedIndex) => {
+            const linePrefix = index === 0 && wrappedIndex === 0 ? prefix : "  ";
+            return `${linePrefix}${wrapped}`;
+        });
+    });
+}
 function renderTuiScreen(options, answer, width = 88, input = "", slashSelection = 0, cursorIndex = input.length, height = 24, status = undefined, showInputPanel = true) {
     const safeWidth = Math.max(36, width);
     const contentBudget = Math.max(4, height - 12);
@@ -830,7 +848,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
     ], safeWidth);
     const conversation = [];
     if (hasPrompt) {
-        conversation.push(...framedSection("You", options.prompt.split(/\n/g), safeWidth));
+        conversation.push(...renderTranscriptLines(options.prompt, safeWidth));
     }
     if (hasAnswer || hasStatus) {
         const rawLines = [
@@ -845,7 +863,7 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
                 ...wrapped.slice(-2),
             ]
             : wrapped;
-        conversation.push(...framedSection("Axum", clipped, safeWidth));
+        conversation.push(...clipped);
     }
     const safeInput = visibleInput(input);
     const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
@@ -1389,22 +1407,100 @@ function renderRuntimeProjection(session) {
         return "◇ runtime\n  waiting for first event";
     return (0, events_1.renderRuntimeDashboard)(events).slice(0, 2200);
 }
-function renderRuntimeVisibleOutput(session) {
-    const projection = renderRuntimeProjection(session);
-    const events = session.events.snapshot();
-    const assistantText = events.reduce((latest, event) => {
+function runtimeStringField(value, key) {
+    if (!value || typeof value !== "object")
+        return undefined;
+    const field = value[key];
+    return typeof field === "string" && field.trim() ? field : undefined;
+}
+function runtimeArgs(payload) {
+    if (!payload || typeof payload !== "object")
+        return {};
+    const args = payload.arguments;
+    return args && typeof args === "object" && !Array.isArray(args) ? args : {};
+}
+function runtimeArgText(args, key) {
+    const value = args[key];
+    return typeof value === "string" && value.trim() ? value : undefined;
+}
+function runtimeToolTitle(name, args) {
+    if (name === "safe_exec")
+        return `Ran ${runtimeArgText(args, "command") ?? "command"}`;
+    if (name === "read")
+        return `Read ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
+    if (name === "precise_edit")
+        return `Edited ${runtimeArgText(args, "file") ?? runtimeArgText(args, "path") ?? "file"}`;
+    return `${name} tool`;
+}
+function runtimeToolResultSummary(content) {
+    const clean = redactTuiText(content).replace(/\s+/g, " ").trim();
+    if (!clean)
+        return "completed";
+    return truncateToVisibleWidth(clean, 120);
+}
+function renderRuntimeTranscript(session) {
+    const events = session.events.snapshot().filter((event) => event.kind !== "session_configured");
+    const lines = [];
+    const calls = new Map();
+    let assistantText = "";
+    for (const event of events) {
+        const payload = event.payload;
         if (event.kind === "assistant_message_delta") {
-            const payload = event.payload;
-            return typeof payload.content === "string" ? payload.content : latest;
+            const content = typeof payload?.content === "string" ? payload.content : "";
+            if (content)
+                assistantText = content;
+            continue;
         }
         if (event.kind === "assistant_message") {
-            const payload = event.payload;
-            return typeof payload.content === "string" ? payload.content : latest;
+            const content = typeof payload?.content === "string" ? payload.content : "";
+            if (content)
+                assistantText = content;
+            continue;
         }
-        return latest;
-    }, "");
+        if (event.kind === "tool_call_requested" && payload) {
+            const callId = typeof payload.id === "string" ? payload.id : String(event.id);
+            const name = typeof payload.name === "string" ? payload.name : "tool";
+            const title = runtimeToolTitle(name, runtimeArgs(payload));
+            const lineIndex = lines.length;
+            calls.set(callId, { name, title, lineIndex });
+            lines.push(`• ${title} …`);
+            continue;
+        }
+        if ((event.kind === "tool_call_completed" || event.kind === "permission_denied") && payload) {
+            const callId = typeof payload.callId === "string" ? payload.callId : "";
+            const call = calls.get(callId);
+            const name = typeof payload.name === "string" ? payload.name : call?.name ?? "tool";
+            const title = call?.title ?? runtimeToolTitle(name, {});
+            const content = typeof payload.content === "string" ? payload.content : "";
+            const prefix = event.kind === "permission_denied" ? "Blocked" : "Finished";
+            const line = `• ${prefix} ${title}`;
+            if (call)
+                lines[call.lineIndex] = line;
+            else
+                lines.push(line);
+            if (content)
+                lines.push(`  ${runtimeToolResultSummary(content)}`);
+            continue;
+        }
+        if (event.kind === "provider_warning") {
+            const message = runtimeStringField(payload, "message") ?? "provider warning";
+            lines.push(`• Warning: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
+            continue;
+        }
+        if (event.kind === "turn_failed") {
+            const message = runtimeStringField(payload, "message") ?? "runtime turn failed";
+            lines.push(`• Error: ${truncateToVisibleWidth(redactTuiText(message), 120)}`);
+        }
+    }
+    if (assistantText)
+        lines.push(...assistantText.trimEnd().split(/\n/g).map((line, index) => index === 0 ? `• ${line}` : `  ${line}`));
+    return lines.join("\n");
+}
+function renderRuntimeVisibleOutput(session) {
+    const projection = renderRuntimeProjection(session);
+    const transcript = renderRuntimeTranscript(session);
     return {
-        answer: assistantText ? `${assistantText}\n\n${projection}`.slice(0, 3200) : projection,
+        answer: transcript || "• Working…",
         projection,
     };
 }
@@ -1431,8 +1527,9 @@ async function resolveTuiAnswerStream(options, dryRun, onDelta, signal) {
         try {
             emitVisibleOutput();
             const result = await session.runUserTurn(options.prompt, signal);
+            const rendered = renderRuntimeVisibleOutput(session);
             const eventSummary = (0, events_1.renderRuntimeEvents)(result.events);
-            const answer = result.assistantMessage || eventSummary || "runtime completed without assistant content";
+            const answer = rendered.answer || result.assistantMessage || eventSummary || "runtime completed without assistant content";
             return { answer, exitCode: 0 };
         }
         finally {

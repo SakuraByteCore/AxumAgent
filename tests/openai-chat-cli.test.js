@@ -1243,6 +1243,10 @@ provider_config = "http://127.0.0.1:0/v1 test-key mock-tool-model"
     const result = await runCli(["tui", "--config", cfg.file, "inspect package"]);
     assert.strictEqual(result.code, 0, result.stderr);
     assert.match(result.stdout, /tui saw package/);
+    assert.match(result.stdout, /Read package\.json/);
+    assert.doesNotMatch(result.stdout, /◇ plan/);
+    assert.doesNotMatch(result.stdout, /◇ now/);
+    assert.doesNotMatch(result.stdout, /◇ evidence/);
     assert.strictEqual(requests.length, 2);
   } finally {
     server.close();
