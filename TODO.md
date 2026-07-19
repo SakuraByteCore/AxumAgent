@@ -24,7 +24,7 @@
 - [x] Improve OpenAI-compatible provider diagnostics for root `provider_config`, `/models` fallback, key-source/request previews, and HTML/Cloudflare failures.
 - [x] Add concrete executors for precise edit, safe exec, and LSP symbol lookup behind permission gates.
 - [x] Broaden guarded current-workspace inspection commands so TUI tool loops do not trip on routine read-only checks.
-- [x] Render TUI runtime work as a task-first dashboard with current task, semantic progress, results, issues, summarized redacted command/file evidence, human-readable Working timers on the editor bottom border, raw pi-tui input without the legacy boxed Prompt panel, fixed prompt label, or decorative input prefix, quick repeated-denial stops, and bounded provider retry defaults.
+- [x] Render TUI runtime work as transcript-style rows by default, keep the Plan/Now/Evidence activity dashboard behind `/tasks`, show human-readable Working timers on the editor bottom border, use raw pi-tui input without the legacy boxed Prompt panel/fixed prompt label/decorative input prefix, stop repeated denials quickly, and keep bounded provider retry defaults.
 - [ ] Promote `axum parallel` from persisted swarm plan to managed child-agent execution and merge review.
 - [x] Route TUI prompt execution through the Codex-like runtime session loop instead of direct provider chat calls.
 - [x] Add smoke tests for shell modes and workflow dry-run shape.
