@@ -36,6 +36,95 @@ const DEFAULT_RETRY_MIN_DELAY_MS: u64 = 500;
 const DEFAULT_RETRY_MAX_DELAY_MS: u64 = 1500;
 const DEFAULT_REQUEST_TIMEOUT_MS: u64 = 600_000;
 
+#[derive(Debug, Clone, Serialize)]
+struct PlatformDiagnostics {
+    os: String,
+    arch: String,
+    termux: bool,
+    android: bool,
+    prefix: Option<String>,
+    home: Option<String>,
+    shell: Option<String>,
+    interactive_tty: bool,
+    tui_raw_mode_available: bool,
+    sandbox_backend: String,
+    kernel_sandbox: String,
+}
+
+impl PlatformDiagnostics {
+    fn detect() -> Self {
+        let os = env::consts::OS.to_owned();
+        let arch = env::consts::ARCH.to_owned();
+        let prefix = env::var("PREFIX").ok();
+        let home = env::var("HOME").ok();
+        let shell = env::var("SHELL").ok();
+        let termux = env::var("TERMUX_VERSION").is_ok()
+            || prefix
+                .as_deref()
+                .is_some_and(|value| value.contains("/com.termux/files/usr"))
+            || home
+                .as_deref()
+                .is_some_and(|value| value.contains("/com.termux/files/home"));
+        let android = os == "android" || termux;
+        Self {
+            os,
+            arch,
+            termux,
+            android,
+            prefix,
+            home,
+            shell,
+            interactive_tty: at_tty(),
+            tui_raw_mode_available: at_tty(),
+            sandbox_backend: if android {
+                "termux-contained".to_owned()
+            } else {
+                "workspace-contained".to_owned()
+            },
+            kernel_sandbox: if android {
+                "unavailable/degraded".to_owned()
+            } else {
+                "not claimed by AxumAgent".to_owned()
+            },
+        }
+    }
+
+    #[cfg(test)]
+    fn detect_from(
+        os: &str,
+        arch: &str,
+        prefix: Option<&str>,
+        home: Option<&str>,
+        termux_version: bool,
+    ) -> Self {
+        let termux = termux_version
+            || prefix.is_some_and(|value| value.contains("/com.termux/files/usr"))
+            || home.is_some_and(|value| value.contains("/com.termux/files/home"));
+        let android = os == "android" || termux;
+        Self {
+            os: os.to_owned(),
+            arch: arch.to_owned(),
+            termux,
+            android,
+            prefix: prefix.map(str::to_owned),
+            home: home.map(str::to_owned),
+            shell: None,
+            interactive_tty: false,
+            tui_raw_mode_available: false,
+            sandbox_backend: if android {
+                "termux-contained".to_owned()
+            } else {
+                "workspace-contained".to_owned()
+            },
+            kernel_sandbox: if android {
+                "unavailable/degraded".to_owned()
+            } else {
+                "not claimed by AxumAgent".to_owned()
+            },
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "axum", version, about = "AxumAgent Rust CLI")]
 struct Cli {
@@ -1088,10 +1177,14 @@ async fn run_doctor(
     provider_id: Option<String>,
     args: DiagnosticArgs,
 ) -> Result<i32> {
+    let resolved_config_path = resolve_config_path(config_path.clone())?;
+    let platform = PlatformDiagnostics::detect();
     let provider = resolve_provider(config_path, provider_id, None)?;
     let models = fetch_models(&provider).await;
     let ok = models.is_ok();
     let report = json!({
+        "config_path": resolved_config_path,
+        "platform": platform,
         "provider": provider.id, "base_url": provider.base_url, "model": provider.model,
         "api_key_source": provider.api_key_source, "models_ok": ok,
         "models": models.as_ref().ok(), "error": models.err().map(|e| e.to_string())
@@ -1100,8 +1193,14 @@ async fn run_doctor(
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else if ok {
         println!(
-            "doctor ok\nprovider: {}\nmodel: {}",
-            provider.id, provider.model
+            "doctor ok\nprovider: {}\nmodel: {}\nplatform: {}/{}\nsandbox: {}",
+            provider.id,
+            provider.model,
+            report["platform"]["os"].as_str().unwrap_or("unknown"),
+            report["platform"]["arch"].as_str().unwrap_or("unknown"),
+            report["platform"]["sandbox_backend"]
+                .as_str()
+                .unwrap_or("unknown")
         );
     } else {
         println!(
@@ -1880,6 +1979,35 @@ mod tests {
         assert!(mode_system_prompt(AgentMode::Code).contains("Implement changes"));
         assert!(mode_system_prompt(AgentMode::Plan).contains("do not execute code changes"));
         assert!(mode_system_prompt(AgentMode::Review).contains("merge readiness"));
+    }
+
+    #[test]
+    fn platform_diagnostics_marks_termux_as_degraded_android_backend() {
+        let platform = PlatformDiagnostics::detect_from(
+            "linux",
+            "aarch64",
+            Some("/data/data/com.termux/files/usr"),
+            Some("/data/data/com.termux/files/home"),
+            false,
+        );
+        assert!(platform.android);
+        assert!(platform.termux);
+        assert_eq!(platform.sandbox_backend, "termux-contained");
+        assert_eq!(platform.kernel_sandbox, "unavailable/degraded");
+    }
+
+    #[test]
+    fn platform_diagnostics_keeps_regular_linux_workspace_backend() {
+        let platform = PlatformDiagnostics::detect_from(
+            "linux",
+            "x86_64",
+            Some("/usr"),
+            Some("/home/me"),
+            false,
+        );
+        assert!(!platform.android);
+        assert!(!platform.termux);
+        assert_eq!(platform.sandbox_backend, "workspace-contained");
     }
 
     #[test]

@@ -39,6 +39,10 @@
 - [x] Phase3/streaming second slice: let Rust TUI reuse `--stream` provider turns and write assembled streamed assistant text plus trace into the transcript.
 - [x] Phase3/streaming third slice: parse and assemble streamed OpenAI tool-call deltas, including split function arguments, then execute one completed streamed tool round through `ToolSandbox` before a follow-up completion.
 - [ ] Phase3 follow-up: support multi-round streamed tool execution and true TUI incremental redraw while deltas arrive.
+- [x] Add Termux/Android platform diagnostics to Rust `doctor`, including degraded `termux-contained` sandbox reporting.
+- [ ] Create a KiloCode fork compatibility spike for Termux/Android and keep Android changes isolated to platform/install/sandbox/pty/config/doctor layers.
+- [ ] Validate KiloCode source-mode execution in Termux before designing Android npm binary packages.
+- [ ] Add Termux-specific PTY/TUI validation for raw mode, Ctrl-C, paste, resize, shell path, and narrow/wide-character rendering.
 - [x] Phase4 first slice: wire Code/Plan/Ask/Debug/Review into Rust `chat`, `tui`, and `run --auto` runtime prompts instead of leaving modes as display-only selection.
 - [x] Phase5 first slice: make `axum run --auto` explicitly noninteractive and attach fail-closed sandbox policy/evidence to the runtime prompt.
 - [ ] Finish KiloCode-aligned rewrite by moving or replacing the interactive TUI loop out of `src/cli.ts`.

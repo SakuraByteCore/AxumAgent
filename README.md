@@ -141,6 +141,14 @@ Useful environment variables:
 
 This is still an early CLI/provider/runtime slice, not a hardened autonomous agent runtime. The session/event/tool-loop path now exists, and `axum parallel` has a pi-style child-task state model plus merge-review metadata, but managed child-agent execution is not enabled yet. Runtime tool execution is project-sandboxed: `read` and `precise_edit` stay inside the current workspace, while `safe_exec` accepts allowlisted commands such as `npm test` plus guarded workspace inspection commands (`pwd`, `ls`, `find`, `grep`, `cat`, `sed`, `head`, `tail`, `wc`, and read-only `git` subcommands) by splitting simple shell-like command strings into command/args without enabling arbitrary shell operators. The default TUI surface keeps runtime output in transcript-style rows instead of a single dashboard box, while `/tasks` exposes the Plan/Now/Evidence/Result/Next/Issues dashboard for activity inspection. Working status uses human-readable elapsed time (`5m 29s`, `1h 4m`), includes the latest runtime activity when available, and is rendered on the pi editor bottom border instead of inside the model/output panel. Raw pi-tui owns the live input editor directly, so the old boxed Prompt panel, fixed `prompt` label, and decorative `▌` input prefix are not rendered above the input line. Repeated identical permission denials fail fast instead of spinning until the tool-iteration limit. The next hardening step is to connect queued/running child tasks to isolated execution, cancellation, failure handling, and merge review without letting the TUI state become the source of truth.
 
+## Termux / Android direction
+
+AxumAgent tracks Termux/Android as a platform backend, not as fake Linux. `axum doctor --json` reports platform diagnostics including OS, arch, Termux detection, config path, shell, TTY availability, sandbox backend, and kernel-sandbox status.
+
+The preferred Android strategy is fork-first around [`Kilo-Org/kilocode`](https://github.com/Kilo-Org/kilocode): use KiloCode as the complete upstream CLI/TUI/runtime/provider/tool-loop baseline, then isolate Android changes to platform detection, install/binary resolution, sandbox backend, pty/shell, config/cache paths, and doctor diagnostics. Do not reuse KiloCode's Linux ARM64 binary as Android support: that artifact targets GNU/Linux (`/lib/ld-linux-aarch64.so.1`), while Termux runs on Android/bionic.
+
+Termux sandboxing must be explicit and degraded: `termux-contained` means workspace path containment plus allowlisted tool execution, not bubblewrap/seccomp/kernel namespace isolation. `doctor` must say this plainly instead of presenting a weak Android backend as a full Linux sandbox.
+
 ## Release checklist
 
 Only release from a clean `main` checkout after the current head has a green CI run.

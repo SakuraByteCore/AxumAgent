@@ -3,6 +3,9 @@
 ## 2026-07-19
 
 Work added:
+- Added Rust `doctor` platform diagnostics for the Termux/Android fork-first direction: OS/arch, Termux detection, config path, shell, TTY/raw-mode availability, sandbox backend, and kernel-sandbox status now appear in JSON output.
+- Marked Termux/Android as a degraded `termux-contained` backend instead of pretending Linux bubblewrap/seccomp semantics are available on Android/bionic.
+- Documented the KiloCode fork-first Android strategy and added TODO items for a compatibility spike, source-mode validation, and Termux PTY/TUI checks.
 - Reverted the raw TUI chrome to a pi-tui-default shape: `Text` output, `Editor` input, and `CombinedAutocompleteProvider` for slash/file completion instead of Axum-owned Session/Commands/Prompt panels and manual slash selection.
 - Kept Axum-specific behavior only where necessary for command dispatch, provider/model commands, runtime output, and cancellation status.
 - Updated TUI screenshot regressions for the simpler pi-tui rendering.
