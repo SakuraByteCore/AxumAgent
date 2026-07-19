@@ -31,6 +31,13 @@ Validation:
 - `npm run pack:dry` passes; package dry-run includes the new `dist/runtime/events.js`, `protocol.js`, `session.js`, `tool-runner.js`, and `turn.js` files.
 - `npm test` and `npm run pack:dry` pass after the Codex-style TUI progress/error display alignment.
 - `npm run build` passes after the first Kilo-aligned TUI/runtime boundary split; full test and pack dry-run must pass before pushing this change.
+- `npm test` and `npm run pack:dry` pass after splitting slash command registry/rendering and provider model-picker hydration/switching out of `src/cli.ts`.
+
+Work added:
+- Moved TUI slash command definitions, matching, completion, selected-row clamping, and command-palette rendering into `src/tui/slash-commands.ts`.
+- Moved TUI model list hydration/fetching, dedupe, rendering, and model switching into `src/tui/model-picker.ts`.
+- Added package exports for `./tui/slash-commands` and `./tui/model-picker`.
+- Reduced `src/cli.ts` further so it imports command/model surfaces instead of owning their registries and picker logic.
 
 
 ## 2026-07-13

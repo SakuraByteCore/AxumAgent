@@ -60,6 +60,8 @@
     "./runtime/tool-runner": "./dist/runtime/tool-runner.js",
     "./runtime/turn": "./dist/runtime/turn.js",
     "./tui/runtime-view": "./dist/tui/runtime-view.js",
-    "./tui/text": "./dist/tui/text.js"
+    "./tui/text": "./dist/tui/text.js",
+    "./tui/model-picker": "./dist/tui/model-picker.js",
+    "./tui/slash-commands": "./dist/tui/slash-commands.js"
   }
 }

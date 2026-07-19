@@ -14,6 +14,8 @@ const events_1 = require("./runtime/events");
 const turn_1 = require("./runtime/turn");
 const text_1 = require("./tui/text");
 const runtime_view_1 = require("./tui/runtime-view");
+const slash_commands_1 = require("./tui/slash-commands");
+const model_picker_1 = require("./tui/model-picker");
 const kilo_shell_1 = require("./shell/kilo-shell");
 const node_fs_1 = __importDefault(require("node:fs"));
 const node_http_1 = __importDefault(require("node:http"));
@@ -643,75 +645,6 @@ function renderAssistantOutput(answer) {
         return "✓ dry-run · provider call skipped";
     return answer;
 }
-const SLASH_COMMANDS = [
-    { name: "/help", description: "show commands" },
-    { name: "/provider", description: "show/set provider url/key" },
-    { name: "/providers", description: "list configured providers" },
-    { name: "/model", description: "fetch/list/switch models" },
-    { name: "/parallel", description: "plan sub-agent tasks" },
-    { name: "/tasks", description: "show recent runtime/task state" },
-    { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
-];
-function slashCommandQuery(input) {
-    if (!input.startsWith("/"))
-        return "";
-    return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
-}
-function slashCommandLabels(command) {
-    return [command.name, ...(command.aliases ?? [])];
-}
-function slashCommandDisplayName(command) {
-    return slashCommandLabels(command).join(" / ");
-}
-function matchingSlashCommands(input) {
-    if (!input.startsWith("/"))
-        return [];
-    const query = slashCommandQuery(input);
-    return SLASH_COMMANDS.filter((command) => slashCommandLabels(command).some((label) => label.slice(1).startsWith(query)));
-}
-function clampSelection(index, count) {
-    if (count <= 0)
-        return 0;
-    return Math.max(0, Math.min(index, count - 1));
-}
-function completeSlashCommand(input, selectedIndex) {
-    const matches = matchingSlashCommands(input);
-    const selected = matches[clampSelection(selectedIndex, matches.length)];
-    if (!selected)
-        return undefined;
-    const query = slashCommandQuery(input);
-    const completed = slashCommandLabels(selected).find((label) => label.slice(1).startsWith(query)) ?? selected.name;
-    return `${completed} `;
-}
-function isCompleteSlashCommand(input) {
-    const trimmed = input.trim();
-    return SLASH_COMMANDS.some((command) => slashCommandLabels(command).includes(trimmed));
-}
-function isBareSlashCommandQuery(input) {
-    return input.startsWith("/") && !/\s/.test(input.trim());
-}
-function padCell(text, width) {
-    const textWidth = (0, text_1.visibleWidth)(text);
-    if (textWidth <= width)
-        return text + " ".repeat(width - textWidth);
-    return `${(0, text_1.truncateToVisibleWidth)(text, Math.max(0, width - 1))}…`;
-}
-function renderSlashCommandSuggestions(input, width, selectedIndex = 0) {
-    if (!input.startsWith("/"))
-        return [];
-    const matches = matchingSlashCommands(input);
-    const bodyWidth = Math.max(24, width - 4);
-    if (matches.length === 0)
-        return framedSection("Commands", ["no matching commands"], width);
-    const selected = clampSelection(selectedIndex, matches.length);
-    const labelWidth = Math.min(Math.max(...matches.map((command) => slashCommandDisplayName(command).length), 10), Math.max(10, Math.floor(bodyWidth * 0.38)));
-    const rows = matches.map((command, index) => {
-        const marker = index === selected ? "▸" : " ";
-        const label = padCell(slashCommandDisplayName(command), labelWidth);
-        return `${marker} ${label}  ${command.description}`;
-    });
-    return framedSection("Commands", rows, width);
-}
 function terminalWidth(stdout) {
     const columns = stdout.columns || 88;
     return Math.max(72, Math.min(columns, 110));
@@ -786,10 +719,10 @@ function renderTuiScreen(options, answer, width = 88, input = "", slashSelection
         conversation.push(...clipped);
     }
     const safeInput = visibleInput(input);
-    const safeCursorIndex = safeInput === input ? clampSelection(cursorIndex, input.length + 1) : safeInput.length;
+    const safeCursorIndex = safeInput === input ? (0, slash_commands_1.clampSelection)(cursorIndex, input.length + 1) : safeInput.length;
     const inputText = `${safeInput.slice(0, safeCursorIndex)}█${safeInput.slice(safeCursorIndex)}`;
     const inputPanel = showInputPanel ? renderPlainInputDeck(inputText || "█", safeWidth) : [];
-    const commandLines = renderSlashCommandSuggestions(safeInput, safeWidth, slashSelection);
+    const commandLines = (0, slash_commands_1.renderSlashCommandSuggestions)(safeInput, safeWidth, slashSelection);
     const screen = [
         ...header,
         "",
@@ -814,109 +747,6 @@ function formatElapsedDuration(elapsedMs) {
 function workingStatus(startedAt) {
     const elapsed = formatElapsedDuration(Date.now() - startedAt);
     return `• Working (${elapsed} • esc to interrupt)`;
-}
-function uniqueModels(models) {
-    const seen = new Set();
-    const result = [];
-    for (const model of models) {
-        const trimmed = model.trim();
-        if (!trimmed || seen.has(trimmed))
-            continue;
-        seen.add(trimmed);
-        result.push(trimmed);
-    }
-    return result;
-}
-async function hydrateTuiModels(options, dryRun) {
-    return (await hydrateTuiModelsWithStatus(options, dryRun)).options;
-}
-async function hydrateTuiModelsWithStatus(options, dryRun) {
-    const configured = uniqueModels(options.modelOptions);
-    if (configured.length > 0) {
-        return { options: { ...options, modelOptions: configured, model: options.modelWasExplicit ? options.model : configured[0] } };
-    }
-    if (dryRun || !options.apiKey)
-        return { options: { ...options, modelOptions: configured } };
-    try {
-        const provider = new openai_chat_1.OpenAIChatProvider({
-            apiKey: options.apiKey,
-            baseUrl: options.baseUrl,
-            model: options.model,
-            temperature: options.temperature,
-            maxRetries: options.maxRetries,
-            retryDelayMs: options.retryDelayMs,
-            retryMinDelayMs: options.retryMinDelayMs,
-            retryMaxDelayMs: options.retryMaxDelayMs,
-            requestTimeoutMs: options.requestTimeoutMs,
-        });
-        const fetched = uniqueModels(await provider.listModels());
-        if (fetched.length === 0)
-            return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
-        return { options: { ...options, modelOptions: fetched, model: options.modelWasExplicit ? options.model : fetched[0] } };
-    }
-    catch (error) {
-        return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
-    }
-}
-async function fetchTuiModelsWithStatus(options) {
-    const configured = uniqueModels(options.modelOptions);
-    if (!options.apiKey)
-        return { options: { ...options, modelOptions: configured }, error: `missing API key: set ${options.apiKeyEnv} or /provider key <key>` };
-    try {
-        const provider = new openai_chat_1.OpenAIChatProvider({
-            apiKey: options.apiKey,
-            baseUrl: options.baseUrl,
-            model: options.model,
-            temperature: options.temperature,
-            maxRetries: options.maxRetries,
-            retryDelayMs: options.retryDelayMs,
-            retryMinDelayMs: options.retryMinDelayMs,
-            retryMaxDelayMs: options.retryMaxDelayMs,
-            requestTimeoutMs: options.requestTimeoutMs,
-        });
-        const fetched = uniqueModels(await provider.listModels());
-        if (fetched.length === 0)
-            return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
-        return { options: { ...options, modelOptions: fetched, model: fetched.includes(options.model) ? options.model : fetched[0] } };
-    }
-    catch (error) {
-        return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
-    }
-}
-function renderModelList(options, maxRows = 14) {
-    if (options.modelOptions.length === 0)
-        return `models\n  no configured/fetched model list`;
-    const numberWidth = String(options.modelOptions.length).length;
-    const currentIndex = Math.max(0, options.modelOptions.indexOf(options.model));
-    const formatRow = (model, index) => {
-        const current = model === options.model ? "▸" : " ";
-        const suffix = model === options.model ? "  current" : "";
-        return `${current} ${String(index + 1).padStart(numberWidth)}  ${model}${suffix}`;
-    };
-    const allRows = options.modelOptions.map(formatRow);
-    if (allRows.length <= maxRows)
-        return ["models", ...allRows].join("\n");
-    const headCount = Math.max(1, maxRows - (currentIndex >= maxRows - 1 ? 2 : 1));
-    const rows = allRows.slice(0, headCount);
-    if (currentIndex >= headCount) {
-        rows.push(`  … ${currentIndex - headCount + 1} hidden before current`);
-        rows.push(allRows[currentIndex]);
-    }
-    const hiddenBelow = allRows.length - (currentIndex >= headCount ? currentIndex + 1 : rows.length);
-    if (hiddenBelow > 0)
-        rows.push(`  … ${hiddenBelow} more`);
-    return ["models", ...rows].join("\n");
-}
-function switchModel(options, value) {
-    const target = value.trim();
-    if (!target)
-        return { options, message: renderModelList(options) };
-    const index = Number(target);
-    const selected = Number.isInteger(index) && index >= 1 ? options.modelOptions[index - 1] : target;
-    if (!selected)
-        return { options, message: `model index out of range: ${target}` };
-    const modelOptions = options.modelOptions.includes(selected) ? options.modelOptions : [...options.modelOptions, selected];
-    return { options: { ...options, model: selected, modelOptions, modelWasExplicit: true }, message: `model switched to ${selected}` };
 }
 function maskSecret(value) {
     if (!value)
@@ -979,13 +809,13 @@ function applyParallelSlashCommand(input, mode = "build", persist = true) {
 }
 async function applyModelCommand(options, env, value) {
     const trimmed = value.trim();
-    const fetched = await fetchTuiModelsWithStatus(options);
+    const fetched = await (0, model_picker_1.fetchTuiModelsWithStatus)(options);
     let next = fetched.options;
     const fetchNote = fetched.error ? `model list fetch failed: ${fetched.error}` : "model list refreshed";
     if (!trimmed) {
-        return { options: next, message: `${fetchNote}\n${renderModelList(next)}` };
+        return { options: next, message: `${fetchNote}\n${(0, model_picker_1.renderModelList)(next)}` };
     }
-    const switched = switchModel(next, trimmed);
+    const switched = (0, model_picker_1.switchModel)(next, trimmed);
     const saved = (0, config_1.saveOpenAIProviderConfig)(env, next.configPath, {
         model: switched.options.model,
         models: switched.options.modelOptions,
@@ -1016,10 +846,10 @@ async function applyProviderCommand(options, env, value) {
     if (useMatch)
         return applyProviderUseCommand(options, env, useMatch[1]);
     if (trimmed === "model" || trimmed === "models")
-        return { options, message: renderModelList(options) };
+        return { options, message: (0, model_picker_1.renderModelList)(options) };
     const modelMatch = trimmed.match(/^models?\s+(.+)$/i);
     if (modelMatch) {
-        const switched = switchModel(options, modelMatch[1]);
+        const switched = (0, model_picker_1.switchModel)(options, modelMatch[1]);
         const saved = (0, config_1.saveOpenAIProviderConfig)(env, options.configPath, {
             model: switched.options.model,
             models: switched.options.modelOptions,
@@ -1037,7 +867,7 @@ async function applyProviderCommand(options, env, value) {
             models: [model],
         });
         let next = parseChatArgs([], env, saved, saved.path, false);
-        const hydrated = await hydrateTuiModelsWithStatus(next, false);
+        const hydrated = await (0, model_picker_1.hydrateTuiModelsWithStatus)(next, false);
         next = hydrated.options;
         const fetchNote = hydrated.error ? `model list fetch failed: ${hydrated.error}` : "model list refreshed";
         return { options: next, message: `provider saved to ${saved.path}\n${fetchNote}\nmodel ${next.model}` };
@@ -1053,12 +883,12 @@ async function applyProviderCommand(options, env, value) {
     const patch = kind === "url" || kind === "base-url" ? { base_url: rawValue } : { api_key: rawValue };
     const saved = (0, config_1.saveOpenAIProviderConfig)(env, options.configPath, patch);
     let next = parseChatArgs([], env, saved, saved.path, false);
-    const hydrated = await hydrateTuiModelsWithStatus(next, false);
+    const hydrated = await (0, model_picker_1.hydrateTuiModelsWithStatus)(next, false);
     next = hydrated.options;
     const label = kind === "url" || kind === "base-url" ? "url" : "key";
     const header = `provider ${label} saved to ${saved.path}`;
     if (next.modelOptions.length > 0) {
-        return { options: next, message: `${header}\n${renderModelList(next)}` };
+        return { options: next, message: `${header}\n${(0, model_picker_1.renderModelList)(next)}` };
     }
     const failure = hydrated.error ? `model list fetch failed: ${hydrated.error}` : "no configured/fetched model list";
     return { options: next, message: `${header}\n${failure}` };
@@ -1393,7 +1223,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             const input = editor.getText();
             const body = renderTuiScreen(screenOptions, answer, width, "", 0, 0, terminal.rows, undefined, false)
                 .split("\n");
-            const commandLines = renderSlashCommandSuggestions(input, width, slashSelection);
+            const commandLines = (0, slash_commands_1.renderSlashCommandSuggestions)(input, width, slashSelection);
             const lines = [
                 ...body,
                 ...(commandLines.length > 0 ? [...commandLines] : []),
@@ -1472,7 +1302,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return;
         }
         if (prompt.startsWith("/")) {
-            answer = renderSlashCommandSuggestions(prompt, terminal.columns).join("\n");
+            answer = (0, slash_commands_1.renderSlashCommandSuggestions)(prompt, terminal.columns).join("\n");
             status = undefined;
             requestRender();
             return;
@@ -1541,7 +1371,7 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
             return { consume: true };
         const input = editor.getText();
         if (input.startsWith("/")) {
-            const matches = matchingSlashCommands(input);
+            const matches = (0, slash_commands_1.matchingSlashCommands)(input);
             if (pi.matchesKey(data, pi.Key.up) && matches.length > 0) {
                 slashSelection = (slashSelection + matches.length - 1) % matches.length;
                 requestRender();
@@ -1553,15 +1383,15 @@ async function runRawInteractiveTui(options, dryRun, _stdout, useAltScreen) {
                 return { consume: true };
             }
             if (pi.matchesKey(data, pi.Key.tab)) {
-                const completed = completeSlashCommand(input, slashSelection);
+                const completed = (0, slash_commands_1.completeSlashCommand)(input, slashSelection);
                 if (completed)
                     editor.setText(completed);
                 slashSelection = 0;
                 requestRender();
                 return { consume: true };
             }
-            if (pi.matchesKey(data, pi.Key.enter) && matches.length > 0 && isBareSlashCommandQuery(input) && !isCompleteSlashCommand(input)) {
-                const completed = completeSlashCommand(input, slashSelection);
+            if (pi.matchesKey(data, pi.Key.enter) && matches.length > 0 && (0, slash_commands_1.isBareSlashCommandQuery)(input) && !(0, slash_commands_1.isCompleteSlashCommand)(input)) {
+                const completed = (0, slash_commands_1.completeSlashCommand)(input, slashSelection);
                 if (completed)
                     editor.setText(completed);
                 slashSelection = 0;
@@ -1639,7 +1469,7 @@ async function runLineInteractiveTui(options, dryRun, stdout) {
             continue;
         }
         if (prompt.startsWith("/")) {
-            stdout.write(`${renderSlashCommandSuggestions(prompt, terminalWidth(stdout)).join("\n")}\n`);
+            stdout.write(`${(0, slash_commands_1.renderSlashCommandSuggestions)(prompt, terminalWidth(stdout)).join("\n")}\n`);
             rl.prompt();
             continue;
         }
@@ -1693,7 +1523,7 @@ async function runTui(args, env, stdout, stderr) {
         stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
         return 2;
     }
-    options = await hydrateTuiModels(options, dryRun);
+    options = await (0, model_picker_1.hydrateTuiModels)(options, dryRun);
     if (!hasPrompt) {
         if (stdout.isTTY && process.stdin.isTTY)
             return runRawInteractiveTui(options, dryRun, stdout, !noAltScreen);

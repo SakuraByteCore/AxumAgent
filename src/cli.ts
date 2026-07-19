@@ -4,8 +4,10 @@ import { buildSwarmPlan, buildWorkflowPlan, persistSwarmPlan, persistWorkflowPla
 import { AxumRuntimeSession } from "./runtime/session";
 import { renderRuntimeEvents } from "./runtime/events";
 import { runtimeToolSpecs } from "./runtime/turn";
-import { clip, truncateToVisibleWidth, visibleWidth, wrapPreservingShortLine } from "./tui/text";
+import { clip, visibleWidth, wrapPreservingShortLine } from "./tui/text";
 import { renderRuntimeVisibleOutput, runtimeFailureSummary } from "./tui/runtime-view";
+import { clampSelection, completeSlashCommand, isBareSlashCommandQuery, isCompleteSlashCommand, matchingSlashCommands, renderSlashCommandSuggestions } from "./tui/slash-commands";
+import { fetchTuiModelsWithStatus, hydrateTuiModels, hydrateTuiModelsWithStatus, renderModelList, switchModel } from "./tui/model-picker";
 import { findMode, renderModeList } from "./shell/kilo-shell";
 import fs from "node:fs";
 import http from "node:http";
@@ -647,83 +649,6 @@ function renderAssistantOutput(answer: string): string {
   return answer;
 }
 
-const SLASH_COMMANDS = [
-  { name: "/help", description: "show commands" },
-  { name: "/provider", description: "show/set provider url/key" },
-  { name: "/providers", description: "list configured providers" },
-  { name: "/model", description: "fetch/list/switch models" },
-  { name: "/parallel", description: "plan sub-agent tasks" },
-  { name: "/tasks", description: "show recent runtime/task state" },
-  { name: "/exit", aliases: ["/quit"], description: "exit TUI" },
-];
-
-function slashCommandQuery(input: string): string {
-  if (!input.startsWith("/")) return "";
-  return input.slice(1).trimStart().split(/\s+/)[0] ?? "";
-}
-
-function slashCommandLabels(command: (typeof SLASH_COMMANDS)[number]): string[] {
-  return [command.name, ...(command.aliases ?? [])];
-}
-
-function slashCommandDisplayName(command: (typeof SLASH_COMMANDS)[number]): string {
-  return slashCommandLabels(command).join(" / ");
-}
-
-function matchingSlashCommands(input: string): typeof SLASH_COMMANDS {
-  if (!input.startsWith("/")) return [];
-  const query = slashCommandQuery(input);
-  return SLASH_COMMANDS.filter((command) => slashCommandLabels(command).some((label) => label.slice(1).startsWith(query)));
-}
-
-function clampSelection(index: number, count: number): number {
-  if (count <= 0) return 0;
-  return Math.max(0, Math.min(index, count - 1));
-}
-
-function completeSlashCommand(input: string, selectedIndex: number): string | undefined {
-  const matches = matchingSlashCommands(input);
-  const selected = matches[clampSelection(selectedIndex, matches.length)];
-  if (!selected) return undefined;
-  const query = slashCommandQuery(input);
-  const completed = slashCommandLabels(selected).find((label) => label.slice(1).startsWith(query)) ?? selected.name;
-  return `${completed} `;
-}
-
-function isCompleteSlashCommand(input: string): boolean {
-  const trimmed = input.trim();
-  return SLASH_COMMANDS.some((command) => slashCommandLabels(command).includes(trimmed));
-}
-
-function isBareSlashCommandQuery(input: string): boolean {
-  return input.startsWith("/") && !/\s/.test(input.trim());
-}
-
-function padCell(text: string, width: number): string {
-  const textWidth = visibleWidth(text);
-  if (textWidth <= width) return text + " ".repeat(width - textWidth);
-  return `${truncateToVisibleWidth(text, Math.max(0, width - 1))}…`;
-}
-
-function renderSlashCommandSuggestions(input: string, width: number, selectedIndex = 0): string[] {
-  if (!input.startsWith("/")) return [];
-  const matches = matchingSlashCommands(input);
-  const bodyWidth = Math.max(24, width - 4);
-  if (matches.length === 0) return framedSection("Commands", ["no matching commands"], width);
-
-  const selected = clampSelection(selectedIndex, matches.length);
-  const labelWidth = Math.min(
-    Math.max(...matches.map((command) => slashCommandDisplayName(command).length), 10),
-    Math.max(10, Math.floor(bodyWidth * 0.38)),
-  );
-  const rows = matches.map((command, index) => {
-    const marker = index === selected ? "▸" : " ";
-    const label = padCell(slashCommandDisplayName(command), labelWidth);
-    return `${marker} ${label}  ${command.description}`;
-  });
-  return framedSection("Commands", rows, width);
-}
-
 function terminalWidth(stdout: NodeJS.WriteStream): number {
   const columns = stdout.columns || 88;
   return Math.max(72, Math.min(columns, 110));
@@ -834,105 +759,6 @@ export function formatElapsedDuration(elapsedMs: number): string {
 function workingStatus(startedAt: number): string {
   const elapsed = formatElapsedDuration(Date.now() - startedAt);
   return `• Working (${elapsed} • esc to interrupt)`;
-}
-
-
-function uniqueModels(models: string[]): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const model of models) {
-    const trimmed = model.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    result.push(trimmed);
-  }
-  return result;
-}
-
-async function hydrateTuiModels(options: ChatCommandOptions, dryRun: boolean): Promise<ChatCommandOptions> {
-  return (await hydrateTuiModelsWithStatus(options, dryRun)).options;
-}
-
-async function hydrateTuiModelsWithStatus(options: ChatCommandOptions, dryRun: boolean): Promise<{ options: ChatCommandOptions; error?: string }> {
-  const configured = uniqueModels(options.modelOptions);
-  if (configured.length > 0) {
-    return { options: { ...options, modelOptions: configured, model: options.modelWasExplicit ? options.model : configured[0] } };
-  }
-  if (dryRun || !options.apiKey) return { options: { ...options, modelOptions: configured } };
-  try {
-    const provider = new OpenAIChatProvider({
-      apiKey: options.apiKey,
-      baseUrl: options.baseUrl,
-      model: options.model,
-      temperature: options.temperature,
-      maxRetries: options.maxRetries,
-      retryDelayMs: options.retryDelayMs,
-      retryMinDelayMs: options.retryMinDelayMs,
-      retryMaxDelayMs: options.retryMaxDelayMs,
-      requestTimeoutMs: options.requestTimeoutMs,
-    });
-    const fetched = uniqueModels(await provider.listModels());
-    if (fetched.length === 0) return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
-    return { options: { ...options, modelOptions: fetched, model: options.modelWasExplicit ? options.model : fetched[0] } };
-  } catch (error) {
-    return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-async function fetchTuiModelsWithStatus(options: ChatCommandOptions): Promise<{ options: ChatCommandOptions; error?: string }> {
-  const configured = uniqueModels(options.modelOptions);
-  if (!options.apiKey) return { options: { ...options, modelOptions: configured }, error: `missing API key: set ${options.apiKeyEnv} or /provider key <key>` };
-  try {
-    const provider = new OpenAIChatProvider({
-      apiKey: options.apiKey,
-      baseUrl: options.baseUrl,
-      model: options.model,
-      temperature: options.temperature,
-      maxRetries: options.maxRetries,
-      retryDelayMs: options.retryDelayMs,
-      retryMinDelayMs: options.retryMinDelayMs,
-      retryMaxDelayMs: options.retryMaxDelayMs,
-      requestTimeoutMs: options.requestTimeoutMs,
-    });
-    const fetched = uniqueModels(await provider.listModels());
-    if (fetched.length === 0) return { options: { ...options, modelOptions: fetched }, error: "provider returned an empty model list" };
-    return { options: { ...options, modelOptions: fetched, model: fetched.includes(options.model) ? options.model : fetched[0] } };
-  } catch (error) {
-    return { options: { ...options, modelOptions: configured }, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-function renderModelList(options: ChatCommandOptions, maxRows = 14): string {
-  if (options.modelOptions.length === 0) return `models\n  no configured/fetched model list`;
-  const numberWidth = String(options.modelOptions.length).length;
-  const currentIndex = Math.max(0, options.modelOptions.indexOf(options.model));
-  const formatRow = (model: string, index: number): string => {
-    const current = model === options.model ? "▸" : " ";
-    const suffix = model === options.model ? "  current" : "";
-    return `${current} ${String(index + 1).padStart(numberWidth)}  ${model}${suffix}`;
-  };
-  const allRows = options.modelOptions.map(formatRow);
-  if (allRows.length <= maxRows) return ["models", ...allRows].join("\n");
-
-  const headCount = Math.max(1, maxRows - (currentIndex >= maxRows - 1 ? 2 : 1));
-  const rows = allRows.slice(0, headCount);
-  if (currentIndex >= headCount) {
-    rows.push(`  … ${currentIndex - headCount + 1} hidden before current`);
-    rows.push(allRows[currentIndex]);
-  }
-  const hiddenBelow = allRows.length - (currentIndex >= headCount ? currentIndex + 1 : rows.length);
-  if (hiddenBelow > 0) rows.push(`  … ${hiddenBelow} more`);
-  return ["models", ...rows].join("\n");
-}
-
-function switchModel(options: ChatCommandOptions, value: string): { options: ChatCommandOptions; message: string } {
-  const target = value.trim();
-  if (!target) return { options, message: renderModelList(options) };
-  const index = Number(target);
-  const selected = Number.isInteger(index) && index >= 1 ? options.modelOptions[index - 1] : target;
-  if (!selected) return { options, message: `model index out of range: ${target}` };
-  const modelOptions = options.modelOptions.includes(selected) ? options.modelOptions : [...options.modelOptions, selected];
-  return { options: { ...options, model: selected, modelOptions, modelWasExplicit: true }, message: `model switched to ${selected}` };
 }
 
 
