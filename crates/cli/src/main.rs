@@ -232,6 +232,113 @@ struct ResolvedProvider {
     request_timeout_ms: u64,
 }
 
+#[derive(Debug, Clone, Default, Serialize)]
+struct PiWorkflowTrace {
+    plan: Vec<String>,
+    now: Vec<String>,
+    evidence: Vec<String>,
+    result: Vec<String>,
+    next: Vec<String>,
+    issues: Vec<String>,
+}
+
+impl PiWorkflowTrace {
+    fn for_turn(mode: AgentMode, provider: &ResolvedProvider, prompt: &str) -> Self {
+        let mut trace = Self::default();
+        trace.plan.push(format!(
+            "mode={mode}; provider={}; model={}; prompt_bytes={}",
+            provider.id,
+            provider.model,
+            prompt.len()
+        ));
+        trace
+            .now
+            .push("compose OpenAI-compatible chat completion request".to_owned());
+        trace
+            .next
+            .push("await provider response and execute bounded tool calls if requested".to_owned());
+        trace
+    }
+
+    fn record_tool(&mut self, execution: &ToolExecution) {
+        self.now.push(format!("tool {}", execution.name));
+        if execution.ok {
+            self.evidence.push(format!(
+                "{} ok: {}",
+                execution.name,
+                summarize_tool_output(&execution.output)
+            ));
+        } else {
+            self.issues.push(format!(
+                "{} failed: {}",
+                execution.name,
+                summarize_tool_output(&execution.output)
+            ));
+        }
+    }
+
+    fn finish_without_tools(&mut self) {
+        self.result
+            .push("assistant response received without additional tool calls".to_owned());
+        self.next.push("render assistant response".to_owned());
+    }
+
+    fn finish_after_tools(&mut self, rounds: usize) {
+        self.result.push(format!(
+            "assistant response received after {rounds} tool round(s)"
+        ));
+        self.next
+            .push("render assistant response with recorded evidence".to_owned());
+    }
+
+    fn finish_tool_limit(&mut self) {
+        self.issues
+            .push("tool round limit reached before provider stopped requesting tools".to_owned());
+        self.next
+            .push("report partial result and avoid unbounded tool loop".to_owned());
+    }
+
+    fn render(&self) -> String {
+        format!(
+            "◇ plan\n  {}\n◇ now\n  {}\n◇ evidence\n  {}\n◇ result\n  {}\n◇ next\n  {}\n◇ issues\n  {}",
+            render_stage(&self.plan),
+            render_stage(&self.now),
+            render_stage(&self.evidence),
+            render_stage(&self.result),
+            render_stage(&self.next),
+            render_stage(&self.issues),
+        )
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ToolExecution {
+    name: String,
+    ok: bool,
+    output: String,
+}
+
+fn render_stage(items: &[String]) -> String {
+    if items.is_empty() {
+        "none".to_owned()
+    } else {
+        items.join("\n  ")
+    }
+}
+
+fn summarize_tool_output(output: &str) -> String {
+    let mut compact = output.lines().take(3).collect::<Vec<_>>().join(" / ");
+    if compact.len() > 180 {
+        compact.truncate(180);
+        compact.push('…');
+    }
+    if compact.trim().is_empty() {
+        "empty".to_owned()
+    } else {
+        compact
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -512,13 +619,13 @@ async fn post_chat_completion(
     .await?)
 }
 
-async fn chat_completion_value(
+async fn chat_completion_with_trace(
     provider: &ResolvedProvider,
     mode: AgentMode,
     system: Option<&str>,
     temperature: Option<f32>,
     prompt: &str,
-) -> Result<serde_json::Value> {
+) -> Result<(serde_json::Value, PiWorkflowTrace)> {
     let api_key = provider
         .api_key
         .clone()
@@ -526,6 +633,10 @@ async fn chat_completion_value(
     let client = client(provider)?;
     let workspace = env::current_dir()?;
     let sandbox = ToolSandbox::new(&workspace)?;
+    let mut trace = PiWorkflowTrace::for_turn(mode, provider, prompt);
+    trace
+        .evidence
+        .push(format!("workspace={}", workspace.display()));
     let mut messages = vec![];
     messages.push(json!({"role":"system","content": mode_system_prompt(mode)}));
     messages.push(json!({"role":"system","content": tool_policy_prompt()}));
@@ -535,14 +646,21 @@ async fn chat_completion_value(
     messages.push(json!({"role":"user","content": prompt}));
     let mut response =
         post_chat_completion(provider, &client, &api_key, &messages, temperature, true).await?;
+    let mut rounds = 0usize;
     for _ in 0..3 {
         let Some(tool_calls) = response
             .pointer("/choices/0/message/tool_calls")
             .and_then(|value| value.as_array())
             .filter(|calls| !calls.is_empty())
         else {
-            return Ok(response);
+            if rounds == 0 {
+                trace.finish_without_tools();
+            } else {
+                trace.finish_after_tools(rounds);
+            }
+            return Ok((response, trace));
         };
+        rounds += 1;
         let assistant_message = response
             .pointer("/choices/0/message")
             .cloned()
@@ -561,13 +679,15 @@ async fn chat_completion_value(
                 .pointer("/function/arguments")
                 .and_then(|value| value.as_str())
                 .unwrap_or("{}");
-            let content = execute_tool_call(&sandbox, name, arguments);
-            messages.push(json!({"role":"tool","tool_call_id": id,"content": content}));
+            let execution = execute_tool_call_with_status(&sandbox, name, arguments);
+            trace.record_tool(&execution);
+            messages.push(json!({"role":"tool","tool_call_id": id,"content": execution.output}));
         }
         response =
             post_chat_completion(provider, &client, &api_key, &messages, temperature, true).await?;
     }
-    Ok(response)
+    trace.finish_tool_limit();
+    Ok((response, trace))
 }
 
 fn assistant_text(response: &serde_json::Value) -> String {
@@ -590,10 +710,20 @@ fn tool_definitions() -> serde_json::Value {
     ])
 }
 
-fn execute_tool_call(sandbox: &ToolSandbox, name: &str, arguments: &str) -> String {
+fn execute_tool_call_with_status(
+    sandbox: &ToolSandbox,
+    name: &str,
+    arguments: &str,
+) -> ToolExecution {
     let parsed: serde_json::Value = match serde_json::from_str(arguments) {
         Ok(value) => value,
-        Err(error) => return format!("tool error: invalid JSON arguments: {error}"),
+        Err(error) => {
+            return ToolExecution {
+                name: name.to_owned(),
+                ok: false,
+                output: format!("tool error: invalid JSON arguments: {error}"),
+            };
+        }
     };
     let result = match name {
         "read" => {
@@ -640,9 +770,22 @@ fn execute_tool_call(sandbox: &ToolSandbox, name: &str, arguments: &str) -> Stri
         _ => Err(anyhow!("unknown tool: {name}")),
     };
     match result {
-        Ok(output) => output,
-        Err(error) => format!("tool error: {error}"),
+        Ok(output) => ToolExecution {
+            name: name.to_owned(),
+            ok: true,
+            output,
+        },
+        Err(error) => ToolExecution {
+            name: name.to_owned(),
+            ok: false,
+            output: format!("tool error: {error}"),
+        },
     }
+}
+
+#[cfg(test)]
+fn execute_tool_call(sandbox: &ToolSandbox, name: &str, arguments: &str) -> String {
+    execute_tool_call_with_status(sandbox, name, arguments).output
 }
 
 async fn run_chat(
@@ -655,7 +798,7 @@ async fn run_chat(
         return Err(anyhow!("chat prompt is required"));
     }
     let provider = resolve_provider(config_path, provider_id, Some(&args))?;
-    let res = chat_completion_value(
+    let (res, trace) = chat_completion_with_trace(
         &provider,
         args.mode,
         args.system.as_deref(),
@@ -664,7 +807,10 @@ async fn run_chat(
     )
     .await?;
     if args.json {
-        println!("{}", serde_json::to_string_pretty(&res)?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&json!({"response": res, "workflow": trace}))?
+        );
     } else {
         println!("{}", assistant_text(&res));
     }
@@ -763,10 +909,10 @@ fn run_workflow(args: WorkflowArgs) -> Result<i32> {
         .safe_exec("pwd", &[])
         .unwrap_or_else(|error| format!("sandbox evidence unavailable: {error}"));
     println!("◇ plan\n  mode: {}\n  prompt: {}", args.mode, prompt);
-    println!("◇ now\n  Phase3 Rust workflow/tool sandbox first slice active");
+    println!("◇ now\n  Phase3 Rust workflow/tool sandbox state trace active");
     println!("◇ evidence\n  safe_exec pwd: {}", evidence.trim());
     println!("◇ result\n  workflow skeleton rendered with sandboxed evidence");
-    println!("◇ next\n  wire read/precise_edit/safe_exec into provider tool turns");
+    println!("◇ next\n  wrap streamed provider turns in the same Plan/Now/Evidence trace");
     println!("◇ issues\n  none");
     Ok(0)
 }
@@ -1228,10 +1374,13 @@ async fn submit_tui_input(state: &mut TuiState) -> Result<bool> {
         state.show_commands = true;
     } else {
         state.status = "provider call running".to_owned();
-        match chat_completion_value(&state.provider, state.mode, None, None, &input).await {
-            Ok(response) => {
+        match chat_completion_with_trace(&state.provider, state.mode, None, None, &input).await {
+            Ok((response, trace)) => {
                 let text = assistant_text(&response);
                 state.transcript.push(format!("assistant · {text}"));
+                if state.show_tasks {
+                    state.transcript.push(trace.render());
+                }
                 state.status = "provider response rendered".to_owned();
             }
             Err(error) => {
@@ -1475,11 +1624,39 @@ mod tests {
             "edited"
         );
         assert_eq!(sandbox.read("note.txt").unwrap(), "alpha BETA");
-        assert!(
-            execute_tool_call(&sandbox, "safe_exec", r#"{"program":"sh","args":[]}"#)
-                .contains("tool error")
-        );
+        let denied =
+            execute_tool_call_with_status(&sandbox, "safe_exec", r#"{"program":"sh","args":[]}"#);
+        assert!(!denied.ok);
+        assert!(denied.output.contains("tool error"));
         fs::remove_dir_all(workspace).unwrap();
+    }
+
+    #[test]
+    fn workflow_trace_renders_pi_stages_and_tool_evidence() {
+        let provider = ResolvedProvider {
+            id: "test".to_owned(),
+            base_url: "http://127.0.0.1/v1".to_owned(),
+            api_key: None,
+            api_key_source: "env:TEST".to_owned(),
+            model: "m1".to_owned(),
+            models: vec!["m1".to_owned()],
+            max_retries: 0,
+            retry_min_delay_ms: 1,
+            retry_max_delay_ms: 1,
+            request_timeout_ms: 1,
+        };
+        let mut trace = PiWorkflowTrace::for_turn(AgentMode::Code, &provider, "inspect");
+        trace.record_tool(&ToolExecution {
+            name: "read".to_owned(),
+            ok: true,
+            output: "alpha\nbeta".to_owned(),
+        });
+        trace.finish_after_tools(1);
+        let rendered = trace.render();
+        assert!(rendered.contains("◇ plan"));
+        assert!(rendered.contains("◇ evidence"));
+        assert!(rendered.contains("read ok"));
+        assert!(rendered.contains("1 tool round"));
     }
 
     #[test]

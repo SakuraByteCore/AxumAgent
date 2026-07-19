@@ -15,6 +15,7 @@ Work added:
 - Continued into Phase5 with a first autonomous-run slice: `run --auto` now builds a noninteractive fail-closed system prompt with workspace/sandbox evidence and the safe tool policy instead of merely aliasing chat.
 - Wired normal Ratatui prompt submissions into the Rust provider chat path and render assistant/error rows back into the transcript; streaming deltas remain a follow-up.
 - Wired Rust `ToolSandbox` into the OpenAI-compatible provider loop: `read`, `precise_edit`, and `safe_exec` are advertised as tools, provider `tool_calls` are executed through the sandbox, and tool results are returned to the model for a follow-up completion.
+- Added a Pi-style Plan/Now/Evidence/Result/Next/Issues trace around Rust provider/tool turns, exposed in JSON chat output and TUI transcript when `/tasks` is active.
 
 Validation:
 - `npm run build` passes.
@@ -22,7 +23,7 @@ Validation:
 - `npm run pack:dry` passes.
 - `cargo fmt --check`, `cargo test`, and `cargo build` pass for the Rust crate after Phase5 auto-policy wiring.
 - Rust TUI dry-run smoke renders expected header, command suggestions, and input line; provider response extraction is covered by unit test.
-- Rust tool sandbox unit tests cover operator rejection, read-only git gating, workspace containment, precise edit, allowed `cat` execution, and provider tool-call dispatch through sandbox tools.
+- Rust tool sandbox unit tests cover operator rejection, read-only git gating, workspace containment, precise edit, allowed `cat` execution, provider tool-call dispatch through sandbox tools, and Pi-style trace rendering.
 
 ## 2026-07-17
 
