@@ -1,0 +1,69 @@
+name: Termux Android Spike
+
+on:
+  push:
+    branches: [termux-android-spike]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  axum-baseline:
+    name: AxumAgent baseline
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: npm ci
+      - name: Test
+        run: npm test
+      - name: Pack dry-run
+        run: npm run pack:dry
+
+  android-doctor-simulation:
+    name: Android doctor simulation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build Rust CLI
+        run: cargo build
+      - name: Simulate Termux environment in doctor
+        env:
+          TERMUX_VERSION: 0.118.3
+          PREFIX: /data/data/com.termux/files/usr
+          HOME: /data/data/com.termux/files/home
+          AXUM_OPENAI_API_KEY: spike-key
+        run: |
+          target/debug/axum doctor --json --config /tmp/axum-termux-spike.toml > doctor.json
+          cat doctor.json
+          node - <<'NODE'
+          const fs = require('fs')
+          const report = JSON.parse(fs.readFileSync('doctor.json', 'utf8'))
+          if (!report.platform?.android) throw new Error('doctor did not mark android=true')
+          if (!report.platform?.termux) throw new Error('doctor did not mark termux=true')
+          if (report.platform?.sandbox_backend !== 'termux-contained') throw new Error('unexpected sandbox backend')
+          if (report.platform?.kernel_sandbox !== 'unavailable/degraded') throw new Error('unexpected kernel sandbox status')
+          NODE
+
+  kilocode-package-inspection:
+    name: KiloCode package inspection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Inspect KiloCode npm platform metadata
+        run: node scripts/inspect-kilocode-package.mjs
