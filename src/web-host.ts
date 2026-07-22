@@ -86,9 +86,23 @@ function html(): string {
     if (msg.type === 'axum.status') status.textContent = msg.message;
     else if (msg.type === 'axum.error') row('system', 'error: ' + msg.message);
     else if (msg.type === 'axum.assistant') row('assistant', msg.text || JSON.stringify(msg.data));
-    else if (msg.type === 'kilo.event') window.dispatchEvent(new MessageEvent('message', { data: msg.data }));
+    else if (msg.type === 'kilo.event') {
+      window.dispatchEvent(new MessageEvent('message', { data: msg.data }));
+      const text = extractText(msg.data);
+      if (text) row('assistant', text);
+    }
     else row('system', JSON.stringify(msg, null, 2));
   });
+  function extractText(value) {
+    if (!value || typeof value !== 'object') return '';
+    const direct = value.text || value.content || value.delta;
+    if (typeof direct === 'string') return direct;
+    for (const key of ['part', 'message', 'data']) {
+      const nested = extractText(value[key]);
+      if (nested) return nested;
+    }
+    return '';
+  }
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const text = input.value.trim();
@@ -142,6 +156,7 @@ class KiloSessionHost {
   private child: ChildProcessWithoutNullStreams | undefined;
   private serverUrl: string | undefined;
   private sessionId: string | undefined;
+  private eventAbort: AbortController | undefined;
   private readonly sockets = new Map<string, ClientSocket>();
   private idleTimer: NodeJS.Timeout | undefined;
   private starting: Promise<string> | undefined;
@@ -178,6 +193,8 @@ class KiloSessionHost {
 
   stop(reason: string): void {
     if (this.child && !this.child.killed) this.child.kill("SIGTERM");
+    this.eventAbort?.abort();
+    this.eventAbort = undefined;
     this.child = undefined;
     this.serverUrl = undefined;
     this.sessionId = undefined;
@@ -213,6 +230,7 @@ class KiloSessionHost {
           clearTimeout(failTimer);
           this.serverUrl = match[1].replace(/\/$/, "");
           this.broadcast({ type: "axum.status", message: "kilo ready" });
+          this.startEventStream(this.serverUrl);
           resolve(this.serverUrl);
         }
       };
@@ -229,6 +247,39 @@ class KiloSessionHost {
       });
     }).finally(() => { this.starting = undefined; });
     return this.starting;
+  }
+
+  private startEventStream(base: string): void {
+    if (this.eventAbort) return;
+    const abort = new AbortController();
+    this.eventAbort = abort;
+    const url = `${base}/event?directory=${encodeURIComponent(this.options.workspace)}`;
+    fetch(url, { signal: abort.signal })
+      .then(async (response) => {
+        if (!response.ok || !response.body) throw new Error(`${response.status} ${response.statusText}`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const next = await reader.read();
+          if (next.done) break;
+          buffer += decoder.decode(next.value, { stream: true });
+          const chunks = buffer.split(/\n\n/g);
+          buffer = chunks.pop() || "";
+          for (const chunk of chunks) {
+            const data = chunk.split(/\n/g)
+              .filter((line) => line.startsWith("data:"))
+              .map((line) => line.slice(5).trimStart())
+              .join("\n");
+            if (!data || data === "[DONE]") continue;
+            try { this.broadcast({ type: "kilo.event", data: JSON.parse(data) }); }
+            catch { this.broadcast({ type: "kilo.event", data: { text: data } }); }
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (!abort.signal.aborted) this.broadcast({ type: "axum.error", message: `Kilo event stream failed: ${error instanceof Error ? error.message : String(error)}` });
+      });
   }
 
   private async ensureSession(base: string): Promise<string> {
@@ -389,7 +440,10 @@ export async function startWebHost(options: WebHostOptions, stdout: NodeJS.Write
     if (url.pathname !== "/ws") { socket.destroy(); return; }
     attachWebSocket(req, socket as Socket, host);
   });
-  server.on("close", () => resolveClosed?.());
+  server.on("close", () => {
+    host.stop("web host closed");
+    resolveClosed?.();
+  });
   process.once("SIGINT", () => server.close());
   process.once("SIGTERM", () => server.close());
   await new Promise<void>((resolve) => server.listen(options.port, options.host, resolve));

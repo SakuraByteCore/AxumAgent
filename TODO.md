@@ -55,4 +55,4 @@
 - [x] Re-align TUI chrome to pi-tui's default Text + Editor shape instead of custom Axum-owned panels.
 - [x] Add integration tests for full session/event/tool-loop behavior once introduced.
 - [x] Document npm publish/release flow.
-- [x] Add browser Chat web host that injects a VSCode API shim and routes each WebSocket session to an isolated `kilo serve --port 0` process.
+- [x] Add browser Chat web host that injects a VSCode API shim and routes each WebSocket session to an isolated `kilo serve --port 0` process, including SSE event relay back to the browser.

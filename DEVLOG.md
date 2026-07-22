@@ -149,4 +149,4 @@ Rename validation:
 Work added:
 - Added `axum web`, a zero-dependency Node web host for Kilo Chat migration experiments.
 - Added an embedded browser Chat page with an `acquireVsCodeApi()` shim that forwards `postMessage` over WebSocket and replays backend events as browser `message` events.
-- Added per-browser-session `kilo serve --port 0` process management, session creation, prompt forwarding, idle shutdown, `/health`, CLI help, and package export metadata for the web host.
+- Added per-browser-session `kilo serve --port 0` process management, session creation, prompt forwarding, Kilo SSE event relay, browser-side event text rendering, idle shutdown, `/health`, CLI help, and package export metadata for the web host.
