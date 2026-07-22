@@ -237,7 +237,7 @@ class KiloSessionHost {
 
   stop(reason: string): void {
     this.closeSockets();
-    if (this.child && !this.child.killed) this.child.kill("SIGTERM");
+    this.killChildTree("SIGTERM");
     this.eventAbort?.abort();
     this.eventAbort = undefined;
     this.eventReady = undefined;
@@ -245,6 +245,20 @@ class KiloSessionHost {
     this.serverUrl = undefined;
     this.sessionId = undefined;
     this.broadcast({ type: "axum.status", message: `kilo stopped: ${reason}` });
+  }
+
+  private killChildTree(signal: NodeJS.Signals): void {
+    const child = this.child;
+    if (!child || child.killed) return;
+    try {
+      if (process.platform !== "win32" && child.pid) {
+        process.kill(-child.pid, signal);
+      } else {
+        child.kill(signal);
+      }
+    } catch {
+      try { child.kill(signal); } catch { /* already gone */ }
+    }
   }
 
   private async sendPrompt(socket: ClientSocket, text: string): Promise<void> {
@@ -266,12 +280,13 @@ class KiloSessionHost {
       this.broadcast({ type: "axum.status", message: `starting Kilo via ${kilo.source}` });
       const child = spawn(kilo.command, [...kilo.argsPrefix, "serve", "--port", "0"], {
         cwd: this.options.workspace,
+        detached: process.platform !== "win32",
         env: { ...process.env, NO_COLOR: "1", KILO_APP_NAME: "axum-agent-web" },
       });
       this.child = child;
       let output = "";
       const failTimer = setTimeout(() => {
-        if (this.child && !this.child.killed) this.child.kill("SIGTERM");
+        this.killChildTree("SIGTERM");
         reject(new Error(`timed out waiting for Kilo serve to print a URL`));
       }, 20_000);
       const onData = (chunk: Buffer) => {

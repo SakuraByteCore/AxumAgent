@@ -58,3 +58,4 @@
 - [x] Add browser Chat web host that injects a VSCode API shim and routes each WebSocket session to an isolated `kilo serve --port 0` process, including SSE event relay back to the browser.
 - [x] Add automated web-host regression coverage for WebSocket prompt forwarding, Kilo SSE relay, and child-process cleanup.
 - [x] Auto-resolve Kilo CLI for web host users who have not installed `kilo`, falling back to `npx --yes @kilocode/cli@latest`.
+- [x] Clean up the entire spawned Kilo process tree, including `npx` launcher child processes.

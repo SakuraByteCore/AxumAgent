@@ -152,3 +152,4 @@ Work added:
 - Added per-browser-session `kilo serve --port 0` process management, session creation, prompt forwarding, Kilo SSE event relay, browser-side event text rendering, idle shutdown, `/health`, CLI help, and package export metadata for the web host.
 - Added automated web-host regression coverage for WebSocket prompt forwarding, CRLF SSE parsing, browser-visible assistant text relay, and child-process cleanup.
 - Added automatic Kilo CLI resolution: explicit binary, workspace `node_modules/.bin`, PATH, then `npx --yes @kilocode/cli@latest` fallback so users do not have to preinstall Kilo.
+- Hardened Kilo process cleanup to terminate the whole spawned process group, covering `npx` launcher + Kilo child processes.
