@@ -68,6 +68,7 @@
     "./tui/runtime-view": "./dist/tui/runtime-view.js",
     "./tui/text": "./dist/tui/text.js",
     "./tui/model-picker": "./dist/tui/model-picker.js",
-    "./tui/slash-commands": "./dist/tui/slash-commands.js"
+    "./tui/slash-commands": "./dist/tui/slash-commands.js",
+    "./web-host": "./dist/web-host.js"
   }
 }

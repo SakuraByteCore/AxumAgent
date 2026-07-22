@@ -9,6 +9,7 @@ import { renderRuntimeVisibleOutput, runtimeFailureSummary } from "./tui/runtime
 import { SLASH_COMMANDS } from "./tui/slash-commands";
 import { fetchTuiModelsWithStatus, hydrateTuiModels, hydrateTuiModelsWithStatus, renderModelList, switchModel } from "./tui/model-picker";
 import { findMode, renderModeList } from "./shell/kilo-shell";
+import { HelpRequested as WebHostHelpRequested, parseWebHostArgs, startWebHost } from "./web-host";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -291,6 +292,7 @@ export function renderHelp(): string {
     "  axum workflow [options] <prompt>",
     "  axum parallel [options] --task <prompt> --task <prompt> <goal>",
     "  axum config-web [options]",
+    "  axum web [options]",
     "  axum --version",
     "",
     "Recommended first run:",
@@ -333,6 +335,13 @@ export function renderHelp(): string {
     "Config web options:",
     "      --host <host>         Config web host (default: 127.0.0.1)",
     "      --port <port>         Config web port (default: 8787)",
+    "",
+    "Kilo Chat web host options:",
+    "      --host <host>         Web host (default: 127.0.0.1)",
+    "      --port <port>         Web port (default: 8788)",
+    "      --kilo-bin <path>     Kilo CLI binary (default: kilo)",
+    "      --workspace <path>    Workspace for kilo serve (default: current directory)",
+    "      --idle-timeout-ms <n> Stop the per-browser kilo server after disconnect idle timeout",
     "",
     "Environment:",
     "  OPENAI_API_KEY, AXUM_MODEL, AXUM_OPENAI_BASE_URL, AXUM_OPENAI_API_KEY_ENV, AXUM_OPENAI_MAX_RETRIES, AXUM_OPENAI_RETRY_MIN_DELAY_MS, AXUM_OPENAI_RETRY_MAX_DELAY_MS, AXUM_OPENAI_RETRY_DELAY_MS, AXUM_OPENAI_REQUEST_TIMEOUT_MS",
@@ -1678,6 +1687,19 @@ export async function runAxumCli(args: string[], env = process.env, stdout = pro
   }
   if (args[0] === "config-web") {
     return { handled: true, exitCode: await runConfigWeb(args.slice(1), env, stdout, stderr) };
+  }
+  if (args[0] === "web") {
+    try {
+      await startWebHost(parseWebHostArgs(args.slice(1), env), stdout);
+      return { handled: true, exitCode: 0 };
+    } catch (error) {
+      if (error instanceof WebHostHelpRequested) {
+        stdout.write("Usage: axum web [--host <host>] [--port <port>] [--kilo-bin <path>] [--workspace <path>] [--idle-timeout-ms <n>]\n");
+        return { handled: true, exitCode: 0 };
+      }
+      stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+      return { handled: true, exitCode: 2 };
+    }
   }
   if (args[0] === "--help" || args[0] === "-h" || args.length === 0) {
     stdout.write(`${renderHelp()}\n`);

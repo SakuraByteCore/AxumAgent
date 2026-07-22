@@ -144,3 +144,9 @@ Rename validation:
 - Replaced source/package/bin/crate naming from the old name to `axum`.
 - Rebuilt Linux and Windows artifacts from renamed sources.
 - Removed stale Android prebuilts because this host lacks `aarch64-linux-android-clang`; Android artifacts must be rebuilt with NDK.
+## 2026-07-22
+
+Work added:
+- Added `axum web`, a zero-dependency Node web host for Kilo Chat migration experiments.
+- Added an embedded browser Chat page with an `acquireVsCodeApi()` shim that forwards `postMessage` over WebSocket and replays backend events as browser `message` events.
+- Added per-browser-session `kilo serve --port 0` process management, session creation, prompt forwarding, idle shutdown, `/health`, CLI help, and package export metadata for the web host.
