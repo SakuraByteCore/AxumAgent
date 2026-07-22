@@ -6,7 +6,7 @@
     "axum": "bin/axum.js"
   },
   "scripts": {
-    "test": "npm run build && node --check bin/axum.js && node --check dist/cli.js && node --check dist/config.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js && node tests/tui-screenshot.test.js && npm run rust:test",
+    "test": "npm run build && node --check bin/axum.js && node --check dist/cli.js && node --check dist/config.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js && node tests/tui-screenshot.test.js && node tests/web-host.test.js && npm run rust:test",
     "build": "tsc -p tsconfig.json",
     "rust:fmt": "cargo fmt --check",
     "rust:build": "cargo build",
