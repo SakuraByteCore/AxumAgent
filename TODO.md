@@ -60,3 +60,4 @@
 - [x] Auto-resolve Kilo CLI for web host users who have not installed `kilo`, falling back to `npx --yes @kilocode/cli@latest`.
 - [x] Clean up the entire spawned Kilo process tree, including `npx` launcher child processes.
 - [x] Improve first-run Chat UX when Kilo accepts a prompt but no provider/model is configured.
+- [x] Add an in-page Quick Start provider form so first-run users can apply API/base URL/model values before Kilo starts.

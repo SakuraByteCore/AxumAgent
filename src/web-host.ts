@@ -38,10 +38,16 @@ function html(): string {
 <title>AxumAgent Kilo Chat</title>
 <style>
   :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #101114; color: #f2f2f3; }
-  body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+  body { margin: 0; min-height: 100vh; display: grid; grid-template-rows: auto auto 1fr auto; }
   header { padding: 14px 18px; border-bottom: 1px solid #2a2d34; display: flex; align-items: center; gap: 12px; }
   header strong { letter-spacing: .01em; }
   #status { color: #9ca3af; font-size: 13px; }
+  #quickstart { padding: 12px 18px; border-bottom: 1px solid #2a2d34; background: #12151c; display: grid; gap: 10px; }
+  #quickstart .hint { color: #a7adbb; font-size: 13px; }
+  #quickstart .fields { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) minmax(140px, .7fr) auto; gap: 8px; }
+  #quickstart input { border-radius: 9px; border: 1px solid #343844; background: #151820; color: #f2f2f3; padding: 8px 10px; font: inherit; }
+  #quickstart button { min-height: 36px; }
+  @media (max-width: 760px) { #quickstart .fields { grid-template-columns: 1fr; } }
   #log { padding: 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
   .row { max-width: 980px; border: 1px solid #2a2d34; border-radius: 10px; padding: 10px 12px; white-space: pre-wrap; line-height: 1.45; }
   .user { align-self: flex-end; background: #19324a; }
@@ -55,6 +61,15 @@ function html(): string {
 </head>
 <body>
 <header><strong>AxumAgent · Kilo Chat</strong><span id="status">connecting…</span></header>
+<section id="quickstart">
+  <div class="hint">Quick start: Kilo CLI is auto-resolved. If this is first run, add provider env for this browser session before sending.</div>
+  <div class="fields">
+    <input id="baseUrl" placeholder="OpenAI-compatible base URL (optional)" autocomplete="off" />
+    <input id="apiKey" placeholder="API key (kept in this web host process only)" type="password" autocomplete="off" />
+    <input id="model" placeholder="Model (optional)" autocomplete="off" />
+    <button id="saveQuickstart" type="button">Apply</button>
+  </div>
+</section>
 <main id="log"></main>
 <form id="form"><textarea id="input" placeholder="Send a message to this Kilo session…"></textarea><button id="send" type="submit">Send</button></form>
 <script>
@@ -64,6 +79,10 @@ function html(): string {
   const input = document.getElementById('input');
   const form = document.getElementById('form');
   const send = document.getElementById('send');
+  const saveQuickstart = document.getElementById('saveQuickstart');
+  const baseUrl = document.getElementById('baseUrl');
+  const apiKey = document.getElementById('apiKey');
+  const model = document.getElementById('model');
   const stateKey = 'axum.kiloChat.vscodeState';
   let pendingReplyTimer = null;
   const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
@@ -88,6 +107,7 @@ function html(): string {
     try { msg = JSON.parse(event.data); } catch { row('system', String(event.data)); return; }
     if (msg.type === 'axum.status') status.textContent = msg.message;
     else if (msg.type === 'axum.error') { clearPendingReply(); row('system', 'error: ' + msg.message); }
+    else if (msg.type === 'axum.quickstart.applied') row('system', msg.message);
     else if (msg.type === 'axum.prompt.waiting') armPendingReply(msg.message);
     else if (msg.type === 'axum.assistant') { clearPendingReply(); row('assistant', msg.text || JSON.stringify(msg.data)); }
     else if (msg.type === 'kilo.event') {
@@ -141,6 +161,14 @@ function html(): string {
     }
     return '';
   }
+  saveQuickstart.addEventListener('click', () => {
+    ws.send(JSON.stringify({
+      type: 'axum.quickstart.apply',
+      baseUrl: baseUrl.value.trim(),
+      apiKey: apiKey.value.trim(),
+      model: model.value.trim(),
+    }));
+  });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
     const text = input.value.trim();
@@ -235,6 +263,7 @@ class KiloSessionHost {
   private readonly sockets = new Map<string, ClientSocket>();
   private idleTimer: NodeJS.Timeout | undefined;
   private starting: Promise<string> | undefined;
+  private envOverrides: Record<string, string> = {};
 
   constructor(private readonly options: WebHostOptions) {}
 
@@ -258,12 +287,39 @@ class KiloSessionHost {
       await this.sendPrompt(socket, text);
       return;
     }
+    if (input.type === "axum.quickstart.apply") {
+      this.applyQuickstart(socket, input);
+      return;
+    }
     if (input.type === "vscode.postMessage") {
       socket.writeJson({ type: "axum.status", message: "vscode shim message received" });
       socket.writeJson({ type: "kilo.event", data: { type: "axum.webHost.unsupportedVscodeMessage", original: input.message } });
       return;
     }
     socket.writeJson({ type: "axum.error", message: `unsupported message type: ${String(input.type)}` });
+  }
+
+  private applyQuickstart(socket: ClientSocket, input: JsonRecord): void {
+    const next: Record<string, string> = {};
+    if (typeof input.apiKey === "string" && input.apiKey.trim()) next.OPENAI_API_KEY = input.apiKey.trim();
+    if (typeof input.baseUrl === "string" && input.baseUrl.trim()) {
+      next.OPENAI_BASE_URL = input.baseUrl.trim();
+      next.AXUM_OPENAI_BASE_URL = input.baseUrl.trim();
+    }
+    if (typeof input.model === "string" && input.model.trim()) {
+      next.OPENAI_MODEL = input.model.trim();
+      next.AXUM_MODEL = input.model.trim();
+    }
+    this.envOverrides = next;
+    if (this.child) this.stop("provider settings changed");
+    const applied = Object.keys(next).filter((key) => key !== "OPENAI_API_KEY");
+    if (next.OPENAI_API_KEY) applied.unshift("OPENAI_API_KEY");
+    socket.writeJson({
+      type: "axum.quickstart.applied",
+      message: applied.length
+        ? `Applied provider env for this web host process: ${applied.join(", ")}. Send a prompt to start Kilo with these settings.`
+        : "Cleared provider env for this web host process.",
+    });
   }
 
   closeSockets(): void {
@@ -318,7 +374,7 @@ class KiloSessionHost {
       const child = spawn(kilo.command, [...kilo.argsPrefix, "serve", "--port", "0"], {
         cwd: this.options.workspace,
         detached: process.platform !== "win32",
-        env: { ...process.env, NO_COLOR: "1", KILO_APP_NAME: "axum-agent-web" },
+        env: { ...process.env, ...this.envOverrides, NO_COLOR: "1", KILO_APP_NAME: "axum-agent-web" },
       });
       this.child = child;
       let output = "";

@@ -22,6 +22,7 @@ const pidFile = ${JSON.stringify(pidFile)};
 const callsFile = ${JSON.stringify(callsFile)};
 if (process.argv[2] !== 'serve') process.exit(2);
 fs.writeFileSync(pidFile, String(process.pid));
+fs.appendFileSync(callsFile, JSON.stringify({ env: { OPENAI_API_KEY: process.env.OPENAI_API_KEY || '', OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || '', AXUM_MODEL: process.env.AXUM_MODEL || '' } }) + '\\n');
 const eventClients = new Set();
 function record(value) { fs.appendFileSync(callsFile, JSON.stringify(value) + '\\n'); }
 function emit(value) {
@@ -138,7 +139,8 @@ function sendChat(port, text) {
         assert.match(head, /101 Switching Protocols/);
         handshake = true;
         buffer = buffer.subarray(sep + 4);
-        socket.write(encodeFrame(JSON.stringify({ type: "axum.chat.send", text })));
+        socket.write(encodeFrame(JSON.stringify({ type: "axum.quickstart.apply", apiKey: "test-user-key", baseUrl: "https://example.invalid/v1", model: "test-user-model" })));
+        setTimeout(() => socket.write(encodeFrame(JSON.stringify({ type: "axum.chat.send", text }))), 50);
       }
       const decoded = decodeServerFrames(buffer);
       buffer = decoded.rest;
@@ -182,6 +184,8 @@ async function waitForGone(pid) {
     assert.ok(messages.some((message) => message.includes("mock assistant reply")), messages.join("\n"));
     const calls = fs.readFileSync(mock.callsFile, "utf8").trim().split(/\n/g).map((line) => JSON.parse(line));
     assert.ok(calls.some((call) => call.method === "GET" && call.url.startsWith("/event?")), JSON.stringify(calls));
+    const env = calls.find((call) => call.env)?.env;
+    assert.deepStrictEqual(env, { OPENAI_API_KEY: "test-user-key", OPENAI_BASE_URL: "https://example.invalid/v1", AXUM_MODEL: "test-user-model" });
     const prompt = calls.find((call) => call.method === "POST" && call.url.startsWith("/session/mock-session-web/message"));
     assert.ok(prompt, JSON.stringify(calls));
     assert.match(prompt.body, /hello web host/);
