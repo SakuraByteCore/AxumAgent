@@ -7,6 +7,7 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
+const { parseWebHostArgs, resolveKiloCommand } = require("../dist/web-host.js");
 
 const root = path.resolve(__dirname, "..");
 
@@ -166,6 +167,12 @@ async function waitForGone(pid) {
 }
 
 (async () => {
+  const parsed = parseWebHostArgs([], { PATH: "", AXUM_KILO_PACKAGE: "@kilocode/cli@test" });
+  assert.strictEqual(parsed.kiloBin, "");
+  assert.strictEqual(parsed.kiloPackage, "@kilocode/cli@test");
+  const fallback = resolveKiloCommand({ ...parsed, workspace: root }, { PATH: "" });
+  assert.ok(fallback.argsPrefix.includes("@kilocode/cli@test"));
+
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-host-test-"));
   const mock = writeMockKilo(dir);
   const host = await startWebHost(mock.script, root);

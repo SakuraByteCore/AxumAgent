@@ -339,7 +339,8 @@ export function renderHelp(): string {
     "Kilo Chat web host options:",
     "      --host <host>         Web host (default: 127.0.0.1)",
     "      --port <port>         Web port (default: 8788)",
-    "      --kilo-bin <path>     Kilo CLI binary (default: kilo)",
+    "      --kilo-bin <path>     Kilo CLI binary; when omitted Axum auto-resolves local/PATH Kilo or npx @kilocode/cli",
+    "      --kilo-package <pkg>   npm package for automatic npx fallback (default: @kilocode/cli@latest)",
     "      --workspace <path>    Workspace for kilo serve (default: current directory)",
     "      --idle-timeout-ms <n> Stop the per-browser kilo server after disconnect idle timeout",
     "",
@@ -1694,7 +1695,7 @@ export async function runAxumCli(args: string[], env = process.env, stdout = pro
       return { handled: true, exitCode: 0 };
     } catch (error) {
       if (error instanceof WebHostHelpRequested) {
-        stdout.write("Usage: axum web [--host <host>] [--port <port>] [--kilo-bin <path>] [--workspace <path>] [--idle-timeout-ms <n>]\n");
+        stdout.write("Usage: axum web [--host <host>] [--port <port>] [--kilo-bin <path>] [--kilo-package <pkg>] [--workspace <path>] [--idle-timeout-ms <n>]\n");
         return { handled: true, exitCode: 0 };
       }
       stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);

@@ -5,9 +5,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.HelpRequested = void 0;
 exports.parseWebHostArgs = parseWebHostArgs;
+exports.resolveKiloCommand = resolveKiloCommand;
 exports.startWebHost = startWebHost;
 const node_child_process_1 = require("node:child_process");
 const node_crypto_1 = __importDefault(require("node:crypto"));
+const node_fs_1 = __importDefault(require("node:fs"));
 const node_http_1 = __importDefault(require("node:http"));
 const node_os_1 = __importDefault(require("node:os"));
 const node_path_1 = __importDefault(require("node:path"));
@@ -121,7 +123,8 @@ function parseWebHostArgs(args, env = process.env) {
     const options = {
         host: env.AXUM_WEB_HOST || DEFAULT_HOST,
         port: env.AXUM_WEB_PORT ? parsePort(env.AXUM_WEB_PORT, "AXUM_WEB_PORT") : DEFAULT_PORT,
-        kiloBin: env.AXUM_KILO_BIN || "kilo",
+        kiloBin: env.AXUM_KILO_BIN || "",
+        kiloPackage: env.AXUM_KILO_PACKAGE || "@kilocode/cli@latest",
         workspace: env.AXUM_KILO_WORKSPACE || process.cwd(),
         idleTimeoutMs: env.AXUM_WEB_IDLE_TIMEOUT_MS ? parsePort(env.AXUM_WEB_IDLE_TIMEOUT_MS, "AXUM_WEB_IDLE_TIMEOUT_MS") : DEFAULT_IDLE_TIMEOUT_MS,
     };
@@ -137,6 +140,10 @@ function parseWebHostArgs(args, env = process.env) {
         }
         else if (arg === "--kilo-bin") {
             options.kiloBin = takeValue(args, i, arg);
+            i += 1;
+        }
+        else if (arg === "--kilo-package") {
+            options.kiloPackage = takeValue(args, i, arg);
             i += 1;
         }
         else if (arg === "--workspace") {
@@ -157,6 +164,43 @@ function parseWebHostArgs(args, env = process.env) {
 class HelpRequested extends Error {
 }
 exports.HelpRequested = HelpRequested;
+function isExecutable(file) {
+    try {
+        node_fs_1.default.accessSync(file, node_fs_1.default.constants.X_OK);
+        return true;
+    }
+    catch {
+        return false;
+    }
+}
+function findOnPath(command, env = process.env) {
+    const pathValue = env.PATH || "";
+    const extensions = process.platform === "win32" ? ["", ".cmd", ".exe", ".bat"] : [""];
+    for (const dir of pathValue.split(node_path_1.default.delimiter)) {
+        if (!dir)
+            continue;
+        for (const extension of extensions) {
+            const candidate = node_path_1.default.join(dir, `${command}${extension}`);
+            if (isExecutable(candidate))
+                return candidate;
+        }
+    }
+    return undefined;
+}
+function resolveKiloCommand(options, env = process.env) {
+    if (options.kiloBin)
+        return { command: options.kiloBin, argsPrefix: [], source: "explicit" };
+    const localBinName = process.platform === "win32" ? "kilo.cmd" : "kilo";
+    const localBin = node_path_1.default.join(options.workspace, "node_modules", ".bin", localBinName);
+    if (isExecutable(localBin))
+        return { command: localBin, argsPrefix: [], source: "workspace node_modules" };
+    const pathKilo = findOnPath("kilo", env) || findOnPath("kilocode", env);
+    if (pathKilo)
+        return { command: pathKilo, argsPrefix: [], source: "PATH" };
+    const npmExecPath = env.npm_execpath && isExecutable(env.npm_execpath) ? env.npm_execpath : undefined;
+    const npx = npmExecPath || findOnPath("npx", env) || (process.platform === "win32" ? "npx.cmd" : "npx");
+    return { command: npx, argsPrefix: ["--yes", options.kiloPackage], source: `npx ${options.kiloPackage}` };
+}
 class KiloSessionHost {
     options;
     child;
@@ -230,13 +274,19 @@ class KiloSessionHost {
         if (this.starting)
             return this.starting;
         this.starting = new Promise((resolve, reject) => {
-            const child = (0, node_child_process_1.spawn)(this.options.kiloBin, ["serve", "--port", "0"], {
+            const kilo = resolveKiloCommand(this.options);
+            this.broadcast({ type: "axum.status", message: `starting Kilo via ${kilo.source}` });
+            const child = (0, node_child_process_1.spawn)(kilo.command, [...kilo.argsPrefix, "serve", "--port", "0"], {
                 cwd: this.options.workspace,
                 env: { ...process.env, NO_COLOR: "1", KILO_APP_NAME: "axum-agent-web" },
             });
             this.child = child;
             let output = "";
-            const failTimer = setTimeout(() => reject(new Error(`timed out waiting for ${this.options.kiloBin} serve to print a URL`)), 20_000);
+            const failTimer = setTimeout(() => {
+                if (this.child && !this.child.killed)
+                    this.child.kill("SIGTERM");
+                reject(new Error(`timed out waiting for Kilo serve to print a URL`));
+            }, 20_000);
             const onData = (chunk) => {
                 const text = chunk.toString("utf8");
                 output += text;
