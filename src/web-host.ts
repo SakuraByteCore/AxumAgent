@@ -65,6 +65,7 @@ function html(): string {
   const form = document.getElementById('form');
   const send = document.getElementById('send');
   const stateKey = 'axum.kiloChat.vscodeState';
+  let pendingReplyTimer = null;
   const ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
   function row(kind, text) {
     const div = document.createElement('div');
@@ -86,22 +87,57 @@ function html(): string {
     let msg;
     try { msg = JSON.parse(event.data); } catch { row('system', String(event.data)); return; }
     if (msg.type === 'axum.status') status.textContent = msg.message;
-    else if (msg.type === 'axum.error') row('system', 'error: ' + msg.message);
-    else if (msg.type === 'axum.assistant') row('assistant', msg.text || JSON.stringify(msg.data));
+    else if (msg.type === 'axum.error') { clearPendingReply(); row('system', 'error: ' + msg.message); }
+    else if (msg.type === 'axum.prompt.waiting') armPendingReply(msg.message);
+    else if (msg.type === 'axum.assistant') { clearPendingReply(); row('assistant', msg.text || JSON.stringify(msg.data)); }
     else if (msg.type === 'kilo.event') {
       window.dispatchEvent(new MessageEvent('message', { data: msg.data }));
       const text = extractText(msg.data);
-      if (text) row('assistant', text);
+      if (text) { clearPendingReply(); row('assistant', text); }
+      else {
+        const summary = summarizeKiloEvent(msg.data);
+        if (summary) row('system', summary);
+      }
     }
     else row('system', JSON.stringify(msg, null, 2));
   });
-  function extractText(value) {
-    if (!value || typeof value !== 'object') return '';
-    const direct = value.text || value.content || value.delta;
+  function armPendingReply(message) {
+    clearPendingReply();
+    pendingReplyTimer = setTimeout(() => {
+      row('system', message || 'Prompt was accepted by Kilo, but no assistant text has arrived yet. If this is first run, configure a Kilo provider/model and try again.');
+    }, 12000);
+  }
+  function clearPendingReply() {
+    if (pendingReplyTimer) clearTimeout(pendingReplyTimer);
+    pendingReplyTimer = null;
+  }
+  function extractText(value, seen = new Set()) {
+    if (!value) return '';
+    if (typeof value === 'string') return value;
+    if (typeof value !== 'object' || seen.has(value)) return '';
+    seen.add(value);
+    if (Array.isArray(value)) {
+      return value.map((item) => extractText(item, seen)).filter(Boolean).join('');
+    }
+    const direct = value.text || value.content || value.delta || value.markdown;
     if (typeof direct === 'string') return direct;
-    for (const key of ['part', 'message', 'data']) {
-      const nested = extractText(value[key]);
+    for (const key of ['part', 'message', 'data', 'properties', 'syncEvent', 'parts', 'segments']) {
+      const nested = extractText(value[key], seen);
       if (nested) return nested;
+    }
+    return '';
+  }
+  function summarizeKiloEvent(value) {
+    if (!value || typeof value !== 'object') return '';
+    const type = value.type || value.syncEvent?.type || '';
+    const message = value.message || value.error?.message || value.properties?.message || value.properties?.error?.message;
+    if (message && /error|failed|invalid|missing|provider|model|auth|permission|question/i.test(String(type) + ' ' + message)) {
+      clearPendingReply();
+      return 'Kilo: ' + message;
+    }
+    if (/permission|question/i.test(String(type))) {
+      clearPendingReply();
+      return 'Kilo needs input: ' + (message || type);
     }
     return '';
   }
@@ -270,6 +306,7 @@ class KiloSessionHost {
       parts: [{ type: "text", text }],
     });
     socket.writeJson({ type: "axum.status", message: "prompt sent" });
+    socket.writeJson({ type: "axum.prompt.waiting", message: "Prompt was accepted by Kilo, but no assistant text has arrived yet. If this is first run, configure a Kilo provider/model and try again." });
   }
 
   private ensureStarted(): Promise<string> {
