@@ -64,6 +64,20 @@ process.on('SIGTERM', () => server.close(() => process.exit(0)));
   return { script, pidFile, callsFile };
 }
 
+function runWebHost(args) {
+  const child = spawn(process.execPath, [path.join(root, "bin", "axum.js"), "web", ...args], {
+    cwd: root,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  return new Promise((resolve) => child.once("close", (code) => resolve({ code, stdout, stderr })));
+}
+
 function startWebHost(kiloBin, workspace) {
   const child = spawn(process.execPath, [path.join(root, "bin", "axum.js"), "web", "--port", "0", "--kilo-bin", kiloBin, "--workspace", workspace], {
     cwd: root,
@@ -169,6 +183,10 @@ async function waitForGone(pid) {
 }
 
 (async () => {
+  const invalid = await runWebHost(["--workspace", path.join(os.tmpdir(), "axum-missing-workspace-e2e")]);
+  assert.strictEqual(invalid.code, 2);
+  assert.match(invalid.stderr, /workspace does not exist or is not a directory/);
+
   const parsed = parseWebHostArgs([], { PATH: "", AXUM_KILO_PACKAGE: "@kilocode/cli@test" });
   assert.strictEqual(parsed.kiloBin, "");
   assert.strictEqual(parsed.kiloPackage, "@kilocode/cli@test");

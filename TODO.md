@@ -61,3 +61,4 @@
 - [x] Clean up the entire spawned Kilo process tree, including `npx` launcher child processes.
 - [x] Improve first-run Chat UX when Kilo accepts a prompt but no provider/model is configured.
 - [x] Add an in-page Quick Start provider form so first-run users can apply API/base URL/model values before Kilo starts.
+- [x] Validate `axum web --workspace` before spawning Kilo so nonexistent paths produce a clear error.

@@ -311,7 +311,7 @@ class KiloSessionHost {
       next.AXUM_MODEL = input.model.trim();
     }
     this.envOverrides = next;
-    if (this.child) this.stop("provider settings changed");
+    if (this.child) this.stopKilo("provider settings changed");
     const applied = Object.keys(next).filter((key) => key !== "OPENAI_API_KEY");
     if (next.OPENAI_API_KEY) applied.unshift("OPENAI_API_KEY");
     socket.writeJson({
@@ -329,6 +329,10 @@ class KiloSessionHost {
 
   stop(reason: string): void {
     this.closeSockets();
+    this.stopKilo(reason);
+  }
+
+  private stopKilo(reason: string): void {
     this.killChildTree("SIGTERM");
     this.eventAbort?.abort();
     this.eventAbort = undefined;
@@ -583,6 +587,8 @@ function attachWebSocket(req: IncomingMessage, socket: Socket, host: KiloSession
 }
 
 export async function startWebHost(options: WebHostOptions, stdout: NodeJS.WriteStream = process.stdout): Promise<void> {
+  const workspaceStat = fs.existsSync(options.workspace) ? fs.statSync(options.workspace) : undefined;
+  if (!workspaceStat?.isDirectory()) throw new Error(`workspace does not exist or is not a directory: ${options.workspace}`);
   const host = new KiloSessionHost(options);
   let resolveClosed: (() => void) | undefined;
   const closed = new Promise<void>((resolve) => { resolveClosed = resolve; });
