@@ -62,3 +62,5 @@
 - [x] Improve first-run Chat UX when Kilo accepts a prompt but no provider/model is configured.
 - [x] Add an in-page Quick Start provider form so first-run users can apply API/base URL/model values before Kilo starts.
 - [x] Validate `axum web --workspace` before spawning Kilo so nonexistent paths produce a clear error.
+- [x] Report Kilo startup exits immediately in the web host instead of waiting for the URL timeout.
+- [x] Normalize TUI screenshot snapshots across checkout directory names.

@@ -95,6 +95,7 @@ async function normalizeScreen(raw) {
   let text = await terminalViewport(raw);
   text = text
     .replaceAll(repoRoot, "<cwd>")
+    .replaceAll(`./${path.basename(repoRoot)}`, "./AxumAgent")
     .replace(/\/tmp\/[A-Za-z0-9._/-]+\/config\.toml/g, "<config>")
     .replace(/\/var\/folders\/[A-Za-z0-9._/-]+\/config\.toml/g, "<config>");
   return text.replace(/\n+$/g, "") + "\n";

@@ -156,3 +156,16 @@ Work added:
 - Improved first-run Chat UX with a delayed provider/model setup hint, readable Kilo error/question summaries, and recursive assistant text extraction from nested event payloads.
 - Added an in-page Quick Start provider form that applies OpenAI-compatible env values to the spawned Kilo process without requiring users to leave the page.
 - Added startup validation for the web host workspace path so bad paths fail with a clear user-facing error before spawning Kilo.
+
+## 2026-07-23
+
+Work added:
+- Hardened `axum web` Kilo startup failure handling so a child process that exits before printing its server URL reports `kilo exited (...)` with captured output immediately instead of making the browser wait for the 20s URL timeout.
+- Added web-host regression coverage for the fast startup-error path using a failing mock Kilo binary and a real WebSocket user prompt.
+- Stabilized TUI screenshot snapshot normalization so checkout directory names do not make snapshots fail outside a directory literally named `AxumAgent`.
+
+Validation:
+- `node --check tests/web-host.test.js` passes.
+- `npm run build` passes.
+- `node tests/web-host.test.js` passes.
+- `npm test` passes through TypeScript build, JS checks, OpenAI mock CLI, TUI screenshots, and web-host tests; final Rust stage is blocked on this host by missing `cargo`.

@@ -11,6 +11,17 @@ const { parseWebHostArgs, resolveKiloCommand } = require("../dist/web-host.js");
 
 const root = path.resolve(__dirname, "..");
 
+function writeFailingMockKilo(dir) {
+  const script = path.join(dir, "failing-kilo.js");
+  fs.writeFileSync(script, `#!/usr/bin/env node
+if (process.argv[2] !== 'serve') process.exit(2);
+console.error('mock kilo failed before listening');
+process.exit(7);
+`);
+  fs.chmodSync(script, 0o755);
+  return script;
+}
+
 function writeMockKilo(dir) {
   const script = path.join(dir, "mock-kilo.js");
   const pidFile = path.join(dir, "mock-kilo.pid");
@@ -133,14 +144,14 @@ function decodeServerFrames(buffer) {
   return { messages, rest: buffer.subarray(offset) };
 }
 
-function sendChat(port, text) {
+function openChatSocket(port, onOpen, shouldResolve, timeoutMessage, timeoutMs = 5000) {
   const key = crypto.randomBytes(16).toString("base64");
   const socket = net.connect(port, "127.0.0.1");
   let handshake = false;
   let buffer = Buffer.alloc(0);
   const messages = [];
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out waiting for assistant reply\nmessages=${messages.join("\n")}`)), 5000);
+    const timer = setTimeout(() => reject(new Error(`${timeoutMessage}\nmessages=${messages.join("\n")}`)), timeoutMs);
     socket.on("connect", () => {
       socket.write(`GET /ws HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n`);
     });
@@ -153,13 +164,12 @@ function sendChat(port, text) {
         assert.match(head, /101 Switching Protocols/);
         handshake = true;
         buffer = buffer.subarray(sep + 4);
-        socket.write(encodeFrame(JSON.stringify({ type: "axum.quickstart.apply", apiKey: "test-user-key", baseUrl: "https://example.invalid/v1", model: "test-user-model" })));
-        setTimeout(() => socket.write(encodeFrame(JSON.stringify({ type: "axum.chat.send", text }))), 50);
+        onOpen(socket);
       }
       const decoded = decodeServerFrames(buffer);
       buffer = decoded.rest;
       messages.push(...decoded.messages);
-      if (messages.some((message) => message.includes("mock assistant reply"))) {
+      if (shouldResolve(messages)) {
         clearTimeout(timer);
         socket.end();
         resolve(messages);
@@ -167,6 +177,28 @@ function sendChat(port, text) {
     });
     socket.on("error", reject);
   });
+}
+
+function sendChat(port, text) {
+  return openChatSocket(
+    port,
+    (socket) => {
+      socket.write(encodeFrame(JSON.stringify({ type: "axum.quickstart.apply", apiKey: "test-user-key", baseUrl: "https://example.invalid/v1", model: "test-user-model" })));
+      setTimeout(() => socket.write(encodeFrame(JSON.stringify({ type: "axum.chat.send", text }))), 50);
+    },
+    (messages) => messages.some((message) => message.includes("mock assistant reply")),
+    "timed out waiting for assistant reply",
+  );
+}
+
+function sendChatExpectError(port, text) {
+  return openChatSocket(
+    port,
+    (socket) => socket.write(encodeFrame(JSON.stringify({ type: "axum.chat.send", text }))),
+    (messages) => messages.some((message) => message.includes("axum.error") && message.includes("kilo exited (7)") && message.includes("mock kilo failed before listening")),
+    "timed out waiting for fast Kilo startup error",
+    2500,
+  );
 }
 
 async function waitForGone(pid) {
@@ -192,6 +224,18 @@ async function waitForGone(pid) {
   assert.strictEqual(parsed.kiloPackage, "@kilocode/cli@test");
   const fallback = resolveKiloCommand({ ...parsed, workspace: root }, { PATH: "" });
   assert.ok(fallback.argsPrefix.includes("@kilocode/cli@test"));
+
+  const failingDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-host-failing-"));
+  const failingHost = await startWebHost(writeFailingMockKilo(failingDir), root);
+  try {
+    const startedAt = Date.now();
+    await sendChatExpectError(failingHost.port, "hello failing kilo");
+    assert.ok(Date.now() - startedAt < 2000, "Kilo startup failure should be reported without waiting for the 20s URL timeout");
+  } finally {
+    failingHost.child.kill("SIGTERM");
+    await new Promise((resolve) => failingHost.child.once("close", resolve));
+    fs.rmSync(failingDir, { recursive: true, force: true });
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-host-test-"));
   const mock = writeMockKilo(dir);

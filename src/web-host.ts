@@ -382,15 +382,25 @@ class KiloSessionHost {
       });
       this.child = child;
       let output = "";
+      let settled = false;
+      const formatExit = (code: number | null, signal: NodeJS.Signals | null): string => {
+        const status = signal || (code ?? "unknown");
+        const details = output.trim() ? `: ${output.trim().slice(-2000)}` : "";
+        return `kilo exited (${status})${details}`;
+      };
       const failTimer = setTimeout(() => {
         this.killChildTree("SIGTERM");
-        reject(new Error(`timed out waiting for Kilo serve to print a URL`));
+        if (!settled) {
+          settled = true;
+          reject(new Error(`timed out waiting for Kilo serve to print a URL`));
+        }
       }, 20_000);
       const onData = (chunk: Buffer) => {
         const text = chunk.toString("utf8");
         output += text;
         const match = output.match(SERVER_URL_RE) || output.match(/(https?:\/\/127\.0\.0\.1:\d+)/);
-        if (match) {
+        if (match && !settled) {
+          settled = true;
           clearTimeout(failTimer);
           this.serverUrl = match[1].replace(/\/$/, "");
           this.broadcast({ type: "axum.status", message: "kilo ready" });
@@ -400,15 +410,25 @@ class KiloSessionHost {
       };
       child.stdout.on("data", onData);
       child.stderr.on("data", onData);
-      child.on("error", (error) => { clearTimeout(failTimer); reject(error); });
+      child.on("error", (error) => {
+        clearTimeout(failTimer);
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      });
       child.on("exit", (code, signal) => {
         clearTimeout(failTimer);
         this.child = undefined;
         this.serverUrl = undefined;
         this.sessionId = undefined;
         this.starting = undefined;
-        const details = output.trim() ? `: ${output.trim().slice(-2000)}` : "";
-        this.broadcast({ type: "axum.status", message: `kilo exited (${signal || (code ?? "unknown")})${details}` });
+        const message = formatExit(code, signal);
+        this.broadcast({ type: "axum.status", message });
+        if (!settled) {
+          settled = true;
+          reject(new Error(message));
+        }
       });
     }).finally(() => { this.starting = undefined; });
     return this.starting;
