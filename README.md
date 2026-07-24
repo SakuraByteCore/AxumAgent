@@ -37,6 +37,34 @@ axum --print "inspect this repository"
 axum --help
 ```
 
+## Configure an OpenAI-compatible provider
+
+Use `axum provider add-openai` to write Pi's `~/.pi/agent/models.json` without hand-editing JSON:
+
+```bash
+axum provider add-openai \
+  --name kimi \
+  --base-url https://api.moonshot.cn/v1 \
+  --model kimi-k2-0711-preview \
+  --api-key-env KIMI_API_KEY
+```
+
+Then set the key and run Axum:
+
+```bash
+export KIMI_API_KEY="***"
+axum --provider kimi --model kimi-k2-0711-preview
+```
+
+Useful provider commands:
+
+```bash
+axum provider list
+axum provider test --provider kimi --model kimi-k2-0711-preview
+```
+
+For OpenAI-compatible servers, Axum defaults to the conservative compatibility flags `supportsDeveloperRole=false` and `supportsReasoningEffort=false`. If your provider supports those OpenAI features, pass `--supports-developer-role` and/or `--supports-reasoning-effort` when adding the provider.
+
 ## Doctor
 
 ```bash

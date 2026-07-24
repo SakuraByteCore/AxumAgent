@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 test("resolves bundled Pi CLI and extensions", () => {
+  ensureBundledPi();
   const piCli = resolvePiCli();
   const extensions = resolveBundledExtensions();
   assert.equal(fs.existsSync(piCli), true, piCli);
