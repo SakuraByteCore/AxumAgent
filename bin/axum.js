@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
 import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function usage() {
@@ -14,6 +15,7 @@ function resolveArgs(argv) {
 }
 
 function printDoctor() {
+  ensureBundledPi();
   const piCli = resolvePiCli();
   const extensions = resolveBundledExtensions();
   const missing = [piCli, ...extensions].filter((file) => !fs.existsSync(file));
@@ -30,6 +32,7 @@ function printDoctor() {
 }
 
 function runPi(passthrough) {
+  ensureBundledPi();
   const piCli = resolvePiCli();
   const extensionArgs = resolveBundledExtensions().flatMap((file) => ["-e", file]);
   const args = [piCli, ...extensionArgs, ...passthrough];

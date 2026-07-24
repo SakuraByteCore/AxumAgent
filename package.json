@@ -9,15 +9,11 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "build": "node --check bin/axum.js && node --check src/resolve-bundled-pi.js",
+    "build": "node --check bin/axum.js && node --check src/resolve-bundled-pi.js && node --check src/ensure-bundled-pi.js",
     "prepack": "npm run build && npm test",
     "pack:dry": "npm pack --dry-run"
   },
-  "dependencies": {
-    "@cortexkit/pi-magic-context": "0.32.4",
-    "@earendil-works/pi-coding-agent": "0.80.10",
-    "pi-subagents": "0.35.1"
-  },
+  "dependencies": {},
   "engines": {
     "node": ">=20"
   },
@@ -42,11 +38,5 @@
     "magic-context",
     "agent",
     "cli"
-  ],
-  "overrides": {
-    "brace-expansion": "5.0.8",
-    "protobufjs": "8.7.1",
-    "sharp": "0.35.3",
-    "adm-zip": "0.6.0"
-  }
+  ]
 }
