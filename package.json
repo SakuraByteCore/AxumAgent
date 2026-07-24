@@ -11,7 +11,8 @@
     "test": "node --test test/*.test.js",
     "build": "node --check bin/axum.js && node --check src/resolve-bundled-pi.js && node --check src/ensure-bundled-pi.js",
     "prepack": "npm run build && npm test",
-    "pack:dry": "npm pack --dry-run"
+    "pack:dry": "npm pack --dry-run",
+    "prepare": "npm run build"
   },
   "dependencies": {},
   "engines": {
