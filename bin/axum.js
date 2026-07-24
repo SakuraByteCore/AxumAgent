@@ -1,40 +1,53 @@
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
+import fs from "node:fs";
+import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
 
-const fs = require("fs");
-const path = require("path");
-
-function fail(msg) {
-  process.stderr.write(String(msg) + "\n");
-  process.exit(1);
+function usage() {
+  return `Axum Agent\n\nUsage:\n  axum [pi args...]\n  axum doctor\n\nAxum delegates to Pi and preloads bundled extensions:\n  - pi-subagents\n  - @cortexkit/pi-magic-context\n\nAny argument after axum is passed through to Pi.\n`;
 }
 
-function repoRoot() {
-  return path.resolve(__dirname, "..");
+function resolveArgs(argv) {
+  if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
+  if (argv[0] === "doctor") return { mode: "doctor" };
+  return { mode: "run", passthrough: argv };
 }
 
-function entrypoint(root) {
-  return path.join(root, "dist", "cli.js");
-}
-
-function assertBuildOutput(root) {
-  const entry = entrypoint(root);
-  if (!fs.existsSync(entry)) {
-    fail("Missing build output: dist/cli.js. Reinstall from a packaged release or run `npm run build` in a development checkout.");
+function printDoctor() {
+  const piCli = resolvePiCli();
+  const extensions = resolveBundledExtensions();
+  const missing = [piCli, ...extensions].filter((file) => !fs.existsSync(file));
+  console.log("Axum bundled Pi doctor");
+  console.log(`pi cli: ${piCli}`);
+  for (const extension of extensions) console.log(`extension: ${extension}`);
+  if (missing.length) {
+    console.error("missing bundled files:");
+    for (const file of missing) console.error(`- ${file}`);
+    return 1;
   }
+  console.log("ok");
+  return 0;
 }
 
-async function main() {
-  const root = repoRoot();
-  assertBuildOutput(root);
-  const entry = entrypoint(root);
-  const mod = require(entry);
-  if (typeof mod.runAxumCli !== "function") fail("dist/cli.js does not export runAxumCli");
-  const result = await mod.runAxumCli(process.argv.slice(2));
-  if (!result || !result.handled) {
-    process.stderr.write("unknown command. Run `axum --help`.\n");
-    process.exit(2);
-  }
-  process.exit(result.exitCode || 0);
+function runPi(passthrough) {
+  const piCli = resolvePiCli();
+  const extensionArgs = resolveBundledExtensions().flatMap((file) => ["-e", file]);
+  const args = [piCli, ...extensionArgs, ...passthrough];
+  const child = spawn(process.execPath, args, { stdio: "inherit", env: { ...process.env, AXUM_BUNDLED_PI: "1" } });
+  child.on("exit", (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    process.exit(code ?? 1);
+  });
+  child.on("error", (error) => {
+    console.error(`failed to start bundled Pi: ${error.message}`);
+    process.exit(1);
+  });
 }
 
-main().catch((error) => fail(error && error.stack ? error.stack : error));
+const action = resolveArgs(process.argv.slice(2));
+if (action.mode === "help") {
+  process.stdout.write(usage());
+  process.exit(0);
+}
+if (action.mode === "doctor") process.exit(printDoctor());
+runPi(action.passthrough ?? []);

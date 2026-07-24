@@ -1,29 +1,32 @@
 {
   "name": "axum-agent",
   "version": "0.1.0",
+  "description": "Pi-based coding agent distribution with bundled subagents and Magic Context extensions",
   "license": "MIT",
+  "type": "module",
   "bin": {
     "axum": "bin/axum.js"
   },
   "scripts": {
-    "test": "npm run build && node --check bin/axum.js && node --check dist/cli.js && node --check dist/config.js && node --check dist/providers/openai-chat.js && node tests/openai-chat-cli.test.js && node tests/tui-screenshot.test.js && node tests/web-host.test.js && npm run rust:test",
-    "build": "tsc -p tsconfig.json",
-    "rust:fmt": "cargo fmt --check",
-    "rust:build": "cargo build",
-    "rust:test": "cargo fmt --check && cargo test && cargo build",
-    "prepack": "npm run build",
+    "test": "node --test test/*.test.js",
+    "build": "node --check bin/axum.js && node --check src/resolve-bundled-pi.js",
+    "prepack": "npm run build && npm test",
     "pack:dry": "npm pack --dry-run"
   },
-  "devDependencies": {
-    "@types/node": "^22.20.1",
-    "@xterm/headless": "^5.5.0",
-    "typescript": "^5.9.3"
-  },
   "dependencies": {
-    "@earendil-works/pi-tui": "0.80.7",
-    "@iarna/toml": "^2.2.5"
+    "@cortexkit/pi-magic-context": "0.32.4",
+    "@earendil-works/pi-coding-agent": "0.80.10",
+    "pi-subagents": "0.35.1"
   },
-  "description": "OpenAI-compatible CLI agent with terminal UI, provider setup, and readiness checks",
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md",
+    "LICENSE"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/SakuraByteCore/AxumAgent.git"
@@ -33,42 +36,11 @@
     "url": "https://github.com/SakuraByteCore/AxumAgent/issues"
   },
   "keywords": [
+    "pi",
+    "coding-agent",
+    "subagents",
+    "magic-context",
     "agent",
-    "cli",
-    "openai",
-    "openai-compatible",
-    "chat-completions",
-    "typescript",
-    "tui",
-    "terminal-ui",
-    "provider",
-    "diagnostics"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "files": [
-    "bin/",
-    "dist/",
-    "crates/",
-    "Cargo.toml",
-    "Cargo.lock",
-    "README.md",
-    "LICENSE"
-  ],
-  "exports": {
-    ".": "./dist/cli.js",
-    "./config": "./dist/config.js",
-    "./providers/openai-chat": "./dist/providers/openai-chat.js",
-    "./runtime/events": "./dist/runtime/events.js",
-    "./runtime/protocol": "./dist/runtime/protocol.js",
-    "./runtime/session": "./dist/runtime/session.js",
-    "./runtime/tool-runner": "./dist/runtime/tool-runner.js",
-    "./runtime/turn": "./dist/runtime/turn.js",
-    "./tui/runtime-view": "./dist/tui/runtime-view.js",
-    "./tui/text": "./dist/tui/text.js",
-    "./tui/model-picker": "./dist/tui/model-picker.js",
-    "./tui/slash-commands": "./dist/tui/slash-commands.js",
-    "./web-host": "./dist/web-host.js"
-  }
+    "cli"
+  ]
 }
