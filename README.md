@@ -10,9 +10,19 @@ Bundled runtime:
 
 ## Install
 
+Until `axum-agent` is published to npm, install the GitHub source tarball:
+
+```bash
+npm install -g https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz
+```
+
+If you install from the npm registry after publication, the command becomes:
+
 ```bash
 npm install -g axum-agent
 ```
+
+Avoid `npm install -g github:SakuraByteCore/AxumAgent#main` on npm 10 unless you also pass `--install-links=true`; npm can leave a broken global symlink for GitHub shorthand installs.
 
 ## Use
 
