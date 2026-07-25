@@ -2,7 +2,7 @@
   "name": "axum-agent",
   "version": "0.1.0",
   "description": "Pi-based coding agent distribution with bundled subagents and Magic Context extensions",
-  "license": "MIT",
+  "license": "FSL-1.1-ALv2",
   "type": "module",
   "bin": {
     "axum": "bin/axum.js"

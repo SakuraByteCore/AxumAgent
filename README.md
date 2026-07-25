@@ -132,3 +132,7 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 Android / Termux では Magic Context を読み込みません。
 
 Magic Context の runtime data は上流拡張の仕様に従います。
+
+## License
+
+FSL-1.1-ALv2: Functional Source License, Version 1.1, ALv2 Future License. The future license grant is Apache License 2.0. See [LICENSE](./LICENSE).
