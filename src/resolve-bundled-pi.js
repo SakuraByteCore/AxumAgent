@@ -29,6 +29,8 @@ export function resolveBundledExtensions(options) {
     const magicRoot = packageRoot("@cortexkit/pi-magic-context", options);
     extensions.push(path.join(magicRoot, "dist", "index.js"));
   }
+  const rtkRoot = packageRoot("pi-rtk-optimizer", options);
+  extensions.push(path.join(rtkRoot, "index.ts"));
   return extensions;
 }
 

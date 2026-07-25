@@ -14,8 +14,9 @@ test("skips Magic Context on Android because it depends on onnxruntime-node", ()
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
+    "pi-rtk-optimizer@0.9.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 1);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 2);
 });
 
 test("keeps full bundled Pi extensions on desktop platforms", () => {
@@ -24,6 +25,7 @@ test("keeps full bundled Pi extensions on desktop platforms", () => {
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
     "@cortexkit/pi-magic-context@0.32.4",
+    "pi-rtk-optimizer@0.9.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 2);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 3);
 });
