@@ -33,7 +33,7 @@ test("command-style provider configuration is removed", () => {
 test("provider web does not fall through to bundled Pi install", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-web-cli-"));
   const child = spawn(process.execPath, ["bin/axum.js", "provider", "web", "--port", "18180"], {
-    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, AXUM_PROVIDER_WEB_NO_OPEN: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
   let output = "";

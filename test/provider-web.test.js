@@ -23,7 +23,7 @@ test("provider web fetches models and saves default config", async () => {
   await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
   const mockPort = mock.address().port;
 
-  const { server, url } = await startProviderWeb();
+  const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
     const token = new URL(url).searchParams.get("token");
     const base = `http://127.0.0.1:${server.address().port}`;
@@ -52,4 +52,9 @@ test("provider web fetches models and saves default config", async () => {
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
+});
+
+test("provider web browser auto-open can be disabled for non-interactive runs", async () => {
+  const { openBrowser } = await import("../src/provider-web.js");
+  assert.equal(openBrowser("http://127.0.0.1:1", { env: { AXUM_PROVIDER_WEB_NO_OPEN: "1" } }), false);
 });

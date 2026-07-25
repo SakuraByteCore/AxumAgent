@@ -1,5 +1,6 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import { spawn, spawnSync } from "node:child_process";
 import { fetchOpenAICompatibleModels, providerNameFromBaseUrl, saveDefaultProviderSelection, upsertOpenAICompatibleProvider } from "./provider-config.js";
 
 function json(res, status, body) {
@@ -12,6 +13,37 @@ async function readJson(req) {
   for await (const chunk of req) body += chunk;
   if (!body) return {};
   return JSON.parse(body);
+}
+
+export function openBrowser(url, { platform = process.platform, env = process.env } = {}) {
+  if (env.AXUM_PROVIDER_WEB_NO_OPEN === "1") return false;
+
+  const candidates = [];
+  if (platform === "android" || env.TERMUX_VERSION || env.PREFIX?.includes("/com.termux/")) {
+    candidates.push(["termux-open-url", [url]]);
+  }
+  if (platform === "darwin") candidates.push(["open", [url]]);
+  else if (platform === "win32") candidates.push(["cmd", ["/c", "start", "", url]]);
+  else candidates.push(["xdg-open", [url]]);
+
+  for (const [command, args] of candidates) {
+    if (!commandAvailable(command, platform)) continue;
+    try {
+      const child = spawn(command, args, { detached: true, stdio: "ignore" });
+      child.on("error", () => {});
+      child.unref();
+      return true;
+    } catch {
+      // Try the next platform opener.
+    }
+  }
+  return false;
+}
+
+function commandAvailable(command, platform) {
+  if (platform === "win32" && command === "cmd") return true;
+  const result = spawnSync("command", ["-v", command], { shell: true, stdio: "ignore" });
+  return result.status === 0;
 }
 
 function page(token) {
@@ -58,7 +90,9 @@ export async function startProviderWeb(options = {}) {
   });
   const address = server.address();
   const url = `http://${host}:${address.port}/?token=${encodeURIComponent(token)}`;
-  console.log(`Axum provider setup: ${url}`);
+  const opened = options.openBrowser === false ? false : openBrowser(url, options);
+  if (opened) console.log(`Axum provider setup opened in browser: ${url}`);
+  else console.log(`Axum provider setup: ${url}`);
   console.log("Press Ctrl+C when finished.");
-  return { server, url };
+  return { server, url, opened };
 }

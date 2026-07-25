@@ -24,7 +24,7 @@ Axum のコマンド一覧を表示します:
 axum
 ```
 
-一時的なローカル Web ページで OpenAI 互換 provider を設定します:
+一時的なローカル Web ページで OpenAI 互換 provider を設定します。コマンド実行後、Axum は既定のブラウザで設定ページを自動的に開きます:
 
 ```bash
 axum provider web
@@ -71,13 +71,13 @@ npm install -g --install-links=true github:SakuraByteCore/AxumAgent#main
 
 ## OpenAI 互換 provider の設定
 
-一番簡単な方法は、一時的なローカル Web 設定ページを使うことです:
+一番簡単な方法は、一時的なローカル Web 設定ページを使うことです。`axum provider web` はローカルサーバーを起動し、既定のブラウザで設定ページを自動的に開きます:
 
 ```bash
 axum provider web
 ```
 
-表示されたローカル URL を開き、次の項目を入力します:
+ブラウザで開いたページに、次の項目を入力します。自動で開けない環境では、ターミナルに表示されたローカル URL を手動で開いてください:
 
 - Base URL。例: `https://api.moonshot.cn/v1`
 - API Key
