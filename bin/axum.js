@@ -139,5 +139,6 @@ if (action.mode === "provider") {
     console.error(error.message);
     process.exit(1);
   }
+} else {
+  runPi(action.passthrough ?? []);
 }
-runPi(action.passthrough ?? []);

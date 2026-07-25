@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 
 function run(args) {
@@ -25,4 +28,37 @@ test("command-style provider configuration is removed", () => {
   const result = run(["provider", "add-openai", "--name", "x"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /unknown provider command: add-openai/);
+});
+
+test("provider web does not fall through to bundled Pi install", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-web-cli-"));
+  const child = spawn(process.execPath, ["bin/axum.js", "provider", "web", "--port", "18180"], {
+    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  child.stderr.on("data", (chunk) => { output += chunk; });
+
+  try {
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`provider web did not start; output: ${output}`)), 5000);
+      child.stdout.on("data", () => {
+        if (output.includes("Axum provider setup:")) {
+          clearTimeout(timer);
+          resolve();
+        }
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        reject(new Error(`provider web exited early with ${code}; output: ${output}`));
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    assert.doesNotMatch(output, /Axum first-run setup/);
+    assert.doesNotMatch(output, /installing bundled Pi/);
+  } finally {
+    child.kill("SIGTERM");
+    await new Promise((resolve) => child.once("exit", resolve));
+  }
 });
