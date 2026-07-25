@@ -7,8 +7,9 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@earendil-works/pi-coding-agent`
 - `pi-subagents`
 - `@cortexkit/pi-magic-context`
+- `pi-rtk-optimizer`
 
-> Android / Termux では `onnxruntime-node` が非対応のため、Magic Context は自動でスキップされます。
+> Android / Termux では `onnxruntime-node` が非対応のため、Magic Context は自動でスキップされます。pi-rtk-optimizer はネイティブ依存がないため Android / Termux でも読み込まれます。
 
 ## クイックスタート
 
@@ -128,8 +129,9 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 
 - `pi-subagents/index.ts`
 - `@cortexkit/pi-magic-context/dist/index.js`
+- `pi-rtk-optimizer/index.ts`
 
-Android / Termux では Magic Context を読み込みません。
+Android / Termux では Magic Context を読み込みません。pi-rtk-optimizer は全プラットフォームで読み込みます。
 
 Magic Context の runtime data は上流拡張の仕様に従います。
 

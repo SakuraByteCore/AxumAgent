@@ -21,17 +21,18 @@ function writePackage(root, name, files = {}) {
 
 test("resolves bundled Pi from Axum cache directory", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-cache-"));
-  const options = { env: { AXUM_BUNDLED_PI_DIR: cache } };
+  const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writePackage(cache, "@cortexkit/pi-magic-context", { "dist/index.js": "" });
+  writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 2);
-  assert.equal(existingBundledExtensions(options).length, 2);
+  assert.equal(extensions.length, 3);
+  assert.equal(existingBundledExtensions(options).length, 3);
 });
 
 test("Android cache only requires supported bundled extensions", () => {
@@ -39,11 +40,12 @@ test("Android cache only requires supported bundled extensions", () => {
   const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 1);
+  assert.equal(extensions.length, 2);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 1);
+  assert.equal(existingBundledExtensions(options).length, 2);
 });
 
 test("cache root is stable outside npm package install directory", () => {
@@ -67,12 +69,13 @@ function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...na
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '' });
 pkg('pi-subagents', { 'index.ts': '' });
 pkg('@cortexkit/pi-magic-context', { 'dist/index.js': '' });
+pkg('pi-rtk-optimizer', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
-  const options = { env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
+  const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
   ensureBundledPi(options);
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 2);
+  assert.equal(existingBundledExtensions(options).length, 3);
 });
