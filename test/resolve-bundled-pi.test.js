@@ -24,7 +24,7 @@ test("resolves bundled Pi from Axum cache directory", () => {
   const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
-  writePackage(cache, "@cortexkit/pi-magic-context", { "dist/index.js": "" });
+  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
 
   const piCli = resolvePiCli(options);
@@ -35,17 +35,20 @@ test("resolves bundled Pi from Axum cache directory", () => {
   assert.equal(existingBundledExtensions(options).length, 3);
 });
 
-test("Android cache only requires supported bundled extensions", () => {
+test("Android loads hermes-memory and rtk-optimizer alongside subagents", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-android-cache-"));
   const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 2);
+  assert.equal(extensions.length, 3);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 2);
+  assert.equal(extensions[1], path.join(cache, "node_modules", "pi-hermes-memory", "src", "index.ts"));
+  assert.equal(extensions[2], path.join(cache, "node_modules", "pi-rtk-optimizer", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 3);
 });
 
 test("cache root is stable outside npm package install directory", () => {
@@ -68,7 +71,7 @@ fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '' });
 pkg('pi-subagents', { 'index.ts': '' });
-pkg('@cortexkit/pi-magic-context', { 'dist/index.js': '' });
+pkg('pi-hermes-memory', { 'src/index.ts': '' });
 pkg('pi-rtk-optimizer', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);

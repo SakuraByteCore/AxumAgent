@@ -1,6 +1,5 @@
 import path from "node:path";
 import fs from "node:fs";
-import { isAndroidLike } from "./bundled-pi-platform.js";
 import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
 
 function packageDirName(packageName) {
@@ -25,10 +24,8 @@ export function resolvePiCli(options) {
 export function resolveBundledExtensions(options) {
   const subagentsRoot = packageRoot("pi-subagents", options);
   const extensions = [path.join(subagentsRoot, "index.ts")];
-  if (!isAndroidLike(options)) {
-    const magicRoot = packageRoot("@cortexkit/pi-magic-context", options);
-    extensions.push(path.join(magicRoot, "dist", "index.js"));
-  }
+  const hermesRoot = packageRoot("pi-hermes-memory", options);
+  extensions.push(path.join(hermesRoot, "src", "index.ts"));
   const rtkRoot = packageRoot("pi-rtk-optimizer", options);
   extensions.push(path.join(rtkRoot, "index.ts"));
   return extensions;

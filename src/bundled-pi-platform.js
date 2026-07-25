@@ -5,7 +5,7 @@ export function isAndroidLike({ platform = process.platform, env = process.env }
 export const bundledPiPackages = [
   { name: "@earendil-works/pi-coding-agent@0.80.10", extension: false, android: true },
   { name: "pi-subagents@0.35.1", extension: true, android: true },
-  { name: "@cortexkit/pi-magic-context@0.32.4", extension: true, android: false },
+  { name: "pi-hermes-memory@file:plugin/pi-hermes-memory", extension: true, android: true },
   { name: "pi-rtk-optimizer@0.9.0", extension: true, android: true },
 ];
 
