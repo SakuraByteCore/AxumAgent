@@ -56,6 +56,28 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 
+    const promptRes = await fetch(`${base}/api/system-prompt?token=${token}&scope=global&mode=append`);
+    assert.equal(promptRes.status, 200);
+    const promptJson = await promptRes.json();
+    assert.equal(promptJson.path, path.join(agentDir, "APPEND_SYSTEM.md"));
+    assert.equal(promptJson.content, "");
+
+    const diffRes = await fetch(`${base}/api/system-prompt/diff?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "global", mode: "append", content: "Be useful.\n", baseHash: promptJson.hash }),
+    });
+    assert.equal(diffRes.status, 200);
+    assert.match((await diffRes.json()).diff, /\+Be useful\./);
+
+    const savePromptRes = await fetch(`${base}/api/system-prompt/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scope: "global", mode: "append", content: "Be useful.\n", baseHash: promptJson.hash }),
+    });
+    assert.equal(savePromptRes.status, 200);
+    assert.equal(fs.readFileSync(path.join(agentDir, "APPEND_SYSTEM.md"), "utf8"), "Be useful.\n");
+
     const blankSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },

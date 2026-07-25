@@ -91,6 +91,28 @@ axum code
 
 OpenAI 互換サーバーでは、Axum は互換性を優先して `supportsDeveloperRole=false` と `supportsReasoningEffort=false` をデフォルトにします。
 
+
+## System Prompt の編集
+
+`axum provider web` では、Pi が読み込む system prompt ファイルも編集できます。
+
+既定では global scope の追加 prompt を編集します:
+
+```text
+~/.pi/agent/APPEND_SYSTEM.md
+```
+
+Web 画面では次の対象を切り替えられます:
+
+- Global `APPEND_SYSTEM.md` — `~/.pi/agent/APPEND_SYSTEM.md`。既定。Pi の標準 system prompt に追記します。
+- Global `SYSTEM.md` — `~/.pi/agent/SYSTEM.md`。Pi の標準 system prompt を置き換えます。
+- Project `APPEND_SYSTEM.md` — `<cwd>/.pi/APPEND_SYSTEM.md`。現在のプロジェクトだけに追記します。
+- Project `SYSTEM.md` — `<cwd>/.pi/SYSTEM.md`。現在のプロジェクトだけで標準 system prompt を置き換えます。
+
+保存前に diff preview が表示されます。ページを開いた後に同じファイルが外部で変更された場合、Axum は保存を拒否し、再読み込みを求めます。
+
+通常は `APPEND_SYSTEM.md` を推奨します。`SYSTEM.md` は Pi の標準 coding-agent prompt を置き換えるため、必要な場合だけ使ってください。
+
 ## Doctor
 
 ```bash
