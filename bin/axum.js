@@ -3,14 +3,15 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
 import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
-import { getModelsPath, listProviders, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { getDefaultProviderSelection, getModelsPath, listProviders, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { startProviderWeb } from "../src/provider-web.js";
 
 function usage() {
-  return `Axum Agent\n\nUsage:\n  axum [pi args...]\n  axum doctor\n  axum provider add-openai --name <name> --base-url <url> --model <id> [--api-key-env ENV|--api-key KEY]\n  axum provider list\n  axum provider test --provider <name> --model <id> [--prompt text]\n\nAxum delegates to Pi and preloads bundled extensions:\n  - pi-subagents\n  - @cortexkit/pi-magic-context\n\nAny other argument after axum is passed through to Pi.\n`;
+  return `Axum Agent\n\nUsage:\n  axum [pi args...]\n  axum doctor\n  axum provider web [--port <port>]\n  axum provider add-openai --name <name> --base-url <url> --model <id> [--api-key-env ENV|--api-key KEY]\n  axum provider list\n  axum provider test --provider <name> --model <id> [--prompt text]\n\nAxum delegates to Pi and preloads bundled extensions:\n  - pi-subagents\n  - @cortexkit/pi-magic-context\n\nAny other argument after axum is passed through to Pi.\n`;
 }
 
 function providerUsage() {
-  return `Axum provider commands\n\nUsage:\n  axum provider add-openai --name <name> --base-url <url> --model <id> [--api-key-env ENV|--api-key KEY]\n  axum provider list\n  axum provider test --provider <name> --model <id> [--prompt text]\n\nOptions:\n  --name <name>                  Provider id written to ~/.pi/agent/models.json\n  --base-url <url>               OpenAI-compatible endpoint, usually ending in /v1\n  --model <id>                   Model id exposed by the provider\n  --model-name <name>            Display name; defaults to model id\n  --api-key-env <ENV>            Store key reference like $ENV, recommended\n  --api-key <KEY>                Store literal key in models.json; not recommended for shared machines\n  --context-window <tokens>      Defaults to 128000\n  --max-tokens <tokens>          Defaults to 32000\n  --reasoning                    Mark model as reasoning-capable\n  --supports-developer-role      Do not disable developer role compatibility\n  --supports-reasoning-effort    Do not disable reasoning_effort compatibility\n`;
+  return `Axum provider commands\n\nUsage:\n  axum provider web [--port <port>]\n  axum provider add-openai --name <name> --base-url <url> --model <id> [--api-key-env ENV|--api-key KEY]\n  axum provider list\n  axum provider test --provider <name> --model <id> [--prompt text]\n\nOptions:\n  --port <port>                  Port for provider web setup; defaults to a random local port\n  --name <name>                  Provider id written to ~/.pi/agent/models.json\n  --base-url <url>               OpenAI-compatible endpoint, usually ending in /v1\n  --model <id>                   Model id exposed by the provider\n  --model-name <name>            Display name; defaults to model id\n  --api-key-env <ENV>            Store key reference like $ENV, recommended\n  --api-key <KEY>                Store literal key in models.json; not recommended for shared machines\n  --context-window <tokens>      Defaults to 128000\n  --max-tokens <tokens>          Defaults to 32000\n  --reasoning                    Mark model as reasoning-capable\n  --supports-developer-role      Do not disable developer role compatibility\n  --supports-reasoning-effort    Do not disable reasoning_effort compatibility\n`;
 }
 
 function parseFlags(argv) {
@@ -39,6 +40,14 @@ function runProviderCommand(argv) {
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
     process.stdout.write(providerUsage());
     return 0;
+  }
+  if (subcommand === "web") {
+    const flags = parseFlags(argv.slice(1));
+    startProviderWeb({ port: flags.port ? Number(flags.port) : 0 }).catch((error) => {
+      console.error(error.message);
+      process.exit(1);
+    });
+    return undefined;
   }
   if (subcommand === "add-openai") {
     const flags = parseFlags(argv.slice(1));
@@ -87,9 +96,9 @@ function runProviderCommand(argv) {
 }
 
 function resolveArgs(argv) {
+  if (argv[0] === "provider") return { mode: "provider", argv: argv.slice(1) };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
   if (argv[0] === "doctor") return { mode: "doctor" };
-  if (argv[0] === "provider") return { mode: "provider", argv: argv.slice(1) };
   return { mode: "run", passthrough: argv };
 }
 
@@ -110,11 +119,19 @@ function printDoctor() {
   return 0;
 }
 
+function hasArg(args, name) {
+  return args.includes(name) || args.some((arg) => arg.startsWith(`${name}=`));
+}
+
 function runPi(passthrough) {
   ensureBundledPi();
   const piCli = resolvePiCli();
   const extensionArgs = resolveBundledExtensions().flatMap((file) => ["-e", file]);
-  const args = [piCli, ...extensionArgs, ...passthrough];
+  const defaults = getDefaultProviderSelection();
+  const defaultArgs = defaults && !hasArg(passthrough, "--provider") && !hasArg(passthrough, "--model")
+    ? ["--provider", defaults.provider, "--model", defaults.model]
+    : [];
+  const args = [piCli, ...extensionArgs, ...defaultArgs, ...passthrough];
   const child = spawn(process.execPath, args, { stdio: "inherit", env: { ...process.env, AXUM_BUNDLED_PI: "1" } });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);

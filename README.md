@@ -39,7 +39,25 @@ axum --help
 
 ## Configure an OpenAI-compatible provider
 
-Use `axum provider add-openai` to write Pi's `~/.pi/agent/models.json` without hand-editing JSON:
+The easiest path is the temporary local web setup page:
+
+```bash
+axum provider web
+```
+
+Open the printed local URL, fill in:
+
+- Base URL, for example `https://api.moonshot.cn/v1`
+- API Key
+- Model selected from the fetched model list, or typed manually if the provider does not expose `/models`
+
+The page saves Pi's `~/.pi/agent/models.json` and Axum's default provider/model selection. It does not show copy-paste commands after saving; close the page and run:
+
+```bash
+axum
+```
+
+CLI provider commands remain available for automation:
 
 ```bash
 axum provider add-openai \
@@ -47,23 +65,12 @@ axum provider add-openai \
   --base-url https://api.moonshot.cn/v1 \
   --model kimi-k2-0711-preview \
   --api-key-env KIMI_API_KEY
-```
 
-Then set the key and run Axum:
-
-```bash
-export KIMI_API_KEY="***"
-axum --provider kimi --model kimi-k2-0711-preview
-```
-
-Useful provider commands:
-
-```bash
 axum provider list
 axum provider test --provider kimi --model kimi-k2-0711-preview
 ```
 
-For OpenAI-compatible servers, Axum defaults to the conservative compatibility flags `supportsDeveloperRole=false` and `supportsReasoningEffort=false`. If your provider supports those OpenAI features, pass `--supports-developer-role` and/or `--supports-reasoning-effort` when adding the provider.
+For OpenAI-compatible servers, Axum defaults to the conservative compatibility flags `supportsDeveloperRole=false` and `supportsReasoningEffort=false`. If your provider supports those OpenAI features, pass `--supports-developer-role` and/or `--supports-reasoning-effort` when adding the provider by CLI.
 
 ## Doctor
 
