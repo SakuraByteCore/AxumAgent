@@ -8,31 +8,27 @@ Bundled runtime:
 - `pi-subagents`
 - `@cortexkit/pi-magic-context`
 
-## Install
+## Quick start
 
-Until `axum-agent` is published to npm, install the GitHub source tarball:
+Install from the current GitHub source tarball:
 
 ```bash
 npm install -g https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz
 ```
 
-If you install from the npm registry after publication, the command becomes:
-
-```bash
-npm install -g axum-agent
-```
-
-Avoid `npm install -g github:SakuraByteCore/AxumAgent#main` on npm 10 unless you also pass `--install-links=true`; npm can leave a broken global symlink for GitHub shorthand installs.
-
-## Use
-
-Show Axum commands:
+Show all Axum commands:
 
 ```bash
 axum
 ```
 
-Start the bundled Pi coding agent:
+Configure an OpenAI-compatible provider in the temporary local web page:
+
+```bash
+axum provider web
+```
+
+Start the bundled Pi coding agent after saving provider config:
 
 ```bash
 axum code
@@ -43,6 +39,26 @@ Pass Pi arguments after `code`:
 ```bash
 axum code --print "inspect this repository"
 axum code --help
+```
+
+Check the bundled Pi runtime and extensions:
+
+```bash
+axum doctor
+```
+
+## Install notes
+
+After `axum-agent` is published to npm, the install command becomes:
+
+```bash
+npm install -g axum-agent
+```
+
+If you use npm's GitHub shorthand on npm 10, pass `--install-links=true` to avoid a broken global symlink:
+
+```bash
+npm install -g --install-links=true github:SakuraByteCore/AxumAgent#main
 ```
 
 ## Configure an OpenAI-compatible provider
