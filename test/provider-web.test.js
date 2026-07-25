@@ -54,16 +54,23 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(configJson.defaultModel, "mock-b");
     assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
     assert.equal(configJson.providers[0].hasApiKey, true);
+    assert.equal(configJson.providers[0].apiKey, "test-key");
 
-    const preserveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const blankSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "", model: "mock-a", name: "localmock" }),
     });
-    assert.equal(preserveRes.status, 200);
-    const preservedJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
-    assert.equal(preservedJson.providers.localmock.apiKey, "test-key");
-    assert.equal(preservedJson.providers.localmock.models[0].id, "mock-a");
+    assert.equal(blankSaveRes.status, 400);
+    assert.match((await blankSaveRes.json()).error, /API Key is required/);
+
+    const blankModelsRes = await fetch(`${base}/api/models?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "" }),
+    });
+    assert.equal(blankModelsRes.status, 400);
+    assert.match((await blankModelsRes.json()).error, /API Key is required/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => mock.close(resolve));

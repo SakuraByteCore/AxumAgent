@@ -87,8 +87,8 @@ export function buildOpenAICompatibleProvider(options) {
   };
 
   if (options.apiKeyEnv) provider.apiKey = `$${options.apiKeyEnv}`;
-  else if (options.apiKey) provider.apiKey = options.apiKey;
-  else provider.apiKey = "***";
+  else if (String(options.apiKey || "").trim()) provider.apiKey = String(options.apiKey).trim();
+  else throw new Error("API Key is required");
 
   if (!options.supportsDeveloperRole || !options.supportsReasoningEffort) {
     provider.compat = {};
@@ -102,23 +102,25 @@ export function buildOpenAICompatibleProvider(options) {
 export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) {
   const name = options.name || providerNameFromBaseUrl(options.baseUrl);
   const config = loadModelsConfig(file);
-  const existing = config.providers[name];
   const provider = buildOpenAICompatibleProvider(options);
-  if (!options.apiKey && !options.apiKeyEnv && existing?.apiKey) provider.apiKey = existing.apiKey;
   config.providers[name] = provider;
   saveModelsConfig(config, file);
   return { file, name, provider: config.providers[name] };
 }
 
-export function listProviders(file = getModelsPath()) {
+export function listProviders(file = getModelsPath(), options = {}) {
   const config = loadModelsConfig(file);
-  return Object.entries(config.providers).map(([id, provider]) => ({
-    id,
-    api: provider.api || "",
-    baseUrl: provider.baseUrl || "",
-    models: Array.isArray(provider.models) ? provider.models.map((model) => model.id) : [],
-    hasApiKey: Boolean(provider.apiKey),
-  }));
+  return Object.entries(config.providers).map(([id, provider]) => {
+    const item = {
+      id,
+      api: provider.api || "",
+      baseUrl: provider.baseUrl || "",
+      models: Array.isArray(provider.models) ? provider.models.map((model) => model.id) : [],
+      hasApiKey: Boolean(provider.apiKey),
+    };
+    if (options.includeSecrets) item.apiKey = provider.apiKey || "";
+    return item;
+  });
 }
 
 export function saveDefaultProviderSelection(selection, file = getAxumConfigPath()) {
