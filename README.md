@@ -97,7 +97,9 @@ OpenAI 互換サーバーでは、Axum は互換性を優先して `supportsDeve
 axum doctor
 ```
 
-`doctor` は、同梱 Pi CLI と同梱拡張の entrypoint が存在するかを確認します。
+`doctor` は、同梱 Pi CLI と同梱拡張の entrypoint が存在するかを確認し、Axum が使っている bundled Pi cache の場所も表示します。
+
+Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザー cache に保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 
 ## 拡張の動作
 

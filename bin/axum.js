@@ -2,6 +2,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
+import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
 import { getDefaultProviderSelection } from "../src/provider-config.js";
 import { startProviderWeb } from "../src/provider-web.js";
@@ -90,6 +91,7 @@ function printDoctor() {
   const extensions = resolveBundledExtensions();
   const missing = [piCli, ...extensions].filter((file) => !fs.existsSync(file));
   console.log("Axum bundled Pi doctor");
+  console.log(`cache: ${getBundledPiCacheRoot()}`);
   console.log(`pi cli: ${piCli}`);
   for (const extension of extensions) console.log(`extension: ${extension}`);
   if (missing.length) {
