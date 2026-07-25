@@ -38,11 +38,13 @@ test("provider web fetches models and saves default config", async () => {
     const saveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock" }),
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock", contextWindow: 256000, maxTokens: 64000 }),
     });
     assert.equal(saveRes.status, 200);
     const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
     assert.equal(modelsJson.providers.localmock.models[0].id, "mock-b");
+    assert.equal(modelsJson.providers.localmock.models[0].contextWindow, 256000);
+    assert.equal(modelsJson.providers.localmock.models[0].maxTokens, 64000);
     assert.equal(modelsJson.providers.localmock.apiKey, "test-key");
     const axumJson = JSON.parse(fs.readFileSync(path.join(agentDir, "axum.json"), "utf8"));
     assert.deepEqual(axumJson, { defaultProvider: "localmock", defaultModel: "mock-b" });
@@ -53,6 +55,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(configJson.defaultProvider, "localmock");
     assert.equal(configJson.defaultModel, "mock-b");
     assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
+    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 256000, maxTokens: 64000 }]);
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 
@@ -77,6 +80,15 @@ test("provider web fetches models and saves default config", async () => {
     });
     assert.equal(savePromptRes.status, 200);
     assert.equal(fs.readFileSync(path.join(agentDir, "APPEND_SYSTEM.md"), "utf8"), "Be useful.\n");
+
+
+    const invalidTokenSaveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", contextWindow: 0, maxTokens: 32000 }),
+    });
+    assert.equal(invalidTokenSaveRes.status, 400);
+    assert.match((await invalidTokenSaveRes.json()).error, /Context window must be a positive number/);
 
     const blankSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",

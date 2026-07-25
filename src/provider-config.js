@@ -69,6 +69,13 @@ export function modelsUrlForBaseUrl(baseUrl) {
   return `${normalized}/models`;
 }
 
+function positiveNumber(value, fallback, name) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number <= 0) throw new Error(`${name} must be a positive number`);
+  return Math.floor(number);
+}
+
 export function buildOpenAICompatibleProvider(options) {
   const model = String(options.model || "").trim();
   if (!model) throw new Error("Model is required");
@@ -80,8 +87,8 @@ export function buildOpenAICompatibleProvider(options) {
         id: model,
         name: options.modelName || model,
         reasoning: Boolean(options.reasoning),
-        contextWindow: Number(options.contextWindow || 128000),
-        maxTokens: Number(options.maxTokens || 32000),
+        contextWindow: positiveNumber(options.contextWindow, 128000, "Context window"),
+        maxTokens: positiveNumber(options.maxTokens, 32000, "Max output tokens"),
       },
     ],
   };
@@ -116,6 +123,11 @@ export function listProviders(file = getModelsPath(), options = {}) {
       api: provider.api || "",
       baseUrl: provider.baseUrl || "",
       models: Array.isArray(provider.models) ? provider.models.map((model) => model.id) : [],
+      modelConfigs: Array.isArray(provider.models) ? provider.models.map((model) => ({
+        id: model.id,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      })) : [],
       hasApiKey: Boolean(provider.apiKey),
     };
     if (options.includeSecrets) item.apiKey = provider.apiKey || "";
