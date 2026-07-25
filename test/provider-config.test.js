@@ -23,9 +23,31 @@ test("writes OpenAI-compatible provider config", () => {
   assert.equal(json.providers.kimi.compat.supportsDeveloperRole, false);
   assert.equal(json.providers.kimi.compat.supportsReasoningEffort, false);
   assert.deepEqual(listProviders(file)[0].models, ["kimi-k2"]);
+  assert.equal(listProviders(file)[0].hasApiKey, true);
 });
 
 test("respects PI_CODING_AGENT_DIR for models path", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-agent-dir-"));
   assert.equal(getModelsPath({ PI_CODING_AGENT_DIR: dir }), path.join(dir, "models.json"));
+});
+
+
+test("preserves existing provider API key when saving with blank key", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-preserve-"));
+  const file = path.join(dir, "models.json");
+  upsertOpenAICompatibleProvider({
+    name: "localmock",
+    baseUrl: "https://api.example.com/v1",
+    model: "model-a",
+    apiKey: "secret-key",
+  }, file);
+  upsertOpenAICompatibleProvider({
+    name: "localmock",
+    baseUrl: "https://api.example.com/v1",
+    model: "model-b",
+    apiKey: "",
+  }, file);
+  const json = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(json.providers.localmock.apiKey, "secret-key");
+  assert.equal(json.providers.localmock.models[0].id, "model-b");
 });

@@ -102,7 +102,10 @@ export function buildOpenAICompatibleProvider(options) {
 export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) {
   const name = options.name || providerNameFromBaseUrl(options.baseUrl);
   const config = loadModelsConfig(file);
-  config.providers[name] = buildOpenAICompatibleProvider(options);
+  const existing = config.providers[name];
+  const provider = buildOpenAICompatibleProvider(options);
+  if (!options.apiKey && !options.apiKeyEnv && existing?.apiKey) provider.apiKey = existing.apiKey;
+  config.providers[name] = provider;
   saveModelsConfig(config, file);
   return { file, name, provider: config.providers[name] };
 }
@@ -114,6 +117,7 @@ export function listProviders(file = getModelsPath()) {
     api: provider.api || "",
     baseUrl: provider.baseUrl || "",
     models: Array.isArray(provider.models) ? provider.models.map((model) => model.id) : [],
+    hasApiKey: Boolean(provider.apiKey),
   }));
 }
 

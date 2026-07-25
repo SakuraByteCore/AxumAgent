@@ -46,6 +46,24 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(modelsJson.providers.localmock.apiKey, "test-key");
     const axumJson = JSON.parse(fs.readFileSync(path.join(agentDir, "axum.json"), "utf8"));
     assert.deepEqual(axumJson, { defaultProvider: "localmock", defaultModel: "mock-b" });
+
+    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    assert.equal(configRes.status, 200);
+    const configJson = await configRes.json();
+    assert.equal(configJson.defaultProvider, "localmock");
+    assert.equal(configJson.defaultModel, "mock-b");
+    assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
+    assert.equal(configJson.providers[0].hasApiKey, true);
+
+    const preserveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "", model: "mock-a", name: "localmock" }),
+    });
+    assert.equal(preserveRes.status, 200);
+    const preservedJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(preservedJson.providers.localmock.apiKey, "test-key");
+    assert.equal(preservedJson.providers.localmock.models[0].id, "mock-a");
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => mock.close(resolve));
