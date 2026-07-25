@@ -26,15 +26,23 @@ Avoid `npm install -g github:SakuraByteCore/AxumAgent#main` on npm 10 unless you
 
 ## Use
 
+Show Axum commands:
+
 ```bash
 axum
 ```
 
-All arguments are passed through to Pi:
+Start the bundled Pi coding agent:
 
 ```bash
-axum --print "inspect this repository"
-axum --help
+axum code
+```
+
+Pass Pi arguments after `code`:
+
+```bash
+axum code --print "inspect this repository"
+axum code --help
 ```
 
 ## Configure an OpenAI-compatible provider
@@ -54,23 +62,10 @@ Open the printed local URL, fill in:
 The page saves Pi's `~/.pi/agent/models.json` and Axum's default provider/model selection. It does not show copy-paste commands after saving; close the page and run:
 
 ```bash
-axum
+axum code
 ```
 
-CLI provider commands remain available for automation:
-
-```bash
-axum provider add-openai \
-  --name kimi \
-  --base-url https://api.moonshot.cn/v1 \
-  --model kimi-k2-0711-preview \
-  --api-key-env KIMI_API_KEY
-
-axum provider list
-axum provider test --provider kimi --model kimi-k2-0711-preview
-```
-
-For OpenAI-compatible servers, Axum defaults to the conservative compatibility flags `supportsDeveloperRole=false` and `supportsReasoningEffort=false`. If your provider supports those OpenAI features, pass `--supports-developer-role` and/or `--supports-reasoning-effort` when adding the provider by CLI.
+For OpenAI-compatible servers, Axum defaults to conservative compatibility flags: `supportsDeveloperRole=false` and `supportsReasoningEffort=false`.
 
 ## Doctor
 
