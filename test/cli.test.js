@@ -13,26 +13,20 @@ test("axum without args shows Axum command help", () => {
   const result = run([]);
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage:\n  axum\n  axum code \[pi args\.\.\.\]/);
-  assert.match(result.stdout, /provider web/);
+  assert.match(result.stdout, /axum web/);
+  assert.doesNotMatch(result.stdout, /provider web/);
 });
 
-test("provider help only exposes web setup", () => {
-  const result = run(["provider", "--help"]);
+test("provider command is no longer a public web entry", () => {
+  const result = run(["provider", "web"]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /axum provider web/);
-  assert.doesNotMatch(result.stdout, /add-openai/);
-  assert.doesNotMatch(result.stdout, /provider list/);
+  assert.match(result.stdout, /axum web/);
+  assert.doesNotMatch(result.stdout, /Axum provider setup:/);
 });
 
-test("command-style provider configuration is removed", () => {
-  const result = run(["provider", "add-openai", "--name", "x"]);
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /unknown provider command: add-openai/);
-});
-
-test("provider web does not fall through to bundled Pi install", async () => {
-  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-web-cli-"));
-  const child = spawn(process.execPath, ["bin/axum.js", "provider", "web", "--port", "18180"], {
+test("axum web does not fall through to bundled Pi install", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-cli-"));
+  const child = spawn(process.execPath, ["bin/axum.js", "web", "--port", "18180"], {
     env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, AXUM_PROVIDER_WEB_NO_OPEN: "1" },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -42,7 +36,7 @@ test("provider web does not fall through to bundled Pi install", async () => {
 
   try {
     await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(`provider web did not start; output: ${output}`)), 5000);
+      const timer = setTimeout(() => reject(new Error(`axum web did not start; output: ${output}`)), 5000);
       child.stdout.on("data", () => {
         if (output.includes("Axum provider setup:")) {
           clearTimeout(timer);
@@ -51,7 +45,7 @@ test("provider web does not fall through to bundled Pi install", async () => {
       });
       child.on("exit", (code) => {
         clearTimeout(timer);
-        reject(new Error(`provider web exited early with ${code}; output: ${output}`));
+        reject(new Error(`axum web exited early with ${code}; output: ${output}`));
       });
     });
     await new Promise((resolve) => setTimeout(resolve, 500));

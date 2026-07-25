@@ -13,13 +13,13 @@ function usage() {
 Usage:
   axum
   axum code [pi args...]
-  axum provider web [--port <port>]
+  axum web [--port <port>]
   axum doctor
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
-  provider web  Open the local OpenAI-compatible provider setup page
-  doctor        Check bundled Pi and extension files
+  web     Open the local OpenAI-compatible provider setup page
+  doctor  Check bundled Pi and extension files
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-subagents
@@ -29,16 +29,6 @@ Run \`axum code --help\` for Pi options.
 `;
 }
 
-function providerUsage() {
-  return `Axum provider commands
-
-Usage:
-  axum provider web [--port <port>]
-
-Options:
-  --port <port>  Port for provider web setup; defaults to a random local port
-`;
-}
 function parseFlags(argv) {
   const flags = {};
   for (let i = 0; i < argv.length; i += 1) {
@@ -55,30 +45,16 @@ function parseFlags(argv) {
   return flags;
 }
 
-function requireFlag(flags, name) {
-  if (!flags[name]) throw new Error(`missing --${name}`);
-  return flags[name];
-}
-
-function runProviderCommand(argv) {
-  const subcommand = argv[0];
-  if (!subcommand || subcommand === "--help" || subcommand === "-h") {
-    process.stdout.write(providerUsage());
-    return 0;
-  }
-  if (subcommand === "web") {
-    const flags = parseFlags(argv.slice(1));
-    startProviderWeb({ port: flags.port ? Number(flags.port) : 0 }).catch((error) => {
-      console.error(error.message);
-      process.exit(1);
-    });
-    return undefined;
-  }
-  throw new Error(`unknown provider command: ${subcommand}`);
+function runWebCommand(argv) {
+  const flags = parseFlags(argv);
+  startProviderWeb({ port: flags.port ? Number(flags.port) : 0 }).catch((error) => {
+    console.error(error.message);
+    process.exit(1);
+  });
 }
 function resolveArgs(argv) {
   if (argv.length === 0) return { mode: "help" };
-  if (argv[0] === "provider") return { mode: "provider", argv: argv.slice(1) };
+  if (argv[0] === "web") return { mode: "web", argv: argv.slice(1) };
   if (argv[0] === "code") return { mode: "run", passthrough: argv.slice(1) };
   if (argv[0] === "doctor") return { mode: "doctor" };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
@@ -133,10 +109,9 @@ if (action.mode === "help") {
   process.exit(0);
 }
 if (action.mode === "doctor") process.exit(printDoctor());
-if (action.mode === "provider") {
+if (action.mode === "web") {
   try {
-    const code = runProviderCommand(action.argv ?? []);
-    if (code !== undefined) process.exit(code);
+    runWebCommand(action.argv ?? []);
   } catch (error) {
     console.error(error.message);
     process.exit(1);

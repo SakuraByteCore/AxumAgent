@@ -23,7 +23,7 @@ axum
 Provider と System Prompt を Web で設定します:
 
 ```bash
-axum provider web
+axum web
 ```
 
 起動します:
@@ -67,10 +67,10 @@ npm install -g --install-links=true github:SakuraByteCore/AxumAgent#main
 
 ## OpenAI 互換 provider の設定
 
-`axum provider web` を実行し、Provider tab で保存します:
+`axum web` を実行し、Provider tab で保存します:
 
 ```bash
-axum provider web
+axum web
 ```
 
 入力項目:
@@ -95,7 +95,7 @@ axum code
 
 ## System Prompt の編集
 
-`axum provider web` の System Prompt tab で編集します。
+`axum web` の System Prompt tab で編集します。
 
 既定:
 
