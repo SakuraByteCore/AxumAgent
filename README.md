@@ -1,87 +1,95 @@
 # Axum Agent
 
-Axum Agent is a Pi-based coding-agent distribution. It launches Pi with the extension stack already bundled, so users do not need to run separate `pi install` commands for subagents or Magic Context.
+Axum Agent は、Pi ベースのコーディングエージェント配布パッケージです。Pi 本体と拡張スタックを Axum 側でまとめて起動するため、ユーザーが subagents や Magic Context を個別に `pi install` する必要はありません。
 
-Bundled runtime:
+同梱ランタイム:
 
 - `@earendil-works/pi-coding-agent`
 - `pi-subagents`
 - `@cortexkit/pi-magic-context`
 
-## Quick start
+> Android / Termux では `@cortexkit/pi-magic-context` の依存である `onnxruntime-node` が Android をサポートしていないため、Axum は Magic Context を自動的にスキップし、Pi CLI と `pi-subagents` のみをインストール・読み込みます。
 
-Install from the current GitHub source tarball:
+## クイックスタート
+
+現在の GitHub `main` ブランチの tarball からインストールします:
 
 ```bash
 npm install -g https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz
 ```
 
-Show all Axum commands:
+Axum のコマンド一覧を表示します:
 
 ```bash
 axum
 ```
 
-Configure an OpenAI-compatible provider in the temporary local web page:
+一時的なローカル Web ページで OpenAI 互換 provider を設定します:
 
 ```bash
 axum provider web
 ```
 
-Start the bundled Pi coding agent after saving provider config:
+provider 設定を保存したあと、同梱 Pi コーディングエージェントを起動します:
 
 ```bash
 axum code
 ```
 
-Pass Pi arguments after `code`:
+`code` の後ろに Pi の引数を渡せます:
 
 ```bash
 axum code --print "inspect this repository"
 axum code --help
 ```
 
-Check the bundled Pi runtime and extensions:
+同梱 Pi ランタイムと拡張の状態を確認します:
 
 ```bash
 axum doctor
 ```
 
-## Install notes
+## インストールメモ
 
-After `axum-agent` is published to npm, the install command becomes:
+`axum-agent` を npm に公開した後は、インストールコマンドは次の形になります:
 
 ```bash
 npm install -g axum-agent
 ```
 
-If you use npm's GitHub shorthand on npm 10, pass `--install-links=true` to avoid a broken global symlink:
+現時点では GitHub の source tarball URL を使うのが推奨です:
+
+```bash
+npm install -g https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz
+```
+
+npm 10 で GitHub shorthand を使うと、環境によって global symlink が壊れることがあります。避けられない場合は `--install-links=true` を付けてください:
 
 ```bash
 npm install -g --install-links=true github:SakuraByteCore/AxumAgent#main
 ```
 
-## Configure an OpenAI-compatible provider
+## OpenAI 互換 provider の設定
 
-The easiest path is the temporary local web setup page:
+一番簡単な方法は、一時的なローカル Web 設定ページを使うことです:
 
 ```bash
 axum provider web
 ```
 
-Open the printed local URL, fill in:
+表示されたローカル URL を開き、次の項目を入力します:
 
-- Base URL, for example `https://api.moonshot.cn/v1`
+- Base URL。例: `https://api.moonshot.cn/v1`
 - API Key
-- Model selected from the fetched model list, or typed manually if the provider does not expose `/models`
+- 取得した model 一覧から選んだ Model。provider が `/models` を公開していない場合は手入力できます
 
-The page saves Pi's `~/.pi/agent/models.json` and Axum's default provider/model selection. It does not show copy-paste commands after saving; close the page and run:
+このページは Pi の `~/.pi/agent/models.json` と、Axum のデフォルト provider/model 選択を保存します。保存後にコピー用コマンドは表示しません。ページを閉じて、次を実行してください:
 
 ```bash
 axum code
 ```
 
-For OpenAI-compatible servers, Axum defaults to conservative compatibility flags: `supportsDeveloperRole=false` and `supportsReasoningEffort=false`.
+OpenAI 互換サーバーでは、Axum は互換性を優先して `supportsDeveloperRole=false` と `supportsReasoningEffort=false` をデフォルトにします。
 
 ## Doctor
 
@@ -89,15 +97,17 @@ For OpenAI-compatible servers, Axum defaults to conservative compatibility flags
 axum doctor
 ```
 
-`doctor` verifies that the bundled Pi CLI and bundled extension entrypoints are present.
+`doctor` は、同梱 Pi CLI と同梱拡張の entrypoint が存在するかを確認します。
 
-## Extension behavior
+## 拡張の動作
 
-Axum starts Pi with these extension entrypoints preloaded:
+通常のデスクトップ環境では、Axum は次の拡張 entrypoint を事前読み込みして Pi を起動します:
 
 - `pi-subagents/index.ts`
 - `@cortexkit/pi-magic-context/dist/index.js`
 
-This gives users the installed-package experience directly from Axum. No separate `pi install npm:pi-subagents` or `pi install npm:@cortexkit/pi-magic-context` step is required.
+これにより、Axum をインストールするだけで必要なパッケージが揃った状態になります。`pi install npm:pi-subagents` や `pi install npm:@cortexkit/pi-magic-context` を別途実行する必要はありません。
 
-Magic Context may still create or use its own runtime data/config according to the upstream extension behavior. Axum does not hard-code a user home directory or machine-specific path.
+Android / Termux では Magic Context を読み込みません。これは `onnxruntime-node` が Android をサポートしていないためです。Termux でも `axum code` が起動できるように、Axum は対応している拡張だけを選んでインストール・起動します。
+
+Magic Context は、上流拡張の仕様に従って独自のランタイムデータや設定を作成・利用する場合があります。Axum はユーザーのホームディレクトリやマシン固有のパスをハードコードしません。
