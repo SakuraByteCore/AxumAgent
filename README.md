@@ -1,6 +1,6 @@
 # Axum Agent
 
-Axum Agent は、Pi ベースのコーディングエージェント配布パッケージです。Pi 本体と拡張スタックを Axum 側でまとめて起動するため、ユーザーが subagents や Magic Context を個別に `pi install` する必要はありません。
+Axum Agent は、Pi ベースのコーディングエージェント配布パッケージです。Pi 本体と拡張を同梱して起動します。
 
 同梱ランタイム:
 
@@ -8,42 +8,38 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-subagents`
 - `@cortexkit/pi-magic-context`
 
-> Android / Termux では `@cortexkit/pi-magic-context` の依存である `onnxruntime-node` が Android をサポートしていないため、Axum は Magic Context を自動的にスキップし、Pi CLI と `pi-subagents` のみをインストール・読み込みます。
+> Android / Termux では `onnxruntime-node` が非対応のため、Magic Context は自動でスキップされます。
 
 ## クイックスタート
-
-現在の GitHub `main` ブランチの tarball からインストールします:
 
 ```bash
 npm install -g https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz
 ```
 
-Axum のコマンド一覧を表示します:
-
 ```bash
 axum
 ```
 
-一時的なローカル Web ページで OpenAI 互換 provider を設定します。コマンド実行後、Axum は既定のブラウザで設定ページを自動的に開きます:
+Provider と System Prompt を Web で設定します:
 
 ```bash
 axum provider web
 ```
 
-provider 設定を保存したあと、同梱 Pi コーディングエージェントを起動します:
+起動します:
 
 ```bash
 axum code
 ```
 
-`code` の後ろに Pi の引数を渡せます:
+Pi の引数も渡せます:
 
 ```bash
 axum code --print "inspect this repository"
 axum code --help
 ```
 
-同梱 Pi ランタイムと拡張の状態を確認します:
+状態確認:
 
 ```bash
 axum doctor
@@ -71,47 +67,50 @@ npm install -g --install-links=true github:SakuraByteCore/AxumAgent#main
 
 ## OpenAI 互換 provider の設定
 
-一番簡単な方法は、一時的なローカル Web 設定ページを使うことです。`axum provider web` はローカルサーバーを起動し、既定のブラウザで設定ページを自動的に開きます:
+`axum provider web` を実行し、Provider tab で保存します:
 
 ```bash
 axum provider web
 ```
 
-ブラウザで開いたページに、次の項目を入力します。自動で開けない環境では、ターミナルに表示されたローカル URL を手動で開いてください:
+入力項目:
 
 - Base URL。例: `https://api.moonshot.cn/v1`
 - API Key
-- 取得した model 一覧から選んだ Model。provider が `/models` を公開していない場合は手入力できます
+- Model。`/models` がない provider は手入力できます
 
-このページは Pi の `~/.pi/agent/models.json` と、Axum のデフォルト provider/model 選択を保存します。保存後にコピー用コマンドは表示しません。ページを閉じて、次を実行してください:
+保存先:
+
+- `~/.pi/agent/models.json`
+- `~/.pi/agent/axum.json`
+
+保存後:
 
 ```bash
 axum code
 ```
 
-OpenAI 互換サーバーでは、Axum は互換性を優先して `supportsDeveloperRole=false` と `supportsReasoningEffort=false` をデフォルトにします。
+互換性のため、OpenAI 互換 provider は `supportsDeveloperRole=false` / `supportsReasoningEffort=false` を既定にします。
 
 
 ## System Prompt の編集
 
-`axum provider web` では、Pi が読み込む system prompt ファイルも編集できます。
+`axum provider web` の System Prompt tab で編集します。
 
-既定では global scope の追加 prompt を編集します:
+既定:
 
 ```text
 ~/.pi/agent/APPEND_SYSTEM.md
 ```
 
-Web 画面では次の対象を切り替えられます:
+対象:
 
-- Global `APPEND_SYSTEM.md` — `~/.pi/agent/APPEND_SYSTEM.md`。既定。Pi の標準 system prompt に追記します。
-- Global `SYSTEM.md` — `~/.pi/agent/SYSTEM.md`。Pi の標準 system prompt を置き換えます。
-- Project `APPEND_SYSTEM.md` — `<cwd>/.pi/APPEND_SYSTEM.md`。現在のプロジェクトだけに追記します。
-- Project `SYSTEM.md` — `<cwd>/.pi/SYSTEM.md`。現在のプロジェクトだけで標準 system prompt を置き換えます。
+- Global `APPEND_SYSTEM.md` — 既定。標準 prompt に追記
+- Global `SYSTEM.md` — 標準 prompt を置換
+- Project `APPEND_SYSTEM.md` — `<cwd>/.pi/APPEND_SYSTEM.md`
+- Project `SYSTEM.md` — `<cwd>/.pi/SYSTEM.md`
 
-保存前に diff preview が表示されます。ページを開いた後に同じファイルが外部で変更された場合、Axum は保存を拒否し、再読み込みを求めます。
-
-通常は `APPEND_SYSTEM.md` を推奨します。`SYSTEM.md` は Pi の標準 coding-agent prompt を置き換えるため、必要な場合だけ使ってください。
+保存前に diff を表示します。ファイルが外部で変更されていた場合は保存を拒否します。
 
 ## Doctor
 
@@ -119,7 +118,7 @@ Web 画面では次の対象を切り替えられます:
 axum doctor
 ```
 
-`doctor` は、同梱 Pi CLI と同梱拡張の entrypoint が存在するかを確認し、Axum が使っている bundled Pi cache の場所も表示します。
+`doctor` は bundled Pi cache と entrypoint を確認します。
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザー cache に保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 
@@ -130,8 +129,6 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 - `pi-subagents/index.ts`
 - `@cortexkit/pi-magic-context/dist/index.js`
 
-これにより、Axum をインストールするだけで必要なパッケージが揃った状態になります。`pi install npm:pi-subagents` や `pi install npm:@cortexkit/pi-magic-context` を別途実行する必要はありません。
+Android / Termux では Magic Context を読み込みません。
 
-Android / Termux では Magic Context を読み込みません。これは `onnxruntime-node` が Android をサポートしていないためです。Termux でも `axum code` が起動できるように、Axum は対応している拡張だけを選んでインストール・起動します。
-
-Magic Context は、上流拡張の仕様に従って独自のランタイムデータや設定を作成・利用する場合があります。Axum はユーザーのホームディレクトリやマシン固有のパスをハードコードしません。
+Magic Context の runtime data は上流拡張の仕様に従います。
