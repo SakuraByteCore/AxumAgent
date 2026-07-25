@@ -21,7 +21,13 @@ type DatabaseLike = {
   transaction?: (fn: any) => any;
 };
 
-type DatabaseCtor = new (dbPath: string) => DatabaseLike;
+type DatabaseOpenOptions = {
+  readonly?: boolean;
+  fileMustExist?: boolean;
+  timeout?: number;
+};
+
+type DatabaseCtor = new (dbPath: string, options?: DatabaseOpenOptions) => DatabaseLike;
 type BunDatabaseInstance = {
   prepare: (sql: string) => StatementLike;
   exec: (sql: string) => void;
@@ -33,6 +39,12 @@ type NodeSqliteDatabaseInstance = {
   prepare: (sql: string) => NodeSqliteStatementLike;
   exec: (sql: string) => void;
   close: () => void;
+};
+
+type NodeSqliteOpenOptions = {
+  readonly?: boolean;
+  fileMustExist?: boolean;
+  timeout?: number;
 };
 
 type NodeSqliteStatementLike = {
@@ -133,13 +145,13 @@ function createBunCompatDatabaseCtor(require: NodeRequire): DatabaseCtor {
 }
 
 function createNodeSqliteCompatDatabaseCtor(): DatabaseCtor {
-  const nodeSqlite = require('node:sqlite') as { DatabaseSync: new (dbPath: string, options?: { readonly?: boolean }) => NodeSqliteDatabaseInstance };
+  const nodeSqlite = require('node:sqlite') as { DatabaseSync: new (dbPath: string, options?: NodeSqliteOpenOptions) => NodeSqliteDatabaseInstance };
 
   return class NodeSqliteCompatDatabase implements DatabaseLike {
     private readonly db: NodeSqliteDatabaseInstance;
 
-    constructor(dbPath: string) {
-      this.db = new nodeSqlite.DatabaseSync(dbPath);
+    constructor(dbPath: string, options?: NodeSqliteOpenOptions) {
+      this.db = new nodeSqlite.DatabaseSync(dbPath, options ?? {});
     }
 
     prepare(sql: string): StatementLike {
@@ -157,6 +169,33 @@ function createNodeSqliteCompatDatabaseCtor(): DatabaseCtor {
 
     close(): void {
       this.db.close();
+    }
+
+    pragma(query: string, options?: { simple?: boolean }): any {
+      const sql = 'PRAGMA ' + query;
+      const stmt = this.db.prepare(sql);
+      const rows = stmt.all();
+      if (options?.simple) {
+        if (rows.length === 0) return undefined;
+        const row = rows[0] as Record<string, unknown>;
+        const values = Object.values(row);
+        return values.length === 1 ? values[0] : row;
+      }
+      return rows;
+    }
+
+    transaction(fn: any): any {
+      return (...args: any[]) => {
+        this.db.exec('BEGIN');
+        try {
+          const result = fn(...args);
+          this.db.exec('COMMIT');
+          return result;
+        } catch (err) {
+          this.db.exec('ROLLBACK');
+          throw err;
+        }
+      };
     }
   };
 }
