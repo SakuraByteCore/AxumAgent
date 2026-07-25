@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import fs from "node:fs";
+import { isAndroidLike } from "./bundled-pi-platform.js";
 
 const require = createRequire(import.meta.url);
 
@@ -28,11 +29,12 @@ export function resolvePiCli() {
 
 export function resolveBundledExtensions() {
   const subagentsRoot = packageRoot("pi-subagents");
-  const magicRoot = packageRoot("@cortexkit/pi-magic-context");
-  return [
-    path.join(subagentsRoot, "index.ts"),
-    path.join(magicRoot, "dist", "index.js")
-  ];
+  const extensions = [path.join(subagentsRoot, "index.ts")];
+  if (!isAndroidLike()) {
+    const magicRoot = packageRoot("@cortexkit/pi-magic-context");
+    extensions.push(path.join(magicRoot, "dist", "index.js"));
+  }
+  return extensions;
 }
 
 export function existingBundledExtensions() {
