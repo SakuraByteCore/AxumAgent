@@ -6,10 +6,10 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 
 - `@earendil-works/pi-coding-agent`
 - `pi-subagents`
-- `@cortexkit/pi-magic-context`
+- `pi-hermes-memory`
 - `pi-rtk-optimizer`
 
-> Android / Termux では `onnxruntime-node` が非対応のため、Magic Context は自動でスキップされます。pi-rtk-optimizer はネイティブ依存がないため Android / Termux でも読み込まれます。
+> Android / Termux 環境では、`pi-hermes-memory` は Node.js 組み込みの `node:sqlite` を使用し、`better-sqlite3` のネイティブコンパイルを回避します。pi-rtk-optimizer はネイティブ依存がないため全プラットフォームで読み込まれます。
 
 ## クイックスタート
 
@@ -125,15 +125,13 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 
 ## 拡張の動作
 
-通常のデスクトップ環境では、Axum は次の拡張 entrypoint を事前読み込みして Pi を起動します:
+通常のデスクトップ環境および Android / Termux 環境では、Axum は次の拡張 entrypoint を事前読み込みして Pi を起動します:
 
 - `pi-subagents/index.ts`
-- `@cortexkit/pi-magic-context/dist/index.js`
+- `pi-hermes-memory/src/index.ts`
 - `pi-rtk-optimizer/index.ts`
 
-Android / Termux では Magic Context を読み込みません。pi-rtk-optimizer は全プラットフォームで読み込みます。
-
-Magic Context の runtime data は上流拡張の仕様に従います。
+Android / Termux では `pi-hermes-memory` は `node:sqlite` を使用し、`better-sqlite3` は不要です。デスクトップ環境では `better-sqlite3` を使用します。pi-hermes-memory および pi-rtk-optimizer は全プラットフォームで読み込みます。
 
 ## License
 

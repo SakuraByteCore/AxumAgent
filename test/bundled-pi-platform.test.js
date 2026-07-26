@@ -9,14 +9,15 @@ test("detects Termux/Android environments", () => {
   assert.equal(isAndroidLike({ platform: "linux", env: {} }), false);
 });
 
-test("skips Magic Context on Android because it depends on onnxruntime-node", () => {
+test("loads hermes-memory and rtk-optimizer on Android alongside pi-subagents", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
+    "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "pi-rtk-optimizer@0.9.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 2);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 3);
 });
 
 test("keeps full bundled Pi extensions on desktop platforms", () => {
@@ -24,7 +25,7 @@ test("keeps full bundled Pi extensions on desktop platforms", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
-    "@cortexkit/pi-magic-context@0.32.4",
+    "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "pi-rtk-optimizer@0.9.0",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 3);

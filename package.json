@@ -1,7 +1,7 @@
 {
   "name": "axum-agent",
   "version": "0.1.0",
-  "description": "Pi-based coding agent distribution with bundled subagents and Magic Context extensions",
+  "description": "Pi-based coding agent distribution with bundled subagents and Hermes Memory extension",
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "bin": {
@@ -21,6 +21,7 @@
   "files": [
     "bin/",
     "src/",
+    "plugin/",
     "README.md",
     "LICENSE"
   ],
@@ -36,7 +37,7 @@
     "pi",
     "coding-agent",
     "subagents",
-    "magic-context",
+    "hermes-memory",
     "agent",
     "cli"
   ]
