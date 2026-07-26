@@ -3,7 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { loadBetterSqlite3 } from './sqlite-native.js';
+import { loadDatabaseCtorAsync } from './sqlite-loader.js';
 
 type StatementLike = {
   run: (...args: unknown[]) => unknown;
@@ -34,16 +34,7 @@ export interface AtomicLockCoordinatorOptions {
   probeIncarnation?: (pid: number) => string | null;
 }
 
-function loadDatabaseCtor(): DatabaseCtor {
-  const require = createRequire(import.meta.url);
-  if (typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined') {
-    const bunSqlite = require('bun:sqlite') as { Database: DatabaseCtor };
-    return bunSqlite.Database;
-  }
-  return loadBetterSqlite3({ requireImpl: require }) as DatabaseCtor;
-}
-
-const Database = loadDatabaseCtor();
+const Database = await loadDatabaseCtorAsync();
 
 function processIsAlive(pid: number): boolean {
   try {

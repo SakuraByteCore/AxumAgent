@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { AtomicLockCoordinator, type AtomicLockLease } from "./store/atomic-lock-coordinator.js";
 import { canonicalStoragePathSync } from "./store/canonical-storage-path.js";
-import { loadBetterSqlite3 } from "./store/sqlite-native.js";
+import { loadDatabaseCtorAsync } from "./store/sqlite-loader.js";
 
 type MigrationDatabase = {
   exec: (sql: string) => void;
@@ -22,7 +22,7 @@ type MigrationDatabaseCtor = new (
   options?: { readonly?: boolean; fileMustExist?: boolean; timeout?: number },
 ) => MigrationDatabase;
 
-const Database = loadBetterSqlite3() as MigrationDatabaseCtor;
+const Database = (await loadDatabaseCtorAsync()) as unknown as MigrationDatabaseCtor;
 const DATABASE_FILES = ["sessions.db", "sessions.db-wal", "sessions.db-shm"] as const;
 const DATABASE_MIGRATION_PENDING_FILE = ".sessions-db-migration-pending";
 

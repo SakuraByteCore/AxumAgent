@@ -4,7 +4,9 @@ import { createRequire } from 'node:module';
 import { SCHEMA_SQL } from './schema.js';
 import { AtomicLockCoordinator } from './atomic-lock-coordinator.js';
 import { canonicalStoragePathSync } from './canonical-storage-path.js';
-import { loadBetterSqlite3 } from './sqlite-native.js';
+import { loadDatabaseCtorAsync } from './sqlite-loader.js';
+
+export { loadDatabaseCtorAsync };
 
 type StatementLike = {
   run: (...args: any[]) => any;
@@ -113,113 +115,7 @@ function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
-function createBunCompatDatabaseCtor(require: NodeRequire): DatabaseCtor {
-  const bunSqlite = require('bun:sqlite') as { Database: new (dbPath: string) => BunDatabaseInstance };
-
-  return class BunCompatDatabase implements DatabaseLike {
-    private readonly db: BunDatabaseInstance;
-
-    constructor(dbPath: string) {
-      this.db = new bunSqlite.Database(dbPath);
-    }
-
-    prepare(sql: string): StatementLike {
-      return this.db.prepare(sql);
-    }
-
-    exec(sql: string): void {
-      this.db.exec(sql);
-    }
-
-    close(): void {
-      this.db.close();
-    }
-
-    transaction(fn: any): any {
-      if (!this.db.transaction) {
-        return undefined;
-      }
-      return this.db.transaction(fn);
-    }
-  };
-}
-
-function createNodeSqliteCompatDatabaseCtor(): DatabaseCtor {
-  const nodeSqlite = require('node:sqlite') as { DatabaseSync: new (dbPath: string, options?: NodeSqliteOpenOptions) => NodeSqliteDatabaseInstance };
-
-  return class NodeSqliteCompatDatabase implements DatabaseLike {
-    private readonly db: NodeSqliteDatabaseInstance;
-
-    constructor(dbPath: string, options?: NodeSqliteOpenOptions) {
-      this.db = new nodeSqlite.DatabaseSync(dbPath, options ?? {});
-    }
-
-    prepare(sql: string): StatementLike {
-      const stmt = this.db.prepare(sql);
-      return {
-        run: (...args: any[]) => stmt.run(...args),
-        get: (...args: any[]) => stmt.get(...args),
-        all: (...args: any[]) => stmt.all(...args),
-      };
-    }
-
-    exec(sql: string): void {
-      this.db.exec(sql);
-    }
-
-    close(): void {
-      this.db.close();
-    }
-
-    pragma(query: string, options?: { simple?: boolean }): any {
-      const sql = 'PRAGMA ' + query;
-      const stmt = this.db.prepare(sql);
-      const rows = stmt.all();
-      if (options?.simple) {
-        if (rows.length === 0) return undefined;
-        const row = rows[0] as Record<string, unknown>;
-        const values = Object.values(row);
-        return values.length === 1 ? values[0] : row;
-      }
-      return rows;
-    }
-
-    transaction(fn: any): any {
-      return (...args: any[]) => {
-        this.db.exec('BEGIN');
-        try {
-          const result = fn(...args);
-          this.db.exec('COMMIT');
-          return result;
-        } catch (err) {
-          this.db.exec('ROLLBACK');
-          throw err;
-        }
-      };
-    }
-  };
-}
-
-function isAndroidLikeRuntime(): boolean {
-  return process.platform === 'android' || Boolean(process.env.TERMUX_VERSION || process.env.PREFIX?.includes('/com.termux/'));
-}
-
-function loadDatabaseCtor(): DatabaseCtor {
-  const require = createRequire(import.meta.url);
-  const isBunRuntime = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
-
-  if (isBunRuntime) {
-    return createBunCompatDatabaseCtor(require);
-  }
-
-  if (isAndroidLikeRuntime()) {
-    return createNodeSqliteCompatDatabaseCtor();
-  }
-
-  return loadBetterSqlite3({ requireImpl: require }) as DatabaseCtor;
-}
-
-const Database = loadDatabaseCtor();
+const Database = await loadDatabaseCtorAsync();
 
 export class DatabaseManager {
   private db: DatabaseLike | null = null;
