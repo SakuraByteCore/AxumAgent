@@ -28,6 +28,8 @@ export function resolveBundledExtensions(options) {
   extensions.push(path.join(hermesRoot, "src", "index.ts"));
   const rtkRoot = packageRoot("pi-rtk-optimizer", options);
   extensions.push(path.join(rtkRoot, "index.ts"));
+  const fffRoot = packageRoot("@ff-labs/pi-fff", options);
+  extensions.push(path.join(fffRoot, "src", "index.ts"));
   return extensions;
 }
 

@@ -83,6 +83,16 @@ function hasArg(args, name) {
   return args.includes(name) || args.some((arg) => arg.startsWith(`${name}=`));
 }
 
+function buildPiEnv() {
+  const env = { ...process.env, AXUM_BUNDLED_PI: "1" };
+  if (process.platform === "android" && process.arch === "arm64") {
+    const lib = "/system/lib64/libcompiler_rt.so";
+    const prev = env.LD_PRELOAD ? `:${env.LD_PRELOAD}` : "";
+    env.LD_PRELOAD = lib + prev;
+  }
+  return env;
+}
+
 function runPi(passthrough) {
   ensureBundledPi();
   const piCli = resolvePiCli();
@@ -92,7 +102,7 @@ function runPi(passthrough) {
     ? ["--provider", defaults.provider, "--model", defaults.model]
     : [];
   const args = [piCli, ...extensionArgs, ...defaultArgs, ...passthrough];
-  const child = spawn(process.execPath, args, { stdio: "inherit", env: { ...process.env, AXUM_BUNDLED_PI: "1" } });
+  const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv() });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
     process.exit(code ?? 1);

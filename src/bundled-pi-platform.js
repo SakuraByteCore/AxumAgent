@@ -7,6 +7,7 @@ export const bundledPiPackages = [
   { name: "pi-subagents@0.35.1", extension: true, android: true },
   { name: "pi-hermes-memory@file:plugin/pi-hermes-memory", extension: true, android: true },
   { name: "pi-rtk-optimizer@0.9.0", extension: true, android: true },
+  { name: "@ff-labs/pi-fff@0.10.1", extension: true, android: true },
 ];
 
 export function supportedBundledPiPackages(options) {

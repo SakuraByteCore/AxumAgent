@@ -16,8 +16,9 @@ test("loads hermes-memory and rtk-optimizer on Android alongside pi-subagents", 
     "pi-subagents@0.35.1",
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "pi-rtk-optimizer@0.9.0",
+    "@ff-labs/pi-fff@0.10.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 3);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
 });
 
 test("keeps full bundled Pi extensions on desktop platforms", () => {
@@ -27,6 +28,7 @@ test("keeps full bundled Pi extensions on desktop platforms", () => {
     "pi-subagents@0.35.1",
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "pi-rtk-optimizer@0.9.0",
+    "@ff-labs/pi-fff@0.10.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 3);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
 });
