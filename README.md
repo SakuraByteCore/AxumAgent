@@ -48,11 +48,7 @@ axum doctor
 
 ## OpenAI 互換 provider の設定
 
-`axum web` を実行し、Provider tab で保存します:
-
-```bash
-axum web
-```
+「クイックスタート」の `axum web` から Provider tab で保存します。
 
 入力項目:
 
@@ -74,9 +70,25 @@ axum code
 互換性のため、OpenAI 互換 provider は `supportsDeveloperRole=false` / `supportsReasoningEffort=false` を既定にします。
 
 
+## リトライ設定
+
+`axum web` のリトライ tab で、API リクエスト失敗時の自動リトライ戦略を設定します（起動方法は「クイックスタート」参照）。
+
+設定項目:
+
+- リトライ有効化 — 既定は無効。Pi 本体の既定は有効だが、Axum は明示的な有効化を要求する
+- 最大リトライ回数 — 既定 3
+- 基底バックオフ遅延 (ms) — 既定 2000。指数バックオフ: `baseDelayMs * 2^(attempt-1)`
+
+リトライ対象は過負荷・レート制限・サーバーエラー。コンテキスト超過はリトライ対象外（圧縮で処理）。
+
+保存先:
+
+- `~/.pi/agent/settings.json`
+
 ## System Prompt の編集
 
-`axum web` の System Prompt tab で編集します。
+`axum web` の System Prompt tab で編集します（起動方法は「クイックスタート」参照）。
 
 既定:
 
@@ -111,7 +123,7 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 - `pi-hermes-memory/src/index.ts`
 - `pi-rtk-optimizer/index.ts`
 
-Android / Termux では `pi-hermes-memory` は `node:sqlite` を使用し、`better-sqlite3` は不要です。デスクトップ環境では `better-sqlite3` を使用します。pi-hermes-memory および pi-rtk-optimizer は全プラットフォームで読み込みます。
+pi-hermes-memory および pi-rtk-optimizer は全プラットフォームで読み込みます。Android / Termux の詳細は冒頭の注釈を参照してください。
 
 ## License
 
