@@ -1,8 +1,26 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { expectedBundledExtensionCount, supportedBundledPiPackages } from "./bundled-pi-platform.js";
 import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
+import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
+
+function getPluginSourceDir() {
+  const thisFile = fileURLToPath(import.meta.url);
+  const pkgRoot = path.resolve(path.dirname(thisFile), "..");
+  return path.join(pkgRoot, "plugin", "pi-hermes-memory");
+}
+
+function ensurePluginLink(cacheRoot) {
+  const pluginLink = path.join(cacheRoot, "plugin", "pi-hermes-memory");
+  if (fs.existsSync(pluginLink)) return;
+  const source = getPluginSourceDir();
+  if (!fs.existsSync(source)) return;
+  fs.mkdirSync(path.dirname(pluginLink), { recursive: true });
+  fs.symlinkSync(source, pluginLink, "dir");
+}
 
 function npmInstallEnv(options) {
   const base = { ...process.env, ...(options?.env ?? {}) };
@@ -29,13 +47,17 @@ function bundledReady(options) {
 }
 
 export function ensureBundledPi(options) {
-  if (bundledReady(options)) return;
+  if (bundledReady(options)) {
+    applyBundledPiPatches(options);
+    return;
+  }
 
   const cacheRoot = getBundledPiCacheRoot(options);
   fs.mkdirSync(cacheRoot, { recursive: true });
   const npm = options?.npmCommand || process.env.AXUM_BUNDLED_PI_NPM || (process.platform === "win32" ? "npm.cmd" : "npm");
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");
+  ensurePluginLink(cacheRoot);
   const result = spawnSync(npm, args, {
     cwd: cacheRoot,
     stdio: "inherit",
@@ -45,4 +67,5 @@ export function ensureBundledPi(options) {
   if (result.error) throw new Error(`failed to install bundled Pi dependencies: ${result.error.message}`);
   if ((result.status ?? 1) !== 0) throw new Error(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
+  applyBundledPiPatches(options);
 }

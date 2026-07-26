@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
+import { patchPiTuiStdinBuffer } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -58,7 +59,32 @@ test("cache root is stable outside npm package install directory", () => {
   assert.doesNotMatch(root, /node_modules\/axum-agent/);
 });
 
-test("ensure installs missing bundled Pi into cache root once", () => {
+test("patches bundled Pi TUI stdin buffer to keep unbracketed paste atomic", () => {
+  const vulnerable = `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+    if (str.length === 0 && this.buffer.length === 0) {
+      this.emitDataSequence("");
+      return;
+    }
+  }
+}
+`;
+  const patched = patchPiTuiStdinBuffer(vulnerable);
+  assert.match(patched, /function looksLikeUnbracketedPaste/);
+  assert.match(patched, /this\.emit\("paste", str\)/);
+  assert.equal(patchPiTuiStdinBuffer(patched), patched);
+});
+
+test("ensure installs missing bundled Pi into cache root once and patches Pi TUI", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-fake-npm-"));
   const cache = path.join(dir, "cache");
   const calls = path.join(dir, "calls.log");
@@ -70,6 +96,7 @@ const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '' });
+pkg('@earendil-works/pi-tui', { 'dist/stdin-buffer.js': 'const ESC = "\\\\x1b";\nconst BRACKETED_PASTE_START = "\\\\x1b[200~";\nconst BRACKETED_PASTE_END = "\\\\x1b[201~";\nclass StdinBuffer { process(data) { let str; if (Buffer.isBuffer(data)) { str = data.toString(); } else { str = data; }\n        if (str.length === 0 && this.buffer.length === 0) {\n            this.emitDataSequence("");\n            return;\n        }\n } }\n' });
 pkg('pi-subagents', { 'index.ts': '' });
 pkg('pi-hermes-memory', { 'src/index.ts': '' });
 pkg('pi-rtk-optimizer', { 'index.ts': '' });
@@ -81,4 +108,6 @@ pkg('pi-rtk-optimizer', { 'index.ts': '' });
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
   assert.equal(existingBundledExtensions(options).length, 3);
+  const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
+  assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
 });
