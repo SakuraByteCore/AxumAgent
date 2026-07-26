@@ -149,6 +149,51 @@ export function getDefaultProviderSelection(file = getAxumConfigPath()) {
   return { provider: config.defaultProvider, model: config.defaultModel };
 }
 
+export function getSettingsPath(env = process.env) {
+  return path.join(getAgentDir(env), "settings.json");
+}
+
+export function getRetrySettings(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  const retry = config.retry || {};
+  return {
+    enabled: retry.enabled === undefined ? false : Boolean(retry.enabled),
+    maxRetries: typeof retry.maxRetries === "number" ? retry.maxRetries : 3,
+    baseDelayMs: typeof retry.baseDelayMs === "number" ? retry.baseDelayMs : 2000,
+  };
+}
+
+export function saveRetrySettings({ enabled, maxRetries, baseDelayMs } = {}, file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  config.retry = {
+    ...(config.retry || {}),
+    enabled: Boolean(enabled),
+    maxRetries: positiveNumber(maxRetries, 3, "Max retries"),
+    baseDelayMs: positiveNumber(baseDelayMs, 2000, "Base delay"),
+  };
+  writeJsonFile(file, config);
+  return { file, retry: getRetrySettings(file) };
+}
+
+export function exportProviders(file = getModelsPath()) {
+  return loadModelsConfig(file);
+}
+
+export function importProviders({ config = {}, overwrite = false } = {}, file = getModelsPath()) {
+  if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Invalid config: expected an object");
+  if (!config.providers || typeof config.providers !== "object" || Array.isArray(config.providers)) throw new Error("Invalid config: missing providers object");
+  const current = loadModelsConfig(file);
+  let added = 0, skipped = 0, replaced = 0;
+  for (const [name, provider] of Object.entries(config.providers)) {
+    if (current.providers[name] && !overwrite) { skipped += 1; continue; }
+    if (current.providers[name]) replaced += 1;
+    else added += 1;
+    current.providers[name] = provider;
+  }
+  saveModelsConfig(current, file);
+  return { added, skipped, replaced, total: Object.keys(current.providers).length };
+}
+
 export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs = 15000 }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);

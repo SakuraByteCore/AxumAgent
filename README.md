@@ -46,26 +46,6 @@ axum code --help
 axum doctor
 ```
 
-## インストールメモ
-
-`axum-agent` を npm に公開した後は、インストールコマンドは次の形になります:
-
-```bash
-npm install -g axum-agent
-```
-
-現時点では GitHub の source tarball URL を使うのが推奨です:
-
-```bash
-npm install -g https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz
-```
-
-npm 10 で GitHub shorthand を使うと、環境によって global symlink が壊れることがあります。避けられない場合は `--install-links=true` を付けてください:
-
-```bash
-npm install -g --install-links=true github:SakuraByteCore/AxumAgent#main
-```
-
 ## OpenAI 互換 provider の設定
 
 `axum web` を実行し、Provider tab で保存します:
