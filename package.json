@@ -1,5 +1,5 @@
 {
-  "name": "axum-agent",
+  "name": "axum",
   "version": "0.1.0",
   "description": "Pi-based coding agent distribution with bundled subagents and Hermes Memory extension",
   "license": "FSL-1.1-ALv2",
