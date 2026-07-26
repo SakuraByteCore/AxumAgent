@@ -3,7 +3,9 @@ import path from "node:path";
 import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
 
 const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
+const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
 const UNBRACKETED_PASTE_PATCH_MARKER = "looksLikeUnbracketedPaste";
+const TERMUX_AUTOINSTALL_PATCH_MARKER = "AXUM_TERMUX_AUTOINSTALL";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -43,19 +45,78 @@ function patchPiTuiStdinBuffer(content) {
   return patched;
 }
 
+function patchTermuxAutoInstall(content) {
+  if (content.includes(TERMUX_AUTOINSTALL_PATCH_MARKER)) return content;
+
+  const needle = [
+    '    if (platform() === "android") {',
+    '        const pkgName = TERMUX_PACKAGES[tool] ?? tool;',
+    '        if (!silent) {',
+    '            console.log(chalk.yellow(`${config.name} not found. Install with: pkg install ${pkgName}`));',
+    '        }',
+    '        return undefined;',
+    '    }',
+    '',
+  ].join("\n");
+  if (!content.includes(needle)) {
+    throw new Error("unable to patch bundled Pi tools-manager: Termux install block not found");
+  }
+
+  const replacement = [
+    '    if (platform() === "android") { // AXUM_TERMUX_AUTOINSTALL',
+    '        const pkgName = TERMUX_PACKAGES[tool] ?? tool;',
+    '        try {',
+    '            const { spawnSync } = await import("node:child_process");',
+    '            const result = spawnSync("pkg", ["install", "-y", pkgName], { stdio: "inherit" });',
+    '            if ((result.status ?? 1) === 0) {',
+    '                const resolved = getToolPath(tool);',
+    '                if (resolved) return resolved;',
+    '            }',
+    '        } catch (e) {',
+    '            if (!silent) {',
+    '                console.log(chalk.yellow(`Failed to auto-install ${config.name}: ${e instanceof Error ? e.message : e}`));',
+    '            }',
+    '        }',
+    '        if (!silent) {',
+    '            console.log(chalk.yellow(`${config.name} not found. Install with: pkg install ${pkgName}`));',
+    '        }',
+    '        return undefined;',
+    '    }',
+    '',
+  ].join("\n");
+  return content.replace(needle, replacement);
+}
+
 export function applyBundledPiPatches(options) {
+  const results = [];
+
   const piTuiRoot = resolveBundledPackageRoot(PI_TUI_PACKAGE, options);
   const stdinBufferPath = path.join(piTuiRoot, "dist", "stdin-buffer.js");
   if (!fs.existsSync(stdinBufferPath)) {
     throw new Error(`bundled Pi TUI stdin buffer not found: ${stdinBufferPath}`);
   }
-
-  const original = fs.readFileSync(stdinBufferPath, "utf8");
-  const patched = patchPiTuiStdinBuffer(original);
-  if (patched !== original) {
-    fs.writeFileSync(stdinBufferPath, patched);
+  const tuiOriginal = fs.readFileSync(stdinBufferPath, "utf8");
+  const tuiPatched = patchPiTuiStdinBuffer(tuiOriginal);
+  if (tuiPatched !== tuiOriginal) {
+    fs.writeFileSync(stdinBufferPath, tuiPatched);
   }
-  return { patched: patched !== original, file: stdinBufferPath };
+  results.push({ patched: tuiPatched !== tuiOriginal, file: stdinBufferPath });
+
+  if (process.platform === "android") {
+    const piRoot = resolveBundledPackageRoot(PI_CODING_AGENT_PACKAGE, options);
+    const toolsManagerPath = path.join(piRoot, "dist", "utils", "tools-manager.js");
+    if (!fs.existsSync(toolsManagerPath)) {
+      throw new Error(`bundled Pi tools-manager not found: ${toolsManagerPath}`);
+    }
+    const tmOriginal = fs.readFileSync(toolsManagerPath, "utf8");
+    const tmPatched = patchTermuxAutoInstall(tmOriginal);
+    if (tmPatched !== tmOriginal) {
+      fs.writeFileSync(toolsManagerPath, tmPatched);
+    }
+    results.push({ patched: tmPatched !== tmOriginal, file: toolsManagerPath });
+  }
+
+  return results;
 }
 
-export { patchPiTuiStdinBuffer };
+export { patchPiTuiStdinBuffer, patchTermuxAutoInstall };

@@ -15,9 +15,10 @@ function getPluginSourceDir() {
 
 function ensurePluginLink(cacheRoot) {
   const pluginLink = path.join(cacheRoot, "plugin", "pi-hermes-memory");
-  if (fs.existsSync(pluginLink)) return;
   const source = getPluginSourceDir();
   if (!fs.existsSync(source)) return;
+  if (fs.existsSync(pluginLink)) return;
+  fs.rmSync(pluginLink, { force: true });
   fs.mkdirSync(path.dirname(pluginLink), { recursive: true });
   fs.symlinkSync(source, pluginLink, "dir");
 }
