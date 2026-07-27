@@ -55,11 +55,26 @@ test("Android loads hermes-memory and rtk-optimizer alongside subagents", () => 
   assert.equal(existingBundledExtensions(options).length, 4);
 });
 
-test("cache root is stable outside npm package install directory", () => {
+test("cache root is stable and short outside npm package install directory", () => {
   const env = { XDG_CACHE_HOME: "/tmp/axum-cache-home" };
   const root = getBundledPiCacheRoot({ env, platform: "linux", arch: "x64" });
-  assert.match(root, /^\/tmp\/axum-cache-home\/axum-agent\/bundled-pi\/v1\/linux-x64\//);
+  assert.match(root, /^\/tmp\/axum-cache-home\/axum-agent\/bundled-pi\/v2\/linux-x64\/pi-[a-f0-9]{12}$/);
   assert.doesNotMatch(root, /node_modules\/axum-agent/);
+  assert.ok(root.length < 100);
+});
+
+// Windows reports misleading npm ENOENT failures when package install cwd paths
+// exceed legacy MAX_PATH limits. Keep the generated cache segment compact instead
+// of embedding every bundled package name in the directory path.
+test("Windows bundled Pi cache root avoids long package-name paths", () => {
+  const root = getBundledPiCacheRoot({
+    env: { LOCALAPPDATA: "C:\\Users\\Ymkiux\\AppData\\Local", XDG_CACHE_HOME: "C:\\Users\\Ymkiux\\.cache" },
+    platform: "win32",
+    arch: "x64",
+  });
+  assert.match(root.replaceAll("\\", "/"), /\/axum-agent\/bundled-pi\/v2\/win32-x64\/pi-[a-f0-9]{12}$/);
+  assert.doesNotMatch(root, /earendil|google|hermes|subagents|optimizer/);
+  assert.ok(root.length < 120);
 });
 
 test("patches bundled Pi TUI stdin buffer to keep unbracketed paste atomic", () => {
