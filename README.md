@@ -118,42 +118,13 @@ axum doctor
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザー cache に保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 
-## 更新（自己更新）
+## 更新
 
 ```bash
 axum update
 ```
 
 GitHub の main ブランチの tarball で npm グローバルを再インストールします。通常は first-run setup の再実行不要です。
-
-## 拡張の動作
-
-通常のデスクトップ環境および Android / Termux 環境では、Axum は次の拡張 entrypoint を事前読み込みして Pi を起動します:
-
-- `pi-subagents/index.ts`
-- `pi-hermes-memory/src/index.ts`
-- `@juanibiapina/pi-powerbar/src/powerbar/index.ts` (core)
-- `@juanibiapina/pi-powerbar/src/powerbar-context/index.ts`
-- `@juanibiapina/pi-powerbar/src/powerbar-git/index.ts`
-- `@juanibiapina/pi-powerbar/src/powerbar-model/index.ts`
-- `@juanibiapina/pi-powerbar/src/powerbar-provider/index.ts`
-- `@juanibiapina/pi-powerbar/src/powerbar-sub/index.ts`
-- `@juanibiapina/pi-powerbar/src/powerbar-tokens/index.ts`
-- `@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage/index.ts`
-- `pi-edit/index.ts`
-- `@narumitw/pi-goal/src/index.ts`
-- `@juicesharp/rpiv-todo/index.ts`
-
-全拡張はネイティブ依存がないため全プラットフォームで読み込みます。各拡張の機能:
-
-- **pi-subagents** — サブエージェントの spawn・管理
-- **pi-hermes-memory** — Hermes 型の永続メモリとラーニングループ
-- **pi-powerbar** — powerline 型ステータスバー (git・model・token・provider 表示)
-- **pi-edit** — ハッシュアンカー付 `read`/`replace` ツール、`/toggle-replace-mode`・`/toggle-auto-read` コマンド
-- **pi-goal** — `/goal` コマンドで自律タスク完了を管理
-- **rpiv-todo** — `todo` ツール、`/todos` コマンド、`/reload` と会話圧縮を跨ぐ永続オーバーレイ
-
-Android / Termux の詳細は冒頭の注釈を参照してください。
 
 ## License
 
