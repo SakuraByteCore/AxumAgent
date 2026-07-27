@@ -5,7 +5,7 @@ export {
 } from "./hash.js";
 export { parseHashRef, parseText, type Anchor } from "./parse.js";
 export {
-  type RAnchor, type HEdit, type RHEdit, type HTEdit, type BDupWarn, type AutoFix, type NEdit,
-  descEdit, resEdits, valEdits, assertNoBarePrefix, fmtMismatch, warnUnicodeEsc,
+  type RAnchor, type HEdit, type RHEdit, type HTEdit, type BDupWarn, type NEdit,
+  descEdit, resEdits, valEdits, assertNoBarePrefix, fmtMismatch, fmtBoundary, warnUnicodeEsc,
 } from "./resolve.js";
 export { buildIdx, applyEdits, fmtRegion, changedRange } from "./apply.js";

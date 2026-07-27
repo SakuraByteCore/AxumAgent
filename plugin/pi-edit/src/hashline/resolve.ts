@@ -17,9 +17,8 @@ export interface BDupWarn {
   editIndex: number;
 }
 
-export interface AutoFix { kind: "trailing" | "leading"; editIndex: number; removedLine: string }
-export interface NEdit { editIndex: number; loc: string; currentContent: string }
 
+export interface NEdit { editIndex: number; loc: string; currentContent: string }
 function resAnchorFromMap(ref: Anchor, hashIndex: Map<string, number[]>): RAnchor | HMismatch {
   const hashMatches = hashIndex.get(ref.hash);
   if (!hashMatches || hashMatches.length === 0) return { ref, kind: "not_found" };
@@ -132,6 +131,21 @@ export function assertNoBarePrefix(edits: HEdit[], fileLines: string[], fileHash
   const exampleLine = `${suspects[0]!.hash}\u2502${suspects[0]!.line}`;
   const linesHint = matchedCount === 0 ? `None match file line hashes.` : `${matchedCount} match file line hashes — strong evidence the prefix was copied from read output.`;
   throw new Error(`[E_BARE_HASH_PREFIX] ${suspects.length} edit line(s) start with a hash-like prefix (${locations}). Example: ${JSON.stringify(exampleLine)}. ${linesHint} Remove the "HASH\u2502" prefix from each affected content_lines entry.`);
+}
+export function fmtBoundary(warnings: BDupWarn[], filePath?: string): string {
+  const byEdit = new Map<number, BDupWarn[]>();
+  for (const w of warnings) {
+    const list = byEdit.get(w.editIndex) ?? [];
+    list.push(w);
+    byEdit.set(w.editIndex, list);
+  }
+  const parts: string[] = [];
+  for (const [editIndex, ws] of byEdit) {
+    const loc = `edit ${editIndex}${filePath ? ` in ${filePath}` : ""}`;
+    const kinds = ws.map((w) => `${w.kind} (replacement ${w.kind === "trailing" ? "last" : "first"} non-empty line ${JSON.stringify(w.replacementLineContent)} duplicates adjacent file line ${JSON.stringify(w.survivingLineContent)} at line ${w.survivingLineIndex})`).join("; ");
+    parts.push(`  ${loc}: ${kinds}`);
+  }
+  return `[E_BOUNDARY_DUP] ${warnings.length} boundary duplicate${warnings.length > 1 ? "s" : ""}. content_lines ${warnings.length > 1 ? "edges duplicate" : "edge duplicates"} a line adjacent to the anchor range. Do not paste the adjacent (boundary) line into content_lines — anchor only the lines you intend to replace.\n${parts.join("\n")}`;
 }
 
 export function descEdit(edit: RHEdit): string {

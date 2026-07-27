@@ -1,6 +1,6 @@
-import { abortIf, visLines, lastNonEmptyIndex, firstNonEmptyIndex } from "../utils.js";
+import { abortIf, visLines } from "../utils.js";
 import { _lineHashesPure, HASH_SEP } from "./hash.js";
-import { valEdits, assertNoBarePrefix, warnUnicodeEsc, fmtMismatch, descEdit, type RHEdit, type NEdit, type HEdit, type AutoFix } from "./resolve.js";
+import { valEdits, assertNoBarePrefix, warnUnicodeEsc, fmtMismatch, fmtBoundary, descEdit, type RHEdit, type NEdit, type HEdit } from "./resolve.js";
 
 type LIdx = { fileLines: string[]; lineStarts: number[] };
 
@@ -99,7 +99,6 @@ export function applyEdits(
   lastChangedLine: number | undefined;
   warnings?: string[];
   noopEdits?: NEdit[];
-  autoFixes?: AutoFix[];
 } {
   abortIf(signal);
   if (!edits.length) return { content, firstChangedLine: undefined, lastChangedLine: undefined };
@@ -117,36 +116,11 @@ export function applyEdits(
   assertNoBarePrefix(edits, lineIndex.fileLines, fileHashes);
   warnUnicodeEsc(edits, warnings);
 
-  let resolved = initialResolved;
-  let autoFixes: AutoFix[] | undefined;
-  if (boundaryWarnings.length > 0) {
-    autoFixes = [];
-    const correctedEdits: HEdit[] = edits.map((e) => ({ ...e, content_lines: [...e.content_lines] }));
-    for (const bw of boundaryWarnings) {
-      const edit = correctedEdits[bw.editIndex];
-      if (!edit) continue;
-      if (bw.kind === "trailing") {
-        const idx = lastNonEmptyIndex(edit.content_lines);
-        if (idx >= 0) {
-          const removed = edit.content_lines.splice(idx, 1)[0];
-          autoFixes.push({ kind: "trailing", editIndex: bw.editIndex, removedLine: removed });
-        }
-      } else {
-        const idx = firstNonEmptyIndex(edit.content_lines);
-        if (idx >= 0) {
-          const removed = edit.content_lines.splice(idx, 1)[0];
-          autoFixes.push({ kind: "leading", editIndex: bw.editIndex, removedLine: removed });
-        }
-      }
-    }
-    const correctedResult = valEdits(correctedEdits, lineIndex.fileLines, fileHashes, warnings, signal);
-    if (correctedResult.mismatches.length) {
-      throw new Error(fmtMismatch(correctedResult.mismatches, lineIndex.fileLines, fileHashes, filePath));
-    }
-    resolved = correctedResult.resolved;
-  }
+if (boundaryWarnings.length > 0) {
+  throw new Error(fmtBoundary(boundaryWarnings, filePath));
+}
 
-  const orderedSpans = resSpans(resolved, content, lineIndex, noopEdits, signal);
+  const orderedSpans = resSpans(initialResolved, content, lineIndex, noopEdits, signal);
   const result = assemble(content, orderedSpans, signal);
   assertNotEmpty(content, result);
   const range = changedRange(content, result);
@@ -156,7 +130,6 @@ export function applyEdits(
     lastChangedLine: range?.lastChangedLine,
     ...(warnings.length ? { warnings } : {}),
     ...(noopEdits.length ? { noopEdits } : {}),
-    ...(autoFixes ? { autoFixes } : {}),
   };
 }
 
