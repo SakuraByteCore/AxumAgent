@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
+import { isAndroidLike } from "./bundled-pi-platform.js";
 
 const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
 const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
@@ -102,7 +103,7 @@ export function applyBundledPiPatches(options) {
   }
   results.push({ patched: tuiPatched !== tuiOriginal, file: stdinBufferPath });
 
-  if (process.platform === "android") {
+  if (isAndroidLike(options)) {
     const piRoot = resolveBundledPackageRoot(PI_CODING_AGENT_PACKAGE, options);
     const toolsManagerPath = path.join(piRoot, "dist", "utils", "tools-manager.js");
     if (!fs.existsSync(toolsManagerPath)) {

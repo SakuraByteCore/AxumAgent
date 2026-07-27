@@ -43,6 +43,7 @@ test("axum code disables ambient extensions before loading bundled extensions", 
   const argvFile = path.join(dir, "argv.json");
   writePackage(cache, "@earendil-works/pi-coding-agent", {
     "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
+    "dist/utils/tools-manager.js": "const chalk = { yellow: (s) => s };\nconst platform = () => process.platform;\nconst TERMUX_PACKAGES = {};\nconst config = { name: 'test' };\nfunction getToolPath() { return undefined; }\nasync function ensureTool(tool, { silent = false } = {}) {\n    if (platform() === \"android\") {\n        const pkgName = TERMUX_PACKAGES[tool] ?? tool;\n        if (!silent) {\n            console.log(chalk.yellow(\`${config.name} not found. Install with: pkg install ${pkgName}\`));\n        }\n        return undefined;\n    }\n}\nexport { ensureTool };\n",
   });
   writePackage(cache, "@earendil-works/pi-tui", {
     "dist/stdin-buffer.js": `const ESC = "\\x1b";
@@ -67,7 +68,7 @@ class StdinBuffer {
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
-  writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
+  writePackage(cache, "@narumitw/pi-statusline", { "src/index.ts": "" });
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
     encoding: "utf8",
@@ -76,7 +77,8 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 4);
+  const expectedExtensionCount = process.platform === "win32" ? 3 : 4;
+  assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.equal(argv.at(-1), "--help");
 });
 

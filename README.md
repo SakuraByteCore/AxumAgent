@@ -8,8 +8,9 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-subagents`
 - `pi-hermes-memory`
 - `pi-rtk-optimizer`
+- `@narumitw/pi-statusline`
 
-> Android / Termux 環境では、`pi-hermes-memory` は Node.js 組み込みの `node:sqlite` を使用し、`better-sqlite3` のネイティブコンパイルを回避します。pi-rtk-optimizer はネイティブ依存がないため全プラットフォームで読み込まれます。
+> Android / Termux 環境では、`pi-hermes-memory` は Node.js 組み込みの `node:sqlite` を使用し、`better-sqlite3` のネイティブコンパイルを回避します。pi-rtk-optimizer および pi-statusline はネイティブ依存がないため全プラットフォームで読み込まれます。
 
 ## クイックスタート
 
@@ -122,8 +123,9 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 - `pi-subagents/index.ts`
 - `pi-hermes-memory/src/index.ts`
 - `pi-rtk-optimizer/index.ts`
+- `@narumitw/pi-statusline/src/index.ts`
 
-pi-hermes-memory および pi-rtk-optimizer は全プラットフォームで読み込みます。Android / Termux の詳細は冒頭の注釈を参照してください。
+pi-hermes-memory、pi-rtk-optimizer、pi-statusline は全プラットフォームで読み込みます。Android / Termux の詳細は冒頭の注釈を参照してください。
 
 ## License
 

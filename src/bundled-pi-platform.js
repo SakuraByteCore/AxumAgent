@@ -18,7 +18,12 @@ export const bundledPiPackages = [
   // run Axum without this optional optimization; loading it by default there
   // produces noisy startup warnings and can make first-run failures look fatal.
   { name: "pi-rtk-optimizer@0.9.0", packageName: "pi-rtk-optimizer", extensionPath: "index.ts", android: true, unsupportedPlatforms: ["win32"] },
-  { name: "@ff-labs/pi-fff@0.10.1", packageName: "@ff-labs/pi-fff", extensionPath: "src/index.ts", android: true },
+  { name: "@narumitw/pi-statusline@0.31.0", packageName: "@narumitw/pi-statusline", extensionPath: "src/index.ts", android: true },
+  // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
+  // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
+  // fails to load (__clear_cache symbol missing). Rather than maintain a
+  // platform-specific fallback, drop pi-fff entirely so behavior is consistent
+  // across all platforms. Pi has built-in find/grep tools that cover the gap.
 ];
 
 export function supportedBundledPiPackageEntries(options) {
