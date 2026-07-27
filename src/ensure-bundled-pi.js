@@ -23,9 +23,13 @@ function ensurePluginLink(cacheRoot) {
   fs.symlinkSync(source, pluginLink, "dir");
 }
 
-function npmInstallEnv(options) {
+export function npmInstallEnv(options) {
   const base = { ...process.env, ...(options?.env ?? {}) };
   for (const key of Object.keys(base)) {
+    if (!key || key.includes("=") || key.startsWith("=")) {
+      delete base[key];
+      continue;
+    }
     if (key === "npm_config_user_agent") continue;
     if (key.startsWith("npm_")) delete base[key];
   }
@@ -35,6 +39,25 @@ function npmInstallEnv(options) {
     npm_config_prefix: getBundledPiCacheRoot(options),
     npm_config_package_lock: "false",
   };
+}
+
+function resolveNodeBundledNpmCli(nodePath = process.execPath) {
+  const candidate = path.join(path.dirname(nodePath), "node_modules", "npm", "bin", "npm-cli.js");
+  return fs.existsSync(candidate) ? candidate : "";
+}
+
+export function resolveNpmInstallCommand(options = {}) {
+  const explicitNpm = options.npmCommand || process.env.AXUM_BUNDLED_PI_NPM;
+  if (explicitNpm) return { command: explicitNpm, argsPrefix: [], shell: false };
+
+  const platform = options.platform || process.platform;
+  if (platform === "win32") {
+    const npmCli = resolveNodeBundledNpmCli(options.nodePath || process.execPath);
+    if (npmCli) return { command: options.nodePath || process.execPath, argsPrefix: [npmCli], shell: false };
+    return { command: "npm.cmd", argsPrefix: [], shell: true };
+  }
+
+  return { command: "npm", argsPrefix: [], shell: false };
 }
 
 function bundledReady(options) {
@@ -55,14 +78,15 @@ export function ensureBundledPi(options) {
 
   const cacheRoot = getBundledPiCacheRoot(options);
   fs.mkdirSync(cacheRoot, { recursive: true });
-  const npm = options?.npmCommand || process.env.AXUM_BUNDLED_PI_NPM || (process.platform === "win32" ? "npm.cmd" : "npm");
+  const npm = resolveNpmInstallCommand(options);
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");
   ensurePluginLink(cacheRoot);
-  const result = spawnSync(npm, args, {
+  const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
     cwd: cacheRoot,
     stdio: "inherit",
     env: npmInstallEnv(options),
+    shell: npm.shell,
   });
 
   if (result.error) throw new Error(`failed to install bundled Pi dependencies: ${result.error.message}`);

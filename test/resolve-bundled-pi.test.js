@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
-import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
+import { ensureBundledPi, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { patchPiTuiStdinBuffer } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
@@ -74,10 +74,10 @@ class StdinBuffer {
     } else {
       str = data;
     }
-    if (str.length === 0 && this.buffer.length === 0) {
-      this.emitDataSequence("");
-      return;
-    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
   }
 }
 `;
@@ -85,6 +85,52 @@ class StdinBuffer {
   assert.match(patched, /function looksLikeUnbracketedPaste/);
   assert.match(patched, /this\.emit\("paste", str\)/);
   assert.equal(patchPiTuiStdinBuffer(patched), patched);
+});
+
+test("filters invalid Windows env keys before npm install", () => {
+  const env = npmInstallEnv({
+    platform: "win32",
+    env: {
+      "=C:": "C:\\Users\\runner",
+      PATH: "C:\\Windows\\System32",
+      npm_config_cache: "bad-cache",
+      npm_config_user_agent: "keep-me",
+      AXUM_BUNDLED_PI_DIR: "C:\\axum-cache",
+    },
+  });
+
+  assert.equal(Object.hasOwn(env, "=C:"), false);
+  assert.equal(env.PATH, "C:\\Windows\\System32");
+  assert.equal(Object.hasOwn(env, "npm_config_cache"), false);
+  assert.equal(env.npm_config_user_agent, "keep-me");
+  assert.equal(env.npm_config_prefix, "C:\\axum-cache");
+});
+
+test("resolves Windows npm through node npm-cli when available", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-node-npm-"));
+  const nodePath = path.join(dir, "node.exe");
+  const npmCli = path.join(dir, "node_modules", "npm", "bin", "npm-cli.js");
+  fs.mkdirSync(path.dirname(npmCli), { recursive: true });
+  fs.writeFileSync(nodePath, "");
+  fs.writeFileSync(npmCli, "");
+
+  assert.deepEqual(resolveNpmInstallCommand({ platform: "win32", nodePath }), {
+    command: nodePath,
+    argsPrefix: [npmCli],
+    shell: false,
+  });
+});
+
+test("falls back to shell npm.cmd on Windows when npm-cli is unavailable", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-no-npm-cli-"));
+  const nodePath = path.join(dir, "node.exe");
+  fs.writeFileSync(nodePath, "");
+
+  assert.deepEqual(resolveNpmInstallCommand({ platform: "win32", nodePath }), {
+    command: "npm.cmd",
+    argsPrefix: [],
+    shell: true,
+  });
 });
 
 test("ensure installs missing bundled Pi into cache root once and patches Pi TUI", () => {
@@ -99,7 +145,24 @@ const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '' });
-pkg('@earendil-works/pi-tui', { 'dist/stdin-buffer.js': 'const ESC = "\\\\x1b";\nconst BRACKETED_PASTE_START = "\\\\x1b[200~";\nconst BRACKETED_PASTE_END = "\\\\x1b[201~";\nclass StdinBuffer { process(data) { let str; if (Buffer.isBuffer(data)) { str = data.toString(); } else { str = data; }\n        if (str.length === 0 && this.buffer.length === 0) {\n            this.emitDataSequence("");\n            return;\n        }\n } }\n' });
+pkg('@earendil-works/pi-tui', { 'dist/stdin-buffer.js': ${JSON.stringify(`const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}
+`)} });
 pkg('pi-subagents', { 'index.ts': '' });
 pkg('pi-hermes-memory', { 'src/index.ts': '' });
 pkg('pi-rtk-optimizer', { 'index.ts': '' });
