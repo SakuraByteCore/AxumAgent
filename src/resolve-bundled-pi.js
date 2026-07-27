@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
+import { supportedBundledPiExtensions } from "./bundled-pi-platform.js";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -22,15 +23,9 @@ export function resolvePiCli(options) {
 }
 
 export function resolveBundledExtensions(options) {
-  const subagentsRoot = packageRoot("pi-subagents", options);
-  const extensions = [path.join(subagentsRoot, "index.ts")];
-  const hermesRoot = packageRoot("pi-hermes-memory", options);
-  extensions.push(path.join(hermesRoot, "src", "index.ts"));
-  const rtkRoot = packageRoot("pi-rtk-optimizer", options);
-  extensions.push(path.join(rtkRoot, "index.ts"));
-  const fffRoot = packageRoot("@ff-labs/pi-fff", options);
-  extensions.push(path.join(fffRoot, "src", "index.ts"));
-  return extensions;
+  return supportedBundledPiExtensions(options).map((extension) => (
+    path.join(packageRoot(extension.packageName, options), extension.extensionPath)
+  ));
 }
 
 export function existingBundledExtensions(options) {

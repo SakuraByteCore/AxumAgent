@@ -55,6 +55,22 @@ test("Android loads hermes-memory and rtk-optimizer alongside subagents", () => 
   assert.equal(existingBundledExtensions(options).length, 4);
 });
 
+test("Windows skips rtk-optimizer extension resolution", () => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-win-cache-"));
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
+  writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
+  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
+  writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
+
+  const extensions = resolveBundledExtensions(options);
+  assert.equal(extensions.length, 3);
+  assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
+  assert.equal(extensions[1], path.join(cache, "node_modules", "pi-hermes-memory", "src", "index.ts"));
+  assert.equal(extensions[2], path.join(cache, "node_modules", "@ff-labs", "pi-fff", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 3);
+});
+
 test("cache root is stable and short outside npm package install directory", () => {
   const env = { XDG_CACHE_HOME: "/tmp/axum-cache-home" };
   const root = getBundledPiCacheRoot({ env, platform: "linux", arch: "x64" });

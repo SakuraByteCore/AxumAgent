@@ -21,7 +21,7 @@ test("loads hermes-memory and rtk-optimizer on Android alongside pi-subagents", 
   assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
 });
 
-test("keeps full bundled Pi extensions on desktop platforms", () => {
+test("keeps full bundled Pi extensions on Linux desktop platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "linux", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
@@ -31,4 +31,15 @@ test("keeps full bundled Pi extensions on desktop platforms", () => {
     "@ff-labs/pi-fff@0.10.1",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
+});
+
+test("skips rtk optimizer on Windows because bundled Axum does not ship rtk", () => {
+  const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
+  assert.deepEqual(packages, [
+    "@earendil-works/pi-coding-agent@0.80.10",
+    "pi-subagents@0.35.1",
+    "pi-hermes-memory@file:plugin/pi-hermes-memory",
+    "@ff-labs/pi-fff@0.10.1",
+  ]);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 3);
 });
