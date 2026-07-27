@@ -46,11 +46,15 @@ function resolveNodeBundledNpmCli(nodePath = process.execPath) {
   return fs.existsSync(candidate) ? candidate : "";
 }
 
-export function resolveNpmInstallCommand(options = {}) {
-  const explicitNpm = options.npmCommand || process.env.AXUM_BUNDLED_PI_NPM;
-  if (explicitNpm) return { command: explicitNpm, argsPrefix: [], shell: false };
+function needsWindowsShell(command) {
+  return /\.(?:cmd|bat)$/i.test(command);
+}
 
+export function resolveNpmInstallCommand(options = {}) {
   const platform = options.platform || process.platform;
+  const explicitNpm = options.npmCommand || process.env.AXUM_BUNDLED_PI_NPM;
+  if (explicitNpm) return { command: explicitNpm, argsPrefix: [], shell: platform === "win32" && needsWindowsShell(explicitNpm) };
+
   if (platform === "win32") {
     const npmCli = resolveNodeBundledNpmCli(options.nodePath || process.execPath);
     if (npmCli) return { command: options.nodePath || process.execPath, argsPrefix: [npmCli], shell: false };

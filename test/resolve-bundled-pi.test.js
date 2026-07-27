@@ -133,6 +133,22 @@ test("falls back to shell npm.cmd on Windows when npm-cli is unavailable", () =>
   });
 });
 
+test("runs explicit Windows cmd npm through shell", () => {
+  assert.deepEqual(resolveNpmInstallCommand({ platform: "win32", npmCommand: "C:\\Program Files\\nodejs\\npm.cmd" }), {
+    command: "C:\\Program Files\\nodejs\\npm.cmd",
+    argsPrefix: [],
+    shell: true,
+  });
+});
+
+test("keeps explicit non-cmd npm command shell-free", () => {
+  assert.deepEqual(resolveNpmInstallCommand({ platform: "win32", npmCommand: "C:\\tools\\npm-cli.js" }), {
+    command: "C:\\tools\\npm-cli.js",
+    argsPrefix: [],
+    shell: false,
+  });
+});
+
 test("ensure installs missing bundled Pi into cache root once and patches Pi TUI", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-fake-npm-"));
   const cache = path.join(dir, "cache");
