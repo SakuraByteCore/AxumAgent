@@ -26,6 +26,7 @@ test("axum without args shows Axum command help", () => {
   assert.equal(result.status, 0);
   assert.match(result.stdout, /Usage:\n  axum\n  axum code \[pi args\.\.\.\]/);
   assert.match(result.stdout, /axum web/);
+  assert.match(result.stdout, /axum update/);
   assert.doesNotMatch(result.stdout, /provider web/);
 });
 
@@ -120,4 +121,23 @@ test("axum web does not fall through to bundled Pi install", async () => {
     child.kill("SIGTERM");
     await new Promise((resolve) => child.once("exit", resolve));
   }
+});
+
+test("axum update reinstalls from main branch tarball", () => {
+  // Stub npm on PATH so we can assert args without hitting the network.
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-stub-"));
+  const isWin = process.platform === "win32";
+  const npmPath = path.join(stubDir, isWin ? "npm.cmd" : "npm");
+  const argvFile = path.join(stubDir, "argv.json");
+  const shebang = isWin ? "" : "#!/usr/bin/env node\n";
+  fs.writeFileSync(npmPath, `${shebang}import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`);
+  if (!isWin) fs.chmodSync(npmPath, 0o755);
+  const result = spawnSync(process.execPath, ["bin/axum.js", "update"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: `${stubDir}${path.delimiter}${process.env.PATH}` },
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Updating Axum from main branch/);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz"]);
 });

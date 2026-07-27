@@ -7,6 +7,9 @@ import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-p
 import { getDefaultProviderSelection } from "../src/provider-config.js";
 import { startProviderWeb } from "../src/provider-web.js";
 
+const UPDATE_TARBALL =
+  "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz";
+
 function usage() {
   return `Axum Agent
 
@@ -15,11 +18,13 @@ Usage:
   axum code [pi args...]
   axum web [--port <port>]
   axum doctor
+  axum update
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
-  web     Open the local OpenAI-compatible provider setup page
-  doctor  Check bundled Pi and extension files
+  web           Open the local OpenAI-compatible provider setup page
+  doctor        Check bundled Pi and extension files
+  update        Reinstall Axum from the main branch tarball
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-subagents
@@ -61,6 +66,7 @@ function resolveArgs(argv) {
   if (argv[0] === "web") return { mode: "web", argv: argv.slice(1) };
   if (argv[0] === "code") return { mode: "run", passthrough: argv.slice(1) };
   if (argv[0] === "doctor") return { mode: "doctor" };
+  if (argv[0] === "update") return { mode: "update" };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
   return { mode: "help" };
 }
@@ -81,6 +87,19 @@ function printDoctor() {
   }
   console.log("ok");
   return 0;
+}
+
+function runUpdate() {
+  console.log("Updating Axum from main branch...");
+  const child = spawn("npm", ["install", "-g", UPDATE_TARBALL], { stdio: "inherit" });
+  child.on("exit", (code, signal) => {
+    if (signal) process.kill(process.pid, signal);
+    process.exit(code ?? 1);
+  });
+  child.on("error", (error) => {
+    console.error(`failed to run npm install: ${error.message}`);
+    process.exit(1);
+  });
 }
 
 function hasArg(args, name) {
@@ -120,6 +139,7 @@ if (action.mode === "help") {
   process.exit(0);
 }
 if (action.mode === "doctor") process.exit(printDoctor());
+if (action.mode === "update") { runUpdate(); }
 if (action.mode === "web") {
   try {
     runWebCommand(action.argv ?? []);

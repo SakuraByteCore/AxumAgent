@@ -118,6 +118,14 @@ axum doctor
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザー cache に保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 
+## 更新（自己更新）
+
+```bash
+axum update
+```
+
+GitHub の main ブランチの tarball で npm グローバルを再インストールします。通常は first-run setup の再実行不要です。
+
 ## 拡張の動作
 
 通常のデスクトップ環境および Android / Termux 環境では、Axum は次の拡張 entrypoint を事前読み込みして Pi を起動します:
