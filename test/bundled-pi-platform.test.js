@@ -9,40 +9,44 @@ test("detects Termux/Android environments", () => {
   assert.equal(isAndroidLike({ platform: "linux", env: {} }), false);
 });
 
-test("loads hermes-memory and rtk-optimizer on Android alongside pi-subagents", () => {
+test("loads pi-edit and pi-powerbar on Android alongside pi-subagents", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
-    "pi-rtk-optimizer@0.9.0",
-    "@narumitw/pi-statusline@0.31.0",
+    "@juanibiapina/pi-powerbar@0.13.0",
+    "pi-edit@file:plugin/pi-edit",
+    "@narumitw/pi-goal@0.31.0",
     "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 13);
 });
 
-test("keeps same bundled Pi extensions on Linux desktop platforms (no pi-fff)", () => {
+test("keeps same bundled Pi extensions on Linux desktop platforms (no rtk optimizer)", () => {
   const packages = supportedBundledPiPackages({ platform: "linux", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
-    "pi-rtk-optimizer@0.9.0",
-    "@narumitw/pi-statusline@0.31.0",
+    "@juanibiapina/pi-powerbar@0.13.0",
+    "pi-edit@file:plugin/pi-edit",
+    "@narumitw/pi-goal@0.31.0",
     "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 13);
 });
 
-test("skips rtk optimizer on Windows because bundled Axum does not ship rtk", () => {
+test("Windows now loads the same extension set as other platforms (no rtk optimizer)", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
-    "@narumitw/pi-statusline@0.31.0",
+    "@juanibiapina/pi-powerbar@0.13.0",
+    "pi-edit@file:plugin/pi-edit",
+    "@narumitw/pi-goal@0.31.0",
     "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 13);
 });

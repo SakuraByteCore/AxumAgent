@@ -7,11 +7,12 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@earendil-works/pi-coding-agent`
 - `pi-subagents`
 - `pi-hermes-memory`
-- `pi-rtk-optimizer`
-- `@narumitw/pi-statusline`
+- `@juanibiapina/pi-powerbar`
+- `pi-edit` (AxumAgent 同梱フォーク)
+- `@narumitw/pi-goal`
 - `@juicesharp/rpiv-todo`
 
-> Android / Termux 環境では、`pi-hermes-memory` は Node.js 組み込みの `node:sqlite` を使用し、`better-sqlite3` のネイティブコンパイルを回避します。pi-rtk-optimizer、pi-statusline、rpiv-todo はネイティブ依存がないため全プラットフォームで読み込まれます。
+> Android / Termux 環境では、`pi-hermes-memory` と `pi-edit` は Node.js 組み込みの `node:sqlite` + `node:crypto` を使用し、ネイティブコンパイル不要で動作します。pi-powerbar、pi-goal、rpiv-todo もネイティブ依存がないため全プラットフォームで読み込まれます。
 
 ## クイックスタート
 
@@ -123,11 +124,28 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 
 - `pi-subagents/index.ts`
 - `pi-hermes-memory/src/index.ts`
-- `pi-rtk-optimizer/index.ts`
-- `@narumitw/pi-statusline/src/index.ts`
+- `@juanibiapina/pi-powerbar/src/powerbar/index.ts` (core)
+- `@juanibiapina/pi-powerbar/src/powerbar-context/index.ts`
+- `@juanibiapina/pi-powerbar/src/powerbar-git/index.ts`
+- `@juanibiapina/pi-powerbar/src/powerbar-model/index.ts`
+- `@juanibiapina/pi-powerbar/src/powerbar-provider/index.ts`
+- `@juanibiapina/pi-powerbar/src/powerbar-sub/index.ts`
+- `@juanibiapina/pi-powerbar/src/powerbar-tokens/index.ts`
+- `@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage/index.ts`
+- `pi-edit/index.ts`
+- `@narumitw/pi-goal/src/index.ts`
 - `@juicesharp/rpiv-todo/index.ts`
 
-pi-hermes-memory、pi-rtk-optimizer、pi-statusline、rpiv-todo は全プラットフォームで読み込みます。rpiv-todo は `todo` ツール、`/todos` コマンド、`/reload` と会話圧縮を跨ぐ永続オーバーレイを提供します（ネイティブ依存なし）。Android / Termux の詳細は冒頭の注釈を参照してください。
+全拡張はネイティブ依存がないため全プラットフォームで読み込みます。各拡張の機能:
+
+- **pi-subagents** — サブエージェントの spawn・管理
+- **pi-hermes-memory** — Hermes 型の永続メモリとラーニングループ
+- **pi-powerbar** — powerline 型ステータスバー (git・model・token・provider 表示)
+- **pi-edit** — ハッシュアンカー付 `read`/`replace` ツール、`/toggle-replace-mode`・`/toggle-auto-read` コマンド
+- **pi-goal** — `/goal` コマンドで自律タスク完了を管理
+- **rpiv-todo** — `todo` ツール、`/todos` コマンド、`/reload` と会話圧縮を跨ぐ永続オーバーレイ
+
+Android / Termux の詳細は冒頭の注釈を参照してください。
 
 ## License
 

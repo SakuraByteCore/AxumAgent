@@ -14,11 +14,26 @@ export const bundledPiPackages = [
   { name: "@earendil-works/pi-coding-agent@0.80.10", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
   { name: "pi-subagents@0.35.1", packageName: "pi-subagents", extensionPath: "index.ts", android: true },
   { name: "pi-hermes-memory@file:plugin/pi-hermes-memory", packageName: "pi-hermes-memory", extensionPath: "src/index.ts", android: true },
-  // pi-rtk-optimizer depends on an external `rtk` executable. Windows users can
-  // run Axum without this optional optimization; loading it by default there
-  // produces noisy startup warnings and can make first-run failures look fatal.
-  { name: "pi-rtk-optimizer@0.9.0", packageName: "pi-rtk-optimizer", extensionPath: "index.ts", android: true, unsupportedPlatforms: ["win32"] },
-  { name: "@narumitw/pi-statusline@0.31.0", packageName: "@narumitw/pi-statusline", extensionPath: "src/index.ts", android: true },
+  // pi-powerbar: pure JS powerline status bar, no native deps. Cross-platform.
+  // The package declares "./src" (directory) with 7 powerbar-* sub-extensions
+  // plus @juanibiapina/pi-usage. Axum lists each entry file explicitly since
+  // pi's -e flag takes files, not directories.
+  { name: "@juanibiapina/pi-powerbar@0.13.0", packageName: "@juanibiapina/pi-powerbar", extensionPath: [
+    "src/powerbar/index.ts",
+    "src/powerbar-context/index.ts",
+    "src/powerbar-git/index.ts",
+    "src/powerbar-model/index.ts",
+    "src/powerbar-provider/index.ts",
+    "src/powerbar-sub/index.ts",
+    "src/powerbar-tokens/index.ts",
+    "node_modules/@juanibiapina/pi-usage/index.ts",
+  ], android: true },
+  // pi-edit: AxumAgent bundled fork. The upstream npm package
+  // depends on better-sqlite3 (native C++) which fails on Android/Termux. This
+  // local file: copy replaces all native deps with node:sqlite/node:crypto.
+  { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
+  // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
+  { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // rpiv-todo: pure TypeScript, no native deps. Adds a `todo` tool, `/todos`
   // command, and a live overlay panel that survives /reload and compaction.
   { name: "@juicesharp/rpiv-todo@2.1.0", packageName: "@juicesharp/rpiv-todo", extensionPath: "index.ts", android: true },
@@ -27,6 +42,9 @@ export const bundledPiPackages = [
   // fails to load (__clear_cache symbol missing). Rather than maintain a
   // platform-specific fallback, drop pi-fff entirely so behavior is consistent
   // across all platforms. Pi has built-in find/grep tools that cover the gap.
+  // pi-rtk-optimizer and pi-statusline removed: the former depends on an
+  // external `rtk` binary (unavailable on Android), the latter is superseded
+  // by @juanibiapina/pi-powerbar which provides richer powerline status.
 ];
 
 export function supportedBundledPiPackageEntries(options) {
@@ -40,7 +58,10 @@ export function supportedBundledPiPackages(options) {
 export function supportedBundledPiExtensions(options) {
   return supportedBundledPiPackageEntries(options)
     .filter((pkg) => pkg.extensionPath)
-    .map((pkg) => ({ packageName: pkg.packageName, extensionPath: pkg.extensionPath }));
+    .flatMap((pkg) => {
+      const paths = Array.isArray(pkg.extensionPath) ? pkg.extensionPath : [pkg.extensionPath];
+      return paths.map((extensionPath) => ({ packageName: pkg.packageName, extensionPath }));
+    });
 }
 
 export function expectedBundledExtensionCount(options) {

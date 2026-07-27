@@ -67,8 +67,14 @@ class StdinBuffer {
   });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
-  writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
-  writePackage(cache, "@narumitw/pi-statusline", { "src/index.ts": "" });
+  const powerbarFiles = {};
+  for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
+    powerbarFiles[`src/${sub}/index.ts`] = "";
+  }
+  writePackage(cache, "@juanibiapina/pi-powerbar", powerbarFiles);
+  writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
+  writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
@@ -78,7 +84,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = process.platform === "win32" ? 4 : 5;
+  const expectedExtensionCount = 13;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.equal(argv.at(-1), "--help");
 });

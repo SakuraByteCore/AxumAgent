@@ -7,24 +7,29 @@ import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
 
-function getPluginSourceDir() {
+// Local file: plugins shipped under the axum package's plugin/ directory.
+// Each entry maps the bundled source directory to its cache destination.
+const localPlugins = ["pi-hermes-memory", "pi-edit"];
+
+function getPluginSourceDir(name) {
   const thisFile = fileURLToPath(import.meta.url);
   const pkgRoot = path.resolve(path.dirname(thisFile), "..");
-  return path.join(pkgRoot, "plugin", "pi-hermes-memory");
+  return path.join(pkgRoot, "plugin", name);
 }
 
 function ensurePluginSource(cacheRoot) {
-  const pluginDir = path.join(cacheRoot, "plugin", "pi-hermes-memory");
-  const source = getPluginSourceDir();
-  if (!fs.existsSync(source)) return;
-  if (fs.existsSync(path.join(pluginDir, "package.json"))) return;
-  fs.rmSync(pluginDir, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
-  // npm resolves file: dependencies through their realpath. A symlink back to the
-  // global Axum install makes pi-hermes-memory resolve native deps from
-  // D:\npm-global\node_modules\axum instead of the bundled cache on Windows.
-  // Copy the plugin into the cache so its realpath stays beside cache/node_modules.
-  fs.cpSync(source, pluginDir, { recursive: true, dereference: true });
+  for (const name of localPlugins) {
+    const pluginDir = path.join(cacheRoot, "plugin", name);
+    const source = getPluginSourceDir(name);
+    if (!fs.existsSync(source)) continue;
+    if (fs.existsSync(path.join(pluginDir, "package.json"))) continue;
+    fs.rmSync(pluginDir, { recursive: true, force: true });
+    fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
+    // npm resolves file: dependencies through their realpath. Copy the plugin
+    // into the cache so its realpath stays beside cache/node_modules and native
+    // deps resolve from the cache rather than the global axum install.
+    fs.cpSync(source, pluginDir, { recursive: true, dereference: true });
+  }
 }
 
 export function npmInstallEnv(options) {
