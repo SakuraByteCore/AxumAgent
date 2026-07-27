@@ -84,13 +84,7 @@ function hasArg(args, name) {
 }
 
 function buildPiEnv() {
-  const env = { ...process.env, AXUM_BUNDLED_PI: "1" };
-  if (process.platform === "android" && process.arch === "arm64") {
-    const lib = "/system/lib64/libcompiler_rt.so";
-    const prev = env.LD_PRELOAD ? `:${env.LD_PRELOAD}` : "";
-    env.LD_PRELOAD = lib + prev;
-  }
-  return env;
+  return { ...process.env, AXUM_BUNDLED_PI: "1" };
 }
 
 function runPi(passthrough) {
