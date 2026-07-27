@@ -139,8 +139,9 @@ if (action.mode === "help") {
   process.exit(0);
 }
 if (action.mode === "doctor") process.exit(printDoctor());
-if (action.mode === "update") { runUpdate(); }
-if (action.mode === "web") {
+if (action.mode === "update") {
+  runUpdate();
+} else if (action.mode === "web") {
   try {
     runWebCommand(action.argv ?? []);
   } catch (error) {
