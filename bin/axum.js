@@ -95,7 +95,10 @@ function runPi(passthrough) {
   const defaultArgs = defaults && !hasArg(passthrough, "--provider") && !hasArg(passthrough, "--model")
     ? ["--provider", defaults.provider, "--model", defaults.model]
     : [];
-  const args = [piCli, ...extensionArgs, ...defaultArgs, ...passthrough];
+  // Disable ambient Pi extensions from the user's global install before adding
+  // Axum's bundled extension set. Otherwise globally installed copies can collide
+  // with the bundled cache copy of the same extension (tools/flags duplicate).
+  const args = [piCli, "-ne", ...extensionArgs, ...defaultArgs, ...passthrough];
   const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv() });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);

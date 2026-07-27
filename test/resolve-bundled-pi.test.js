@@ -58,7 +58,7 @@ test("Android loads hermes-memory and rtk-optimizer alongside subagents", () => 
 test("cache root is stable and short outside npm package install directory", () => {
   const env = { XDG_CACHE_HOME: "/tmp/axum-cache-home" };
   const root = getBundledPiCacheRoot({ env, platform: "linux", arch: "x64" });
-  assert.match(root, /^\/tmp\/axum-cache-home\/axum-agent\/bundled-pi\/v2\/linux-x64\/pi-[a-f0-9]{12}$/);
+  assert.match(root, /^\/tmp\/axum-cache-home\/axum-agent\/bundled-pi\/v3\/linux-x64\/pi-[a-f0-9]{12}$/);
   assert.doesNotMatch(root, /node_modules\/axum-agent/);
   assert.ok(root.length < 100);
 });
@@ -72,7 +72,7 @@ test("Windows bundled Pi cache root avoids long package-name paths", () => {
     platform: "win32",
     arch: "x64",
   });
-  assert.match(root.replaceAll("\\", "/"), /\/axum-agent\/bundled-pi\/v2\/win32-x64\/pi-[a-f0-9]{12}$/);
+  assert.match(root.replaceAll("\\", "/"), /\/axum-agent\/bundled-pi\/v3\/win32-x64\/pi-[a-f0-9]{12}$/);
   assert.doesNotMatch(root, /earendil|google|hermes|subagents|optimizer/);
   assert.ok(root.length < 120);
 });
@@ -206,6 +206,9 @@ pkg('@ff-labs/pi-fff', { 'src/index.ts': '' });
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
   assert.equal(existingBundledExtensions(options).length, 4);
+  const pluginCopy = path.join(cache, "plugin", "pi-hermes-memory", "package.json");
+  assert.equal(fs.existsSync(pluginCopy), true);
+  assert.equal(fs.lstatSync(path.dirname(pluginCopy)).isSymbolicLink(), false);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
 });

@@ -13,14 +13,18 @@ function getPluginSourceDir() {
   return path.join(pkgRoot, "plugin", "pi-hermes-memory");
 }
 
-function ensurePluginLink(cacheRoot) {
-  const pluginLink = path.join(cacheRoot, "plugin", "pi-hermes-memory");
+function ensurePluginSource(cacheRoot) {
+  const pluginDir = path.join(cacheRoot, "plugin", "pi-hermes-memory");
   const source = getPluginSourceDir();
   if (!fs.existsSync(source)) return;
-  if (fs.existsSync(pluginLink)) return;
-  fs.rmSync(pluginLink, { force: true });
-  fs.mkdirSync(path.dirname(pluginLink), { recursive: true });
-  fs.symlinkSync(source, pluginLink, "dir");
+  if (fs.existsSync(path.join(pluginDir, "package.json"))) return;
+  fs.rmSync(pluginDir, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
+  // npm resolves file: dependencies through their realpath. A symlink back to the
+  // global Axum install makes pi-hermes-memory resolve native deps from
+  // D:\npm-global\node_modules\axum instead of the bundled cache on Windows.
+  // Copy the plugin into the cache so its realpath stays beside cache/node_modules.
+  fs.cpSync(source, pluginDir, { recursive: true, dereference: true });
 }
 
 export function npmInstallEnv(options) {
@@ -85,7 +89,7 @@ export function ensureBundledPi(options) {
   const npm = resolveNpmInstallCommand(options);
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");
-  ensurePluginLink(cacheRoot);
+  ensurePluginSource(cacheRoot);
   const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
     cwd: cacheRoot,
     stdio: "inherit",
