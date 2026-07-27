@@ -23,7 +23,10 @@ Commands:
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-subagents
-  - @cortexkit/pi-magic-context
+  - pi-hermes-memory
+  - pi-rtk-optimizer
+  - @narumitw/pi-statusline
+  - @juicesharp/rpiv-todo
 
 Run \`axum code --help\` for Pi options.
 `;

@@ -9,8 +9,9 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-hermes-memory`
 - `pi-rtk-optimizer`
 - `@narumitw/pi-statusline`
+- `@juicesharp/rpiv-todo`
 
-> Android / Termux 環境では、`pi-hermes-memory` は Node.js 組み込みの `node:sqlite` を使用し、`better-sqlite3` のネイティブコンパイルを回避します。pi-rtk-optimizer および pi-statusline はネイティブ依存がないため全プラットフォームで読み込まれます。
+> Android / Termux 環境では、`pi-hermes-memory` は Node.js 組み込みの `node:sqlite` を使用し、`better-sqlite3` のネイティブコンパイルを回避します。pi-rtk-optimizer、pi-statusline、rpiv-todo はネイティブ依存がないため全プラットフォームで読み込まれます。
 
 ## クイックスタート
 
@@ -124,8 +125,9 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 - `pi-hermes-memory/src/index.ts`
 - `pi-rtk-optimizer/index.ts`
 - `@narumitw/pi-statusline/src/index.ts`
+- `@juicesharp/rpiv-todo/index.ts`
 
-pi-hermes-memory、pi-rtk-optimizer、pi-statusline は全プラットフォームで読み込みます。Android / Termux の詳細は冒頭の注釈を参照してください。
+pi-hermes-memory、pi-rtk-optimizer、pi-statusline、rpiv-todo は全プラットフォームで読み込みます。rpiv-todo は `todo` ツール、`/todos` コマンド、`/reload` と会話圧縮を跨ぐ永続オーバーレイを提供します（ネイティブ依存なし）。Android / Termux の詳細は冒頭の注釈を参照してください。
 
 ## License
 

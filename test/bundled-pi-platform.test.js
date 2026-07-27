@@ -17,8 +17,9 @@ test("loads hermes-memory and rtk-optimizer on Android alongside pi-subagents", 
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "pi-rtk-optimizer@0.9.0",
     "@narumitw/pi-statusline@0.31.0",
+    "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms (no pi-fff)", () => {
@@ -29,8 +30,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms (no pi-fff)", 
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "pi-rtk-optimizer@0.9.0",
     "@narumitw/pi-statusline@0.31.0",
+    "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 5);
 });
 
 test("skips rtk optimizer on Windows because bundled Axum does not ship rtk", () => {
@@ -40,6 +42,7 @@ test("skips rtk optimizer on Windows because bundled Axum does not ship rtk", ()
     "pi-subagents@0.35.1",
     "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "@narumitw/pi-statusline@0.31.0",
+    "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 3);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
 });

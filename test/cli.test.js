@@ -69,6 +69,7 @@ class StdinBuffer {
   writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-statusline", { "src/index.ts": "" });
+  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
     encoding: "utf8",
@@ -77,7 +78,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = process.platform === "win32" ? 3 : 4;
+  const expectedExtensionCount = process.platform === "win32" ? 4 : 5;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.equal(argv.at(-1), "--help");
 });

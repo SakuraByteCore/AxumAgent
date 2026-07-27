@@ -19,6 +19,9 @@ export const bundledPiPackages = [
   // produces noisy startup warnings and can make first-run failures look fatal.
   { name: "pi-rtk-optimizer@0.9.0", packageName: "pi-rtk-optimizer", extensionPath: "index.ts", android: true, unsupportedPlatforms: ["win32"] },
   { name: "@narumitw/pi-statusline@0.31.0", packageName: "@narumitw/pi-statusline", extensionPath: "src/index.ts", android: true },
+  // rpiv-todo: pure TypeScript, no native deps. Adds a `todo` tool, `/todos`
+  // command, and a live overlay panel that survives /reload and compaction.
+  { name: "@juicesharp/rpiv-todo@2.1.0", packageName: "@juicesharp/rpiv-todo", extensionPath: "index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a

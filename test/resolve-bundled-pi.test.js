@@ -28,13 +28,14 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-statusline", { "src/index.ts": "" });
+  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 4);
-  assert.equal(existingBundledExtensions(options).length, 4);
+  assert.equal(extensions.length, 5);
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 test("Android loads hermes-memory and rtk-optimizer alongside subagents", () => {
@@ -45,14 +46,16 @@ test("Android loads hermes-memory and rtk-optimizer alongside subagents", () => 
   writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "pi-rtk-optimizer", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-statusline", { "src/index.ts": "" });
+  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 4);
+  assert.equal(extensions.length, 5);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-hermes-memory", "src", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-rtk-optimizer", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-statusline", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 4);
+  assert.equal(extensions[4], path.join(cache, "node_modules", "@juicesharp", "rpiv-todo", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 test("Windows skips rtk-optimizer and pi-fff extension resolution", () => {
@@ -62,13 +65,15 @@ test("Windows skips rtk-optimizer and pi-fff extension resolution", () => {
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   writePackage(cache, "@narumitw/pi-statusline", { "src/index.ts": "" });
+  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 3);
+  assert.equal(extensions.length, 4);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-hermes-memory", "src", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-statusline", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 3);
+  assert.equal(extensions[3], path.join(cache, "node_modules", "@juicesharp", "rpiv-todo", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 4);
 });
 
 test("cache root is stable and short outside npm package install directory", () => {
@@ -214,6 +219,7 @@ pkg('pi-subagents', { 'index.ts': '' });
 pkg('pi-hermes-memory', { 'src/index.ts': '' });
 pkg('pi-rtk-optimizer', { 'index.ts': '' });
 pkg('@narumitw/pi-statusline', { 'src/index.ts': '' });
+pkg('@juicesharp/rpiv-todo', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
@@ -221,7 +227,7 @@ pkg('@narumitw/pi-statusline', { 'src/index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 4);
+  assert.equal(existingBundledExtensions(options).length, 5);
   const pluginCopy = path.join(cache, "plugin", "pi-hermes-memory", "package.json");
   assert.equal(fs.existsSync(pluginCopy), true);
   assert.equal(fs.lstatSync(path.dirname(pluginCopy)).isSymbolicLink(), false);
