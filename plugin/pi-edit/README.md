@@ -2,14 +2,14 @@
 
 Pure-JS hash-anchored read/replace extension for the Pi coding agent.
 
-Pure-JS extension using only Node.js built-in modules (`node:sqlite`, `node:crypto`) so it runs on every platform AxumAgent supports, including Android/Termux where native C++ addons cannot compile.
+Pure-JS extension using only Node.js built-in `node:crypto` and a JSON file-backed hash store. No native dependencies — runs on every platform including Android/Termux and Node 18+.
 
 ## Replacements
 
 | Upstream dependency | Replacement | Notes |
 |---|---|---|
-| `better-sqlite3` | `node:sqlite` (`DatabaseSync`) | Node 22+ built-in SQLite, same as `pi-hermes-memory` on Android |
-| `sql.js` | — | Not needed; node:sqlite covers the hash store |
+| `better-sqlite3` | Pure-JS JSON file backend | No SQL engine needed; hashes persisted as `hash-store.json` across sessions.
+| `sql.js` | — | Not needed; pure-JS hash store replaces all SQLite usage |
 | `xxhash-wasm` | `node:crypto` SHA-1 (32-bit truncation) | No WASM dependency |
 | `file-type` | magic-byte sniffing | JPEG/PNG/GIF/WebP detection in pure JS |
 | `diff` | LCS-based line diff | Pure JS unified-diff generator |

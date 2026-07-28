@@ -29,7 +29,7 @@ export const bundledPiPackages = [
   ], android: true },
   // pi-edit: AxumAgent bundled fork. The upstream npm package
   // depends on better-sqlite3 (native C++) which fails on Android/Termux. This
-  // local file: copy replaces all native deps with node:sqlite/node:crypto.
+  // local file: copy replaces all native deps with node:crypto + pure-JS file backend.
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
