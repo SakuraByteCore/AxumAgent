@@ -25,7 +25,6 @@ test("resolves bundled Pi from Axum cache directory", () => {
   const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
-  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   const powerbarFiles = {};
   for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
     powerbarFiles[`src/${sub}/index.ts`] = "";
@@ -34,14 +33,13 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 13);
-  assert.equal(existingBundledExtensions(options).length, 13);
+  assert.equal(extensions.length, 11);
+  assert.equal(existingBundledExtensions(options).length, 11);
 });
 
 test("Android loads pi-edit and pi-powerbar alongside subagents", () => {
@@ -49,7 +47,6 @@ test("Android loads pi-edit and pi-powerbar alongside subagents", () => {
   const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
-  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   const powerbarFiles = {};
   for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
     powerbarFiles[`src/${sub}/index.ts`] = "";
@@ -58,17 +55,14 @@ test("Android loads pi-edit and pi-powerbar alongside subagents", () => {
   writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 13);
+  assert.equal(extensions.length, 11);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
-  assert.equal(extensions[1], path.join(cache, "node_modules", "pi-hermes-memory", "src", "index.ts"));
-  assert.equal(extensions[2], path.join(cache, "node_modules", "@juanibiapina", "pi-powerbar", "src", "powerbar", "index.ts"));
-  assert.equal(extensions[10], path.join(cache, "node_modules", "pi-edit", "index.ts"));
-  assert.equal(extensions[11], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(extensions[12], path.join(cache, "node_modules", "@juicesharp", "rpiv-todo", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 13);
+  assert.equal(extensions[1], path.join(cache, "node_modules", "@juanibiapina", "pi-powerbar", "src", "powerbar", "index.ts"));
+  assert.equal(extensions[9], path.join(cache, "node_modules", "pi-edit", "index.ts"));
+  assert.equal(extensions[10], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 11);
 });
 
 test("Windows loads same extension set as other platforms", () => {
@@ -76,7 +70,6 @@ test("Windows loads same extension set as other platforms", () => {
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
-  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   const powerbarFiles = {};
   for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
     powerbarFiles[`src/${sub}/index.ts`] = "";
@@ -85,16 +78,13 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 13);
+  assert.equal(extensions.length, 11);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
-  assert.equal(extensions[1], path.join(cache, "node_modules", "pi-hermes-memory", "src", "index.ts"));
-  assert.equal(extensions[10], path.join(cache, "node_modules", "pi-edit", "index.ts"));
-  assert.equal(extensions[11], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(extensions[12], path.join(cache, "node_modules", "@juicesharp", "rpiv-todo", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 13);
+  assert.equal(extensions[9], path.join(cache, "node_modules", "pi-edit", "index.ts"));
+  assert.equal(extensions[10], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 11);
 });
 
 test("cache root is stable and short outside npm package install directory", () => {
@@ -237,13 +227,11 @@ class StdinBuffer {
 }
 `)} });
 pkg('pi-subagents', { 'index.ts': '' });
-pkg('pi-hermes-memory', { 'src/index.ts': '' });
 const pb = {}; ['powerbar','powerbar-context','powerbar-git','powerbar-model','powerbar-provider','powerbar-sub','powerbar-tokens'].forEach(s => pb['src/'+s+'/index.ts'] = '');
 pkg('@juanibiapina/pi-powerbar', pb);
 pkg('@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage', { 'index.ts': '' });
 pkg('pi-edit', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
-pkg('@juicesharp/rpiv-todo', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
@@ -251,10 +239,7 @@ pkg('@juicesharp/rpiv-todo', { 'index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 13);
-  const pluginCopy = path.join(cache, "plugin", "pi-hermes-memory", "package.json");
-  assert.equal(fs.existsSync(pluginCopy), true);
-  assert.equal(fs.lstatSync(path.dirname(pluginCopy)).isSymbolicLink(), false);
+  assert.equal(existingBundledExtensions(options).length, 11);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
 });

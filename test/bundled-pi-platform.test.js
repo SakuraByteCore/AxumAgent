@@ -14,13 +14,11 @@ test("loads pi-edit and pi-powerbar on Android alongside pi-subagents", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
-    "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "@juanibiapina/pi-powerbar@0.13.0",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 13);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 11);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms (no rtk optimizer)", () => {
@@ -28,13 +26,11 @@ test("keeps same bundled Pi extensions on Linux desktop platforms (no rtk optimi
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
-    "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "@juanibiapina/pi-powerbar@0.13.0",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 13);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 11);
 });
 
 test("Windows now loads the same extension set as other platforms (no rtk optimizer)", () => {
@@ -42,11 +38,9 @@ test("Windows now loads the same extension set as other platforms (no rtk optimi
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-subagents@0.35.1",
-    "pi-hermes-memory@file:plugin/pi-hermes-memory",
     "@juanibiapina/pi-powerbar@0.13.0",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "@juicesharp/rpiv-todo@2.1.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 13);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 11);
 });

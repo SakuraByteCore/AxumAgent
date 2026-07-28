@@ -9,7 +9,7 @@ import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js
 
 // Local file: plugins shipped under the axum package's plugin/ directory.
 // Each entry maps the bundled source directory to its cache destination.
-const localPlugins = ["pi-hermes-memory", "pi-edit"];
+const localPlugins = ["pi-edit"];
 
 function getPluginSourceDir(name) {
   const thisFile = fileURLToPath(import.meta.url);

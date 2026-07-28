@@ -67,7 +67,6 @@ class StdinBuffer {
 `,
   });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
-  writePackage(cache, "pi-hermes-memory", { "src/index.ts": "" });
   const powerbarFiles = {};
   for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
     powerbarFiles[`src/${sub}/index.ts`] = "";
@@ -76,8 +75,6 @@ class StdinBuffer {
   writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "@juicesharp/rpiv-todo", { "index.ts": "" });
-
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
     encoding: "utf8",
     env: { ...process.env, AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir },
@@ -85,7 +82,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 13;
+  const expectedExtensionCount = 11;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.equal(argv.at(-1), "--help");
 });

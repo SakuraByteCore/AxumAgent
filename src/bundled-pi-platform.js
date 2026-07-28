@@ -13,7 +13,6 @@ function supportsPackage(pkg, options = {}) {
 export const bundledPiPackages = [
   { name: "@earendil-works/pi-coding-agent@0.80.10", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
   { name: "pi-subagents@0.35.1", packageName: "pi-subagents", extensionPath: "index.ts", android: true },
-  { name: "pi-hermes-memory@file:plugin/pi-hermes-memory", packageName: "pi-hermes-memory", extensionPath: "src/index.ts", android: true },
   // pi-powerbar: pure JS powerline status bar, no native deps. Cross-platform.
   // The package declares "./src" (directory) with 7 powerbar-* sub-extensions
   // plus @juanibiapina/pi-usage. Axum lists each entry file explicitly since
@@ -34,9 +33,6 @@ export const bundledPiPackages = [
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
-  // rpiv-todo: pure TypeScript, no native deps. Adds a `todo` tool, `/todos`
-  // command, and a live overlay panel that survives /reload and compaction.
-  { name: "@juicesharp/rpiv-todo@2.1.0", packageName: "@juicesharp/rpiv-todo", extensionPath: "index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a
