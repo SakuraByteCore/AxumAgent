@@ -22,7 +22,7 @@ function ensurePluginSource(cacheRoot) {
     const pluginDir = path.join(cacheRoot, "plugin", name);
     const source = getPluginSourceDir(name);
     if (!fs.existsSync(source)) continue;
-    if (fs.existsSync(path.join(pluginDir, "package.json"))) continue;
+    // Always sync plugin source so bug fixes reach existing cache directories.
     fs.rmSync(pluginDir, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
     // npm resolves file: dependencies through their realpath. Copy the plugin
@@ -84,17 +84,17 @@ function bundledReady(options) {
 }
 
 export function ensureBundledPi(options) {
+  const cacheRoot = getBundledPiCacheRoot(options);
+  ensurePluginSource(cacheRoot);
   if (bundledReady(options)) {
     applyBundledPiPatches(options);
     return;
   }
 
-  const cacheRoot = getBundledPiCacheRoot(options);
   fs.mkdirSync(cacheRoot, { recursive: true });
   const npm = resolveNpmInstallCommand(options);
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");
-  ensurePluginSource(cacheRoot);
   const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
     cwd: cacheRoot,
     stdio: "inherit",
