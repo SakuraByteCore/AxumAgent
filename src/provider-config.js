@@ -15,6 +15,10 @@ export function getAxumConfigPath(env = process.env) {
   return path.join(getAgentDir(env), "axum.json");
 }
 
+export function getSettingsPath(env = process.env) {
+  return path.join(getAgentDir(env), "settings.json");
+}
+
 function expandTilde(value) {
   if (value === "~") return os.homedir();
   if (value.startsWith("~/")) return path.join(os.homedir(), value.slice(2));
@@ -135,7 +139,7 @@ export function listProviders(file = getModelsPath(), options = {}) {
   });
 }
 
-export function saveDefaultProviderSelection(selection, file = getAxumConfigPath()) {
+export function saveDefaultProviderSelection(selection, file = getSettingsPath()) {
   const config = readJsonFile(file);
   config.defaultProvider = selection.provider;
   config.defaultModel = selection.model;
@@ -143,14 +147,18 @@ export function saveDefaultProviderSelection(selection, file = getAxumConfigPath
   return { file, config };
 }
 
-export function getDefaultProviderSelection(file = getAxumConfigPath()) {
+export function getDefaultProviderSelection(file = getSettingsPath()) {
   const config = readJsonFile(file);
-  if (!config.defaultProvider || !config.defaultModel) return undefined;
-  return { provider: config.defaultProvider, model: config.defaultModel };
-}
-
-export function getSettingsPath(env = process.env) {
-  return path.join(getAgentDir(env), "settings.json");
+  if (config.defaultProvider && config.defaultModel) {
+    return { provider: config.defaultProvider, model: config.defaultModel };
+  }
+  if (file === getSettingsPath()) {
+    const legacy = readJsonFile(getAxumConfigPath());
+    if (legacy.defaultProvider && legacy.defaultModel) {
+      return { provider: legacy.defaultProvider, model: legacy.defaultModel };
+    }
+  }
+  return undefined;
 }
 
 export function getRetrySettings(file = getSettingsPath()) {

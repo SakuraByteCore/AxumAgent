@@ -46,8 +46,8 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(modelsJson.providers.localmock.models[0].contextWindow, 256000);
     assert.equal(modelsJson.providers.localmock.models[0].maxTokens, 64000);
     assert.equal(modelsJson.providers.localmock.apiKey, "test-key");
-    const axumJson = JSON.parse(fs.readFileSync(path.join(agentDir, "axum.json"), "utf8"));
-    assert.deepEqual(axumJson, { defaultProvider: "localmock", defaultModel: "mock-b" });
+    const settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.deepEqual(settingsJson, { defaultProvider: "localmock", defaultModel: "mock-b" });
 
     const configRes = await fetch(`${base}/api/config?token=${token}`);
     assert.equal(configRes.status, 200);

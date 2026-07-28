@@ -75,6 +75,9 @@ class StdinBuffer {
   writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
+
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
     encoding: "utf8",
     env: { ...process.env, AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir },
@@ -84,7 +87,7 @@ class StdinBuffer {
   assert.equal(argv[0], "-ne");
   const expectedExtensionCount = 11;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
-  assert.equal(argv.at(-1), "--help");
+  assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {
