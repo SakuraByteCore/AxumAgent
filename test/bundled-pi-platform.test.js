@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { expectedBundledExtensionCount, isAndroidLike, supportedBundledPiPackages } from "../src/bundled-pi-platform.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { expectedBundledExtensionCount, isAndroidLike, localPluginNames, supportedBundledPiPackages } from "../src/bundled-pi-platform.js";
 
 test("detects Termux/Android environments", () => {
   assert.equal(isAndroidLike({ platform: "android", env: {} }), true);
@@ -40,4 +43,25 @@ test("Windows loads the same extension set as other platforms", () => {
     "@narumitw/pi-goal@0.31.0",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 3);
+});
+
+// Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
+// hand-written list that drifted from the registry. When pi-statusline was added
+// to bundled-pi-packages.js but not to localPlugins, axum doctor threw
+// "required files are still missing" because the plugin source was never synced.
+// Lock the invariant: every file: package is a local plugin, and every local
+// plugin name matches a plugin/ subdir that exists on disk.
+test("localPluginNames covers exactly the file: packages from the registry", () => {
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-edit", "pi-statusline"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-edit", "pi-statusline"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-edit", "pi-statusline"]);
+});
+
+test("every local plugin name has a matching plugin/ subdir", () => {
+  const here = fileURLToPath(import.meta.url);
+  const repoRoot = path.resolve(path.dirname(here), "..");
+  for (const name of localPluginNames({ platform: "android", env: {} })) {
+    const dir = path.join(repoRoot, "plugin", name);
+    assert.equal(fs.existsSync(dir), true, `missing plugin source dir: ${name}`);
+  }
 });

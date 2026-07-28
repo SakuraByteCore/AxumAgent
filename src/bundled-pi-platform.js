@@ -23,6 +23,18 @@ export function supportedBundledPiPackages(options) {
   return supportedBundledPiPackageEntries(options).map((pkg) => pkg.name);
 }
 
+// Local file: plugins are shipped under the axum package's plugin/ directory and
+// must be synced into the cache before npm installs their file: spec. Derive the
+// set from the registry instead of maintaining a separate hand-written list, so
+// adding a file: plugin to bundled-pi-packages.js never silently drops its
+// source sync (the bug that broke axum doctor when pi-statusline was added).
+// Returns packageName strings (e.g. "pi-edit"), matching the plugin/ subdir name.
+export function localPluginNames(options) {
+  return supportedBundledPiPackageEntries(options)
+    .filter((pkg) => pkg.name.includes("file:"))
+    .map((pkg) => pkg.packageName);
+}
+
 export function supportedBundledPiExtensions(options) {
   return supportedBundledPiPackageEntries(options)
     .filter((pkg) => pkg.extensionPath)

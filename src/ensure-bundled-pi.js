@@ -2,14 +2,10 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expectedBundledExtensionCount, supportedBundledPiPackages } from "./bundled-pi-platform.js";
+import { expectedBundledExtensionCount, localPluginNames, supportedBundledPiPackages } from "./bundled-pi-platform.js";
 import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
-
-// Local file: plugins shipped under the axum package's plugin/ directory.
-// Each entry maps the bundled source directory to its cache destination.
-const localPlugins = ["pi-edit"];
 
 function getPluginSourceDir(name) {
   const thisFile = fileURLToPath(import.meta.url);
@@ -17,8 +13,8 @@ function getPluginSourceDir(name) {
   return path.join(pkgRoot, "plugin", name);
 }
 
-function ensurePluginSource(cacheRoot) {
-  for (const name of localPlugins) {
+function ensurePluginSource(cacheRoot, options) {
+  for (const name of localPluginNames(options)) {
     const pluginDir = path.join(cacheRoot, "plugin", name);
     const source = getPluginSourceDir(name);
     if (!fs.existsSync(source)) continue;
@@ -85,7 +81,7 @@ function bundledReady(options) {
 
 export function ensureBundledPi(options) {
   const cacheRoot = getBundledPiCacheRoot(options);
-  ensurePluginSource(cacheRoot);
+  ensurePluginSource(cacheRoot, options);
   if (bundledReady(options)) {
     applyBundledPiPatches(options);
     return;
