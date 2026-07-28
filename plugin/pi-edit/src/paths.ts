@@ -15,7 +15,7 @@ export function configPath(): string {
 }
 
 export function hashStorePath(): string {
-  return join(configDir(), "hash-store.sqlite");
+  return join(configDir(), "hash-store.json");
 }
 
 export function hashStoreDir(): string {
