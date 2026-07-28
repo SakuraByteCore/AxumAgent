@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
-import { patchPiTuiStdinBuffer } from "../src/bundled-pi-patches.js";
+import { patchPiTuiStdinBuffer, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -90,7 +90,7 @@ test("Windows loads same extension set as other platforms", () => {
 test("cache root is stable and short outside npm package install directory", () => {
   const env = { XDG_CACHE_HOME: "/tmp/axum-cache-home" };
   const root = getBundledPiCacheRoot({ env, platform: "linux", arch: "x64" });
-  assert.match(root, /^\/tmp\/axum-cache-home\/axum-agent\/bundled-pi\/v3\/linux-x64\/pi-[a-f0-9]{12}$/);
+  assert.match(root, /^\/tmp\/axum-cache-home\/axum-agent\/bundled-pi\/v4\/linux-x64\/pi-[a-f0-9]{12}$/);
   assert.doesNotMatch(root, /node_modules\/axum-agent/);
   assert.ok(root.length < 100);
 });
@@ -104,7 +104,7 @@ test("Windows bundled Pi cache root avoids long package-name paths", () => {
     platform: "win32",
     arch: "x64",
   });
-  assert.match(root.replaceAll("\\", "/"), /\/axum-agent\/bundled-pi\/v3\/win32-x64\/pi-[a-f0-9]{12}$/);
+  assert.match(root.replaceAll("\\", "/"), /\/axum-agent\/bundled-pi\/v4\/win32-x64\/pi-[a-f0-9]{12}$/);
   assert.doesNotMatch(root, /earendil|google|hermes|subagents|optimizer/);
   assert.ok(root.length < 120);
 });
@@ -132,6 +132,14 @@ class StdinBuffer {
   assert.match(patched, /function looksLikeUnbracketedPaste/);
   assert.match(patched, /this\.emit\("paste", str\)/);
   assert.equal(patchPiTuiStdinBuffer(patched), patched);
+});
+
+test("patches bundled undici markAsUncloneable fallback for current Node 22", () => {
+  const vulnerable = "const { markAsUncloneable } = require('node:worker_threads')\nwebidl.util.markAsUncloneable = markAsUncloneable\n";
+  const patched = patchUndiciMarkAsUncloneableFallback(vulnerable);
+  assert.match(patched, /AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK/);
+  assert.match(patched, /markAsUncloneable \|\| \(\(\) => \{\}\)/);
+  assert.equal(patchUndiciMarkAsUncloneableFallback(patched), patched);
 });
 
 test("filters invalid Windows env keys before npm install", () => {
@@ -207,7 +215,7 @@ import path from 'node:path';
 const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
-pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '' });
+pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
 pkg('@earendil-works/pi-tui', { 'dist/stdin-buffer.js': ${JSON.stringify(`const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
 const BRACKETED_PASTE_END = "\\x1b[201~";
@@ -242,4 +250,7 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
   assert.equal(existingBundledExtensions(options).length, 11);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
+  const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
+  assert.match(patchedUndici, /AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK/);
 });
+

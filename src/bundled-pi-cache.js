@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { supportedBundledPiPackages } from "./bundled-pi-platform.js";
 
-const cacheVersion = "v3";
+const cacheVersion = "v4";
 
 function packageSetKey(options) {
   const packageSpec = supportedBundledPiPackages(options).join("\n");

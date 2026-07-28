@@ -7,6 +7,7 @@ const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
 const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
 const UNBRACKETED_PASTE_PATCH_MARKER = "looksLikeUnbracketedPaste";
 const TERMUX_AUTOINSTALL_PATCH_MARKER = "AXUM_TERMUX_AUTOINSTALL";
+const UNDICI_MARK_AS_UNCLONEABLE_PATCH_MARKER = "AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -44,6 +45,20 @@ function patchPiTuiStdinBuffer(content) {
   );
 
   return patched;
+}
+
+function patchUndiciMarkAsUncloneableFallback(content) {
+  if (content.includes(UNDICI_MARK_AS_UNCLONEABLE_PATCH_MARKER)) return content;
+
+  const needle = "webidl.util.markAsUncloneable = markAsUncloneable\n";
+  if (!content.includes(needle)) {
+    throw new Error("unable to patch bundled undici webidl: markAsUncloneable assignment not found");
+  }
+
+  return content.replace(
+    needle,
+    "webidl.util.markAsUncloneable = markAsUncloneable || (() => {}) // AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK\n",
+  );
 }
 
 function patchTermuxAutoInstall(content) {
@@ -103,8 +118,18 @@ export function applyBundledPiPatches(options) {
   }
   results.push({ patched: tuiPatched !== tuiOriginal, file: stdinBufferPath });
 
+  const piRoot = resolveBundledPackageRoot(PI_CODING_AGENT_PACKAGE, options);
+  const undiciWebidlPath = path.join(piRoot, "node_modules", "undici", "lib", "web", "webidl", "index.js");
+  if (fs.existsSync(undiciWebidlPath)) {
+    const undiciOriginal = fs.readFileSync(undiciWebidlPath, "utf8");
+    const undiciPatched = patchUndiciMarkAsUncloneableFallback(undiciOriginal);
+    if (undiciPatched !== undiciOriginal) {
+      fs.writeFileSync(undiciWebidlPath, undiciPatched);
+    }
+    results.push({ patched: undiciPatched !== undiciOriginal, file: undiciWebidlPath });
+  }
+
   if (isAndroidLike(options)) {
-    const piRoot = resolveBundledPackageRoot(PI_CODING_AGENT_PACKAGE, options);
     const toolsManagerPath = path.join(piRoot, "dist", "utils", "tools-manager.js");
     if (!fs.existsSync(toolsManagerPath)) {
       throw new Error(`bundled Pi tools-manager not found: ${toolsManagerPath}`);
@@ -120,4 +145,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiTuiStdinBuffer, patchTermuxAutoInstall };
+export { patchPiTuiStdinBuffer, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
