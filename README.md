@@ -36,13 +36,6 @@ axum web
 axum code
 ```
 
-Pi の引数も渡せます:
-
-```bash
-axum code --print "inspect this repository"
-axum code --help
-```
-
 状態確認:
 
 ```bash

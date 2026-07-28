@@ -27,11 +27,41 @@ function isProbablyBinary(buf: Buffer): boolean {
   for (let i = 0; i < buf.length; i++) {
     if (buf[i] === 0) return true;
   }
-  // High ratio of non-text bytes => binary
+  // High ratio of non-text bytes => binary.
+  // Distinguish valid UTF-8 multibyte sequences (CJK, emoji, etc.) from
+  // stray continuation/lead bytes and other non-text bytes.
   let nonText = 0;
-  for (let i = 0; i < buf.length; i++) {
+  let i = 0;
+  while (i < buf.length) {
     const b = buf[i];
-    if (b < 0x09 || (b > 0x0d && b < 0x20) || b > 0x7e) nonText++;
+    // ASCII text and common control bytes are text.
+    if (b === 0x09 || b === 0x0a || b === 0x0d || (b >= 0x20 && b <= 0x7e)) {
+      i++;
+      continue;
+    }
+    // Valid UTF-8 lead bytes: 2-byte (0xC0-0xDF), 3-byte (0xE0-0xEF),
+    // 4-byte (0xF0-0xF7). Count only when the expected continuation bytes
+    // (0x80-0xBF) are present; otherwise treat the lead byte as non-text.
+    let seqlen = 0;
+    if (b >= 0xc0 && b <= 0xdf) seqlen = 2;
+    else if (b >= 0xe0 && b <= 0xef) seqlen = 3;
+    else if (b >= 0xf0 && b <= 0xf7) seqlen = 4;
+    if (seqlen > 0) {
+      if (i + seqlen <= buf.length) {
+        let valid = true;
+        for (let j = 1; j < seqlen; j++) {
+          const c = buf[i + j];
+          if (c < 0x80 || c > 0xbf) { valid = false; break; }
+        }
+        if (valid) { i += seqlen; continue; }
+      }
+      nonText++;
+      i++;
+      continue;
+    }
+    // Stray continuation bytes (0x80-0xBF) without a lead, or other bytes.
+    nonText++;
+    i++;
   }
   return buf.length > 0 && nonText / buf.length > 0.3;
 }
