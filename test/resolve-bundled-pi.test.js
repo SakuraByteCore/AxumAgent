@@ -11,7 +11,7 @@ import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } fro
 function writePackage(root, name, files = {}) {
   const dir = path.join(root, "node_modules", ...name.split("/"));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.0.0" }));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.0.0", type: "module" }));
   for (const [file, content] of Object.entries(files)) {
     const target = path.join(dir, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -209,6 +209,8 @@ test("ensure installs missing bundled Pi into cache root once and patches Pi TUI
   const cache = path.join(dir, "cache");
   const calls = path.join(dir, "calls.log");
   const fakeNpm = path.join(dir, "fake-npm.js");
+  // Node 18+ requires explicit ESM opt-in for .js files using import syntax.
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
   fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';

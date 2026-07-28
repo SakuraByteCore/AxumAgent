@@ -12,7 +12,7 @@ function run(args) {
 function writePackage(root, name, files = {}) {
   const dir = path.join(root, "node_modules", ...name.split("/"));
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.0.0" }));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.0.0", type: "module" }));
   for (const [file, content] of Object.entries(files)) {
     const target = path.join(dir, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -130,6 +130,8 @@ test("axum update reinstalls from main branch tarball", () => {
   const npmPath = path.join(stubDir, isWin ? "npm.cmd" : "npm");
   const argvFile = path.join(stubDir, "argv.json");
   const shebang = isWin ? "" : "#!/usr/bin/env node\n";
+  // Node 18+ requires explicit ESM opt-in for .js files using import syntax.
+  if (!isWin) fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
   fs.writeFileSync(npmPath, `${shebang}import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`);
   if (!isWin) fs.chmodSync(npmPath, 0o755);
   const result = spawnSync(process.execPath, ["bin/axum.js", "update"], {
