@@ -24,67 +24,48 @@ test("resolves bundled Pi from Axum cache directory", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-cache-"));
   const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
-  const powerbarFiles = {};
-  for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
-    powerbarFiles[`src/${sub}/index.ts`] = "";
-  }
-  writePackage(cache, "@juanibiapina/pi-powerbar", powerbarFiles);
-  writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "pi-statusline", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 11);
-  assert.equal(existingBundledExtensions(options).length, 11);
+  assert.equal(extensions.length, 3);
+  assert.equal(existingBundledExtensions(options).length, 3);
 });
 
-test("Android loads pi-edit and pi-powerbar alongside subagents", () => {
+test("Android loads pi-edit and pi-goal", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-android-cache-"));
   const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
-  const powerbarFiles = {};
-  for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
-    powerbarFiles[`src/${sub}/index.ts`] = "";
-  }
-  writePackage(cache, "@juanibiapina/pi-powerbar", powerbarFiles);
-  writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "pi-statusline", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 11);
-  assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
-  assert.equal(extensions[1], path.join(cache, "node_modules", "@juanibiapina", "pi-powerbar", "src", "powerbar", "index.ts"));
-  assert.equal(extensions[9], path.join(cache, "node_modules", "pi-edit", "index.ts"));
-  assert.equal(extensions[10], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 11);
+  assert.equal(extensions.length, 3);
+  assert.equal(extensions[0], path.join(cache, "node_modules", "pi-edit", "index.ts"));
+  assert.equal(extensions[1], path.join(cache, "node_modules", "pi-statusline", "index.ts"));
+  assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 3);
 });
 
 test("Windows loads same extension set as other platforms", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-win-cache-"));
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
-  const powerbarFiles = {};
-  for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
-    powerbarFiles[`src/${sub}/index.ts`] = "";
-  }
-  writePackage(cache, "@juanibiapina/pi-powerbar", powerbarFiles);
-  writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "pi-statusline", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 11);
-  assert.equal(extensions[0], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
-  assert.equal(extensions[9], path.join(cache, "node_modules", "pi-edit", "index.ts"));
-  assert.equal(extensions[10], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 11);
+  assert.equal(extensions.length, 3);
+  assert.equal(extensions[0], path.join(cache, "node_modules", "pi-edit", "index.ts"));
+  assert.equal(extensions[1], path.join(cache, "node_modules", "pi-statusline", "index.ts"));
+  assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 3);
 });
 
 test("cache root is stable and short outside npm package install directory", () => {
@@ -236,11 +217,8 @@ class StdinBuffer {
   }
 }
 `)} });
-pkg('pi-subagents', { 'index.ts': '' });
-const pb = {}; ['powerbar','powerbar-context','powerbar-git','powerbar-model','powerbar-provider','powerbar-sub','powerbar-tokens'].forEach(s => pb['src/'+s+'/index.ts'] = '');
-pkg('@juanibiapina/pi-powerbar', pb);
-pkg('@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage', { 'index.ts': '' });
 pkg('pi-edit', { 'index.ts': '' });
+pkg('pi-statusline', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
@@ -249,7 +227,7 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 11);
+  assert.equal(existingBundledExtensions(options).length, 3);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");

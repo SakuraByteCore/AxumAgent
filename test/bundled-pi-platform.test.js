@@ -9,38 +9,35 @@ test("detects Termux/Android environments", () => {
   assert.equal(isAndroidLike({ platform: "linux", env: {} }), false);
 });
 
-test("loads pi-edit and pi-powerbar on Android alongside pi-subagents", () => {
+test("loads pi-edit and pi-goal on Android", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
-    "pi-subagents@0.35.1",
-    "@juanibiapina/pi-powerbar@0.13.0",
     "pi-edit@file:plugin/pi-edit",
+    "pi-statusline@file:plugin/pi-statusline",
     "@narumitw/pi-goal@0.31.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 11);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 3);
 });
 
-test("keeps same bundled Pi extensions on Linux desktop platforms (no rtk optimizer)", () => {
+test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "linux", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
-    "pi-subagents@0.35.1",
-    "@juanibiapina/pi-powerbar@0.13.0",
     "pi-edit@file:plugin/pi-edit",
+    "pi-statusline@file:plugin/pi-statusline",
     "@narumitw/pi-goal@0.31.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 11);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 3);
 });
 
-test("Windows now loads the same extension set as other platforms (no rtk optimizer)", () => {
+test("Windows loads the same extension set as other platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
-    "pi-subagents@0.35.1",
-    "@juanibiapina/pi-powerbar@0.13.0",
     "pi-edit@file:plugin/pi-edit",
+    "pi-statusline@file:plugin/pi-statusline",
     "@narumitw/pi-goal@0.31.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 11);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 3);
 });

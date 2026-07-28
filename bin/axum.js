@@ -27,9 +27,8 @@ Commands:
   update        Reinstall Axum from the main branch tarball
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
-  - pi-subagents
-  - @juanibiapina/pi-powerbar
   - pi-edit
+  - pi-statusline
   - @narumitw/pi-goal
 
 Run \`axum code --help\` for Pi options.

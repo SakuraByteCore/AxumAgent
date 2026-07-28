@@ -66,14 +66,8 @@ class StdinBuffer {
 }
 `,
   });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
-  const powerbarFiles = {};
-  for (const sub of ["powerbar", "powerbar-context", "powerbar-git", "powerbar-model", "powerbar-provider", "powerbar-sub", "powerbar-tokens"]) {
-    powerbarFiles[`src/${sub}/index.ts`] = "";
-  }
-  writePackage(cache, "@juanibiapina/pi-powerbar", powerbarFiles);
-  writePackage(cache, "@juanibiapina/pi-powerbar/node_modules/@juanibiapina/pi-usage", { "index.ts": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "pi-statusline", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
@@ -85,7 +79,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 11;
+  const expectedExtensionCount = 3;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
 });
