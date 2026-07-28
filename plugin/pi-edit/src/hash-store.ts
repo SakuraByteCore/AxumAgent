@@ -43,10 +43,13 @@ function createMemoryDb(): DatabaseLike {
   const rows = new Map<string, SnapshotRow>();
 
   function execImpl(sql: string): void {
-    const insert = sql.match(/^\s*INSERT\s+OR\s+REPLACE\s+INTO\s+snapshots\s*\(([^)]+)\)\s+VALUES\s*\(([^)]*)\)\s*$/i);
+    const insert = sql.match(/^\s*INSERT\s+OR\s+REPLACE\s+INTO\s+snapshots\s*\(([^)]+)\)\s+VALUES\s*\(/i);
     if (insert) {
-      const row = parseSnapshotValues(insert[2]);
-      if (row) rows.set(row.path, row);
+      const values = extractValuesGroup(sql);
+      if (values) {
+        const row = parseSnapshotValues(values);
+        if (row) rows.set(row.path, row);
+      }
       return;
     }
 
@@ -175,6 +178,30 @@ function splitSqlValues(values: string): string[] {
   }
   parts.push(current);
   return parts;
+}
+
+function extractValuesGroup(sql: string): string | null {
+  const m = sql.match(/^\s*INSERT\s+OR\s+REPLACE\s+INTO\s+snapshots\s*\(([^)]+)\)\s+VALUES\s*\(/i);
+  if (!m) return null;
+  const start = m[0].length;
+  let depth = 1;
+  let inQuote = false;
+  for (let i = start; i < sql.length; i++) {
+    const ch = sql[i]!;
+    if (inQuote) {
+      if (ch === "'") {
+        if (sql[i + 1] === "'") { i++; } else { inQuote = false; }
+      }
+      continue;
+    }
+    if (ch === "'") { inQuote = true; continue; }
+    if (ch === "(") { depth++; continue; }
+    if (ch === ")") {
+      depth--;
+      if (depth === 0) return sql.slice(start, i);
+    }
+  }
+  return null;
 }
 
 function openDb(storePath: string): DatabaseLike {
