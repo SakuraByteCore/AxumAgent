@@ -12,6 +12,8 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 
 > Android / Termux 環境では、`pi-edit` は Node.js 組み込みの `node:sqlite` + `node:crypto` を使用し、ネイティブコンパイル不要で動作します。pi-powerbar、pi-goal もネイティブ依存がないため全プラットフォームで読み込まれます。
 
+> 要件: Node.js 22.5+（`node:sqlite` 組み込みモジュールのため）。Node 20 では起動時にインメモリハッシュストアへフォールバックします。
+
 ## クイックスタート
 
 ```bash
