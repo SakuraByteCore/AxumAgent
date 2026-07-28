@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { hashStorePath, hashStoreDir } from "./paths.js";
+import { dirname } from "node:path";
+import { hashStorePath } from "./paths.js";
 
 interface SnapshotRow {
   path: string;
@@ -34,7 +35,7 @@ function loadFromDisk(storePath: string): Map<string, SnapshotRow> {
 
 export function flushStore(store: HashStore): void {
   if (!store.dirty) return;
-  mkdirSync(hashStoreDir(), { recursive: true });
+  mkdirSync(dirname(store.storePath), { recursive: true });
   const arr = Array.from(store.rows.values());
   writeFileSync(store.storePath, JSON.stringify(arr), "utf8");
   store.dirty = false;
@@ -43,7 +44,8 @@ export function flushStore(store: HashStore): void {
 export async function loadHashStore(): Promise<HashStore> {
   if (cached) return cached;
   const storePath = hashStorePath();
-  if (!existsSync(hashStoreDir())) mkdirSync(hashStoreDir(), { recursive: true });
+  const storeDir = dirname(storePath);
+  if (!existsSync(storeDir)) mkdirSync(storeDir, { recursive: true });
   const rows = loadFromDisk(storePath);
   cached = { rows, storePath, dirty: false };
   return cached;
