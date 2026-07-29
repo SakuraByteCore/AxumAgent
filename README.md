@@ -11,7 +11,6 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 
 > Android / Termux 環境では、`pi-edit` は `node:crypto` を使用し、ネイティブコンパイル不要で動作します。
 
-> 要件: Node.js 18+
 
 ## クイックスタート
 

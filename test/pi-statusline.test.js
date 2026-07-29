@@ -13,15 +13,23 @@ test("pi-statusline defaults to hyphen separator", () => {
 test("context usage renders percent without a leading bar", () => {
   const contextBlock = statuslineSource.match(/id: "context-usage",[\s\S]*?color: usageColor\(pct\),[\s\S]*?\}\);/);
   assert.ok(contextBlock, "context-usage update block should exist");
-  assert.match(contextBlock[0], /suffix:\s*`\$\{pct\}%\$\{breath\}`/);
+  assert.match(contextBlock[0], /suffix:\s*`\$\{pct\}%`/);
   assert.doesNotMatch(contextBlock[0], /bar:\s*pct/);
   assert.doesNotMatch(contextBlock[0], /barSegments:/);
 });
 
-test("context usage has a natural working breath indicator", () => {
-  assert.match(statuslineSource, /const BREATH_FRAMES = \["·", "•", "●", "•"\]/);
-  assert.match(statuslineSource, /const BREATH_INTERVAL_MS = 700/);
+test("suffix-only statusline segments stay visible", () => {
+  assert.match(statuslineSource, /if \(!ev\.text && !ev\.suffix && ev\.bar === undefined\)/);
+  assert.match(statuslineSource, /visible:\s*!!\(ev\.text \|\| ev\.suffix \|\| ev\.bar !== undefined\)/);
+});
+
+test("context usage has no working light animation", () => {
+  assert.doesNotMatch(statuslineSource, /BREATH_FRAMES/);
+  assert.doesNotMatch(statuslineSource, /WORKING_CURSOR_FRAMES/);
+  assert.doesNotMatch(statuslineSource, /WORKING_LIGHT_FRAMES/);
+  assert.doesNotMatch(statuslineSource, /breathTimer/);
+  assert.doesNotMatch(statuslineSource, /setInterval\(/);
   assert.match(statuslineSource, /pi\.on\("agent_start"/);
+  assert.match(statuslineSource, /emitContext\(ctx\);\n\s*flushIfDirty\(\);/);
   assert.match(statuslineSource, /pi\.on\("agent_settled"/);
-  assert.match(statuslineSource, /clearInterval\(breathTimer\)/);
 });
