@@ -269,10 +269,10 @@ const FACE   = "\x1b[38;2;206;145;120m";
 const HAIR   = "\x1b[38;2;178;148;187m";
 const RST    = "\x1b[39m";
 const REIMU_FRAMES: string[] = [
-	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}\n${HAIR}/>\${RST}`,
-	`${RIBBON} ✦${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}\n${HAIR}/>\${RST}`,
-	`${RIBBON}＋${RST}${HAIR}～～${RST}\n${FACE}(・ー・)${RST}\n${HAIR}/>\${RST}`,
-	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}\n${HAIR}\>\${RST}`,
+	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}`,
+	`${RIBBON} ✦${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}`,
+	`${RIBBON}＋${RST}${HAIR}～～${RST}\n${FACE}(・ー・)${RST}`,
+	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}`,
 ];
 const REIMU_INTERVAL_MS = 280;
 
