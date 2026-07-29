@@ -266,6 +266,9 @@ function usageColor(pct: number): string {
 	return pct > 80 ? "error" : pct > 60 ? "warning" : "muted";
 }
 
+const BREATH_FRAMES = ["·", "•", "●", "•"];
+const BREATH_INTERVAL_MS = 700;
+
 // ---------------------------------------------------------------------------
 // Extension
 // ---------------------------------------------------------------------------
@@ -275,6 +278,9 @@ export default function (pi: ExtensionAPI): void {
 	let settings: Settings = DEFAULTS;
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
+	let working = false;
+	let breathFrame = 0;
+	let breathTimer: ReturnType<typeof setInterval> | undefined;
 
 	// Register API surface for other extensions (kept compatible with the
 	// upstream event contract so segment emitters keep working transparently).
@@ -379,12 +385,36 @@ export default function (pi: ExtensionAPI): void {
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
+		const breath = working ? ` ${BREATH_FRAMES[breathFrame % BREATH_FRAMES.length]}` : "";
 		pi.events.emit("pi-statusline:update", {
 			id: "context-usage",
 			text: "",
-			suffix: `${pct}%`,
+			suffix: `${pct}%${breath}`,
 			color: usageColor(pct),
 		});
+	}
+
+	function stopBreathing(): void {
+		working = false;
+		breathFrame = 0;
+		if (breathTimer) {
+			clearInterval(breathTimer);
+			breathTimer = undefined;
+		}
+		if (currentCtx) emitContext(currentCtx);
+	}
+
+	function startBreathing(ctx: ExtensionContext): void {
+		working = true;
+		currentCtx = ctx;
+		if (breathTimer) clearInterval(breathTimer);
+		emitContext(ctx);
+		breathTimer = setInterval(() => {
+			if (!currentCtx || !working) return;
+			breathFrame = (breathFrame + 1) % BREATH_FRAMES.length;
+			emitContext(currentCtx);
+			flushIfDirty();
+		}, BREATH_INTERVAL_MS);
 	}
 
 	function emitProvider(ctx: ExtensionContext): void {
@@ -452,6 +482,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		stopBreathing();
 		if (ctx.hasUI) ctx.ui.setWidget("pi-statusline", undefined);
 		currentCtx = undefined;
 		segs.clear();
@@ -464,6 +495,14 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("thinking_level_select", async (_event, ctx) => {
 		emitModel(ctx);
+	});
+
+	pi.on("agent_start", async (_event, ctx) => {
+		startBreathing(ctx);
+	});
+
+	pi.on("agent_settled", async (_event, _ctx) => {
+		stopBreathing();
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
