@@ -84,7 +84,7 @@ const EXT_NAME = "pi-statusline";
 const DEFAULTS: Settings = {
 	left: ["git-branch", "tokens", "context-usage"],
 	right: ["provider", "model", "sub-hourly", "sub-weekly"],
-	separator: " | ",
+	separator: " - ",
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "blocks",
@@ -383,8 +383,6 @@ export default function (pi: ExtensionAPI): void {
 			id: "context-usage",
 			text: "",
 			suffix: `${pct}%`,
-			bar: pct,
-			barSegments: Math.ceil(u.contextWindow / 100_000),
 			color: usageColor(pct),
 		});
 	}
