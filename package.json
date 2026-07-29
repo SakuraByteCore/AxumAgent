@@ -5,11 +5,13 @@
   "license": "FSL-1.1-ALv2",
   "type": "module",
   "bin": {
-    "axum": "bin/axum.js"
+    "axum": "bin/axum.js",
+    "code": "bin/code.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "build": "node --check bin/axum.js && node --check src/bundled-pi-packages.js && node --check src/bundled-pi-platform.js && node --check src/bundled-pi-cache.js && node --check src/resolve-bundled-pi.js && node --check src/ensure-bundled-pi.js && node --check src/provider-config.js && node --check src/system-prompt-config.js && node --check src/provider-web.js",
+    "code": "node bin/code.js",
+    "build": "node --check bin/axum.js && node --check bin/code.js && node --check src/bundled-pi-packages.js && node --check src/bundled-pi-platform.js && node --check src/bundled-pi-cache.js && node --check src/resolve-bundled-pi.js && node --check src/ensure-bundled-pi.js && node --check src/provider-config.js && node --check src/system-prompt-config.js && node --check src/provider-web.js",
     "prepack": "npm run build && npm test",
     "pack:dry": "npm pack --dry-run",
     "prepare": "npm run build"

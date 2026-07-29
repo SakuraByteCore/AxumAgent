@@ -56,7 +56,6 @@ interface RegEvent {
 interface Settings {
 	left: string[];
 	right: string[];
-	separator: string;
 	placement: "aboveEditor" | "belowEditor";
 	barWidth: number;
 	barStyle: "continuous" | "blocks";
@@ -83,8 +82,7 @@ const EXT_NAME = "pi-statusline";
 
 const DEFAULTS: Settings = {
 	left: ["git-branch", "tokens", "context-usage"],
-	right: ["provider", "model", "sub-hourly", "sub-weekly"],
-	separator: " - ",
+	right: ["model", "sub-hourly", "sub-weekly"],
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "blocks",
@@ -115,7 +113,6 @@ function loadSettings(): Settings {
 	return {
 		left: split(s["left"], DEFAULTS.left.join(",")),
 		right: split(s["right"], DEFAULTS.right.join(",")),
-		separator: s["separator"] ?? DEFAULTS.separator,
 		placement: place(s["placement"]),
 		barWidth: num(s["bar-width"], DEFAULTS.barWidth),
 		barStyle: bstyle(s["bar-style"]),
@@ -204,8 +201,8 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 }
 
 export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string {
-	const sep = theme.fg("dim", settings.separator);
-	const sepW = visibleWidth(sep);
+	const sep = " ";
+	const sepW = 1;
 	const left = renderSide(settings.left, segs, settings, theme);
 	const right = renderSide(settings.right, segs, settings, theme);
 	const all = left.concat(right);
@@ -265,6 +262,19 @@ function gitBranch(cwd: string): string | undefined {
 function usageColor(pct: number): string {
 	return pct > 80 ? "error" : pct > 60 ? "warning" : "muted";
 }
+// Mini Reimu (博丽灵梦) working indicator: 3-line half-body ASCII in warm palette B.
+// Frames carry inline ANSI colors + newlines; host Loader renders them verbatim.
+const RIBBON = "\x1b[38;2;240;198;116m";
+const FACE   = "\x1b[38;2;206;145;120m";
+const HAIR   = "\x1b[38;2;178;148;187m";
+const RST    = "\x1b[39m";
+const REIMU_FRAMES: string[] = [
+	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}\n${HAIR}/>\${RST}`,
+	`${RIBBON} ✦${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}\n${HAIR}/>\${RST}`,
+	`${RIBBON}＋${RST}${HAIR}～～${RST}\n${FACE}(・ー・)${RST}\n${HAIR}/>\${RST}`,
+	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}\n${HAIR}\>\${RST}`,
+];
+const REIMU_INTERVAL_MS = 280;
 
 
 // ---------------------------------------------------------------------------
@@ -349,7 +359,7 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitGit(ctx: ExtensionContext): void {
 		const b = gitBranch(ctx.cwd);
-		pi.events.emit("pi-statusline:update", b ? { id: "git-branch", text: b, color: "muted" } : { id: "git-branch", text: undefined });
+		pi.events.emit("pi-statusline:update", b ? { id: "git-branch", text: b, color: "mdHeading" } : { id: "git-branch", text: undefined });
 	}
 
 	function emitTokens(ctx: ExtensionContext): void {
@@ -365,18 +375,18 @@ export default function (pi: ExtensionAPI): void {
 			cost += m.usage.cost?.total ?? 0;
 		}
 		if (ti === 0 && to === 0) {
-			pi.events.emit("pi-statusline:update", { id: "tokens", text: undefined });
+			pi.events.emit("pi-statusline:update", { id: "tokens", text: "\u21910 \u21930", color: "text" });
 			return;
 		}
 		const parts = [`\u2191${fmtTokens(ti)}`, `\u2193${fmtTokens(to)}`];
 		if (cost > 0) parts.push(`$${cost.toFixed(2)}`);
-		pi.events.emit("pi-statusline:update", { id: "tokens", text: parts.join(" "), color: "dim" });
+		pi.events.emit("pi-statusline:update", { id: "tokens", text: parts.join(" "), color: "text" });
 	}
 
 	function emitContext(ctx: ExtensionContext): void {
 		const u = ctx.getContextUsage();
 		if (!u || u.tokens == null) {
-			pi.events.emit("pi-statusline:update", { id: "context-usage", text: undefined });
+			pi.events.emit("pi-statusline:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
@@ -384,16 +394,10 @@ export default function (pi: ExtensionAPI): void {
 			id: "context-usage",
 			text: "",
 			suffix: `${pct}%`,
-			color: usageColor(pct),
+			color: "syntaxString",
 		});
 	}
 
-
-	function emitProvider(ctx: ExtensionContext): void {
-		const m = ctx.model;
-		if (!m) return;
-		pi.events.emit("pi-statusline:update", { id: "provider", text: m.provider, color: "dim" });
-	}
 
 	function emitModel(ctx: ExtensionContext): void {
 		const m = ctx.model;
@@ -403,7 +407,7 @@ export default function (pi: ExtensionAPI): void {
 			const lvl = pi.getThinkingLevel();
 			text = lvl === "off" ? `${m.id} \u00b7 off` : `${m.id} \u00b7 ${lvl}`;
 		}
-		pi.events.emit("pi-statusline:update", { id: "model", text, color: "dim" });
+		pi.events.emit("pi-statusline:update", { id: "model", text, color: "thinkingHigh" });
 	}
 
 	// --- Render refresh (coalesced) ---
@@ -448,7 +452,8 @@ export default function (pi: ExtensionAPI): void {
 		currentCtx = ctx;
 		hideFooter(ctx);
 		emitGit(ctx);
-		emitProvider(ctx);
+		emitTokens(ctx);
+		emitContext(ctx);
 		emitModel(ctx);
 		refresh();
 	});
@@ -460,7 +465,6 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
-		emitProvider(ctx);
 		emitModel(ctx);
 	});
 
@@ -470,16 +474,21 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_start", async (_event, ctx) => {
 		emitContext(ctx);
+		if (ctx.hasUI) {
+			ctx.ui.setWorkingIndicator({ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS });
+		}
 		flushIfDirty();
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
 		emitContext(ctx);
+		if (ctx.hasUI) {
+			ctx.ui.setWorkingIndicator();
+		}
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
 		emitContext(ctx);
-		emitProvider(ctx);
 		emitModel(ctx);
 	});
 
