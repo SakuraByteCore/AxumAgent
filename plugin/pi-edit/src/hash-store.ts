@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, mkdirSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { hashStorePath } from "./paths.js";
 
@@ -33,11 +34,11 @@ function loadFromDisk(storePath: string): Map<string, SnapshotRow> {
   }
 }
 
-export function flushStore(store: HashStore): void {
+export async function flushStore(store: HashStore): Promise<void> {
   if (!store.dirty) return;
   mkdirSync(dirname(store.storePath), { recursive: true });
   const arr = Array.from(store.rows.values());
-  writeFileSync(store.storePath, JSON.stringify(arr), "utf8");
+  await writeFile(store.storePath, JSON.stringify(arr), "utf8");
   store.dirty = false;
 }
 
@@ -51,12 +52,13 @@ export async function loadHashStore(): Promise<HashStore> {
   return cached;
 }
 
-export function getSnapshot(store: HashStore, path: string, content: string): string[] | null {
+export function getSnapshot(store: HashStore, path: string, checksum: string): string[] | null {
   const row = store.rows.get(path);
   if (!row?.hashes) return null;
+  if (row.checksum !== checksum) return null;
   try {
-    const parsed = JSON.parse(row.hashes) as { content: string; hashes: string[] };
-    if (parsed.content === content) return parsed.hashes;
+    const parsed = JSON.parse(row.hashes) as string[];
+    if (Array.isArray(parsed)) return parsed;
   } catch {
     // fall through
   }
@@ -69,14 +71,12 @@ export function upsertSnapshot(
   checksum: string,
   lineCount: number,
   hashes: string[],
-  content?: string,
 ): void {
-  const data = JSON.stringify({ content: content ?? "", hashes });
   store.rows.set(path, {
     path,
     checksum,
     line_count: lineCount,
-    hashes: data,
+    hashes: JSON.stringify(hashes),
     updated_at: Date.now(),
   });
   store.dirty = true;
@@ -91,5 +91,5 @@ export async function pruneMissing(store: HashStore): Promise<void> {
     }
   }
   if (changed) store.dirty = true;
-  flushStore(store);
+  await flushStore(store);
 }

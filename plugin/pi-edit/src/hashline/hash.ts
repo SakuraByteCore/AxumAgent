@@ -73,19 +73,19 @@ export async function lineHashes(
   if (previous) {
     const newHashes = mapStableHashes(previous.content, previous.hashes, content, previous.removedHashes);
     if (persist !== false) {
-      upsertSnapshot(hashStore, path, contentChecksum(content), content.split("\n").length, newHashes, content);
-      flushStore(hashStore);
+      upsertSnapshot(hashStore, path, contentChecksum(content), content.split("\n").length, newHashes);
+      await flushStore(hashStore);
     }
     return newHashes;
   }
 
-  const cached = getSnapshot(hashStore, path, content);
+  const cached = getSnapshot(hashStore, path, contentChecksum(content));
   if (cached) return cached;
 
   const newHashes = _lineHashesPure(content);
   if (persist !== false) {
-    upsertSnapshot(hashStore, path, contentChecksum(content), content.split("\n").length, newHashes, content);
-    flushStore(hashStore);
+    upsertSnapshot(hashStore, path, contentChecksum(content), content.split("\n").length, newHashes);
+    await flushStore(hashStore);
   }
   return newHashes;
 }

@@ -8,6 +8,12 @@ import { visLines } from "./utils.js";
 import { valAccess } from "./validation.js";
 import { loadP, loadGuide } from "./prompts.js";
 
+interface ReadParams {
+  path: string;
+  offset?: number;
+  limit?: number;
+}
+
 export function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -156,7 +162,7 @@ export function regRead(pi: ExtensionAPI): void {
       required: ["path"],
       additionalProperties: false,
     },
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
+    async execute(_toolCallId, params: ReadParams, signal, _onUpdate, ctx) {
       const rawPath = params.path;
       const absolutePath = toCwd(rawPath, ctx.cwd);
       abortIf(signal);
