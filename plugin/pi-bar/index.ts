@@ -1,5 +1,5 @@
 /**
- * pi-statusline
+ * pi-bar
  *
  * High-performance powerline-style status bar for pi-coding-agent.
  * Single-file, zero native deps, inline settings (no external settings pkg).
@@ -78,7 +78,7 @@ interface UsageState {
 
 const AGENT_DIR = process.env["PI_CODING_AGENT_DIR"] || join(homedir(), ".pi", "agent");
 const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
-const EXT_NAME = "pi-statusline";
+const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
 	left: ["git-branch", "tokens", "context-usage"],
@@ -289,7 +289,7 @@ export default function (pi: ExtensionAPI): void {
 
 	// Register API surface for other extensions (kept compatible with the
 	// upstream event contract so segment emitters keep working transparently).
-	pi.events.on("pi-statusline:register-segment", (data: unknown) => {
+	pi.events.on("pi-bar:register-segment", (data: unknown) => {
 		const ev = data as RegEvent;
 		if (!ev?.id) return;
 		// Segment catalog is implicit here: any id emitted via update appears.
@@ -297,7 +297,7 @@ export default function (pi: ExtensionAPI): void {
 		if (!segs.has(ev.id)) segs.set(ev.id, { id: ev.id, visible: false });
 	});
 
-	pi.events.on("pi-statusline:update", (data: unknown) => {
+	pi.events.on("pi-bar:update", (data: unknown) => {
 		const ev = data as SegEvent;
 		if (!ev?.id) return;
 		const id = ev.id;
@@ -328,8 +328,8 @@ export default function (pi: ExtensionAPI): void {
 	function emitUsage(payload: unknown): void {
 		const state = (payload as { state?: UsageState })?.state;
 		if (!state?.provider || !state.usage?.windows?.length) {
-			pi.events.emit("pi-statusline:update", { id: "sub-hourly", text: undefined });
-			pi.events.emit("pi-statusline:update", { id: "sub-weekly", text: undefined });
+			pi.events.emit("pi-bar:update", { id: "sub-hourly", text: undefined });
+			pi.events.emit("pi-bar:update", { id: "sub-weekly", text: undefined });
 			return;
 		}
 		emitWindow("sub-hourly", state.usage.windows[0], 5);
@@ -338,14 +338,14 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitWindow(id: string, w: RateWindow | undefined, bw: number): void {
 		if (!w) {
-			pi.events.emit("pi-statusline:update", { id, text: undefined });
+			pi.events.emit("pi-bar:update", { id, text: undefined });
 			return;
 		}
 		const pct = Math.round(w.usedPercent);
 		const parts: string[] = [];
 		if (w.label) parts.push(w.label);
 		if (w.resetDescription) parts.push(w.resetDescription);
-		pi.events.emit("pi-statusline:update", {
+		pi.events.emit("pi-bar:update", {
 			id,
 			text: parts.join(" "),
 			suffix: `${pct}%`,
@@ -359,7 +359,7 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitGit(ctx: ExtensionContext): void {
 		const b = gitBranch(ctx.cwd);
-		pi.events.emit("pi-statusline:update", b ? { id: "git-branch", text: b, color: "mdHeading" } : { id: "git-branch", text: undefined });
+		pi.events.emit("pi-bar:update", b ? { id: "git-branch", text: b, color: "mdHeading" } : { id: "git-branch", text: undefined });
 	}
 
 	function emitTokens(ctx: ExtensionContext): void {
@@ -375,22 +375,22 @@ export default function (pi: ExtensionAPI): void {
 			cost += m.usage.cost?.total ?? 0;
 		}
 		if (ti === 0 && to === 0) {
-			pi.events.emit("pi-statusline:update", { id: "tokens", text: "\u21910 \u21930", color: "text" });
+			pi.events.emit("pi-bar:update", { id: "tokens", text: "\u21910 \u21930", color: "text" });
 			return;
 		}
 		const parts = [`\u2191${fmtTokens(ti)}`, `\u2193${fmtTokens(to)}`];
 		if (cost > 0) parts.push(`$${cost.toFixed(2)}`);
-		pi.events.emit("pi-statusline:update", { id: "tokens", text: parts.join(" "), color: "text" });
+		pi.events.emit("pi-bar:update", { id: "tokens", text: parts.join(" "), color: "text" });
 	}
 
 	function emitContext(ctx: ExtensionContext): void {
 		const u = ctx.getContextUsage();
 		if (!u || u.tokens == null) {
-			pi.events.emit("pi-statusline:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
+			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
-		pi.events.emit("pi-statusline:update", {
+		pi.events.emit("pi-bar:update", {
 			id: "context-usage",
 			text: "",
 			suffix: `${pct}%`,
@@ -407,7 +407,7 @@ export default function (pi: ExtensionAPI): void {
 			const lvl = pi.getThinkingLevel();
 			text = lvl === "off" ? `${m.id} \u00b7 off` : `${m.id} \u00b7 ${lvl}`;
 		}
-		pi.events.emit("pi-statusline:update", { id: "model", text, color: "thinkingHigh" });
+		pi.events.emit("pi-bar:update", { id: "model", text, color: "thinkingHigh" });
 	}
 
 	// --- Render refresh (coalesced) ---
@@ -415,7 +415,7 @@ export default function (pi: ExtensionAPI): void {
 	function refresh(): void {
 		if (!currentCtx?.hasUI) return;
 		currentCtx.ui.setWidget(
-			"pi-statusline",
+			"pi-bar",
 			(_tui: TUI, theme: Theme): Component & { dispose?(): void } => ({
 				render(width: number): string[] {
 					// Render reads live state; dirty only controls whether the
@@ -459,7 +459,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
-		if (ctx.hasUI) ctx.ui.setWidget("pi-statusline", undefined);
+		if (ctx.hasUI) ctx.ui.setWidget("pi-bar", undefined);
 		currentCtx = undefined;
 		segs.clear();
 	});
@@ -505,6 +505,6 @@ export default function (pi: ExtensionAPI): void {
 
 	// Coalesce frequent producer bursts into a single widget re-attach per tick.
 	const flush = (): void => flushIfDirty();
-	pi.events.on("pi-statusline:update", flush);
-	pi.events.on("pi-statusline:register-segment", flush);
+	pi.events.on("pi-bar:update", flush);
+	pi.events.on("pi-bar:register-segment", flush);
 }

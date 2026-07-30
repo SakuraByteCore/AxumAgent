@@ -67,7 +67,7 @@ class StdinBuffer {
 `,
   });
   writePackage(cache, "pi-edit", { "index.ts": "" });
-  writePackage(cache, "pi-statusline", { "index.ts": "" });
+  writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));

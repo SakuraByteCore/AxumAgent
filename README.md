@@ -7,7 +7,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@earendil-works/pi-coding-agent`
 - `pi-edit` (AxumAgent 同梱フォーク)
 - `@narumitw/pi-goal`
-- `pi-statusline` (AxumAgent 同梱フォーク)
+- `pi-bar` (AxumAgent 同梱フォーク)
 
 > Android / Termux 環境では、`pi-edit` は `node:crypto` を使用し、ネイティブコンパイル不要で動作します。
 

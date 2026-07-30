@@ -17,7 +17,7 @@ test("loads pi-edit and pi-goal on Android", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-edit@file:plugin/pi-edit",
-    "pi-statusline@file:plugin/pi-statusline",
+    "pi-bar@file:plugin/pi-bar",
     "@narumitw/pi-goal@0.31.0",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 3);
@@ -28,7 +28,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-edit@file:plugin/pi-edit",
-    "pi-statusline@file:plugin/pi-statusline",
+    "pi-bar@file:plugin/pi-bar",
     "@narumitw/pi-goal@0.31.0",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 3);
@@ -39,22 +39,22 @@ test("Windows loads the same extension set as other platforms", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-edit@file:plugin/pi-edit",
-    "pi-statusline@file:plugin/pi-statusline",
+    "pi-bar@file:plugin/pi-bar",
     "@narumitw/pi-goal@0.31.0",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 3);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
-// hand-written list that drifted from the registry. When pi-statusline was added
+// hand-written list that drifted from the registry. When pi-bar was added
 // to bundled-pi-packages.js but not to localPlugins, axum doctor threw
 // "required files are still missing" because the plugin source was never synced.
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-edit", "pi-statusline"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-edit", "pi-statusline"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-edit", "pi-statusline"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-edit", "pi-bar"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-edit", "pi-bar"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-edit", "pi-bar"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {

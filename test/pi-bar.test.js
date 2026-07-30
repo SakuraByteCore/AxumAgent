@@ -3,9 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-const statuslineSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-statusline", "index.ts"), "utf8");
+const statuslineSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8");
 
-test("pi-statusline has no separator field (plain space by default)", () => {
+test("pi-bar has no separator field (plain space by default)", () => {
   assert.doesNotMatch(statuslineSource, /separator:/);
   assert.doesNotMatch(statuslineSource, /" - "/);
 });

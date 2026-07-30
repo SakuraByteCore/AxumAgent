@@ -1,5 +1,5 @@
 {
-  "name": "pi-statusline",
+  "name": "pi-bar",
   "version": "0.1.0",
   "description": "High-performance powerline-style status bar for pi-coding-agent (single-file, zero native deps, inline settings, inert without usage providers)",
   "type": "module",

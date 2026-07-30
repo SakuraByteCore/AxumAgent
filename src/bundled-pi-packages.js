@@ -24,7 +24,7 @@ export const bundledPiPackages = [
   // depends on better-sqlite3 (native C++) which fails on Android/Termux. This
   // local file: copy replaces all native deps with node:crypto + pure-JS file backend.
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
-  { name: "pi-statusline@file:plugin/pi-statusline", packageName: "pi-statusline", extensionPath: "index.ts", android: true },
+  { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
