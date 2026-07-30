@@ -34,6 +34,12 @@ axum web
 axum code
 ```
 
+拡張が壊れて起動できない場合は、bundled extensions を一切読み込まない安全モードで起動できます:
+
+```bash
+axum code --safe
+```
+
 状態確認:
 
 ```bash
@@ -106,6 +112,7 @@ axum doctor
 ```
 
 `doctor` は bundled Pi cache と entrypoint を確認します。
+拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-edit` / `pi-bar` / `pi-goal` を読み込みません。
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザー cache に保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 

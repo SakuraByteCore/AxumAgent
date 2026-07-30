@@ -15,13 +15,14 @@ function usage() {
 
 Usage:
   axum
-  axum code [pi args...]
+  axum code [--safe] [pi args...]
   axum web [--port <port>]
   axum doctor
   axum update
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
+                Use --safe to skip all bundled extensions
   web           Open the local OpenAI-compatible provider setup page
   doctor        Check bundled Pi and extension files
   update        Reinstall Axum from the main branch tarball
@@ -103,6 +104,11 @@ function hasArg(args, name) {
   return args.includes(name) || args.some((arg) => arg.startsWith(`${name}=`));
 }
 
+function splitAxumCodeArgs(passthrough) {
+  const safe = passthrough.includes("--safe");
+  return { safe, piArgs: passthrough.filter((arg) => arg !== "--safe") };
+}
+
 function buildPiEnv() {
   return { ...process.env, AXUM_BUNDLED_PI: "1" };
 }
@@ -110,15 +116,16 @@ function buildPiEnv() {
 function runPi(passthrough) {
   ensureBundledPi();
   const piCli = resolvePiCli();
-  const extensionArgs = resolveBundledExtensions().flatMap((file) => ["-e", file]);
+  const { safe, piArgs } = splitAxumCodeArgs(passthrough);
+  const extensionArgs = safe ? [] : resolveBundledExtensions().flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
-  const defaultArgs = defaults && !hasArg(passthrough, "--provider") && !hasArg(passthrough, "--model")
+  const defaultArgs = defaults && !hasArg(piArgs, "--provider") && !hasArg(piArgs, "--model")
     ? ["--provider", defaults.provider, "--model", defaults.model]
     : [];
   // Disable ambient Pi extensions from the user's global install before adding
-  // Axum's bundled extension set. Otherwise globally installed copies can collide
-  // with the bundled cache copy of the same extension (tools/flags duplicate).
-  const args = [piCli, "-ne", ...extensionArgs, ...defaultArgs, ...passthrough];
+  // Axum's bundled extension set. In safe mode, keep -ne but intentionally skip
+  // every bundled -e entry so a broken extension cannot block startup.
+  const args = [piCli, "-ne", ...extensionArgs, ...defaultArgs, ...piArgs];
   const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv() });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);

@@ -24,7 +24,7 @@ function writePackage(root, name, files = {}) {
 test("axum without args shows Axum command help", () => {
   const result = run([]);
   assert.equal(result.status, 0);
-  assert.match(result.stdout, /Usage:\n  axum\n  axum code \[pi args\.\.\.\]/);
+  assert.match(result.stdout, /Usage:\n  axum\n  axum code \[--safe\] \[pi args\.\.\.\]/);
   assert.match(result.stdout, /axum web/);
   assert.match(result.stdout, /axum update/);
   assert.doesNotMatch(result.stdout, /provider web/);
@@ -81,6 +81,53 @@ class StdinBuffer {
   assert.equal(argv[0], "-ne");
   const expectedExtensionCount = 3;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
+  assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
+});
+
+test("axum code --safe disables ambient extensions without loading bundled extensions", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-safe-"));
+  const agentDir = path.join(dir, "agent");
+  const cache = path.join(dir, "cache");
+  const argvFile = path.join(dir, "argv.json");
+  writePackage(cache, "@earendil-works/pi-coding-agent", {
+    "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
+    "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\n",
+  });
+  writePackage(cache, "@earendil-works/pi-tui", {
+    "dist/stdin-buffer.js": `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}
+`,
+  });
+  writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "pi-bar", { "index.ts": "" });
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--safe", "--help"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.equal(argv[0], "-ne");
+  assert.equal(argv.includes("--safe"), false);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 0);
   assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
 });
 
