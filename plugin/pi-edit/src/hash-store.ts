@@ -71,7 +71,9 @@ export function upsertSnapshot(
   checksum: string,
   lineCount: number,
   hashes: string[],
+  maxPersistLines?: number,
 ): void {
+  if (maxPersistLines !== undefined && lineCount > maxPersistLines) return;
   store.rows.set(path, {
     path,
     checksum,

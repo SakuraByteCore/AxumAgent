@@ -3,7 +3,7 @@ import { initHasher } from "./src/hashline/index.js";
 import { regReplace } from "./src/replace.js";
 import { regRead } from "./src/read.js";
 import { visLines } from "./src/utils.js";
-import { AUTO_READ_MAX } from "./src/constants.js";
+import { AUTO_READ_MAX, AUTO_READ_HASH_MAX } from "./src/constants.js";
 import { readConfig, toggleReplaceMode, toggleAutoRead } from "./src/config.js";
 import { loadHashStore, pruneMissing } from "./src/hash-store.js";
 import { readNormFile } from "./src/file-reader.js";
@@ -61,8 +61,23 @@ export default function (pi: ExtensionAPI): void {
     const filePath = (event.input as Record<string, unknown>)?.path;
     if (typeof filePath !== "string") return;
     try {
-      const { normalized, fileHashes, absolutePath } = await readNormFile(filePath, ctx.cwd, undefined);
+      const { normalized, fileHashes, absolutePath } = await readNormFile(
+        filePath, ctx.cwd, undefined, undefined, undefined, undefined, undefined,
+        { softLineLimit: AUTO_READ_HASH_MAX },
+      );
       if (visLines(normalized).length === 0) return;
+      if (fileHashes.length === 0) {
+        const lineCount = visLines(normalized).length;
+        return {
+          content: [
+            ...(event.content ?? []),
+            {
+              type: "text",
+              text: `\n\n--- Auto-read skipped ---\nFile has ${lineCount} lines (exceeds ${AUTO_READ_HASH_MAX}-line auto-read hash limit). Write/replace succeeded; auto-read skipped to avoid full-file hashing.`,
+            },
+          ],
+        };
+      }
       const preview = await fmtReadPreview(normalized, { limit: AUTO_READ_MAX }, fileHashes, absolutePath);
       return {
         content: [

@@ -1,6 +1,7 @@
-import { MAX_HASH_RETRIES } from "../constants.js";
+import { MAX_HASH_RETRIES, MAX_HASH_LINES } from "../constants.js";
 import { xxh32, contentChecksum, initHasher } from "./hasher.js";
 import { loadHashStore, type HashStore, getSnapshot, upsertSnapshot, flushStore } from "../hash-store.js";
+import { visLines } from "../utils.js";
 
 export { initHasher };
 
@@ -59,6 +60,10 @@ export function _lineHashesPure(content: string): string[] {
   return hashes;
 }
 
+function lineCountOf(content: string): number {
+  return visLines(content).length;
+}
+
 export async function lineHashes(
   content: string,
   path?: string,
@@ -73,7 +78,7 @@ export async function lineHashes(
   if (previous) {
     const newHashes = mapStableHashes(previous.content, previous.hashes, content, previous.removedHashes);
     if (persist !== false) {
-      upsertSnapshot(hashStore, path, contentChecksum(content), content.split("\n").length, newHashes);
+      upsertSnapshot(hashStore, path, contentChecksum(content), lineCountOf(content), newHashes, MAX_HASH_LINES);
       await flushStore(hashStore);
     }
     return newHashes;
@@ -84,7 +89,7 @@ export async function lineHashes(
 
   const newHashes = _lineHashesPure(content);
   if (persist !== false) {
-    upsertSnapshot(hashStore, path, contentChecksum(content), content.split("\n").length, newHashes);
+    upsertSnapshot(hashStore, path, contentChecksum(content), lineCountOf(content), newHashes, MAX_HASH_LINES);
     await flushStore(hashStore);
   }
   return newHashes;

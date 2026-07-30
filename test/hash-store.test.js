@@ -49,7 +49,8 @@ function makeStore(storeFile, storeDir) {
     return null;
   }
 
-  function upsertSnapshot(s, p, ck, lc, h, c) {
+  function upsertSnapshot(s, p, ck, lc, h, c, maxPersistLines) {
+    if (maxPersistLines !== undefined && lc > maxPersistLines) return;
     s.rows.set(p, {
       path: p,
       checksum: ck,
@@ -162,4 +163,47 @@ test("hash-store prune removes missing files", async () => {
   const raw = JSON.parse(fs.readFileSync(storeFile, "utf8"));
   assert.equal(raw.length, 1, "only the existing file should remain");
   assert.equal(raw[0].path, dir + "/real.ts");
+});
+
+test("upsertSnapshot skips persistence when lineCount exceeds maxPersistLines", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-hash-maxpersist-"));
+  const storeFile = path.join(dir, "hash-store.json");
+  const { loadHashStore, upsertSnapshot, getSnapshot, flushStore } = makeStore(storeFile, dir);
+
+  const store = await loadHashStore();
+  // 20001 lines exceeding a 20000-line cap
+  upsertSnapshot(store, "/fake/big.ts", "cbig", 20001, new Array(20001).fill("h"), "big-content", 20000);
+  flushStore(store);
+
+  // Not persisted: getSnapshot returns null
+  assert.equal(getSnapshot(store, "/fake/big.ts", "big-content"), null);
+  // Store rows empty
+  assert.equal(store.rows.size, 0);
+});
+
+test("upsertSnapshot persists when lineCount is within maxPersistLines", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-hash-within-"));
+  const storeFile = path.join(dir, "hash-store.json");
+  const { loadHashStore, upsertSnapshot, getSnapshot, flushStore } = makeStore(storeFile, dir);
+
+  const store = await loadHashStore();
+  // 20000 lines exactly at the cap (not exceeding)
+  upsertSnapshot(store, "/fake/exact.ts", "cexact", 20000, new Array(20000).fill("h"), "exact-content", 20000);
+  flushStore(store);
+
+  const got = getSnapshot(store, "/fake/exact.ts", "exact-content");
+  assert.equal(got.length, 20000);
+});
+
+test("upsertSnapshot with no maxPersistLines always persists", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-hash-nolimit-"));
+  const storeFile = path.join(dir, "hash-store.json");
+  const { loadHashStore, upsertSnapshot, getSnapshot, flushStore } = makeStore(storeFile, dir);
+
+  const store = await loadHashStore();
+  upsertSnapshot(store, "/fake/huge.ts", "chuge", 999999, ["h"], "huge");
+  flushStore(store);
+
+  const got = getSnapshot(store, "/fake/huge.ts", "huge");
+  assert.deepEqual(got, ["h"]);
 });

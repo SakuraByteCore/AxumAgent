@@ -39,6 +39,7 @@ export async function readNormFile(
   preloadedFile?: LFile,
   maxLines?: number,
   store?: HashStore,
+  options?: { softLineLimit?: number; skipHash?: boolean },
 ): Promise<NormFile> {
   const absolutePath = toCwd(path, cwd);
   const resolvedPath = await resolveTarget(absolutePath);
@@ -51,15 +52,22 @@ export async function readNormFile(
   const { bom, text: rawContent } = stripBOM(file.text);
   const originalEnding = detectEnding(rawContent);
   const normalized = toLF(rawContent);
+  const lineCount = visLines(normalized).length;
   if (maxLines !== undefined) {
-    const lineCount = visLines(normalized).length;
     if (lineCount > maxLines) {
       throw new Error(
         `[E_FILE_TOO_LARGE] ${path} has ${lineCount} lines, exceeding the ${maxLines}-line edit limit.`
       );
     }
   }
-  const fileHashes = await lineHashes(normalized, resolvedPath, undefined, store);
+  const softLimit = options?.softLineLimit;
+  const tooLargeForHash = softLimit !== undefined && lineCount > softLimit;
+  let fileHashes: string[];
+  if (options?.skipHash || tooLargeForHash) {
+    fileHashes = [];
+  } else {
+    fileHashes = await lineHashes(normalized, resolvedPath, undefined, store);
+  }
   return {
     absolutePath: resolvedPath,
     normalized,
