@@ -38,6 +38,13 @@ interface Segment {
 	visible: boolean;
 }
 
+// Minimal entry shape used for time tracking; avoids importing the full
+// SessionEntry union. Keeps pi-bar decoupled from upstream session internals.
+interface SessionEntryLike {
+	type: string;
+	timestamp: string;
+}
+
 interface SegEvent {
 	id?: string;
 	text?: string;
@@ -81,8 +88,8 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "tokens", "context-usage"],
-	right: ["messages", "model", "sub-hourly", "sub-weekly"],
+	left: ["git-branch", "git-head", "tokens", "context-usage"],
+	right: ["messages", "work-time", "model", "sub-hourly", "sub-weekly"],
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "blocks",
@@ -201,16 +208,28 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 }
 
 export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string[] {
-	// First line: git-branch segment (project path + branch), left-aligned.
+	// First line: git-branch (left) + messages (right).
 	const header = segs.get("git-branch");
-	const firstLine = header?.visible && header.text
-		? truncateToWidth(renderSegment(header, settings, theme), width, "\u2026")
-		: "";
+	const msgs = segs.get("messages");
+	const leftTxt = header?.visible && header.text ? renderSegment(header, settings, theme) : "";
+	const rightTxt = msgs?.visible && msgs.text ? renderSegment(msgs, settings, theme) : "";
+	const firstLine = layoutPair(leftTxt, rightTxt, width);
+
 	// Second line: all remaining segments in the configured left/right order.
-	const lineLeft = settings.left.filter((id) => id !== "git-branch");
-	const lineRight = settings.right.filter((id) => id !== "git-branch");
+	const lineLeft = settings.left.filter((id) => id !== "git-branch" && id !== "messages");
+	const lineRight = settings.right.filter((id) => id !== "git-branch" && id !== "messages");
 	const secondLine = renderLine(lineLeft, lineRight, segs, settings, theme, width);
 	return [firstLine, secondLine];
+}
+
+function layoutPair(leftTxt: string, rightTxt: string, width: number): string {
+	const lw = visibleWidth(leftTxt);
+	const rw = visibleWidth(rightTxt);
+	if (lw + rw + 1 > width) {
+		return truncateToWidth(`${leftTxt} ${rightTxt}`.trim(), width, "\u2026");
+	}
+	const pad = Math.max(1, width - lw - rw);
+	return `${leftTxt}${" ".repeat(pad)}${rightTxt}`;
 }
 
 function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string {
@@ -263,6 +282,17 @@ function fmtTokens(n: number): string {
 	return `${Math.round(n / 1_000_000)}M`;
 }
 
+// Duration as compact "Xh Ym" / "Xm" / "Xs", dropping zero leading units.
+function fmtDuration(ms: number): string {
+	if (ms < 0) ms = 0;
+	const s = Math.floor(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	if (m < 60) return `${m}m`;
+	const h = Math.floor(m / 60);
+	return `${h}h ${m % 60}m`;
+}
+
 function displayPath(cwd: string, home: string): string {
 	return home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 }
@@ -303,6 +333,8 @@ export default function (pi: ExtensionAPI): void {
 	let settings: Settings = DEFAULTS;
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
+	// Active agent run start (epoch ms); undefined when idle. See agent_start/agent_settled.
+	let workStartMs: number | undefined;
 
 	// Register API surface for other extensions (kept compatible with the
 	// upstream event contract so segment emitters keep working transparently).
@@ -378,9 +410,11 @@ export default function (pi: ExtensionAPI): void {
 		const b = gitBranch(ctx.cwd);
 		if (!b) {
 			pi.events.emit("pi-bar:update", { id: "git-branch", text: undefined });
+			pi.events.emit("pi-bar:update", { id: "git-head", text: undefined });
 			return;
 		}
-		pi.events.emit("pi-bar:update", { id: "git-branch", text: `${displayPath(ctx.cwd, homedir())} (${b})`, color: "mdHeading" });
+		pi.events.emit("pi-bar:update", { id: "git-branch", text: displayPath(ctx.cwd, homedir()), color: "mdHeading" });
+		pi.events.emit("pi-bar:update", { id: "git-head", text: b, color: "mdLink" });
 	}
 
 	function emitTokens(ctx: ExtensionContext): void {
@@ -388,7 +422,8 @@ export default function (pi: ExtensionAPI): void {
 		let to = 0;
 		let cost = 0;
 		let msgCount = 0;
-		for (const e of ctx.sessionManager.getEntries()) {
+		const entries = ctx.sessionManager.getEntries();
+		for (const e of entries) {
 			if (e.type !== "message") continue;
 			msgCount += 1;
 			const m = (e as { message: { role?: string; usage?: { input: number; output: number; cost?: { total: number } } } }).message;
@@ -398,6 +433,7 @@ export default function (pi: ExtensionAPI): void {
 			cost += m.usage.cost?.total ?? 0;
 		}
 		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
+		emitWorkTime(ctx);
 		if (ti === 0 && to === 0) {
 			pi.events.emit("pi-bar:update", { id: "tokens", text: "\u21910 \u21930", color: "text" });
 			return;
@@ -405,6 +441,15 @@ export default function (pi: ExtensionAPI): void {
 		const parts = [`\u2191${fmtTokens(ti)}`, `\u2193${fmtTokens(to)}`];
 		if (cost > 0) parts.push(`$${cost.toFixed(2)}`);
 		pi.events.emit("pi-bar:update", { id: "tokens", text: parts.join(" "), color: "text" });
+	}
+
+	function emitWorkTime(ctx: ExtensionContext): void {
+		const entries = ctx.sessionManager.getEntries() as unknown as SessionEntryLike[];
+		const first = entries[0];
+		const startMs = first ? Date.parse(first.timestamp) : 0;
+		const totalMs = Number.isFinite(startMs) ? Date.now() - startMs : 0;
+		const workMs = workStartMs ? Date.now() - workStartMs : 0;
+		pi.events.emit("pi-bar:update", { id: "work-time", text: `${fmtDuration(workMs)} / ${fmtDuration(totalMs)}`, color: "syntaxComment" });
 	}
 
 	function emitContext(ctx: ExtensionContext): void {
@@ -417,7 +462,7 @@ export default function (pi: ExtensionAPI): void {
 		const limit = ctx.model?.contextWindow ?? u.contextWindow;
 		pi.events.emit("pi-bar:update", {
 			id: "context-usage",
-			text: fmtTokens(u.tokens),
+			text: "",
 			suffix: `${pct}% / ${fmtTokens(limit)}`,
 			color: "syntaxString",
 		});
@@ -499,6 +544,8 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {
+		workStartMs = Date.now();
+		emitWorkTime(ctx);
 		emitContext(ctx);
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator({ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS });
@@ -507,6 +554,8 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
+		workStartMs = undefined;
+		emitWorkTime(ctx);
 		emitContext(ctx);
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator();

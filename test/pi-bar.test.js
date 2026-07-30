@@ -41,10 +41,12 @@ test("working indicator shows Reimu frames via host API (no plugin timer)", () =
   assert.doesNotMatch(statuslineSource, /BREATH_FRAMES|WORKING_LIGHT_FRAMES|WORKING_CURSOR_FRAMES|breathTimer/);
 });
 
-test("git-branch segment renders project path plus branch as `~/... (name)`", () => {
+test("git-branch shows path on line 1, git-head shows branch on line 2", () => {
   assert.match(statuslineSource, /function displayPath\(cwd: string, home: string\): string \{/);
-  // Branch name composed with a parenthesized display path on the same text.
-  assert.match(statuslineSource, /`\$\{displayPath\(ctx\.cwd, homedir\(\)\)\} \(\$\{b\}\)`/);
+  // Line 1: git-branch holds the display path only.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: displayPath\(ctx\.cwd, homedir\(\)\), color: "mdHeading" \}\)/);
+  // Line 2 leftmost: git-head holds the bare branch name in mdLink.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: b, color: "mdLink" \}\)/);
 });
 
 test("renderBar returns a two-line array with git-branch isolated on the first line", () => {
@@ -52,10 +54,11 @@ test("renderBar returns a two-line array with git-branch isolated on the first l
   assert.match(statuslineSource, /function renderBar\(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number\): string\[\]/);
   const body = statuslineSource.match(/function renderBar\([\s\S]*?\n\}/)?.[0] ?? "";
   assert.match(body, /const header = segs\.get\("git-branch"\)/);
+  assert.match(body, /const msgs = segs\.get\("messages"\)/);
   assert.match(body, /return \[firstLine, secondLine\]/);
-  // Second line renders left/right after filtering git-branch out of both sides.
-  assert.match(body, /settings\.left\.filter\(\(id\) => id !== "git-branch"\)/);
-  assert.match(body, /settings\.right\.filter\(\(id\) => id !== "git-branch"\)/);
+  // Second line renders left/right after filtering git-branch and messages out.
+  assert.match(body, /settings\.left\.filter\(\(id\) => id !== "git-branch" && id !== "messages"\)/);
+  assert.match(body, /settings\.right\.filter\(\(id\) => id !== "git-branch" && id !== "messages"\)/);
 });
 
 test("messages segment counts session messages and sits on the right before model", () => {
@@ -63,10 +66,20 @@ test("messages segment counts session messages and sits on the right before mode
   assert.match(statuslineSource, /let msgCount = 0;/);
   assert.match(statuslineSource, /if \(e\.type !== "message"\) continue;[\s\S]*?msgCount \+= 1;/);
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "messages", text: `#\$\{msgCount\}`, color: "thinkingMedium" \}\)/);
-  assert.match(statuslineSource, /right: \["messages", "model", "sub-hourly", "sub-weekly"\]/);
+  assert.match(statuslineSource, /right: \["messages", "work-time", "model", "sub-hourly", "sub-weekly"\]/);
 });
 
 test("model segment strips provider prefix from model id", () => {
   assert.match(statuslineSource, /const name = m\.id\.lastIndexOf\("\/"\) >= 0 \? m\.id\.slice\(m\.id\.lastIndexOf\("\/"\) \+ 1\) : m\.id;/);
   assert.match(statuslineSource, /text = lvl === "off" \? `\$\{name\} \\u00b7 off` : `\$\{name\} \\u00b7 \$\{lvl\}`/);
+});
+
+test("work-time segment shows current run / session total from agent_start to settled", () => {
+  assert.match(statuslineSource, /function fmtDuration\(ms: number\): string \{/);
+  assert.match(statuslineSource, /let workStartMs: number \| undefined;/);
+  // agent_start sets the active run start, agent_settled clears it.
+  assert.match(statuslineSource, /pi\.on\("agent_start", async \(_event, ctx\) => \{[\s\S]*?workStartMs = Date\.now\(\)/);
+  assert.match(statuslineSource, /pi\.on\("agent_settled", async \(_event, ctx\) => \{[\s\S]*?workStartMs = undefined/);
+  // Segment text formats as "cur / total" in syntaxComment green.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "work-time", text: `\$\{fmtDuration\(workMs\)\} \/ \$\{fmtDuration\(totalMs\)\}`, color: "syntaxComment" \}\)/);
 });
