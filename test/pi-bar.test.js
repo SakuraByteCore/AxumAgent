@@ -43,10 +43,33 @@ test("working indicator shows Reimu frames via host API (no plugin timer)", () =
 
 test("git-branch shows path on line 1, git-head shows branch on line 2", () => {
   assert.match(statuslineSource, /function displayPath\(cwd: string, home: string\): string \{/);
-  // Line 1: git-branch holds the display path only.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: displayPath\(ctx\.cwd, homedir\(\)\), color: "mdHeading" \}\)/);
-  // Line 2 leftmost: git-head holds the bare branch name in mdLink.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: b, color: "mdLink" \}\)/);
+  // emitGit hoists the display path into a local for reuse across branches.
+  assert.match(statuslineSource, /const path = displayPath\(ctx\.cwd, homedir\(\)\);/);
+  // Line 1: git-branch holds the display path only (both svn and git paths).
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/);
+  // Line 2 leftmost: git branch name is prefixed with "git." in mdLink.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: `git\.\$\{b}`, color: "mdLink" \}\)/);
+});
+
+test("isSvn walks up from cwd looking for a .svn directory", () => {
+  assert.match(statuslineSource, /function isSvn\(cwd: string\): boolean \{/);
+  // Ascent loop with parent assignment and root termination via parent === dir.
+  assert.match(statuslineSource, /const parent = dirname\(dir\);[\s\S]*?if \(parent === dir\) break;/);
+  assert.match(statuslineSource, /if \(existsSync\(svnDir\) && statSync\(svnDir\)\.isDirectory\(\)\) return true;/);
+  // fs/path imports extended for the probe.
+  assert.match(statuslineSource, /import \{ existsSync, readFileSync, statSync \} from "node:fs";/);
+  assert.match(statuslineSource, /import \{ dirname, join \} from "node:path";/);
+});
+
+test("emitGit precedence is svn > git > empty", () => {
+  const body = statuslineSource.match(/function emitGit[\s\S]*?\n\t}/)?.[0] ?? "";
+  // svn checked first and short-circuits before gitBranch.
+  assert.match(body, /if \(isSvn\(ctx\.cwd\)\) \{[\s\S]*?pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: "svn", color: "mdLink" \}\)[\s\S]*?return;/);
+  // svn keeps the path on line 1, git keeps the path on line 1 too.
+  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/g);
+  // empty placeholder: both segments cleared (text: undefined) when neither vcs applies.
+  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: undefined \}\)/);
+  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: undefined \}\)/);
 });
 
 test("renderBar returns a two-line array with git-branch isolated on the first line", () => {

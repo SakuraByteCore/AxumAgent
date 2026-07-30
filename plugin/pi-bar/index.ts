@@ -19,8 +19,8 @@
 import type { ExtensionAPI, ExtensionContext, Theme, ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { Component, TUI } from "@earendil-works/pi-tui";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 
 // ---------------------------------------------------------------------------
@@ -306,6 +306,27 @@ function gitBranch(cwd: string): string | undefined {
 	}
 }
 
+// SVN detection: walk up from cwd looking for a ".svn" metadata dir.
+// SVN >=1.7 keeps a single ".svn" at the working copy root, so ascent is
+// required. Pure directory-stat probe, no subprocess spawn (matches the
+// lightweight file-only style of gitBranch). svn outranks git wherever both
+// apply; see emitGit for the precedence order.
+function isSvn(cwd: string): boolean {
+	let dir = cwd;
+	try {
+		while (true) {
+			const svnDir = join(dir, ".svn");
+			if (existsSync(svnDir) && statSync(svnDir).isDirectory()) return true;
+			const parent = dirname(dir);
+			if (parent === dir) break;
+			dir = parent;
+		}
+	} catch {
+		// stat failures are rare; treat as "not svn" and fall through to git.
+	}
+	return false;
+}
+
 function usageColor(pct: number): string {
 	return pct > 80 ? "error" : pct > 60 ? "warning" : "muted";
 }
@@ -407,14 +428,22 @@ export default function (pi: ExtensionAPI): void {
 	// --- Built-in producers ---
 
 	function emitGit(ctx: ExtensionContext): void {
+		const path = displayPath(ctx.cwd, homedir());
+		// Precedence: svn > git > empty.
+		// svn outranks git: a working copy checked out under a git repo shows "svn".
+		if (isSvn(ctx.cwd)) {
+			pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
+			pi.events.emit("pi-bar:update", { id: "git-head", text: "svn", color: "mdLink" });
+			return;
+		}
 		const b = gitBranch(ctx.cwd);
 		if (!b) {
 			pi.events.emit("pi-bar:update", { id: "git-branch", text: undefined });
 			pi.events.emit("pi-bar:update", { id: "git-head", text: undefined });
 			return;
 		}
-		pi.events.emit("pi-bar:update", { id: "git-branch", text: displayPath(ctx.cwd, homedir()), color: "mdHeading" });
-		pi.events.emit("pi-bar:update", { id: "git-head", text: b, color: "mdLink" });
+		pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
+		pi.events.emit("pi-bar:update", { id: "git-head", text: `git.${b}`, color: "mdLink" });
 	}
 
 	function emitTokens(ctx: ExtensionContext): void {
