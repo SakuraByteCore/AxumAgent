@@ -178,7 +178,7 @@ Rules:
 - The range is inclusive: every line from start_hash through end_hash is deleted.
 - content_lines is literal file content. Never include the HASH\u2502 prefix.
 - To delete lines, use content_lines: [].
-- Budget: total content_lines across all edits is capped at ${MAX_REPLACE_ADDED_LINES} lines (use `write` for larger inserts); the inline diff is summarized when the result exceeds ${MAX_RESULT_HASH_LINES} lines.`;
+- Budget: total content_lines across all edits is capped at ${MAX_REPLACE_ADDED_LINES} lines (use \`write\` for larger inserts); the inline diff is summarized when the result exceeds ${MAX_RESULT_HASH_LINES} lines.`;
 
   return {
     name: "replace",
