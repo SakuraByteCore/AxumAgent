@@ -64,31 +64,55 @@ function lineCountOf(content: string): number {
   return visLines(content).length;
 }
 
+export interface LineHashOptions {
+  persist?: boolean;
+  // Soft cap on result file line count. When the new content exceeds this, the
+  // hash store is not touched (no upsert, no flush) and hashes are computed in
+  // memory only. Keeps the on-disk store bounded for huge replacements.
+  maxResultHashLines?: number;
+}
+
+function resultOverflows(content: string, cap?: number): boolean {
+  if (cap === undefined) return false;
+  return lineCountOf(content) > cap;
+}
+
 export async function lineHashes(
   content: string,
   path?: string,
   previous?: { content: string; hashes: string[]; removedHashes?: Set<string> },
   store?: HashStore,
   persist?: boolean,
+  options?: LineHashOptions,
 ): Promise<string[]> {
   if (!path) return _lineHashesPure(content);
+
+  // Merge legacy positional `persist` with the options bag.
+  const wantPersist = (options?.persist ?? persist) !== false;
+  const overflowCap = options?.maxResultHashLines;
+  const overflow = resultOverflows(content, overflowCap);
 
   const hashStore = store ?? (await loadHashStore());
 
   if (previous) {
     const newHashes = mapStableHashes(previous.content, previous.hashes, content, previous.removedHashes);
-    if (persist !== false) {
+    // Skip persistence when the caller disabled it OR the result overflowed the cap.
+    if (wantPersist && !overflow) {
       upsertSnapshot(hashStore, path, contentChecksum(content), lineCountOf(content), newHashes, MAX_HASH_LINES);
       await flushStore(hashStore);
     }
     return newHashes;
   }
 
-  const cached = getSnapshot(hashStore, path, contentChecksum(content));
-  if (cached) return cached;
+  // Snapshot reuse only makes sense for persisted snapshots; overflow results are
+  // never persisted, so do not consult the store for them.
+  if (!overflow) {
+    const cached = getSnapshot(hashStore, path, contentChecksum(content));
+    if (cached) return cached;
+  }
 
   const newHashes = _lineHashesPure(content);
-  if (persist !== false) {
+  if (wantPersist && !overflow) {
     upsertSnapshot(hashStore, path, contentChecksum(content), lineCountOf(content), newHashes, MAX_HASH_LINES);
     await flushStore(hashStore);
   }

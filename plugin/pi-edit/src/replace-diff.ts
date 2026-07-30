@@ -17,19 +17,42 @@ export function stripBOM(content: string): { bom: string; text: string } {
   return content.startsWith("\uFEFF") ? { bom: "\uFEFF", text: content.slice(1) } : { bom: "", text: content };
 }
 
+function lineCountOf(content: string): number {
+  if (content.length === 0) return 0;
+  return content.split("\n").length;
+}
+
 // Pure-JS line diff (replacing the `diff` npm package).
 // Produces a unified-diff-like text with +/- prefixes.
+// When old+new line count exceeds `maxDiffLines` the full O(n*m) LCS is skipped:
+// a compact summary hunk is returned instead and `truncated` is set to true.
 export function genDiff(
   original: string,
   modified: string,
   context = 3,
   newHashes?: string[],
   oldHashes?: string[],
-): { diff: string } {
+  maxDiffLines?: number,
+): { diff: string; truncated?: boolean } {
   const oldLines = original.length === 0 ? [] : original.split("\n");
   const newLines = modified.length === 0 ? [] : modified.split("\n");
+  const budget = maxDiffLines ?? Infinity;
+  if (oldLines.length + newLines.length > budget) {
+    return {
+      diff: diffSummary(oldLines.length, newLines.length),
+      truncated: true,
+    };
+  }
   const hunks = computeLcsDiff(oldLines, newLines, context, oldHashes, newHashes);
   return { diff: hunks.join("\n") };
+}
+
+function diffSummary(oldLen: number, newLen: number): string {
+  return [
+    "@@ diff truncated @@",
+    `[summary] ${oldLen} original line(s) -> ${newLen} result line(s). Output exceeds diff budget; full LCS omitted.`,
+    "[hint] Call read() to inspect the updated file instead of relying on the inline diff.",
+  ].join("\n");
 }
 
 function computeLcsDiff(

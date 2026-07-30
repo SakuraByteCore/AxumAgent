@@ -6,3 +6,12 @@ export const MAX_HASH_RETRIES = 262144;
 export const AUTO_READ_MAX = 2000;
 export const AUTO_READ_HASH_MAX = 20000;
 export const MAX_HASH_LINES = 20000;
+export const MAX_REPLACE_ADDED_LINES = 4000;
+
+// Soft cap on total content_lines across all edits in one replace call.
+// Exceeding it rejects the edit with [E_REPLACE_TOO_LARGE] so callers fall back to `write`.
+export const MAX_RESULT_HASH_LINES = MAX_HASH_LINES;
+
+// Budget for genDiff output. When old+new line count exceeds this, the full LCS
+// diff is skipped and a compact summary hunk is returned instead (truncated: true).
+export const MAX_DIFF_LINES = 6000;

@@ -3,8 +3,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { genDiff, restoreEndings } from "./replace-diff.js";
 import { readNormFile, fileSnap } from "./file-reader.js";
 import { normReq } from "./replace-normalize.js";
-import { isRec, has, rejectUnknownFields, abortIf } from "./utils.js";
-import { MAX_HASH_LINES } from "./constants.js";
+import { isRec, has, rejectUnknownFields, abortIf, visLines } from "./utils.js";
+import { MAX_HASH_LINES, MAX_REPLACE_ADDED_LINES, MAX_RESULT_HASH_LINES, MAX_DIFF_LINES } from "./constants.js";
 import { resolveTarget, writeAtomic } from "./fs-write.js";
 import { applyEdits, lineHashes, resEdits, type HTEdit } from "./hashline/index.js";
 import { toCwd } from "./paths.js";
@@ -75,6 +75,10 @@ interface PipelineResult {
   noopEdits?: { editIndex: number; loc: string; currentContent: string }[];
   totalAddedLines: number;
   totalRemovedLines: number;
+  // True when result line count exceeds MAX_RESULT_HASH_LINES. In that case hashes
+  // were computed in memory only (not persisted) and callers should skip the full
+  // inline diff.
+  hashOverflow: boolean;
 }
 
 export async function execPipeline(
@@ -88,6 +92,16 @@ export async function execPipeline(
   const path = params.path;
   const toolEdits = Array.isArray(params.changes) ? params.changes : [];
   if (toolEdits.length === 0) throw new Error('[E_BAD_SHAPE] Edit request requires a non-empty "changes" array.');
+
+  // Pre-flight: total content_lines across all edits must stay within budget.
+  // Large inserts should go through `write` instead of inflating replace payloads.
+  let proposedAddedLines = 0;
+  for (const edit of toolEdits) {
+    proposedAddedLines += Array.isArray((edit as { content_lines?: unknown }).content_lines) ? (edit as { content_lines: unknown[] }).content_lines.length : 0;
+  }
+  if (proposedAddedLines > MAX_REPLACE_ADDED_LINES) {
+    throw new Error(`[E_REPLACE_TOO_LARGE] The total number of content_lines (${proposedAddedLines}) exceeds the ${MAX_REPLACE_ADDED_LINES}-line replace budget. Use the \`write\` tool for large inserts and full-file rewrites.`);
+  }
   const hashStore = store ?? (await loadHashStore());
 
   const { normalized: originalNormalized, bom, originalEnding, fileHashes: originalHashes, hadUtf8DecodeErrors, absolutePath } = await readNormFile(
@@ -109,7 +123,17 @@ export async function execPipeline(
     }
   }
 
-  const resultHashes = await lineHashes(result, absolutePath, { content: originalNormalized, hashes: originalHashes, removedHashes }, hashStore, noPersist !== true);
+  const resultLineCount = visLines(result).length;
+  const hashOverflow = resultLineCount > MAX_RESULT_HASH_LINES;
+
+  // On overflow do not persist and do not reuse a stale snapshot: compute in memory.
+  const resultHashes = await lineHashes(
+    result, absolutePath,
+    { content: originalNormalized, hashes: originalHashes, removedHashes },
+    hashStore,
+    noPersist !== true,
+    { maxResultHashLines: MAX_RESULT_HASH_LINES },
+  );
   const warnings = [...(anchorResult.warnings ?? [])];
 
   let totalAddedLines = 0;
@@ -129,6 +153,7 @@ export async function execPipeline(
     firstChangedLine: anchorResult.firstChangedLine, lastChangedLine: anchorResult.lastChangedLine,
     resultHashes, originalHashes, totalAddedLines, totalRemovedLines,
     noopEdits: anchorResult.noopEdits,
+    hashOverflow,
   };
 }
 
@@ -152,7 +177,8 @@ Rules:
 - Anchors must be 3-char base64 hashes from the most recent read. Stale anchors fail with [E_STALE_ANCHOR].
 - The range is inclusive: every line from start_hash through end_hash is deleted.
 - content_lines is literal file content. Never include the HASH\u2502 prefix.
-- To delete lines, use content_lines: [].`;
+- To delete lines, use content_lines: [].
+- Budget: total content_lines across all edits is capped at ${MAX_REPLACE_ADDED_LINES} lines (use `write` for larger inserts); the inline diff is summarized when the result exceeds ${MAX_RESULT_HASH_LINES} lines.`;
 
   return {
     name: "replace",
@@ -169,7 +195,7 @@ Rules:
       // Inline mutation queue (simplified: no withFileMutationQueue dep).
       const {
         originalNormalized, originalHashes, result, bom, originalEnding, hadUtf8DecodeErrors,
-        warnings, noopEdits, firstChangedLine, lastChangedLine, resultHashes, totalAddedLines, totalRemovedLines,
+        warnings, noopEdits, firstChangedLine, lastChangedLine, resultHashes, totalAddedLines, totalRemovedLines, hashOverflow,
       } = await execPipeline(canonical, ctx.cwd, constants.R_OK | constants.W_OK, signal);
 
       if (originalNormalized === result) {
@@ -182,21 +208,37 @@ Rules:
 
       const allWarnings = [...warnings];
       if (hadUtf8DecodeErrors) allWarnings.push("Non-UTF-8 bytes were shown as U+FFFD; this edit rewrote the file as UTF-8.");
+      if (hashOverflow) {
+        allWarnings.push(`Result file exceeds ${MAX_RESULT_HASH_LINES} lines; hashes were computed in memory and not persisted. Full inline diff skipped.`);
+      }
 
       abortIf(signal);
       await writeAtomic(absolutePath, bom + restoreEndings(result, originalEnding));
       const updatedSnapshotId = (await fileSnap(absolutePath)).snapshotId;
 
-      const diff = genDiff(originalNormalized, result, 4, resultHashes, originalHashes).diff;
+      // On hash overflow skip the full LCS diff: it would allocate an O(n*m) table
+      // and emit a hunk per changed region. Pass empty hash sets so the summary
+      // path in genDiff never touches the persisted store.
+      const diffResult = hashOverflow
+        ? genDiff(originalNormalized, result, 4, [], [], MAX_DIFF_LINES)
+        : genDiff(originalNormalized, result, 4, resultHashes, originalHashes, MAX_DIFF_LINES);
+      const diff = diffResult.diff;
       const summary = `Replaced ${path}: ${totalRemovedLines} line(s) removed, ${totalAddedLines} line(s) added (lines ${firstChangedLine ?? "?"}-${lastChangedLine ?? "?"}).`;
 
       return {
         content: [{ type: "text", text: `${summary}\nSnapshot: ${updatedSnapshotId}${allWarnings.length ? `\nWarnings: ${allWarnings.join("; ")}` : ""}\n\n${diff}` }],
         details: {
           diff,
+          diffTruncated: diffResult.truncated === true,
+          hashOverflow,
           firstChangedLine,
           snapshotId: updatedSnapshotId,
-          metrics: { editsAttempted: canonical.changes.length, noopEditsCount: noopEdits?.length ?? 0, addedLines: totalAddedLines, removedLines: totalRemovedLines },
+          metrics: {
+            editsAttempted: canonical.changes.length,
+            noopEditsCount: noopEdits?.length ?? 0,
+            addedLines: totalAddedLines,
+            removedLines: totalRemovedLines,
+          },
         },
       };
     },
