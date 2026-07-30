@@ -82,7 +82,7 @@ const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
 	left: ["git-branch", "tokens", "context-usage"],
-	right: ["model", "sub-hourly", "sub-weekly"],
+	right: ["messages", "model", "sub-hourly", "sub-weekly"],
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "blocks",
@@ -200,11 +200,24 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 	arr[wi] = { text: t, width: tgt };
 }
 
-export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string {
+export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string[] {
+	// First line: git-branch segment (project path + branch), left-aligned.
+	const header = segs.get("git-branch");
+	const firstLine = header?.visible && header.text
+		? truncateToWidth(renderSegment(header, settings, theme), width, "\u2026")
+		: "";
+	// Second line: all remaining segments in the configured left/right order.
+	const lineLeft = settings.left.filter((id) => id !== "git-branch");
+	const lineRight = settings.right.filter((id) => id !== "git-branch");
+	const secondLine = renderLine(lineLeft, lineRight, segs, settings, theme, width);
+	return [firstLine, secondLine];
+}
+
+function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string {
 	const sep = " ";
 	const sepW = 1;
-	const left = renderSide(settings.left, segs, settings, theme);
-	const right = renderSide(settings.right, segs, settings, theme);
+	const left = renderSide(lineLeft, segs, settings, theme);
+	const right = renderSide(lineRight, segs, settings, theme);
 	const all = left.concat(right);
 	const sepCount = Math.max(0, left.length - 1) + Math.max(0, right.length - 1);
 	const segW = all.reduce((a, s) => a + s.width, 0);
@@ -219,8 +232,8 @@ export function renderBar(segs: Map<string, Segment>, settings: Settings, theme:
 	}
 	const joined = (arr: RSeg[]): RSeg =>
 		arr.length === 0 ? { text: "", width: 0 } : { text: arr.map((s) => s.text).join(sep), width: arr.reduce((a, s) => a + s.width, 0) + (arr.length - 1) * sepW };
-	const l = joined(all.slice(0, left.length));
-	const r = joined(all.slice(left.length));
+	const l = joined(left);
+	const r = joined(right);
 	const pad = Math.max(minPad, width - l.width - r.width);
 	return truncateToWidth(`${l.text}${" ".repeat(pad)}${r.text}`, width, "\u2026");
 }
@@ -248,6 +261,10 @@ function fmtTokens(n: number): string {
 	if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
 	if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	return `${Math.round(n / 1_000_000)}M`;
+}
+
+function displayPath(cwd: string, home: string): string {
+	return home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
 function gitBranch(cwd: string): string | undefined {
@@ -359,21 +376,28 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitGit(ctx: ExtensionContext): void {
 		const b = gitBranch(ctx.cwd);
-		pi.events.emit("pi-bar:update", b ? { id: "git-branch", text: b, color: "mdHeading" } : { id: "git-branch", text: undefined });
+		if (!b) {
+			pi.events.emit("pi-bar:update", { id: "git-branch", text: undefined });
+			return;
+		}
+		pi.events.emit("pi-bar:update", { id: "git-branch", text: `${displayPath(ctx.cwd, homedir())} (${b})`, color: "mdHeading" });
 	}
 
 	function emitTokens(ctx: ExtensionContext): void {
 		let ti = 0;
 		let to = 0;
 		let cost = 0;
+		let msgCount = 0;
 		for (const e of ctx.sessionManager.getEntries()) {
 			if (e.type !== "message") continue;
+			msgCount += 1;
 			const m = (e as { message: { role?: string; usage?: { input: number; output: number; cost?: { total: number } } } }).message;
 			if (m.role !== "assistant" || !m.usage) continue;
 			ti += m.usage.input;
 			to += m.usage.output;
 			cost += m.usage.cost?.total ?? 0;
 		}
+		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
 		if (ti === 0 && to === 0) {
 			pi.events.emit("pi-bar:update", { id: "tokens", text: "\u21910 \u21930", color: "text" });
 			return;
@@ -390,10 +414,11 @@ export default function (pi: ExtensionAPI): void {
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
+		const limit = ctx.model?.contextWindow ?? u.contextWindow;
 		pi.events.emit("pi-bar:update", {
 			id: "context-usage",
-			text: "",
-			suffix: `${pct}%`,
+			text: fmtTokens(u.tokens),
+			suffix: `${pct}% / ${fmtTokens(limit)}`,
 			color: "syntaxString",
 		});
 	}
@@ -402,10 +427,11 @@ export default function (pi: ExtensionAPI): void {
 	function emitModel(ctx: ExtensionContext): void {
 		const m = ctx.model;
 		if (!m) return;
-		let text = m.id;
+		const name = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
+		let text = name;
 		if (m.reasoning) {
 			const lvl = pi.getThinkingLevel();
-			text = lvl === "off" ? `${m.id} \u00b7 off` : `${m.id} \u00b7 ${lvl}`;
+			text = lvl === "off" ? `${name} \u00b7 off` : `${name} \u00b7 ${lvl}`;
 		}
 		pi.events.emit("pi-bar:update", { id: "model", text, color: "thinkingHigh" });
 	}
@@ -420,7 +446,7 @@ export default function (pi: ExtensionAPI): void {
 				render(width: number): string[] {
 					// Render reads live state; dirty only controls whether the
 					// widget is re-attached. No per-refresh caching needed.
-					return [renderBar(segs, settings, theme, width)];
+					return renderBar(segs, settings, theme, width);
 				},
 				invalidate(): void {
 					// Stateless renderer; nothing to clear.
