@@ -5,10 +5,12 @@ import { readNormFile, fileSnap } from "./file-reader.js";
 import { normReq } from "./replace-normalize.js";
 import { isRec, has, rejectUnknownFields, abortIf, visLines } from "./utils.js";
 import { MAX_HASH_LINES, MAX_REPLACE_ADDED_LINES, MAX_RESULT_HASH_LINES, MAX_DIFF_LINES } from "./constants.js";
-import { resolveTarget, writeAtomic } from "./fs-write.js";
+import { writeAtomic } from "./fs-write.js";
 import { applyEdits, lineHashes, resEdits, type HTEdit } from "./hashline/index.js";
 import { toCwd } from "./paths.js";
 import { loadHashStore, type HashStore } from "./hash-store.js";
+import { Text, Container, Spacer } from "@earendil-works/pi-tui";
+import { readArgPath, formatPath, buildCallHeader, buildShellBox } from "./render.js";
 
 const contentLinesSchema = {
   type: "array",
@@ -157,42 +159,90 @@ export async function execPipeline(
   };
 }
 
-export function buildToolDef(opts: { flat?: boolean }): { name: string; label: string; description: string; parameters: any; execute: any } {
-  const E_DESC = `Replace lines in a text file using HASH anchors from read.
-
-Bulk mode (default): Put all operations on one file in a single replace call. Stack every region into the changes array.
-
-Request structure:
-{
-  "changes": [{ "content_lines": [...], "hash_range_inclusive": ["aB3", "xY7"] }],
-  "path": "src/main.ts"
-}
-
-Fields:
-- content_lines — replacement lines as a JSON array of strings. File content only — no HASH\u2502 prefix.
-- hash_range_inclusive — [start_hash, end_hash] from read output. 3-char base64 hash only.
-- path — file to edit.
-
-Rules:
-- Anchors must be 3-char base64 hashes from the most recent read. Stale anchors fail with [E_STALE_ANCHOR].
-- The range is inclusive: every line from start_hash through end_hash is deleted.
-- content_lines is literal file content. Never include the HASH\u2502 prefix.
-- To delete lines, use content_lines: [].
-- Budget: total content_lines across all edits is capped at ${MAX_REPLACE_ADDED_LINES} lines (use \`write\` for larger inserts); the inline diff is summarized when the result exceeds ${MAX_RESULT_HASH_LINES} lines.`;
+export function buildToolDef(opts: { flat?: boolean }): any {
+  const E_DESC = `Replace lines in a text file using HASH anchors from read. Stack multiple regions for one file into the changes array. Total content_lines capped at ${MAX_REPLACE_ADDED_LINES} lines; use \`write\` for larger inserts or full rewrites.`;
+  const E_SNIPPET = "- Replace lines using 3-char HASH anchors from read; stack multiple changes per file.";
+  const E_GUIDE = [
+    "Anchors must be 3-char base64 hashes from the most recent read. Stale anchors fail with [E_STALE_ANCHOR].",
+    "hash_range_inclusive is inclusive: every line from start_hash through end_hash is deleted. Pass exactly [start_hash, end_hash].",
+    "content_lines is literal file content, one string per line. Never include the HASH\u2502 prefix. To delete lines, use content_lines: [].",
+    "Put all operations on one file in a single replace call — stack every region into the changes array.",
+    `Budget: total content_lines across all edits is capped at ${MAX_REPLACE_ADDED_LINES} lines; the inline diff is summarized when the result exceeds ${MAX_RESULT_HASH_LINES} lines. Use \`write\` for larger inserts.`,
+  ];
 
   return {
     name: "replace",
     label: "Replace",
     description: E_DESC,
+    promptSnippet: E_SNIPPET,
+    promptGuidelines: E_GUIDE,
     parameters: editToolSchema,
+    concurrency: "exclusive",
+    renderShell: "self",
+    renderCall(args: any, theme: any, context: any) {
+      const rawPath = readArgPath(args);
+      const changes = Array.isArray((args as any)?.changes) ? (args as any).changes : [];
+      const suffix = changes.length > 0
+        ? theme.fg("muted", ` \u00b7 ${changes.length} change${changes.length === 1 ? "" : "s"}`)
+        : "";
+      const header = buildCallHeader("replace", theme, rawPath, context.cwd ?? ".", suffix);
+      return buildShellBox(theme, header);
+    },
+    renderResult(result: any, options: any, theme: any, context: any) {
+      const rawPath = readArgPath(context.args);
+      const comp = (context.lastComponent ?? new Container()) as Container;
+      comp.clear();
+      const m = result?.details?.metrics ?? {};
+      const showPath = formatPath(rawPath ?? "<file>", context.cwd ?? ".");
+      if (context.isError) {
+        const errText = (result.content ?? [])
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text || "")
+          .join("\n") || "Error";
+        comp.addChild(new Spacer(1));
+        comp.addChild(new Text(theme.fg("error", errText), 1, 0));
+        return comp;
+      }
+      // Noop summary.
+      if (result?.details?.classification === "noop" || (m.addedLines === 0 && m.removedLines === 0)) {
+        comp.addChild(new Text(
+          `${theme.fg("toolTitle", theme.bold("replace"))} ${theme.fg("accent", showPath)} ${theme.fg("muted", "(no changes)")}`,
+          0, 0,
+        ));
+        return comp;
+      }
+      // Collapsed: one-line summary with +added -removed.
+      if (!options.expanded) {
+        const range = m.firstChangedLine != null && m.lastChangedLine != null
+          ? ` (lines ${m.firstChangedLine}-${m.lastChangedLine})`
+          : "";
+        comp.addChild(new Text(
+          `${theme.fg("toolTitle", theme.bold("replace"))} ${theme.fg("accent", showPath)} ${theme.fg("toolDiffAdded", `+${m.addedLines ?? 0}`)} ${theme.fg("toolDiffRemoved", `-${m.removedLines ?? 0}`)}${theme.fg("muted", range)}`,
+          0, 0,
+        ));
+        return comp;
+      }
+      // Expanded: render the diff and warnings with color.
+      const body = (result.content ?? [])
+        .filter((c: any) => c.type === "text")
+        .map((c: any) => c.text || "")
+        .join("\n");
+      comp.addChild(new Spacer(1));
+      comp.addChild(new Text(theme.fg("toolOutput", body), 1, 0));
+      if (result?.details?.diffTruncated) {
+        comp.addChild(new Text(theme.fg("warning", "[Diff truncated: result exceeds hash line cap]"), 0, 0));
+      }
+      if (result?.details?.hashOverflow) {
+        comp.addChild(new Text(theme.fg("warning", `[Hash overflow: result over ${MAX_RESULT_HASH_LINES} lines; hashes not persisted]`), 0, 0));
+      }
+      return comp;
+    },
     async execute(_toolCallId: string, params: any, signal: AbortSignal | undefined, _onUpdate: any, ctx: any) {
       const canonical = normReq(params) as { path: string; changes: HTEdit[] };
       assertReq(canonical, opts.flat);
       const path = canonical.path;
       const absolutePath = toCwd(path, ctx.cwd);
-      const mutationTargetPath = await resolveTarget(absolutePath);
 
-      // Inline mutation queue (simplified: no withFileMutationQueue dep).
       const {
         originalNormalized, originalHashes, result, bom, originalEnding, hadUtf8DecodeErrors,
         warnings, noopEdits, firstChangedLine, lastChangedLine, resultHashes, totalAddedLines, totalRemovedLines, hashOverflow,
@@ -238,6 +288,8 @@ Rules:
             noopEditsCount: noopEdits?.length ?? 0,
             addedLines: totalAddedLines,
             removedLines: totalRemovedLines,
+            ...(firstChangedLine !== undefined ? { firstChangedLine } : {}),
+            ...(lastChangedLine !== undefined ? { lastChangedLine } : {}),
           },
         },
       };

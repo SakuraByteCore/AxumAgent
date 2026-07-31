@@ -6,7 +6,10 @@ import { toCwd } from "./paths.js";
 import { abortIf } from "./utils.js";
 import { visLines } from "./utils.js";
 import { valAccess } from "./validation.js";
+import { MAX_HASH_LINES } from "./constants.js";
 import { loadP, loadGuide } from "./prompts.js";
+import { Text, Container, Spacer } from "@earendil-works/pi-tui";
+import { readArgPath, formatPath, buildCallHeader, buildShellBox } from "./render.js";
 
 interface ReadParams {
   path: string;
@@ -95,7 +98,9 @@ export async function fmtReadPreview(
   const selected = allLines.slice(startLine - 1, endIdx);
   const allHashes = precomputedHashes ?? (path ? await lineHashes(text, path) : await lineHashes(text));
   const selectedHashes = allHashes.slice(startLine - 1, endIdx);
-  const formatted = fmtRegion(selectedHashes, selected);
+  const formatted = precomputedHashes?.length === 0
+    ? selected.join("\n")
+    : fmtRegion(selectedHashes, selected);
 
   const truncation = truncateHead(formatted);
   if (truncation.firstLineExceedsLimit) {
@@ -120,33 +125,21 @@ export async function fmtReadPreview(
   return { text: preview, truncation: truncation.truncated ? truncation : undefined, ...(nextOffset !== undefined ? { nextOffset } : {}) };
 }
 
-const R_DESC = `Read a text file. Each line is returned as HASH\u2502content.
-
-Key rule: line numbers are NOT part of the output. Use the 3-char HASH to reference lines in replace calls.
-
-HASH format:
-- The HASH is 3 characters from the URL-safe base64 alphabet A-Za-z0-9-_ (e.g. aB3, 4yN, -qk).
-- The content after the \u2502 separator is the line verbatim.
-
-Pagination:
-- Large files return a truncated preview with a pagination hint. Call read again with offset=N to continue.
-- Default cap: ${DEFAULT_MAX_LINES} lines or ${formatSize(DEFAULT_MAX_BYTES)}.
-
-File kinds:
-- Text files are returned as HASH\u2502content lines.
-- Images (JPEG, PNG, GIF, WebP) are returned as visual attachments.
-- Binary files and directories are rejected.
-- Empty files are returned as a single empty-line hash (HASH\u2502). Use replace on that hash to insert content.`;
+const R_DESC = `Read a text file. Each line is returned as HASH\u2502content. Use the 3-char HASH to reference lines in replace calls. Output is capped at ${DEFAULT_MAX_LINES} lines / ${formatSize(DEFAULT_MAX_BYTES)}; use offset=N to continue, and use write for full-file changes on files over ${MAX_HASH_LINES} lines.`;
 
 const R_SNIPPET = "- Use read to get HASH\u2502content lines, then use replace with the 3-char hashes.";
 const R_GUIDE = [
-  "- Use read to get HASH\u2502content for files you need to edit.",
-  "- Reference lines by their 3-char HASH in replace, not by line number.",
-  "- On stale anchor errors, call read again for fresh hashes.",
+  "Use read to get HASH\u2502content for files you need to edit.",
+  "Reference lines by their 3-char HASH in replace, not by line number. Line numbers are NOT part of the output.",
+  "The HASH is 3 characters from the URL-safe base64 alphabet A-Za-z0-9-_ (e.g. aB3, 4yN, -qk); the content after the \u2502 separator is the line verbatim.",
+  "On stale anchor errors, call read again for fresh hashes.",
+  `Large files over ${MAX_HASH_LINES} lines remain readable but do not return hash anchors; use write for full-file changes.`,
+  "Images (JPEG, PNG, GIF, WebP) are returned as visual attachments; binary files and directories are rejected.",
+  "Empty files are returned as a single empty-line hash (HASH\u2502); use replace on that hash to insert content.",
 ];
 
-export function regRead(pi: ExtensionAPI): void {
-  pi.registerTool({
+export function buildReadToolDef(): any {
+  return {
     name: "read",
     label: "Read",
     description: R_DESC,
@@ -162,7 +155,68 @@ export function regRead(pi: ExtensionAPI): void {
       required: ["path"],
       additionalProperties: false,
     },
-    async execute(_toolCallId, params: ReadParams, signal, _onUpdate, ctx) {
+    renderShell: "self",
+    renderCall(args: any, theme: any, context: any) {
+      const rawPath = readArgPath(args);
+      const suffix = args?.offset !== undefined || args?.limit !== undefined
+        ? theme.fg("warning", `:${args.offset ?? 1}${args.limit !== undefined ? `-${(args.offset ?? 1) + args.limit - 1}` : ""}`)
+        : "";
+      const header = buildCallHeader("read", theme, rawPath, context.cwd ?? ".", suffix);
+      return buildShellBox(theme, header);
+    },
+    renderResult(result: any, options: any, theme: any, context: any) {
+      const rawPath = readArgPath(context.args);
+      const comp = (context.lastComponent ?? new Container()) as Container;
+      comp.clear();
+      if (context.isError) {
+        const errText = (result.content ?? [])
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text || "")
+          .join("\n") || "Error";
+        comp.addChild(new Spacer(1));
+        comp.addChild(new Text(theme.fg("error", errText), 1, 0));
+        return comp;
+      }
+      // Collapsed: one-line summary only.
+      if (!options.expanded) {
+        const trunc = result.details?.truncation;
+        const totalLines = trunc?.totalLines ?? result.details?.metrics?.totalLines ?? null;
+        const outLines = result.details?.metrics?.outputLines ?? (trunc?.outputLines ?? null);
+        const showPath = formatPath(rawPath ?? "<file>", context.cwd ?? ".");
+        let summary: string;
+        if (totalLines != null && outLines != null) {
+          summary = `${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", showPath)} ${theme.fg("muted", `(${outLines}/${totalLines} lines)`)}`;
+        } else {
+          summary = `${theme.fg("toolTitle", theme.bold("read"))} ${theme.fg("accent", showPath)}`;
+        }
+        if (!result.details?.hashesAvailable) {
+          summary += ` ${theme.fg("warning", "(no hash anchors)")}`;
+        }
+        comp.addChild(new Text(summary, 0, 0));
+        return comp;
+      }
+      // Expanded: render the file preview text with toolOutput color.
+      const body = (result.content ?? [])
+        .filter((c: any) => c.type === "text")
+        .map((c: any) => c.text || "")
+        .join("\n");
+      comp.addChild(new Spacer(1));
+      comp.addChild(new Text(theme.fg("toolOutput", body), 1, 0));
+      const trunc = result.details?.truncation;
+      if (trunc?.truncated) {
+        const hint = trunc.firstLineExceedsLimit
+          ? `[First line exceeds ${formatSize(trunc.maxBytes ?? DEFAULT_MAX_BYTES)} limit]`
+          : trunc.truncatedBy === "lines"
+            ? `[Truncated: showing ${trunc.outputLines} of ${trunc.totalLines} lines]`
+            : `[Truncated: ${trunc.outputLines} lines shown (${formatSize(trunc.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`;
+        comp.addChild(new Text(theme.fg("warning", hint), 0, 0));
+      }
+      if (!result.details?.hashesAvailable) {
+        comp.addChild(new Text(theme.fg("warning", `[No hash anchors: file over ${MAX_HASH_LINES} lines; use write for full-file changes.]`), 0, 0));
+      }
+      return comp;
+    },
+    async execute(_toolCallId: string, params: ReadParams, signal: AbortSignal | undefined, _onUpdate: any, ctx: any) {
       const rawPath = params.path;
       const absolutePath = toCwd(rawPath, ctx.cwd);
       abortIf(signal);
@@ -177,21 +231,40 @@ export function regRead(pi: ExtensionAPI): void {
         };
         return readResult as any;
       }
-      const { normalized, fileHashes, hadUtf8DecodeErrors } = await readNormFile(rawPath, ctx.cwd, signal, undefined, file);
+      const { normalized, fileHashes, hadUtf8DecodeErrors } = await readNormFile(
+        rawPath, ctx.cwd, signal, undefined, file, undefined, undefined,
+        { softLineLimit: MAX_HASH_LINES },
+      );
       const preview = await fmtReadPreview(normalized, { offset: params.offset, limit: params.limit }, fileHashes, absolutePath);
       const snapshot = await fileSnap(absolutePath);
-      const previewText = hadUtf8DecodeErrors
-        ? `${preview.text}\n\n[Non-UTF-8 bytes shown as U+FFFD; editing rewrites the file as UTF-8.]`
-        : preview.text;
+      const noHashes = fileHashes.length === 0 && visLines(normalized).length > 0;
+      const totalLines = visLines(normalized).length;
+      const outputLines = preview.truncation?.outputLines ?? totalLines;
+      const notices = [
+        ...(hadUtf8DecodeErrors ? ["[Non-UTF-8 bytes shown as U+FFFD; editing rewrites the file as UTF-8.]"] : []),
+        ...(noHashes ? [`[Hashline anchors unavailable for files over ${MAX_HASH_LINES} lines; use write for full-file changes.]`] : []),
+      ];
+      const previewText = notices.length > 0 ? `${preview.text}\n\n${notices.join("\n")}` : preview.text;
       return {
         content: [{ type: "text", text: previewText }],
         details: {
           truncation: preview.truncation,
           snapshotId: snapshot.snapshotId,
+          hashesAvailable: !noHashes,
           ...(preview.nextOffset !== undefined ? { nextOffset: preview.nextOffset } : {}),
-          metrics: { truncated: !!preview.truncation, ...(preview.nextOffset !== undefined ? { next_offset: preview.nextOffset } : {}) },
+          metrics: {
+            truncated: !!preview.truncation,
+            hashesAvailable: !noHashes,
+            totalLines,
+            outputLines,
+            ...(preview.nextOffset !== undefined ? { next_offset: preview.nextOffset } : {}),
+          },
         },
       };
     },
-  });
+  };
+}
+
+export function regRead(pi: ExtensionAPI): void {
+  pi.registerTool(buildReadToolDef());
 }

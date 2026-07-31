@@ -1,11 +1,13 @@
-import { readFile, writeFile, mkdir } from "fs/promises";
-import { configDir, configPath } from "./paths.js";
+import { readFile } from "fs/promises";
+import { configPath } from "./paths.js";
+import { writeAtomic } from "./fs-write.js";
 import { errCode } from "./utils.js";
 
 export type ReplaceMode = "bulk" | "flat";
 export interface Config { replaceMode: ReplaceMode; autoRead: boolean }
 
 const DEFAULT_CONFIG: Config = { replaceMode: "bulk", autoRead: false };
+let configMutation: Promise<void> = Promise.resolve();
 
 function parseConfig(content: string): Config {
   const parsed = JSON.parse(content) as Partial<Config>;
@@ -13,6 +15,12 @@ function parseConfig(content: string): Config {
     replaceMode: parsed.replaceMode === "flat" ? "flat" : "bulk",
     autoRead: parsed.autoRead === true,
   };
+}
+
+async function enqueueConfigMutation<T>(operation: () => Promise<T>): Promise<T> {
+  const result = configMutation.then(operation, operation);
+  configMutation = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 export async function readConfig(): Promise<Config> {
@@ -26,20 +34,23 @@ export async function readConfig(): Promise<Config> {
 }
 
 export async function writeConfig(config: Config): Promise<void> {
-  await mkdir(configDir(), { recursive: true });
-  await writeFile(configPath(), JSON.stringify(config, null, 2), "utf-8");
+  await writeAtomic(configPath(), JSON.stringify(config, null, 2));
 }
 
 export async function toggleReplaceMode(): Promise<ReplaceMode> {
-  const config = await readConfig();
-  config.replaceMode = config.replaceMode === "bulk" ? "flat" : "bulk";
-  await writeConfig(config);
-  return config.replaceMode;
+  return enqueueConfigMutation(async () => {
+    const config = await readConfig();
+    config.replaceMode = config.replaceMode === "bulk" ? "flat" : "bulk";
+    await writeConfig(config);
+    return config.replaceMode;
+  });
 }
 
 export async function toggleAutoRead(): Promise<boolean> {
-  const config = await readConfig();
-  config.autoRead = !config.autoRead;
-  await writeConfig(config);
-  return config.autoRead;
+  return enqueueConfigMutation(async () => {
+    const config = await readConfig();
+    config.autoRead = !config.autoRead;
+    await writeConfig(config);
+    return config.autoRead;
+  });
 }

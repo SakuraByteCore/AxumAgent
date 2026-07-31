@@ -54,7 +54,7 @@ export async function writeAtomic(path: string, content: string): Promise<void> 
   const tempHandle = await open(tempPath, "wx", 0o600);
   try {
     await tempHandle.writeFile(content, "utf-8");
-    if (existingStats) await tempHandle.chmod(existingStats.mode & 0o7777);
+    if (existingStats) await tempHandle.chmod(Number(existingStats.mode) & 0o7777);
   } catch (error) {
     await tempHandle.close();
     try { await rm(tempPath, { force: true }); } catch {}

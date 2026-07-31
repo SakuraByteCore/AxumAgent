@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, mkdirSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { hashStorePath } from "./paths.js";
+import { writeAtomic } from "./fs-write.js";
 
 interface SnapshotRow {
   path: string;
@@ -15,6 +15,8 @@ export interface HashStore {
   readonly rows: Map<string, SnapshotRow>;
   readonly storePath: string;
   dirty: boolean;
+  revision: number;
+  flushQueue?: Promise<void>;
 }
 
 let cached: HashStore | null = null;
@@ -35,11 +37,15 @@ function loadFromDisk(storePath: string): Map<string, SnapshotRow> {
 }
 
 export async function flushStore(store: HashStore): Promise<void> {
-  if (!store.dirty) return;
-  mkdirSync(dirname(store.storePath), { recursive: true });
-  const arr = Array.from(store.rows.values());
-  await writeFile(store.storePath, JSON.stringify(arr), "utf8");
-  store.dirty = false;
+  const operation = (store.flushQueue ?? Promise.resolve()).then(async () => {
+    while (store.dirty) {
+      const revision = store.revision;
+      await writeAtomic(store.storePath, JSON.stringify(Array.from(store.rows.values())));
+      if (store.revision === revision) store.dirty = false;
+    }
+  });
+  store.flushQueue = operation.then(() => undefined, () => undefined);
+  await operation;
 }
 
 export async function loadHashStore(): Promise<HashStore> {
@@ -48,7 +54,7 @@ export async function loadHashStore(): Promise<HashStore> {
   const storeDir = dirname(storePath);
   if (!existsSync(storeDir)) mkdirSync(storeDir, { recursive: true });
   const rows = loadFromDisk(storePath);
-  cached = { rows, storePath, dirty: false };
+  cached = { rows, storePath, dirty: false, revision: 0 };
   return cached;
 }
 
@@ -72,7 +78,7 @@ export function upsertSnapshot(
   lineCount: number,
   hashes: string[],
   maxPersistLines?: number,
-): void {
+ ): void {
   if (maxPersistLines !== undefined && lineCount > maxPersistLines) return;
   store.rows.set(path, {
     path,
@@ -81,6 +87,7 @@ export function upsertSnapshot(
     hashes: JSON.stringify(hashes),
     updated_at: Date.now(),
   });
+  store.revision++;
   store.dirty = true;
 }
 
@@ -92,6 +99,10 @@ export async function pruneMissing(store: HashStore): Promise<void> {
       changed = true;
     }
   }
-  if (changed) store.dirty = true;
+  if (changed) {
+    store.revision++;
+    store.dirty = true;
+  }
   await flushStore(store);
 }
+
