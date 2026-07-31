@@ -38,13 +38,6 @@ interface Segment {
 	visible: boolean;
 }
 
-// Minimal entry shape used for time tracking; avoids importing the full
-// SessionEntry union. Keeps pi-bar decoupled from upstream session internals.
-interface SessionEntryLike {
-	type: string;
-	timestamp: string;
-}
-
 interface SegEvent {
 	id?: string;
 	text?: string;
@@ -472,13 +465,9 @@ export default function (pi: ExtensionAPI): void {
 		pi.events.emit("pi-bar:update", { id: "tokens", text: parts.join(" "), color: "text" });
 	}
 
-	function emitWorkTime(ctx: ExtensionContext): void {
-		const entries = ctx.sessionManager.getEntries() as unknown as SessionEntryLike[];
-		const first = entries[0];
-		const startMs = first ? Date.parse(first.timestamp) : 0;
-		const totalMs = Number.isFinite(startMs) ? Date.now() - startMs : 0;
+	function emitWorkTime(_ctx: ExtensionContext): void {
 		const workMs = workStartMs ? Date.now() - workStartMs : 0;
-		pi.events.emit("pi-bar:update", { id: "work-time", text: `${fmtDuration(workMs)} / ${fmtDuration(totalMs)}`, color: "syntaxComment" });
+		pi.events.emit("pi-bar:update", { id: "work-time", text: fmtDuration(workMs), color: "syntaxComment" });
 	}
 
 	function emitContext(ctx: ExtensionContext): void {
@@ -488,11 +477,10 @@ export default function (pi: ExtensionAPI): void {
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
-		const limit = ctx.model?.contextWindow ?? u.contextWindow;
 		pi.events.emit("pi-bar:update", {
 			id: "context-usage",
 			text: "",
-			suffix: `${pct}% / ${fmtTokens(limit)}`,
+			suffix: `${pct}%`,
 			color: "syntaxString",
 		});
 	}

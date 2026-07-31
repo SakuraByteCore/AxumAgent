@@ -12,7 +12,7 @@ test("pi-bar has no separator field (plain space by default)", () => {
 
 test("context usage renders percent without a leading bar", () => {
   const contextBlock = statuslineSource.match(/id: "context-usage",[\s\S]*?color: "syntaxString",[\s\S]*?}\);/);
-  assert.match(contextBlock[0], /suffix:\s*`\$\{pct\}% \/ \$\{fmtTokens\(limit\)\}`/);
+  assert.match(contextBlock[0], /suffix:\s*`\$\{pct\}%`/);
   assert.doesNotMatch(contextBlock[0], /bar:\s*pct/);
   assert.doesNotMatch(contextBlock[0], /barSegments:/);
 });
@@ -97,12 +97,12 @@ test("model segment strips provider prefix from model id", () => {
   assert.match(statuslineSource, /text = lvl === "off" \? `\$\{name\} \\u00b7 off` : `\$\{name\} \\u00b7 \$\{lvl\}`/);
 });
 
-test("work-time segment shows current run / session total from agent_start to settled", () => {
+test("work-time segment shows current run from agent_start to settled", () => {
   assert.match(statuslineSource, /function fmtDuration\(ms: number\): string \{/);
   assert.match(statuslineSource, /let workStartMs: number \| undefined;/);
   // agent_start sets the active run start, agent_settled clears it.
   assert.match(statuslineSource, /pi\.on\("agent_start", async \(_event, ctx\) => \{[\s\S]*?workStartMs = Date\.now\(\)/);
   assert.match(statuslineSource, /pi\.on\("agent_settled", async \(_event, ctx\) => \{[\s\S]*?workStartMs = undefined/);
-  // Segment text formats as "cur / total" in syntaxComment green.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "work-time", text: `\$\{fmtDuration\(workMs\)\} \/ \$\{fmtDuration\(totalMs\)\}`, color: "syntaxComment" \}\)/);
+  // Segment text formats as the current run duration in syntaxComment green.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "work-time", text: fmtDuration\(workMs\), color: "syntaxComment" \}\)/);
 });
