@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import fs from "node:fs";
-import { ensureBundledPi } from "../src/ensure-bundled-pi.js";
+import { ensureBundledPi, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
 import { getDefaultProviderSelection } from "../src/provider-config.js";
@@ -89,7 +89,9 @@ function printDoctor() {
 
 function runUpdate() {
   console.log("Updating Axum from main branch...");
-  const child = spawn("npm", ["install", "-g", UPDATE_TARBALL], { stdio: "inherit" });
+  const npm = resolveNpmInstallCommand();
+  const args = [...npm.argsPrefix, "install", "-g", UPDATE_TARBALL];
+  const child = spawn(npm.command, args, { stdio: "inherit", shell: npm.shell });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
     process.exit(code ?? 1);

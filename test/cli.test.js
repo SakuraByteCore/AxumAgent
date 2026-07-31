@@ -193,3 +193,25 @@ test("axum update reinstalls from main branch tarball", () => {
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz"]);
 });
+
+
+test("axum update honors explicit npm command for Windows-safe installs", () => {
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-explicit-npm-"));
+  const fakeNpm = path.join(stubDir, "fake-npm.js");
+  const argvFile = path.join(stubDir, "argv-explicit.json");
+  fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
+  fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
+import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));
+`);
+  fs.chmodSync(fakeNpm, 0o755);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "update"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_NPM: fakeNpm },
+  });
+
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Updating Axum from main branch/);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz"]);
+});
