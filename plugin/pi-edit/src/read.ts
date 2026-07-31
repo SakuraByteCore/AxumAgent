@@ -192,7 +192,7 @@ export function buildReadToolDef(): any {
         if (!result.details?.hashesAvailable) {
           summary += ` ${theme.fg("warning", "(no hash anchors)")}`;
         }
-        comp.addChild(new Text(summary, 0, 0));
+        comp.addChild(new Text(summary, 1, 0));
         return comp;
       }
       // Expanded: render the file preview text with toolOutput color.
@@ -209,10 +209,10 @@ export function buildReadToolDef(): any {
           : trunc.truncatedBy === "lines"
             ? `[Truncated: showing ${trunc.outputLines} of ${trunc.totalLines} lines]`
             : `[Truncated: ${trunc.outputLines} lines shown (${formatSize(trunc.maxBytes ?? DEFAULT_MAX_BYTES)} limit)]`;
-        comp.addChild(new Text(theme.fg("warning", hint), 0, 0));
+        comp.addChild(new Text(theme.fg("warning", hint), 1, 0));
       }
       if (!result.details?.hashesAvailable) {
-        comp.addChild(new Text(theme.fg("warning", `[No hash anchors: file over ${MAX_HASH_LINES} lines; use write for full-file changes.]`), 0, 0));
+        comp.addChild(new Text(theme.fg("warning", `[No hash anchors: file over ${MAX_HASH_LINES} lines; use write for full-file changes.]`), 1, 0));
       }
       return comp;
     },

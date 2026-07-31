@@ -207,7 +207,7 @@ export function buildToolDef(opts: { flat?: boolean }): any {
       if (result?.details?.classification === "noop" || (m.addedLines === 0 && m.removedLines === 0)) {
         comp.addChild(new Text(
           `${theme.fg("toolTitle", theme.bold("replace"))} ${theme.fg("accent", showPath)} ${theme.fg("muted", "(no changes)")}`,
-          0, 0,
+          1, 0,
         ));
         return comp;
       }
@@ -218,7 +218,7 @@ export function buildToolDef(opts: { flat?: boolean }): any {
           : "";
         comp.addChild(new Text(
           `${theme.fg("toolTitle", theme.bold("replace"))} ${theme.fg("accent", showPath)} ${theme.fg("toolDiffAdded", `+${m.addedLines ?? 0}`)} ${theme.fg("toolDiffRemoved", `-${m.removedLines ?? 0}`)}${theme.fg("muted", range)}`,
-          0, 0,
+          1, 0,
         ));
         return comp;
       }
@@ -230,10 +230,10 @@ export function buildToolDef(opts: { flat?: boolean }): any {
       comp.addChild(new Spacer(1));
       comp.addChild(new Text(theme.fg("toolOutput", body), 1, 0));
       if (result?.details?.diffTruncated) {
-        comp.addChild(new Text(theme.fg("warning", "[Diff truncated: result exceeds hash line cap]"), 0, 0));
+        comp.addChild(new Text(theme.fg("warning", "[Diff truncated: result exceeds hash line cap]"), 1, 0));
       }
       if (result?.details?.hashOverflow) {
-        comp.addChild(new Text(theme.fg("warning", `[Hash overflow: result over ${MAX_RESULT_HASH_LINES} lines; hashes not persisted]`), 0, 0));
+        comp.addChild(new Text(theme.fg("warning", `[Hash overflow: result over ${MAX_RESULT_HASH_LINES} lines; hashes not persisted]`), 1, 0));
       }
       return comp;
     },

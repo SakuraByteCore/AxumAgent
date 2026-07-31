@@ -57,8 +57,9 @@ export function buildCallHeader(
  * Upstream edit uses Box(1, 1, identity) — the bgFn is set per-state by the
  * caller via setBgFn (toolPendingBg / toolSuccessBg / toolErrorBg). We default
  * to the identity function so the caller's already-styled header text is not
- * double-wrapped. Header is the call/result one-liner; optional body lines are
- * appended below with a spacer, each already styled by the caller.
+ * Matches upstream Box(1, 1) for left padding alignment with renderResult lines.
+ * Header is the call/result one-liner; optional body lines are appended
+ * below with a spacer, each already styled by the caller.
  */
 export function buildShellBox(_theme: ToolTheme, header: string, bodyLines: string[] = []): Box {
   const box = new Box(1, 1, (text: string) => text);
