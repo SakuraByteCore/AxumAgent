@@ -275,15 +275,18 @@ function fmtTokens(n: number): string {
 	return `${Math.round(n / 1_000_000)}M`;
 }
 
-// Duration as compact "Xh Ym" / "Xm" / "Xs", dropping zero leading units.
+// Duration always keeps seconds as the lowest unit so the running timer
+// ticks visibly even once minutes/hours accrue.
 function fmtDuration(ms: number): string {
 	if (ms < 0) ms = 0;
 	const s = Math.floor(ms / 1000);
 	if (s < 60) return `${s}s`;
 	const m = Math.floor(s / 60);
-	if (m < 60) return `${m}m`;
+	const remS = s % 60;
+	if (m < 60) return `${m}m ${remS}s`;
 	const h = Math.floor(m / 60);
-	return `${h}h ${m % 60}m`;
+	const remM = m % 60;
+	return `${h}h ${remM}m ${remS}s`;
 }
 
 function displayPath(cwd: string, home: string): string {
