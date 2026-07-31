@@ -43,12 +43,15 @@ test("working indicator shows Reimu frames via host API (no plugin timer)", () =
 
 test("git-branch shows path on line 1, git-head shows branch on line 2", () => {
   assert.match(statuslineSource, /function displayPath\(cwd: string, home: string\): string \{/);
+  // Windows paths keep the drive and leaf directory while collapsing parents.
+  assert.ok(statuslineSource.includes("const windowsRoot = cwd.match(/^([A-Za-z]:)[\\\\/](?:.*[\\\\/])?([^\\\\/]+)$/);"));
+  assert.ok(statuslineSource.includes("return windowsRoot ? `${windowsRoot[1]}\\\\~\\\\${windowsRoot[2]}` : cwd;"));
   // emitGit hoists the display path into a local for reuse across branches.
   assert.match(statuslineSource, /const path = displayPath\(ctx\.cwd, homedir\(\)\);/);
   // Line 1: git-branch holds the display path only (both svn and git paths).
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/);
   // Line 2 leftmost: git branch name is prefixed with "git." in mdLink.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: `git\.\$\{b}`, color: "mdLink" \}\)/);
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: `git\.\$\{b\}`, color: "mdLink" \}\)/);
 });
 
 test("isSvn walks up from cwd looking for a .svn directory", () => {

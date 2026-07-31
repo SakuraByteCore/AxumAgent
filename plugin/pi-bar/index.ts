@@ -290,7 +290,9 @@ function fmtDuration(ms: number): string {
 }
 
 function displayPath(cwd: string, home: string): string {
-	return home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
+	if (home && cwd.startsWith(home)) return `~${cwd.slice(home.length)}`;
+	const windowsRoot = cwd.match(/^([A-Za-z]:)[\\/](?:.*[\\/])?([^\\/]+)$/);
+	return windowsRoot ? `${windowsRoot[1]}\\~\\${windowsRoot[2]}` : cwd;
 }
 
 function gitBranch(cwd: string): string | undefined {
