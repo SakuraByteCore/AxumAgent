@@ -75,7 +75,10 @@ function patchTermuxAutoInstall(content) {
     '',
   ].join("\n");
   if (!content.includes(needle)) {
-    throw new Error("unable to patch bundled Pi tools-manager: Termux install block not found");
+    // Upstream tools-manager may lack the Android install block (e.g. newer Pi
+    // versions or a stub). The auto-install patch is a UX nicety, not a core
+    // need, so skip it instead of hard-failing startup.
+    return content;
   }
 
   const replacement = [
