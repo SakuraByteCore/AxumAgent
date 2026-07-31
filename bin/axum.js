@@ -6,10 +6,7 @@ import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
 import { getDefaultProviderSelection } from "../src/provider-config.js";
 import { startProviderWeb } from "../src/provider-web.js";
-
-const UPDATE_TARBALL =
-  "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz";
-
+import { getInstalledVersion, resolveTarballUrl, fetchAvailableTags } from "../src/version-config.js";
 function usage() {
   return `Axum Agent
 
@@ -18,14 +15,17 @@ Usage:
   axum code [--safe] [pi args...]
   axum web [--port <port>]
   axum doctor
-  axum update
+  axum versions
+  axum update [version]
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
                 Use --safe to skip all bundled extensions
   web           Open the local OpenAI-compatible provider setup page
   doctor        Check bundled Pi and extension files
-  update        Reinstall Axum from the main branch tarball
+  versions      List published Axum versions and the currently installed one
+  update        Reinstall Axum; without a version argument it pulls the main
+                branch tarball, with a version it pulls that git tag instead
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-edit
@@ -64,7 +64,8 @@ function resolveArgs(argv) {
   if (argv[0] === "web") return { mode: "web", argv: argv.slice(1) };
   if (argv[0] === "code") return { mode: "run", passthrough: argv.slice(1) };
   if (argv[0] === "doctor") return { mode: "doctor" };
-  if (argv[0] === "update") return { mode: "update" };
+  if (argv[0] === "versions") return { mode: "versions" };
+  if (argv[0] === "update") return { mode: "update", version: argv[1] };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
   return { mode: "help" };
 }
@@ -87,10 +88,12 @@ function printDoctor() {
   return 0;
 }
 
-function runUpdate() {
-  console.log("Updating Axum from main branch...");
+function runUpdate(version) {
+  const tarball = resolveTarballUrl(version);
+  const label = version ? `version ${version}` : "main branch";
+  console.log(`Updating Axum from ${label}...`);
   const npm = resolveNpmInstallCommand();
-  const args = [...npm.argsPrefix, "install", "-g", UPDATE_TARBALL];
+  const args = [...npm.argsPrefix, "install", "-g", tarball];
   const child = spawn(npm.command, args, { stdio: "inherit", shell: npm.shell });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
@@ -100,6 +103,34 @@ function runUpdate() {
     console.error(`failed to run npm install: ${error.message}`);
     process.exit(1);
   });
+}
+
+async function runVersions() {
+  const installed = getInstalledVersion();
+  console.log(`axum ${installed} (installed)`);
+  if (process.env.AXUM_NO_FETCH_TAGS === "1") {
+    console.log("");
+    console.log("Switch with: axum update <version>");
+    return;
+  }
+  let tags;
+  try {
+    tags = await fetchAvailableTags();
+  } catch (error) {
+    console.error(`failed to list versions: ${error.message}`);
+    process.exit(1);
+  }
+  if (!tags.length) {
+    console.log("No published versions yet.");
+    return;
+  }
+  const installedTag = `v${installed}`;
+  for (const tag of tags) {
+    const marker = tag === installedTag ? " <- current" : "";
+    console.log(`  ${tag}${marker}`);
+  }
+  console.log("");
+  console.log("Switch with: axum update <version>");
 }
 
 function hasArg(args, name) {
@@ -145,8 +176,10 @@ if (action.mode === "help") {
   process.exit(0);
 }
 if (action.mode === "doctor") process.exit(printDoctor());
-if (action.mode === "update") {
-  runUpdate();
+if (action.mode === "versions") {
+  runVersions().catch((error) => { console.error(`failed to list versions: ${error.message}`); process.exit(1); });
+} else if (action.mode === "update") {
+  runUpdate(action.version);
 } else if (action.mode === "web") {
   try {
     runWebCommand(action.argv ?? []);

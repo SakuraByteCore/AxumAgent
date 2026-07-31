@@ -221,3 +221,87 @@ test("axum update runs explicit npm JavaScript commands on Windows", () => {
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz"]);
 });
+
+test("axum update <version> pulls the matching git tag tarball", () => {
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-ver-"));
+  const isWin = process.platform === "win32";
+  const npmPath = path.join(stubDir, isWin ? "npm.cmd" : "npm");
+  const npmScript = path.join(stubDir, "npm-cli.js");
+  const argvFile = path.join(stubDir, "argv.json");
+  const script = `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`;
+  fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
+  fs.writeFileSync(npmScript, script);
+  if (isWin) {
+    fs.writeFileSync(npmPath, `@node "%~dp0npm-cli.js" %*\r\n`);
+  } else {
+    fs.writeFileSync(npmPath, `#!/usr/bin/env node\nimport fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`);
+    fs.chmodSync(npmPath, 0o755);
+  }
+  const result = spawnSync(process.execPath, ["bin/axum.js", "update", "v0.5.3"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_NPM: npmPath },
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /Updating Axum from version v0\.5\.3/);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/tags/v0.5.3.tar.gz"]);
+});
+
+test("axum update accepts a version without v prefix", () => {
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-nov-"));
+  const isWin = process.platform === "win32";
+  const npmPath = path.join(stubDir, isWin ? "npm.cmd" : "npm");
+  const npmScript = path.join(stubDir, "npm-cli.js");
+  const argvFile = path.join(stubDir, "argv.json");
+  const script = `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`;
+  fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
+  fs.writeFileSync(npmScript, script);
+  if (isWin) {
+    fs.writeFileSync(npmPath, `@node "%~dp0npm-cli.js" %*\r\n`);
+  } else {
+    fs.writeFileSync(npmPath, `#!/usr/bin/env node\n${script}`);
+    fs.chmodSync(npmPath, 0o755);
+  }
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "update", "1.0.0"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_NPM: npmPath },
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/tags/v1.0.0.tar.gz"]);
+});
+
+test("axum update rejects an invalid version string", () => {
+  const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-bad-"));
+  const isWin = process.platform === "win32";
+  const npmPath = path.join(stubDir, isWin ? "npm.cmd" : "npm");
+  const npmScript = path.join(stubDir, "npm-cli.js");
+  const argvFile = path.join(stubDir, "argv.json");
+  const script = `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`;
+  fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
+  fs.writeFileSync(npmScript, script);
+  if (isWin) {
+    fs.writeFileSync(npmPath, `@node "%~dp0npm-cli.js" %*\r\n`);
+  }
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "update", "not-a-version"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_NPM: npmPath },
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /invalid version/);
+});
+
+test("axum versions prints the installed version", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-versions-cli-"));
+  const child = spawn(process.execPath, ["bin/axum.js", "versions"], {
+    env: { ...process.env, PI_CODING_AGENT_DIR: agentDir, AXUM_NO_FETCH_TAGS: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => { output += chunk; });
+  child.stderr.on("data", (chunk) => { output += chunk; });
+  await new Promise((resolve) => child.once("exit", resolve));
+  assert.match(output, /axum 0\.1\.0 \(installed\)/);
+});
