@@ -120,6 +120,7 @@ Bundled Pi ランタイムは npm の global package ディレクトリではな
 
 ```bash
 axum update
+npm run update
 ```
 
 GitHub の main ブランチの tarball で npm グローバルを再インストールします。通常は first-run setup の再実行不要です。

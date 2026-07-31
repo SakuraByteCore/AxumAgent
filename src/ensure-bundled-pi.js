@@ -55,14 +55,24 @@ function needsWindowsShell(command) {
   return /\.(?:cmd|bat)$/i.test(command);
 }
 
+function isNodeScript(command) {
+  return /\.(?:cjs|js|mjs)$/i.test(command);
+}
+
 export function resolveNpmInstallCommand(options = {}) {
   const platform = options.platform || process.platform;
+  const nodePath = options.nodePath || process.execPath;
   const explicitNpm = options.npmCommand || process.env.AXUM_BUNDLED_PI_NPM;
-  if (explicitNpm) return { command: explicitNpm, argsPrefix: [], shell: platform === "win32" && needsWindowsShell(explicitNpm) };
+  if (explicitNpm) {
+    if (platform === "win32" && isNodeScript(explicitNpm)) {
+      return { command: nodePath, argsPrefix: [explicitNpm], shell: false };
+    }
+    return { command: explicitNpm, argsPrefix: [], shell: platform === "win32" && needsWindowsShell(explicitNpm) };
+  }
 
   if (platform === "win32") {
-    const npmCli = resolveNodeBundledNpmCli(options.nodePath || process.execPath);
-    if (npmCli) return { command: options.nodePath || process.execPath, argsPrefix: [npmCli], shell: false };
+    const npmCli = resolveNodeBundledNpmCli(nodePath);
+    if (npmCli) return { command: nodePath, argsPrefix: [npmCli], shell: false };
     return { command: "npm.cmd", argsPrefix: [], shell: true };
   }
 

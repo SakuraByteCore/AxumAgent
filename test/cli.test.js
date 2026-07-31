@@ -35,6 +35,11 @@ test("axum without args shows Axum command help", () => {
   assert.doesNotMatch(result.stdout, /provider web/);
 });
 
+test("package update script delegates to axum update", () => {
+  const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  assert.equal(packageJson.scripts.update, "node bin/axum.js update");
+});
+
 test("provider command is no longer a public web entry", () => {
   const result = run(["provider", "web"]);
   assert.equal(result.status, 0);
@@ -174,19 +179,23 @@ test("axum web does not fall through to bundled Pi install", async () => {
 });
 
 test("axum update reinstalls from main branch tarball", () => {
-  // Stub npm on PATH so we can assert args without hitting the network.
   const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-stub-"));
   const isWin = process.platform === "win32";
   const npmPath = path.join(stubDir, isWin ? "npm.cmd" : "npm");
+  const npmScript = path.join(stubDir, "npm-cli.js");
   const argvFile = path.join(stubDir, "argv.json");
-  const shebang = isWin ? "" : "#!/usr/bin/env node\n";
-  // Node 18+ requires explicit ESM opt-in for .js files using import syntax.
-  if (!isWin) fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
-  fs.writeFileSync(npmPath, `${shebang}import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`);
-  if (!isWin) fs.chmodSync(npmPath, 0o755);
+  const script = `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`;
+  fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
+  fs.writeFileSync(npmScript, script);
+  if (isWin) {
+    fs.writeFileSync(npmPath, `@node "%~dp0npm-cli.js" %*\r\n`);
+  } else {
+    fs.writeFileSync(npmPath, `#!/usr/bin/env node\n${script}`);
+    fs.chmodSync(npmPath, 0o755);
+  }
   const result = spawnSync(process.execPath, ["bin/axum.js", "update"], {
     encoding: "utf8",
-    env: { ...process.env, PATH: `${stubDir}${path.delimiter}${process.env.PATH}` },
+    env: { ...process.env, AXUM_BUNDLED_PI_NPM: npmPath },
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /Updating Axum from main branch/);
@@ -194,15 +203,12 @@ test("axum update reinstalls from main branch tarball", () => {
   assert.deepEqual(argv, ["install", "-g", "https://github.com/SakuraByteCore/AxumAgent/archive/refs/heads/main.tar.gz"]);
 });
 
-
-test("axum update honors explicit npm command for Windows-safe installs", () => {
+test("axum update runs explicit npm JavaScript commands on Windows", () => {
   const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-update-explicit-npm-"));
   const fakeNpm = path.join(stubDir, "fake-npm.js");
   const argvFile = path.join(stubDir, "argv-explicit.json");
   fs.writeFileSync(path.join(stubDir, "package.json"), JSON.stringify({ type: "module" }));
-  fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
-import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));
-`);
+  fs.writeFileSync(fakeNpm, `#!/usr/bin/env node\nimport fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));\n`);
   fs.chmodSync(fakeNpm, 0o755);
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "update"], {

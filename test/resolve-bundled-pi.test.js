@@ -177,10 +177,16 @@ test("runs explicit Windows cmd npm through shell", () => {
   });
 });
 
-test("keeps explicit non-cmd npm command shell-free", () => {
-  assert.deepEqual(resolveNpmInstallCommand({ platform: "win32", npmCommand: "C:\\tools\\npm-cli.js" }), {
-    command: "C:\\tools\\npm-cli.js",
-    argsPrefix: [],
+test("runs explicit Windows Node npm scripts through Node", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-explicit-npm-script-"));
+  const nodePath = path.join(dir, "node.exe");
+  const npmScript = path.join(dir, "npm-cli.js");
+  fs.writeFileSync(nodePath, "");
+  fs.writeFileSync(npmScript, "");
+
+  assert.deepEqual(resolveNpmInstallCommand({ platform: "win32", nodePath, npmCommand: npmScript }), {
+    command: nodePath,
+    argsPrefix: [npmScript],
     shell: false,
   });
 });
@@ -224,7 +230,7 @@ pkg('pi-bar', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
-  const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
   ensureBundledPi(options);
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
