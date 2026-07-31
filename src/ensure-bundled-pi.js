@@ -69,16 +69,38 @@ export function resolveNpmInstallCommand(options = {}) {
   return { command: "npm", argsPrefix: [], shell: false };
 }
 
-const requiredBundledPiRuntimeEntries = [
-  ["@earendil-works", "pi-ai", "dist", "index.js"],
-  ["@earendil-works", "pi-agent-core", "dist", "index.js"],
-  ["@earendil-works", "pi-tui", "dist", "index.js"],
+const requiredBundledPiRuntimePackages = [
+  ["@earendil-works", "pi-ai"],
+  ["@earendil-works", "pi-agent-core"],
+  ["@earendil-works", "pi-tui"],
 ];
 
+function packageImportEntryReady(packageRoot) {
+  const packageJson = path.join(packageRoot, "package.json");
+  if (!fs.existsSync(packageJson)) return false;
+  try {
+    const pkg = JSON.parse(fs.readFileSync(packageJson, "utf8"));
+    const entry = typeof pkg.exports === "string"
+      ? pkg.exports
+      : typeof pkg.exports?.["."]?.import === "string"
+        ? pkg.exports["."].import
+        : typeof pkg.main === "string"
+          ? pkg.main
+          : undefined;
+    return entry === undefined || fs.existsSync(path.join(packageRoot, entry));
+  } catch {
+    return false;
+  }
+}
+
 function bundledRuntimeDepsReady(cacheRoot) {
-  return requiredBundledPiRuntimeEntries.every((entry) => (
-    fs.existsSync(path.join(cacheRoot, "node_modules", ...entry))
-  ));
+  const rootNodeModules = path.join(cacheRoot, "node_modules");
+  const piCodingAgentNodeModules = path.join(rootNodeModules, "@earendil-works", "pi-coding-agent", "node_modules");
+  return requiredBundledPiRuntimePackages.every((packageParts) => {
+    const nestedPackageRoot = path.join(piCodingAgentNodeModules, ...packageParts);
+    if (fs.existsSync(nestedPackageRoot)) return packageImportEntryReady(nestedPackageRoot);
+    return packageImportEntryReady(path.join(rootNodeModules, ...packageParts));
+  });
 }
 
 function bundledReady(options) {
