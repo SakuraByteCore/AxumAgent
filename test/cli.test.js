@@ -21,6 +21,11 @@ function writePackage(root, name, files = {}) {
   return dir;
 }
 
+function writeRuntimePackages(cache) {
+  writePackage(cache, "@earendil-works/pi-ai", { "dist/index.js": "" });
+  writePackage(cache, "@earendil-works/pi-agent-core", { "dist/index.js": "" });
+}
+
 test("axum without args shows Axum command help", () => {
   const result = run([]);
   assert.equal(result.status, 0);
@@ -46,7 +51,9 @@ test("axum code disables ambient extensions before loading bundled extensions", 
     "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
     "dist/utils/tools-manager.js": "const chalk = { yellow: (s) => s };\nconst platform = () => process.platform;\nconst TERMUX_PACKAGES = {};\nconst config = { name: 'test' };\nfunction getToolPath() { return undefined; }\nasync function ensureTool(tool, { silent = false } = {}) {\n    if (platform() === \"android\") {\n        const pkgName = TERMUX_PACKAGES[tool] ?? tool;\n        if (!silent) {\n            console.log(chalk.yellow(\`${config.name} not found. Install with: pkg install ${pkgName}\`));\n        }\n        return undefined;\n    }\n}\nexport { ensureTool };\n",
   });
+  writeRuntimePackages(cache);
   writePackage(cache, "@earendil-works/pi-tui", {
+    "dist/index.js": "",
     "dist/stdin-buffer.js": `const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
 const BRACKETED_PASTE_END = "\\x1b[201~";
@@ -93,7 +100,9 @@ test("axum code --safe disables ambient extensions without loading bundled exten
     "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
     "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\n",
   });
+  writeRuntimePackages(cache);
   writePackage(cache, "@earendil-works/pi-tui", {
+    "dist/index.js": "",
     "dist/stdin-buffer.js": `const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
 const BRACKETED_PASTE_END = "\\x1b[201~";

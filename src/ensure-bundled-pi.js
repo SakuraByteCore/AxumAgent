@@ -69,11 +69,27 @@ export function resolveNpmInstallCommand(options = {}) {
   return { command: "npm", argsPrefix: [], shell: false };
 }
 
+const requiredBundledPiRuntimeEntries = [
+  ["@earendil-works", "pi-ai", "dist", "index.js"],
+  ["@earendil-works", "pi-agent-core", "dist", "index.js"],
+  ["@earendil-works", "pi-tui", "dist", "index.js"],
+];
+
+function bundledRuntimeDepsReady(cacheRoot) {
+  return requiredBundledPiRuntimeEntries.every((entry) => (
+    fs.existsSync(path.join(cacheRoot, "node_modules", ...entry))
+  ));
+}
+
 function bundledReady(options) {
   try {
+    const cacheRoot = getBundledPiCacheRoot(options);
     const piCli = resolvePiCli(options);
     const extensions = existingBundledExtensions(options);
-    return fs.existsSync(piCli) && extensions.length === expectedBundledExtensionCount(options) && extensions.every((file) => fs.existsSync(file));
+    return fs.existsSync(piCli)
+      && bundledRuntimeDepsReady(cacheRoot)
+      && extensions.length === expectedBundledExtensionCount(options)
+      && extensions.every((file) => fs.existsSync(file));
   } catch {
     return false;
   }
@@ -88,6 +104,7 @@ export function ensureBundledPi(options) {
   }
 
   fs.mkdirSync(cacheRoot, { recursive: true });
+  fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true });
   const npm = resolveNpmInstallCommand(options);
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");

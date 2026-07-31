@@ -199,7 +199,9 @@ const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
-pkg('@earendil-works/pi-tui', { 'dist/stdin-buffer.js': ${JSON.stringify(`const ESC = "\\x1b";
+pkg('@earendil-works/pi-ai', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(`const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
 const BRACKETED_PASTE_END = "\\x1b[201~";
 class StdinBuffer {
@@ -234,3 +236,60 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
   assert.match(patchedUndici, /AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK/);
 });
 
+
+test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-stale-runtime-"));
+  const marker = path.join(cache, "npm-ran");
+  const fakeNpm = path.join(cache, "fake-npm.js");
+  const writePkg = (root, name, files = {}) => {
+    const dir = path.join(root, "node_modules", ...name.split("/"));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.0.0", type: "module" }));
+    for (const [file, content] of Object.entries(files)) {
+      const target = path.join(dir, file);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, content);
+    }
+  };
+
+  writePkg(cache, "@earendil-works/pi-coding-agent", {
+    "dist/cli.js": "",
+  });
+  writePkg(cache, "pi-edit", { "index.ts": "" });
+  writePkg(cache, "pi-bar", { "index.ts": "" });
+  writePkg(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+
+  fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const root = process.cwd();
+fs.writeFileSync(${JSON.stringify(marker)}, "ran");
+function writePkg(name, files = {}) {
+  const dir = path.join(root, "node_modules", ...name.split("/"));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.0.0", type: "module" }));
+  for (const [file, content] of Object.entries(files)) {
+    const target = path.join(dir, file);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, content);
+  }
+}
+const stdinBuffer = 'const ESC = "\\\\x1b";\\nconst BRACKETED_PASTE_START = "\\\\x1b[200~";\\nconst BRACKETED_PASTE_END = "\\\\x1b[201~";\\nclass StdinBuffer {\\n  process(data) {\\n    let str = Buffer.isBuffer(data) ? data.toString() : data;\\n        if (str.length === 0 && this.buffer.length === 0) {\\n            this.emitDataSequence("");\\n            return;\\n        }\\n  }\\n}\\n';
+writePkg("@earendil-works/pi-coding-agent", {
+  "dist/cli.js": "",
+  "node_modules/undici/lib/web/webidl/index.js": "webidl.util.markAsUncloneable = markAsUncloneable\\n",
+});
+writePkg("@earendil-works/pi-ai", { "dist/index.js": "" });
+writePkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
+writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
+writePkg("pi-edit", { "index.ts": "" });
+writePkg("pi-bar", { "index.ts": "" });
+writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
+`);
+  fs.chmodSync(fakeNpm, 0o755);
+
+  ensureBundledPi({ env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm });
+
+  assert.equal(fs.existsSync(marker), true);
+  assert.equal(fs.existsSync(path.join(cache, "node_modules", "@earendil-works", "pi-ai", "dist", "index.js")), true);
+});
