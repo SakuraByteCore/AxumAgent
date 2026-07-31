@@ -4,13 +4,13 @@ import { genDiff, restoreEndings } from "./replace-diff.js";
 import { readNormFile, fileSnap } from "./file-reader.js";
 import { normReq } from "./replace-normalize.js";
 import { isRec, has, rejectUnknownFields, abortIf, visLines } from "./utils.js";
-import { MAX_HASH_LINES, MAX_REPLACE_ADDED_LINES, MAX_RESULT_HASH_LINES, MAX_DIFF_LINES } from "./constants.js";
+import { MAX_HASH_LINES, MAX_REPLACE_ADDED_LINES, MAX_RESULT_HASH_LINES, MAX_DIFF_LINES, COLLAPSED_PREVIEW_LINES } from "./constants.js";
 import { writeAtomic } from "./fs-write.js";
 import { applyEdits, lineHashes, resEdits, type HTEdit } from "./hashline/index.js";
 import { toCwd } from "./paths.js";
 import { loadHashStore, type HashStore } from "./hash-store.js";
 import { Text, Container, Spacer } from "@earendil-works/pi-tui";
-import { readArgPath, formatPath, buildCallHeader, buildShellBox } from "./render.js";
+import { readArgPath, formatPath, buildCallHeader, buildShellBox, collapsePreview } from "./render.js";
 
 const contentLinesSchema = {
   type: "array",
@@ -211,7 +211,8 @@ export function buildToolDef(opts: { flat?: boolean }): any {
         ));
         return comp;
       }
-      // Collapsed: one-line summary with +added -removed.
+      // 折叠态：摘要行 + diff 预览前 N 行，让用户不展开也能看到具体改了什么，
+      // 对齐上游 bash/grep 折叠态展示真实输出的惯例。
       if (!options.expanded) {
         const range = m.firstChangedLine != null && m.lastChangedLine != null
           ? ` (lines ${m.firstChangedLine}-${m.lastChangedLine})`
@@ -220,6 +221,15 @@ export function buildToolDef(opts: { flat?: boolean }): any {
           `${theme.fg("toolTitle", theme.bold("replace"))} ${theme.fg("accent", showPath)} ${theme.fg("toolDiffAdded", `+${m.addedLines ?? 0}`)} ${theme.fg("toolDiffRemoved", `-${m.removedLines ?? 0}`)}${theme.fg("muted", range)}`,
           1, 0,
         ));
+        const body = (result.content ?? [])
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text || "")
+          .join("\n");
+        const preview = collapsePreview(theme.fg("toolOutput", body), COLLAPSED_PREVIEW_LINES, theme);
+        if (preview) {
+          comp.addChild(new Spacer(1));
+          comp.addChild(new Text(preview, 1, 0));
+        }
         return comp;
       }
       // Expanded: render the diff and warnings with color.

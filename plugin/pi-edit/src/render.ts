@@ -57,9 +57,9 @@ export function buildCallHeader(
  * Upstream edit uses Box(1, 1, identity) — the bgFn is set per-state by the
  * caller via setBgFn (toolPendingBg / toolSuccessBg / toolErrorBg). We default
  * to the identity function so the caller's already-styled header text is not
- * Matches upstream Box(1, 1) for left padding alignment with renderResult lines.
- * Header is the call/result one-liner; optional body lines are appended
- * below with a spacer, each already styled by the caller.
+ * restyled by the box. Matches upstream Box(1, 1) for left padding alignment
+ * with renderResult lines. Header is the call/result one-liner; optional body
+ * lines are appended below with a spacer, each already styled by the caller.
  */
 export function buildShellBox(_theme: ToolTheme, header: string, bodyLines: string[] = []): Box {
   const box = new Box(1, 1, (text: string) => text);
@@ -69,4 +69,28 @@ export function buildShellBox(_theme: ToolTheme, header: string, bodyLines: stri
     box.addChild(new Text(bodyLines.join("\n"), 0, 0));
   }
   return box;
+}
+
+/**
+ * 折叠态预览抽取器：从已渲染的正文里取前 maxLines 行，并标注剩余行数。
+ * 上游 bash/grep/find/ls 在折叠态同样展示前若干行真实输出，而非空摘要；
+ * 这里对齐该惯例，保证用户折叠状态下也能一眼看到“具体操作了啥”。
+ *
+ * 输入 raw 必须是展开态会原样渲染的同一份正文（含已有 ANSI 着色），
+ * 本函数只做行级截断，不再二次着色，避免重复/冲突。
+ * 返回可直接塞进 Text 的多行字符串，或 null 表示无可预览内容。
+ */
+export function collapsePreview(raw: string, maxLines: number, theme: ToolTheme): string | null {
+  const allLines = raw.split("\n");
+  // 去掉首尾空白行，跟渲染输出观感一致。
+  let start = 0;
+  let end = allLines.length;
+  while (start < end && allLines[start]!.trim().length === 0) start++;
+  while (end > start && allLines[end - 1]!.trim().length === 0) end--;
+  const body = allLines.slice(start, end);
+  if (body.length === 0) return null;
+  if (body.length <= maxLines) return body.join("\n");
+  const shown = body.slice(0, maxLines).join("\n");
+  const remaining = body.length - maxLines;
+  return `${shown}\n${theme.fg("muted", `... (${remaining} more lines, expand to view)`)}`;
 }

@@ -6,10 +6,10 @@ import { toCwd } from "./paths.js";
 import { abortIf } from "./utils.js";
 import { visLines } from "./utils.js";
 import { valAccess } from "./validation.js";
-import { MAX_HASH_LINES } from "./constants.js";
+import { MAX_HASH_LINES, COLLAPSED_PREVIEW_LINES } from "./constants.js";
 import { loadP, loadGuide } from "./prompts.js";
 import { Text, Container, Spacer } from "@earendil-works/pi-tui";
-import { readArgPath, formatPath, buildCallHeader, buildShellBox } from "./render.js";
+import { readArgPath, formatPath, buildCallHeader, buildShellBox, collapsePreview } from "./render.js";
 
 interface ReadParams {
   path: string;
@@ -177,8 +177,9 @@ export function buildReadToolDef(): any {
         comp.addChild(new Text(theme.fg("error", errText), 1, 0));
         return comp;
       }
-      // Collapsed: one-line summary only.
       if (!options.expanded) {
+        // 折叠态：摘要行 + 正文预览前 N 行，让用户不展开也能看到实际读取内容，
+        // 对齐上游 bash/grep 折叠态展示真实输出的惯例。
         const trunc = result.details?.truncation;
         const totalLines = trunc?.totalLines ?? result.details?.metrics?.totalLines ?? null;
         const outLines = result.details?.metrics?.outputLines ?? (trunc?.outputLines ?? null);
@@ -193,6 +194,15 @@ export function buildReadToolDef(): any {
           summary += ` ${theme.fg("warning", "(no hash anchors)")}`;
         }
         comp.addChild(new Text(summary, 1, 0));
+        const body = (result.content ?? [])
+          .filter((c: any) => c.type === "text")
+          .map((c: any) => c.text || "")
+          .join("\n");
+        const preview = collapsePreview(theme.fg("toolOutput", body), COLLAPSED_PREVIEW_LINES, theme);
+        if (preview) {
+          comp.addChild(new Spacer(1));
+          comp.addChild(new Text(preview, 1, 0));
+        }
         return comp;
       }
       // Expanded: render the file preview text with toolOutput color.

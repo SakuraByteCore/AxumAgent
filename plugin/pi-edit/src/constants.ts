@@ -8,6 +8,9 @@ export const AUTO_READ_HASH_MAX = 20000;
 export const MAX_HASH_LINES = 20000;
 export const MAX_REPLACE_ADDED_LINES = 4000;
 
+// 折叠态下展示的正文/diff 预览最大行数（对齐上游 bash/grep 折叠预览量级）。
+// 折叠态本就该让用户一眼看到“具体操作了啥”，再展开看全量。
+export const COLLAPSED_PREVIEW_LINES = 10;
 // Soft cap on total content_lines across all edits in one replace call.
 // Exceeding it rejects the edit with [E_REPLACE_TOO_LARGE] so callers fall back to `write`.
 export const MAX_RESULT_HASH_LINES = MAX_HASH_LINES;
