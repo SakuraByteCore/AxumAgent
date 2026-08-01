@@ -590,8 +590,11 @@ function segEqual(a: Segment | undefined, b: Segment): boolean {
 }
 
 function fmtTokens(n: number): string {
-	if (n < 1000) return `${n}`;
-	if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
+	// All counts carry a k/M magnitude suffix so every token field reads with
+	// its unit, including the zero placeholder (0 -> "0.0k"). The <10k band
+	// keeps one decimal so sub-thousand counts still show a magnitude (523 ->
+	// "0.5k") instead of a unit-less bare integer.
+	if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
 	if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
 	if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	return `${Math.round(n / 1_000_000)}M`;
@@ -738,7 +741,7 @@ export default function (pi: ExtensionAPI): void {
 		const u = ctx.getContextUsage();
 		if (!u || u.tokens == null) {
 			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
-			pi.events.emit("pi-bar:update", { id: "context-tokens", text: "0" });
+			pi.events.emit("pi-bar:update", { id: "context-tokens", text: fmtTokens(0) });
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
