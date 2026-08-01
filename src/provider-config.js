@@ -221,3 +221,19 @@ export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs =
     clearTimeout(timeout);
   }
 }
+
+const SUPPORTED_LANGUAGES = ["en", "ja", "zh"];
+
+export function getLanguagePreference(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  const lang = config.language;
+  return SUPPORTED_LANGUAGES.includes(lang) ? lang : "en";
+}
+
+export function saveLanguagePreference(language, file = getSettingsPath()) {
+  if (!SUPPORTED_LANGUAGES.includes(language)) throw new Error(`Unsupported language: ${language}`);
+  const config = readJsonFile(file);
+  config.language = language;
+  writeJsonFile(file, config);
+  return { file, language };
+}
