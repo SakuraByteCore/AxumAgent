@@ -8,6 +8,9 @@ const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
 const UNBRACKETED_PASTE_PATCH_MARKER = "looksLikeUnbracketedPaste";
 const TERMUX_AUTOINSTALL_PATCH_MARKER = "AXUM_TERMUX_AUTOINSTALL";
 const UNDICI_MARK_AS_UNCLONEABLE_PATCH_MARKER = "AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK";
+const PI_GOAL_PACKAGE = "@narumitw/pi-goal";
+const PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER = "AXUM_PI_GOAL_LINKSYNC_FALLBACK";
+const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -106,6 +109,83 @@ function patchTermuxAutoInstall(content) {
   return content.replace(needle, replacement);
 }
 
+function patchPiGoalLinkSyncFallback(content) {
+  if (content.includes(PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER)) return content;
+
+  const T = "\t";
+  const needle = [
+    "\n" + T + T + "try {",
+    T + T + T + "fs.linkSync(temporaryPath, settingsPath);",
+    T + T + "} catch (error) {",
+    T + T + T + "if (!isAlreadyExistsError(error)) throw error;",
+    T + T + "}",
+    "\n",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    // Upstream pi-goal settings init may reshape this linkSync block in a
+    // future version. The fallback only suppresses a startup warning on
+    // Android/Termux where hard links are denied, so skip it instead of
+    // hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  const replacement = [
+    "\n" + T + T + "try {",
+    T + T + T + "fs.linkSync(temporaryPath, settingsPath);",
+    T + T + "} catch (error) {",
+    T + T + T + "// " + PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER,
+    T + T + T + "if (isAlreadyExistsError(error)) {",
+    T + T + T + T + "// Another process won the race; reuse the existing settings.",
+    T + T + T + "} else {",
+    T + T + T + T + "try {",
+    T + T + T + T + T + "fs.writeFileSync(settingsPath, DEFAULT_GOAL_SETTINGS_DOCUMENT, {",
+    T + T + T + T + T + T + "encoding: \"utf8\",",
+    T + T + T + T + T + T + "flag: \"wx\",",
+    T + T + T + T + T + "});",
+    T + T + T + T + "} catch (fallbackError) {",
+    T + T + T + T + T + "if (!isAlreadyExistsError(fallbackError)) throw fallbackError;",
+    T + T + T + T + "}",
+    T + T + T + "}",
+    T + T + "}",
+    "\n",
+  ].join("\n");
+
+  return content.replace(needle, replacement);
+}
+
+function patchPiVersionNotificationSuppress(content) {
+  if (content.includes(PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER)) return content;
+
+  const I = "        ";
+  const needle = [
+    I + "// Start version check asynchronously",
+    I + "checkForNewPiVersion(this.version).then((newRelease) => {",
+    I + "    if (newRelease) {",
+    I + "        this.showNewVersionNotification(newRelease);",
+    I + "    }",
+    I + "});",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    // Upstream interactive-mode may restructure the version check in a future
+    // release. Suppression is a UX preference, not a correctness need, so skip
+    // it instead of hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  const replacement = [
+    I + "// Start version check asynchronously",
+    I + "// " + PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER + ": Axum pins the bundled Pi",
+    I + "// version for the bundled runtime, so the upstream \"update available\" notice",
+    I + "// for a newer npm release is noise here. Keep the check running (for any",
+    I + "// side effects) but skip the notification render.",
+    I + "checkForNewPiVersion(this.version).then((newRelease) => {",
+    I + "    void newRelease;",
+    I + "});",
+  ].join("\n");
+
+  return content.replace(needle, replacement);
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -145,7 +225,30 @@ export function applyBundledPiPatches(options) {
     results.push({ patched: tmPatched !== tmOriginal, file: toolsManagerPath });
   }
 
+  const piGoalRoot = resolveBundledPackageRoot(PI_GOAL_PACKAGE, options);
+  const piGoalSettingsPath = path.join(piGoalRoot, "src", "settings.ts");
+  if (fs.existsSync(piGoalSettingsPath)) {
+    const piGoalOriginal = fs.readFileSync(piGoalSettingsPath, "utf8");
+    const piGoalPatched = patchPiGoalLinkSyncFallback(piGoalOriginal);
+    if (piGoalPatched !== piGoalOriginal) {
+      fs.writeFileSync(piGoalSettingsPath, piGoalPatched);
+    }
+    results.push({ patched: piGoalPatched !== piGoalOriginal, file: piGoalSettingsPath });
+  } else {
+    results.push({ patched: false, file: piGoalSettingsPath });
+  }
+  const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
+  if (fs.existsSync(piInteractiveModePath)) {
+    const piVersionOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
+    const piVersionPatched = patchPiVersionNotificationSuppress(piVersionOriginal);
+    if (piVersionPatched !== piVersionOriginal) {
+      fs.writeFileSync(piInteractiveModePath, piVersionPatched);
+    }
+    results.push({ patched: piVersionPatched !== piVersionOriginal, file: piInteractiveModePath });
+  } else {
+    results.push({ patched: false, file: piInteractiveModePath });
+  }
   return results;
 }
 
-export { patchPiTuiStdinBuffer, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalLinkSyncFallback, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

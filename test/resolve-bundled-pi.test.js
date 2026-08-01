@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
-import { patchPiTuiStdinBuffer, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiGoalLinkSyncFallback, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -121,6 +121,70 @@ test("patches bundled undici markAsUncloneable fallback for current Node 22", ()
   assert.match(patched, /AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK/);
   assert.match(patched, /markAsUncloneable \|\| \(\(\) => \{\}\)/);
   assert.equal(patchUndiciMarkAsUncloneableFallback(patched), patched);
+});
+
+test("patches pi-goal linkSync EACCES to fall back to a direct write", () => {
+  const T = "\t";
+  const source = [
+    "export const DEFAULT_GOAL_SETTINGS_DOCUMENT = \"{}\\n\";",
+    "function isAlreadyExistsError(error) { return error && error.code === \"EEXIST\"; }",
+    "function readGoalSettings(p) { return p ? { kind: \"loaded\", settings: {} } : { kind: \"missing\" }; }",
+    "export function loadOrCreateGoalSettings(settingsPath, overrides = {}) {",
+    T + "const fs = { mkdirSync: () => {}, writeFileSync: () => {}, linkSync: () => { throw Object.assign(new Error(\"EACCES\"), { code: \"EACCES\" }); } };",
+    T + "const temporaryPath = \".pi-goal.json.tmp\";",
+    T + "try {",
+    T + T + "fs.mkdirSync(\"x\", { recursive: true });",
+    T + T + "fs.writeFileSync(temporaryPath, DEFAULT_GOAL_SETTINGS_DOCUMENT, { encoding: \"utf8\", flag: \"wx\" });",
+    T + T + "try {",
+    T + T + T + "fs.linkSync(temporaryPath, settingsPath);",
+    T + T + "} catch (error) {",
+    T + T + T + "if (!isAlreadyExistsError(error)) throw error;",
+    T + T + "}",
+    "",
+    T + T + "const published = readGoalSettings(settingsPath);",
+    T + T + "return published;",
+    T + "} catch (error) {",
+    T + T + "return { kind: \"create-failed\", reason: String(error) };",
+    T + "}",
+    "}",
+  ].join("\n");
+  const patched = patchPiGoalLinkSyncFallback(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_GOAL_LINKSYNC_FALLBACK/);
+  assert.match(patched, /fs\.writeFileSync\(settingsPath, DEFAULT_GOAL_SETTINGS_DOCUMENT/);
+  // Falling back must keep the original linkSync call so the happy path is unchanged.
+  assert.match(patched, /fs\.linkSync\(temporaryPath, settingsPath\)/);
+  // Idempotent: re-running the patch on already-patched content is a no-op.
+  assert.equal(patchPiGoalLinkSyncFallback(patched), patched);
+  // Unknown block shape is left untouched rather than crashing.
+  const reshaped = source.replace("if (!isAlreadyExistsError(error)) throw error;", "// link removed upstream");
+  assert.equal(patchPiGoalLinkSyncFallback(reshaped), reshaped);
+});
+
+test("suppresses the bundled Pi new-version notification render", () => {
+  const I = "        ";
+  const source = [
+    "run() {",
+    I + "// Start version check asynchronously",
+    I + "checkForNewPiVersion(this.version).then((newRelease) => {",
+    I + "    if (newRelease) {",
+    I + "        this.showNewVersionNotification(newRelease);",
+    I + "    }",
+    I + "});",
+    "}",
+  ].join("\n");
+  const patched = patchPiVersionNotificationSuppress(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED/);
+  // The async version check keeps running so side effects are unaffected;
+  // only the notification render is suppressed.
+  assert.match(patched, /checkForNewPiVersion\(this\.version\)/);
+  assert.doesNotMatch(patched, /showNewVersionNotification/);
+  // Idempotent.
+  assert.equal(patchPiVersionNotificationSuppress(patched), patched);
+  // Unknown block shape is left untouched rather than crashing.
+  const reshaped = source.replace("// Start version check asynchronously", "// version check changed upstream");
+  assert.equal(patchPiVersionNotificationSuppress(reshaped), reshaped);
 });
 
 test("filters invalid Windows env keys before npm install", () => {
