@@ -80,7 +80,7 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "git-head", "tokens-up", "tokens-down", "context-tokens", "context-usage"],
+	left: ["git-branch", "tokens-up", "tokens-down", "context-tokens", "context-usage"],
 	right: ["messages", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
@@ -144,25 +144,33 @@ const GAUGE_FILL = "\u25B0";
 const GAUGE_WARN_PCT = 50;
 const GAUGE_HOT_PCT = 75;
 
-// Pill ground palette: each visible segment gets its own warm, low-luminance
-// RGB ground so every pill background is distinct yet the hues form one
-// coherent warm family (brick reds, ambers, ochres, wine, olive). Luminance is
-// kept low so the HOST's own "text" foreground (light on dark terminals,
-// dark on light terminals) stays high-contrast against any of these grounds
-// in both built-in themes, without depending on a per-theme color name.
+// Pill ground palette: each visible segment gets its own low-luminance
+// RGB ground so adjacent pills stay distinct yet the family stays
+// harmonious. The hues trace an analogous arc across the HSL wheel:
+//
+//   git-branch(8°) -> tokens-up(32°) -> tokens-down(46°) ->
+//   context-tokens(60°) -> context-usage(90°) | messages(180°) -> model(210°)
+//
+// The left train walks the warm half of the arc (red -> ochre -> olive)
+// while the right train walks the cool half (teal -> steel-blue), so the
+// transition between trains reads as a temperature shift rather than a
+// random hue jump. Saturation is held near 28-40% and lightness 28-36%,
+// giving every pill a uniform low-luminance ground that keeps the HOST's
+// own "text" foreground (light on dark terminals, dark on light) high
+// contrast against any ground, in both built-in themes, without depending
+// on a per-theme color name.
 // These are emitted as raw 24-bit ANSI escapes (\x1b[48;2;r;g;bm), so no
 // theme color-name slot is consumed and the grounds render identically
 // regardless of whether the host picked the dark or light theme.
 type Rgb = readonly [number, number, number];
 const PALETTE: Record<string, Rgb> = {
-	"git-branch": [122, 59, 59],   // muted brick red
-	"git-head":   [125, 90, 60],   // dark amber / ochre
-	"tokens-up":   [120, 70, 78],   // warm rose
-	"tokens-down": [110, 80, 58],   // burnt orange
-	"context-tokens": [128, 78, 64],   // warm rust-brown
-	"context-usage": [94, 90, 58], // dark olive
-	messages:      [120, 104, 56],  // warm amber/gold
-	model:        [94, 58, 90],    // warm mulberry
+	"git-branch":     [110, 61, 53],  // deep brick red (8°)
+	"tokens-up":      [111, 81, 47],  // burnt umber (32°)
+	"tokens-down":    [106, 92, 47],  // antique bronze (46°)
+	"context-tokens": [100, 100, 48], // olive (60°)
+	"context-usage":  [71, 93, 50],   // moss green (90°)
+	messages:         [61, 108, 108], // dark teal (180°)
+	model:           [62, 92, 121],   // steel blue (210°)
 };
 
 // Resolve a segment's warm ground RGB from the PALETTE. Returns undefined for
@@ -296,8 +304,13 @@ function renderSide(ids: string[], segs: Map<string, Segment>, settings: Setting
 }
 
 function shrinkWidest(arr: RSeg[], overflow: number): void {
-	let wi = 0;
-	for (let i = 1; i < arr.length; i++) if (arr[i]!.width > arr[wi]!.width) wi = i;
+	// model pill is never shrunk: its full name must stay visible.
+	let wi = arr.findIndex((r) => r.seg?.id !== "model");
+	if (wi < 0) return;
+	for (let i = wi + 1; i < arr.length; i++) {
+		if (arr[i]!.seg?.id === "model") continue;
+		if (arr[i]!.width > arr[wi]!.width) wi = i;
+	}
 	const s = arr[wi]!;
 	const tgt = Math.max(1, s.width - overflow);
 	const t = truncateToWidth(s.text, tgt, "\u2026");
@@ -441,20 +454,23 @@ function elasticMinWidth(elastic: Segment | undefined, _segs: Map<string, Segmen
 }
 
 // Render the elastic context-usage block at a target visible width. Its body
-// is the percent text left-anchored, with the rest as plain space padding so
-// the block spans the whole gap between the left and right trains. In pill
-// style the block is a warm RGB ground carrying the host text; if
-// leftSeam/rightSeam are false the corresponding outer end gets a rounded cap
-// (U+E0B6 / U+E0B4) instead of being joined by a separator to a neighboring
-// train. The messages count is rendered as its own separate pill in the
-// right train, separated from this block by a powerline seam.
+// is the percent text horizontally centered, with space padding split evenly
+// on both sides so the block spans the whole gap between the left and right
+// trains while the percentage reads dead-center. In pill style the block is
+// a warm RGB ground carrying the host text; if leftSeam/rightSeam are false
+// the corresponding outer end gets a rounded cap (U+E0B6 / U+E0B4) instead
+// of being joined by a separator to a neighboring train. The messages count
+// is rendered as its own separate pill in the right train, separated from
+// this block by a powerline seam.
 function renderElastic(elastic: Segment | undefined, _segs: Map<string, Segment>, theme: Theme, _settings: Settings, pill: boolean, targetW: number, leftSeam: boolean, rightSeam: boolean): Train {
 	const pctTxt = elastic?.suffix ?? "";
 	const textFg = theme.getFgAnsi("text");
 	const ground = elastic ? segGround(elastic) : undefined;
 	if (!pill || !ground) {
-		const gap = Math.max(1, targetW - visibleWidth(pctTxt));
-		const text = `${textFg}${pctTxt}${" ".repeat(gap)}${RESET_FG}`;
+		const padW = Math.max(0, targetW - visibleWidth(pctTxt));
+		const lPad = Math.floor(padW / 2);
+		const rPad = Math.max(0, padW - lPad);
+		const text = `${textFg}${" ".repeat(lPad)}${pctTxt}${" ".repeat(rPad)}${RESET_FG}`;
 		return { text, width: visibleWidth(text) };
 	}
 	const bg = rgbBg(ground);
@@ -462,8 +478,10 @@ function renderElastic(elastic: Segment | undefined, _segs: Map<string, Segment>
 	const innerW = Math.max(0, targetW - caps);
 	const leftCapTxt = leftSeam ? "" : `${rgbFg(ground)}${CAP_L}${RESET_FG}`;
 	const rightCapTxt = rightSeam ? "" : `${rgbFg(ground)}${CAP_R}${RESET_BOTH}`;
-	const gap = Math.max(1, innerW - visibleWidth(pctTxt));
-	const body = `${bg}${textFg}${pctTxt}${" ".repeat(gap)}${RESET_FG}${RESET_BG}`;
+	const padW = Math.max(0, innerW - visibleWidth(pctTxt));
+	const lPad = Math.floor(padW / 2);
+	const rPad = Math.max(0, padW - lPad);
+	const body = `${bg}${textFg}${" ".repeat(lPad)}${pctTxt}${" ".repeat(rPad)}${RESET_FG}${RESET_BG}`;
 	return { text: `${leftCapTxt}${body}${rightCapTxt}`, width: targetW };
 }
 
@@ -609,17 +627,14 @@ export default function (pi: ExtensionAPI): void {
 		// svn outranks git: a working copy checked out under a git repo shows "svn".
 		if (isSvn(ctx.cwd)) {
 			pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
-			pi.events.emit("pi-bar:update", { id: "git-head", text: "svn", color: "mdLink" });
 			return;
 		}
 		const b = gitBranch(ctx.cwd);
 		if (!b) {
 			pi.events.emit("pi-bar:update", { id: "git-branch", text: undefined });
-			pi.events.emit("pi-bar:update", { id: "git-head", text: undefined });
 			return;
 		}
 		pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
-		pi.events.emit("pi-bar:update", { id: "git-head", text: b, color: "mdLink" });
 	}
 
 

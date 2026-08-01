@@ -27,8 +27,8 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
   assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
-  assert.match(statuslineSource, /left: \["git-branch", "git-head", "tokens-up", "tokens-down", "context-tokens", "context-usage"\]/);
-  assert.match(statuslineSource, /"context-tokens":\s*\[128, 78, 64\]/);
+  assert.match(statuslineSource, /left: \["git-branch", "tokens-up", "tokens-down", "context-tokens", "context-usage"\]/);
+  assert.match(statuslineSource, /"context-tokens":\s*\[100, 100, 48\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
   assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
   assert.doesNotMatch(statuslineSource, /const GAUGE_EMPTY/);
@@ -60,17 +60,14 @@ test("working indicator shows Reimu frames via host API (no plugin timer)", () =
   assert.doesNotMatch(statuslineSource, /BREATH_FRAMES|WORKING_LIGHT_FRAMES|WORKING_CURSOR_FRAMES|breathTimer/);
 });
 
-test("git-branch shows path on line 1, git-head shows branch on line 2", () => {
+test("git-branch shows the display path via emitGit", () => {
   assert.match(statuslineSource, /function displayPath\(cwd: string, home: string\): string \{/);
   // Windows paths keep the drive and leaf directory while collapsing parents.
   assert.ok(statuslineSource.includes("const windowsRoot = cwd.match(/^([A-Za-z]:)[\\\\/](?:.*[\\\\/])?([^\\\\/]+)$/);"));
   assert.ok(statuslineSource.includes("return windowsRoot ? `${windowsRoot[1]}\\\\~\\\\${windowsRoot[2]}` : cwd;"));
-  // emitGit hoists the display path into a local for reuse across branches.
+  // git-branch holds the display path only (both svn and git paths).
   assert.match(statuslineSource, /const path = displayPath\(ctx\.cwd, homedir\(\)\);/);
-  // Line 1: git-branch holds the display path only (both svn and git paths).
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/);
-  // git-head shows the bare branch name (no "git." prefix) in mdLink.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: b, color: "mdLink" \}\)/);
 });
 
 test("isSvn walks up from cwd looking for a .svn directory", () => {
@@ -86,12 +83,11 @@ test("isSvn walks up from cwd looking for a .svn directory", () => {
 test("emitGit precedence is svn > git > empty", () => {
   const body = statuslineSource.match(/function emitGit[\s\S]*?\n\t}/)?.[0] ?? "";
   // svn checked first and short-circuits before gitBranch.
-  assert.match(body, /if \(isSvn\(ctx\.cwd\)\) \{[\s\S]*?pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: "svn", color: "mdLink" \}\)[\s\S]*?return;/);
+  assert.match(body, /if \(isSvn\(ctx\.cwd\)\) \{[\s\S]*?return;/);
   // svn keeps the path on line 1, git keeps the path on line 1 too.
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/g);
   // empty placeholder: both segments cleared (text: undefined) when neither vcs applies; git-dirty was removed entirely.
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: undefined \}\)/);
-  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: undefined \}\)/);
   assert.doesNotMatch(body, /emitGitDirty/);
 });
 
@@ -114,7 +110,7 @@ test("messages count is a separate right-side pill, separated from context-usage
   // embedded in the elastic context-usage block.
   assert.match(statuslineSource, /right: \["messages", "model"\]/);
   // messages now has its own warm ground in the palette.
-  assert.match(statuslineSource, /messages:\s+\[120, 104, 56\]/);
+  assert.match(statuslineSource, /messages:\s+\[61, 108, 108\]/);
   // elastic context-usage block no longer reads the messages segment.
   assert.doesNotMatch(statuslineSource, /segs\.get\("messages"\)\?\.text/);
 });
