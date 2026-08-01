@@ -28,7 +28,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
   assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
   assert.match(statuslineSource, /left: \["git-branch", "tokens-up", "tokens-down", "context-tokens", "context-usage"\]/);
-  assert.match(statuslineSource, /"context-tokens":\s*\[100, 100, 48\]/);
+  assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
   assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
   assert.doesNotMatch(statuslineSource, /const GAUGE_EMPTY/);
@@ -110,7 +110,7 @@ test("messages count is a separate right-side pill, separated from context-usage
   // embedded in the elastic context-usage block.
   assert.match(statuslineSource, /right: \["messages", "model"\]/);
   // messages now has its own warm ground in the palette.
-  assert.match(statuslineSource, /messages:\s+\[61, 108, 108\]/);
+  assert.match(statuslineSource, /messages:\s+\[49, 94, 94\]/);
   // elastic context-usage block no longer reads the messages segment.
   assert.doesNotMatch(statuslineSource, /segs\.get\("messages"\)\?\.text/);
 });

@@ -144,33 +144,42 @@ const GAUGE_FILL = "\u25B0";
 const GAUGE_WARN_PCT = 50;
 const GAUGE_HOT_PCT = 75;
 
-// Pill ground palette: each visible segment gets its own low-luminance
-// RGB ground so adjacent pills stay distinct yet the family stays
-// harmonious. The hues trace an analogous arc across the HSL wheel:
+// Pill ground palette: each visible segment gets its own RGB ground that
+// walks an analogous hue arc across the HSL wheel while ALSO climbing a
+// perceptual luminance ladder, so adjacent pills stay distinct via BOTH a
+// hue step (14-24°) AND a luminance step (Δlum >= 0.03) rather than
+// blending into one near-equal-luminance mass.
 //
-//   git-branch(8°) -> tokens-up(32°) -> tokens-down(46°) ->
-//   context-tokens(60°) -> context-usage(90°) | messages(180°) -> model(210°)
+//   left train (warm arc, luminance RISING left -> right):
+//     git-branch(8°,L30) -> tokens-up(32°,L34) -> tokens-down(46°,L38) ->
+//     context-tokens(60°,L42) -> context-usage(68°,L48)
+//   right train (cool arc):
+//     messages(180°,L28) -> model(210°,L44)
 //
-// The left train walks the warm half of the arc (red -> ochre -> olive)
-// while the right train walks the cool half (teal -> steel-blue), so the
-// transition between trains reads as a temperature shift rather than a
-// random hue jump. Saturation is held near 28-40% and lightness 28-36%,
-// giving every pill a uniform low-luminance ground that keeps the HOST's
-// own "text" foreground (light on dark terminals, dark on light) high
-// contrast against any ground, in both built-in themes, without depending
-// on a per-theme color name.
+// The left train rises monotonically in both hue (red -> ochre -> olive ->
+// green) and luminance (.060 -> .348), so each chip reads as a distinct
+// brightness band. The context-usage hue (68°) is pulled near the olive
+// (60°) family instead of the original 90° moss green: at equal L the 90°
+// green perceptually under-shoots the 60° yellow, which inverted the
+// luminance order and let context-tokens/usage blur together — keeping the
+// hue on the warm side of green preserves the ladder.
+//   Saturation is held near 32-38% and lightness 28-48%, giving every pill a
+// ground whose luminance is spaced far enough from its neighbor that the
+// host's own "text" foreground (light on dark terminals, dark on light)
+// stays high contrast against any ground, in both built-in themes, without
+// depending on a per-theme color name.
 // These are emitted as raw 24-bit ANSI escapes (\x1b[48;2;r;g;bm), so no
 // theme color-name slot is consumed and the grounds render identically
 // regardless of whether the host picked the dark or light theme.
 type Rgb = readonly [number, number, number];
 const PALETTE: Record<string, Rgb> = {
-	"git-branch":     [110, 61, 53],  // deep brick red (8°)
-	"tokens-up":      [111, 81, 47],  // burnt umber (32°)
-	"tokens-down":    [106, 92, 47],  // antique bronze (46°)
-	"context-tokens": [100, 100, 48], // olive (60°)
-	"context-usage":  [71, 93, 50],   // moss green (90°)
-	messages:         [61, 108, 108], // dark teal (180°)
-	model:           [62, 92, 121],   // steel blue (210°)
+	"git-branch":     [104, 56, 49],  // deep brick red (8°, L30)
+	"tokens-up":      [120, 89, 54],  // burnt umber (32°, L34)
+	"tokens-down":    [134, 117, 60], // antique bronze (46°, L38)
+	"context-tokens": [146, 146, 69], // olive (60°, L42)
+	"context-usage":  [155, 166, 78], // chartreuse (68°, L48)
+	messages:         [49, 94, 94],   // dark teal (180°, L28)
+	model:           [72, 112, 153], // steel blue (210°, L44)
 };
 
 // Resolve a segment's warm ground RGB from the PALETTE. Returns undefined for
