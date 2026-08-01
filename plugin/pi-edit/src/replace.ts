@@ -1,16 +1,22 @@
 import { constants } from "fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { genDiff, restoreEndings } from "./replace-diff.js";
+import { genDiff, restoreEndings, toLF, stripBOM } from "./replace-diff.js";
 import { readNormFile, fileSnap } from "./file-reader.js";
 import { normReq } from "./replace-normalize.js";
 import { isRec, has, rejectUnknownFields, abortIf, visLines } from "./utils.js";
 import { MAX_HASH_LINES, MAX_REPLACE_ADDED_LINES, MAX_RESULT_HASH_LINES, MAX_DIFF_LINES, COLLAPSED_PREVIEW_LINES } from "./constants.js";
-import { writeAtomic } from "./fs-write.js";
+import { writeAtomic, resolveTarget } from "./fs-write.js";
 import { applyEdits, lineHashes, resEdits, type HTEdit } from "./hashline/index.js";
 import { toCwd } from "./paths.js";
 import { loadHashStore, type HashStore } from "./hash-store.js";
+import { loadFileKindAndText } from "./file-kind.js";
 import { Text, Container, Spacer } from "@earendil-works/pi-tui";
 import { readArgPath, formatPath, buildCallHeader, buildShellBox, collapsePreview } from "./render.js";
+import { rememberReadSnapshot, getReadSnapshot, getReadSnapshotVersions } from "./read-snapshot.js";
+import { threeWayMerge } from "./merge.js";
+import {
+  recordNoopEdit, recordAppliedEdit, isDuplicateAppliedPayload,
+} from "./noop-loop-guard.js";
 
 const contentLinesSchema = {
   type: "array",
@@ -111,8 +117,68 @@ export async function execPipeline(
   );
 
   const resolved = resEdits(toolEdits);
-  const anchorResult = applyEdits(originalNormalized, resolved, signal, originalHashes, path);
+
+  // Attempt to apply the edits directly. On E_STALE_ANCHOR, fall through to the
+  // multi-version snapshot recovery block below.
+  let anchorResult: ReturnType<typeof applyEdits>;
+  let recoveryWarning: string | undefined;
+  try {
+    anchorResult = applyEdits(originalNormalized, resolved, signal, originalHashes, path);
+  } catch (err: unknown) {
+    const isStale = err instanceof Error && err.message.startsWith("[E_STALE_ANCHOR]");
+    if (!isStale) throw err;
+
+    // Try each stored memory snapshot (newest first), skipping any that matches
+    // the live content (those would give a trivially identical replay).
+    const versions = getReadSnapshotVersions(absolutePath).filter((v) => v !== originalNormalized);
+    if (versions.length === 0) throw err;
+
+    let anyAnchorValid = false;
+    let recovered: ReturnType<typeof applyEdits> | null = null;
+    let mergedContent: string | null = null;
+    for (const snapshot of versions) {
+      let snapshotResult;
+      try {
+        snapshotResult = applyEdits(snapshot, resolved, signal, undefined, path);
+      } catch {
+        // Anchors not valid against this version — try older ones.
+        continue;
+      }
+      anyAnchorValid = true;
+      // 3-way merge: base=snapshot, baseEdited=snapshotResult, current=live.
+      mergedContent = threeWayMerge(snapshot, snapshotResult.content, originalNormalized);
+      if (mergedContent === null) continue;
+      recovered = snapshotResult;
+      break;
+    }
+
+    if (recovered === null || mergedContent === null) {
+      // All versions exhausted; surface the original error with a diagnostic suffix.
+      const suffix = anyAnchorValid
+        ? "\n(Recovery attempted: your anchors match an older read of this file, but replaying that edit conflicts with changes made since. Re-read to get current anchors.)"
+        : "\n(Your anchors do not match any recent read of this file — they may be from a stale context or copied incorrectly. Re-read before editing.)";
+      throw new Error(`${(err as Error).message}${suffix}`);
+    }
+
+    recoveryWarning = "Recovered stale anchors by replaying this edit against a recent read of this file and merging onto the current content (exact merge, no relocation). Review the diff to confirm the result.";
+    // Build a synthetic applyEdits-shaped result from the merged content so the
+    // downstream pipeline uses the recovered result. Re-run applyEdits purely to
+    // recompute firstChangedLine/lastChangedLine against the live file's merge.
+    // It will not throw because mergedContent's changed lines are valid content.
+    anchorResult = {
+      content: mergedContent,
+      firstChangedLine: recovered.firstChangedLine,
+      lastChangedLine: recovered.lastChangedLine,
+      ...(recovered.warnings ? { warnings: recovered.warnings } : {}),
+      ...(recovered.noopEdits ? { noopEdits: recovered.noopEdits } : {}),
+    };
+  }
   const result = anchorResult.content;
+
+  // Capture a memory snapshot with the post-replace content so chained edits
+  // using anchors from this replace's response can recover if a distant
+  // external change arrives between this replace and the next one.
+  rememberReadSnapshot(absolutePath, result);
 
   const removedHashes = new Set<string>();
   for (const edit of resolved) {
@@ -137,6 +203,9 @@ export async function execPipeline(
     { maxResultHashLines: MAX_RESULT_HASH_LINES },
   );
   const warnings = [...(anchorResult.warnings ?? [])];
+  if (recoveryWarning) warnings.push(recoveryWarning);
+  // Boundary-duplicate detection now runs as a non-blocking warning
+  // (mirrors upstream pi-hashline-edit) so weak models are nudged, not blocked.
 
   let totalAddedLines = 0;
   let totalRemovedLines = 0;
@@ -252,6 +321,29 @@ export function buildToolDef(opts: { flat?: boolean }): any {
       assertReq(canonical, opts.flat);
       const path = canonical.path;
       const absolutePath = toCwd(path, ctx.cwd);
+      const mutationTargetPath = await resolveTarget(absolutePath);
+
+      // Duplicate-edit guard: if the incoming payload is byte-identical to the
+      // last successfully applied payload for this path, and the file has not
+      // changed since that edit (read-snapshot still matches current content),
+      // reject before running the pipeline — the pipeline would otherwise throw
+      // E_STALE_ANCHOR before we could detect the duplicate.
+      const appliedPayloadKey = JSON.stringify(canonical.changes);
+      if (isDuplicateAppliedPayload(mutationTargetPath, appliedPayloadKey)) {
+        const snapshot = getReadSnapshot(mutationTargetPath);
+        if (snapshot !== null) {
+          const currentFile = await loadFileKindAndText(mutationTargetPath);
+          if (currentFile.kind === "text") {
+            const currentNormalized = toLF(stripBOM(currentFile.text).text);
+            if (snapshot === currentNormalized) {
+              throw new Error(
+                `[E_DUPLICATE_EDIT] This exact edit was already applied to ${path} by your previous replace call — the file already contains this change. Do NOT resend the same payload: that would duplicate the inserted lines. Re-read the file to see the current state before editing again.`,
+              );
+            }
+          }
+        }
+      }
+
 
       const {
         originalNormalized, originalHashes, result, bom, originalEnding, hadUtf8DecodeErrors,
@@ -259,6 +351,12 @@ export function buildToolDef(opts: { flat?: boolean }): any {
       } = await execPipeline(canonical, ctx.cwd, constants.R_OK | constants.W_OK, signal);
 
       if (originalNormalized === result) {
+        const { count, escalate } = recordNoopEdit(mutationTargetPath, appliedPayloadKey);
+        if (escalate) {
+          throw new Error(
+            `[E_NOOP_LOOP] Edit to ${path} was a byte-identical no-op ${count} times in a row. STOP re-sending this payload. Re-read the file — the content you are trying to write already exists, or your anchors point at the wrong lines.`,
+          );
+        }
         const noopSnapshotId = (await fileSnap(absolutePath)).snapshotId;
         return {
           content: [{ type: "text", text: `[No changes] ${path} (snapshot ${noopSnapshotId})\nEdit was a noop — content_lines matched existing content.` }],
@@ -274,6 +372,7 @@ export function buildToolDef(opts: { flat?: boolean }): any {
 
       abortIf(signal);
       await writeAtomic(absolutePath, bom + restoreEndings(result, originalEnding));
+      recordAppliedEdit(mutationTargetPath, appliedPayloadKey);
       const updatedSnapshotId = (await fileSnap(absolutePath)).snapshotId;
 
       // On hash overflow skip the full LCS diff: it would allocate an O(n*m) table

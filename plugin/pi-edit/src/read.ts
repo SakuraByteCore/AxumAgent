@@ -6,10 +6,13 @@ import { toCwd } from "./paths.js";
 import { abortIf } from "./utils.js";
 import { visLines } from "./utils.js";
 import { valAccess } from "./validation.js";
+import { resolveTarget } from "./fs-write.js";
 import { MAX_HASH_LINES, COLLAPSED_PREVIEW_LINES } from "./constants.js";
 import { loadP, loadGuide } from "./prompts.js";
 import { Text, Container, Spacer } from "@earendil-works/pi-tui";
 import { readArgPath, formatPath, buildCallHeader, buildShellBox, collapsePreview } from "./render.js";
+import { rememberReadSnapshot } from "./read-snapshot.js";
+import { clearAppliedPayload } from "./noop-loop-guard.js";
 
 interface ReadParams {
   path: string;
@@ -247,7 +250,16 @@ export function buildReadToolDef(): any {
       );
       const preview = await fmtReadPreview(normalized, { offset: params.offset, limit: params.limit }, fileHashes, absolutePath);
       const snapshot = await fileSnap(absolutePath);
-      const noHashes = fileHashes.length === 0 && visLines(normalized).length > 0;
+      const noHashes = fileHashes.length === 0;
+      const canonicalPath = await resolveTarget(absolutePath);
+      // Capture an in-memory snapshot for stale-anchor recovery in replace.
+      // Hashline reads mint anchors; record the canonical-path content snapshot so
+      // a later replace with stale anchors can replay against this read and merge.
+      rememberReadSnapshot(canonicalPath, normalized);
+      // A deliberate re-read clears the duplicate-payload guard for this path: the
+      // model has seen the current state, so any subsequent identical payload is
+      // intentional rather than a retry loop.
+      clearAppliedPayload(canonicalPath);
       const totalLines = visLines(normalized).length;
       const outputLines = preview.truncation?.outputLines ?? totalLines;
       const notices = [

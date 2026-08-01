@@ -116,9 +116,15 @@ export function applyEdits(
   assertNoBarePrefix(edits, lineIndex.fileLines, fileHashes);
   warnUnicodeEsc(edits, warnings);
 
-if (boundaryWarnings.length > 0) {
-  throw new Error(fmtBoundary(boundaryWarnings, filePath));
-}
+  // Boundary-duplicate detection is non-blocking (warning-only), mirroring
+  // upstream pi-hashline-edit. The warnings are folded into the shared
+  // warnings array so the caller surfaces them without rejecting the edit.
+  for (const bw of boundaryWarnings) {
+    const edge = bw.kind === "trailing" ? "last" : "first";
+    warnings.push(
+      `Potential ${bw.kind} boundary duplication: content_lines ${edge} non-empty line ${JSON.stringify(bw.replacementLineContent)} duplicates adjacent file line ${JSON.stringify(bw.survivingLineContent)} at line ${bw.survivingLineIndex}. Do not paste the adjacent (boundary) line into content_lines.`,
+    );
+  }
 
   const orderedSpans = resSpans(initialResolved, content, lineIndex, noopEdits, signal);
   const result = assemble(content, orderedSpans, signal);

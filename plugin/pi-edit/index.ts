@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { initHasher } from "./src/hashline/index.js";
 import { regReplace } from "./src/replace.js";
 import { regRead } from "./src/read.js";
+import { regGrep } from "./src/grep.js";
 import { visLines } from "./src/utils.js";
 import { AUTO_READ_MAX, AUTO_READ_HASH_MAX } from "./src/constants.js";
 import { readConfig, toggleReplaceMode, toggleAutoRead } from "./src/config.js";
@@ -11,6 +12,7 @@ import { fmtReadPreview } from "./src/read.js";
 
 export default function (pi: ExtensionAPI): void {
   regRead(pi);
+  regGrep(pi);
   regReplace(pi);
 
   const debugValue = process.env.PI_HASHLINE_DEBUG;
