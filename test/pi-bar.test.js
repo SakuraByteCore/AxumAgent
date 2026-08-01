@@ -5,16 +5,35 @@ import test from "node:test";
 
 const statuslineSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8");
 
-test("pi-bar has no separator field (plain space by default)", () => {
-  assert.doesNotMatch(statuslineSource, /separator:/);
+test("coralline pill style uses rounded caps with powerline separators", () => {
+  assert.match(statuslineSource, /const CAP_L = "\\uE0B6";/);
+  assert.match(statuslineSource, /const CAP_R = "\\uE0B4";/);
+  assert.match(statuslineSource, /const SEP = "\\uE0B0";/);
+  assert.match(statuslineSource, /barStyle: "coralline",/);
+  assert.match(statuslineSource, /barStyle: "continuous" \| "blocks" \| "coralline";/);
+  // joinPills seals a train's ends with caps and meets adjacent pills at SEP.
+  assert.match(statuslineSource, /function joinPills\(arr: RSeg\[\], pill: boolean, theme: Theme, leftCap: boolean, rightCap: boolean\): Train \{/);
+  assert.match(statuslineSource, /parts\.push\(`\$\{firstFg\}\$\{CAP_L\}\$\{RESET_FG\}`\);/);
+  assert.match(statuslineSource, /parts\.push\(`\$\{prevFg\}\$\{curBg\}\$\{SEP\}\$\{RESET_BOTH\}`\);/);
+  assert.match(statuslineSource, /parts\.push\(`\$\{lastFg\}\$\{CAP_R\}\$\{RESET_BOTH\}`\);/);
   assert.doesNotMatch(statuslineSource, /" - "/);
 });
 
-test("context usage renders percent without a leading bar", () => {
-  const contextBlock = statuslineSource.match(/id: "context-usage",[\s\S]*?color: "syntaxString",[\s\S]*?}\);/);
-  assert.match(contextBlock[0], /suffix:\s*`\$\{pct\}%`/);
-  assert.doesNotMatch(contextBlock[0], /bar:\s*pct/);
-  assert.doesNotMatch(contextBlock[0], /barSegments:/);
+test("context usage renders a coralline threshold gauge and a separate token-count pill", () => {
+  const contextBlock = statuslineSource.match(/function emitContext[\s\S]*?\n\t}/)?.[0] ?? "";
+  // context-usage pill carries only the percent + gauge; the token count is a
+  // separate context-tokens pill so the two read side by side, not merged.
+  assert.match(contextBlock, /suffix:\s*`\$\{pct\}%`/);
+  assert.match(contextBlock, /bar:\s*pct,/);
+  assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
+  assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
+  assert.match(statuslineSource, /left: \["git-branch", "git-head", "tokens-up", "tokens-down", "context-tokens", "context-usage"\]/);
+  assert.match(statuslineSource, /"context-tokens":\s*\[128, 78, 64\]/);
+  // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
+  assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
+  assert.doesNotMatch(statuslineSource, /const GAUGE_EMPTY/);
+  assert.match(statuslineSource, /const GAUGE_WARN_PCT = 50;/);
+  assert.match(statuslineSource, /const GAUGE_HOT_PCT = 75;/);
 });
 
 test("suffix-only statusline segments stay visible", () => {
@@ -50,8 +69,8 @@ test("git-branch shows path on line 1, git-head shows branch on line 2", () => {
   assert.match(statuslineSource, /const path = displayPath\(ctx\.cwd, homedir\(\)\);/);
   // Line 1: git-branch holds the display path only (both svn and git paths).
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/);
-  // Line 2 leftmost: git branch name is prefixed with "git." in mdLink.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: `git\.\$\{b\}`, color: "mdLink" \}\)/);
+  // git-head shows the bare branch name (no "git." prefix) in mdLink.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: b, color: "mdLink" \}\)/);
 });
 
 test("isSvn walks up from cwd looking for a .svn directory", () => {
@@ -70,42 +89,59 @@ test("emitGit precedence is svn > git > empty", () => {
   assert.match(body, /if \(isSvn\(ctx\.cwd\)\) \{[\s\S]*?pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: "svn", color: "mdLink" \}\)[\s\S]*?return;/);
   // svn keeps the path on line 1, git keeps the path on line 1 too.
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/g);
-  // empty placeholder: both segments cleared (text: undefined) when neither vcs applies.
+  // empty placeholder: both segments cleared (text: undefined) when neither vcs applies; git-dirty was removed entirely.
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: undefined \}\)/);
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-head", text: undefined \}\)/);
+  assert.doesNotMatch(body, /emitGitDirty/);
 });
 
-test("renderBar returns a two-line array with git-branch isolated on the first line", () => {
-  // The bar switched to a two-line layout: line 1 = path+branch, line 2 = rest.
+test("renderBar returns a single-line array spreading all segments", () => {
+  // The bar switched to a single-line layout: every active segment shares
+  // one row, left-side segments cluster left and right-side segments right.
   assert.match(statuslineSource, /function renderBar\(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number\): string\[\]/);
   const body = statuslineSource.match(/function renderBar\([\s\S]*?\n\}/)?.[0] ?? "";
-  assert.match(body, /const header = segs\.get\("git-branch"\)/);
-  assert.match(body, /const msgs = segs\.get\("messages"\)/);
-  assert.match(body, /return \[firstLine, secondLine\]/);
-  // Second line renders left/right after filtering git-branch and messages out.
-  assert.match(body, /settings\.left\.filter\(\(id\) => id !== "git-branch" && id !== "messages"\)/);
-  assert.match(body, /settings\.right\.filter\(\(id\) => id !== "git-branch" && id !== "messages"\)/);
+  assert.match(body, /const lineLeft = settings\.left;/);
+  assert.match(body, /const lineRight = settings\.right;/);
+  assert.match(body, /return \[singleLine\];/);
 });
 
-test("messages segment counts session messages and sits on the right before model", () => {
+test("messages count is a separate right-side pill, separated from context-usage", () => {
   // Counter accumulates message entries inside the token pass to avoid a second traversal.
   assert.match(statuslineSource, /let msgCount = 0;/);
   assert.match(statuslineSource, /if \(e\.type !== "message"\) continue;[\s\S]*?msgCount \+= 1;/);
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "messages", text: `#\$\{msgCount\}`, color: "thinkingMedium" \}\)/);
-  assert.match(statuslineSource, /right: \["messages", "work-time", "model", "sub-hourly", "sub-weekly"\]/);
+  // messages is its own separate pill at the head of the right train, not
+  // embedded in the elastic context-usage block.
+  assert.match(statuslineSource, /right: \["messages", "model"\]/);
+  // messages now has its own warm ground in the palette.
+  assert.match(statuslineSource, /messages:\s+\[120, 104, 56\]/);
+  // elastic context-usage block no longer reads the messages segment.
+  assert.doesNotMatch(statuslineSource, /segs\.get\("messages"\)\?\.text/);
 });
 
 test("model segment strips provider prefix from model id", () => {
   assert.match(statuslineSource, /const name = m\.id\.lastIndexOf\("\/"\) >= 0 \? m\.id\.slice\(m\.id\.lastIndexOf\("\/"\) \+ 1\) : m\.id;/);
-  assert.match(statuslineSource, /text = lvl === "off" \? `\$\{name\} \\u00b7 off` : `\$\{name\} \\u00b7 \$\{lvl\}`/);
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: name, color: "thinkingHigh" \}\)/);
+  assert.doesNotMatch(statuslineSource, /\\u00b7/);
 });
 
-test("work-time segment shows current run from agent_start to settled", () => {
-  assert.match(statuslineSource, /function fmtDuration\(ms: number\): string \{/);
-  assert.match(statuslineSource, /let workStartMs: number \| undefined;/);
-  // agent_start sets the active run start, agent_settled clears it.
-  assert.match(statuslineSource, /pi\.on\("agent_start", async \(_event, ctx\) => \{[\s\S]*?workStartMs = Date\.now\(\)/);
-  assert.match(statuslineSource, /pi\.on\("agent_settled", async \(_event, ctx\) => \{[\s\S]*?workStartMs = undefined/);
-  // Segment text formats as the current run duration in syntaxComment green.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "work-time", text: fmtDuration\(workMs\), color: "syntaxComment" \}\)/);
+test("usage-core, last-tool and git-dirty dead segments purged", () => {
+  for (const dead of [
+    "usage-core",
+    "sub-hourly",
+    "sub-weekly",
+    "RateWindow",
+    "UsageState",
+    "emitUsage",
+    "emitWindow",
+    "usageColor",
+    "last-tool",
+    "lastTool",
+    "emitLastTool",
+    "git-dirty",
+    "gitDirty",
+    "emitGitDirty",
+  ]) {
+    assert.doesNotMatch(statuslineSource, new RegExp(dead), `source must not reference ${dead}`);
+  }
 });

@@ -3,8 +3,16 @@
  *
  * High-performance powerline-style status bar for pi-coding-agent.
  * Single-file, zero native deps, inline settings (no external settings pkg).
- * Segment producers are bundled; subscription usage (sub-hourly/sub-weekly)
- * listens for usage-core events but stays inert without a usage provider.
+ * Segment producers are bundled; no external usage provider is required.
+ *
+ *  - "coralline" barStyle renders each segment as a rounded pill: a dark
+ *    role-color background block sealed by rounded caps (U+E0B6 /
+ *    U+E0B4), with the segment's own bright semantic color as the text.
+ *    Pills are separated by a clean single space (no powerline triangle),
+ *    so each chip reads as its own self-contained block against the
+ *    terminal base, and the dark ground + bright ink pairs stay readable.
+ *  - Context usage renders as a threshold gauge: green below 50%, yellow
+ *    50-75%, red above 75%, using the U+25B0 / U+25B1 glyphs.
  *
  * Hot-path design:
  *  - Segment updates only mark a dirty flag; the TUI pulls via render().
@@ -33,6 +41,7 @@ interface Segment {
 	suffix?: string;
 	icon?: string;
 	color?: string;
+	bg?: string;
 	bar?: number;
 	barSegments?: number;
 	visible: boolean;
@@ -44,6 +53,7 @@ interface SegEvent {
 	suffix?: string;
 	icon?: string;
 	color?: string;
+	bg?: string;
 	bar?: number;
 	barSegments?: number;
 }
@@ -58,18 +68,7 @@ interface Settings {
 	right: string[];
 	placement: "aboveEditor" | "belowEditor";
 	barWidth: number;
-	barStyle: "continuous" | "blocks";
-}
-
-interface RateWindow {
-	label?: string;
-	usedPercent: number;
-	resetDescription?: string;
-}
-
-interface UsageState {
-	provider?: string;
-	usage?: { windows: RateWindow[] };
+	barStyle: "continuous" | "blocks" | "coralline";
 }
 
 // ---------------------------------------------------------------------------
@@ -81,11 +80,11 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "git-head", "tokens", "context-usage"],
-	right: ["messages", "work-time", "model", "sub-hourly", "sub-weekly"],
+	left: ["git-branch", "git-head", "tokens-up", "tokens-down", "context-tokens", "context-usage"],
+	right: ["messages", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
-	barStyle: "blocks",
+	barStyle: "coralline",
 };
 
 function loadSettings(): Settings {
@@ -107,7 +106,8 @@ function loadSettings(): Settings {
 		const n = Number.parseInt(v ?? "", 10);
 		return Number.isFinite(n) ? Math.max(4, Math.min(24, n)) : d;
 	};
-	const bstyle = (v: string | undefined): "continuous" | "blocks" => (v === "continuous" ? "continuous" : "blocks");
+	const bstyle = (v: string | undefined): Settings["barStyle"] =>
+		v === "continuous" ? "continuous" : v === "blocks" ? "blocks" : "coralline";
 	const place = (v: string | undefined): "aboveEditor" | "belowEditor" =>
 		v === "aboveEditor" ? "aboveEditor" : "belowEditor";
 	return {
@@ -125,6 +125,72 @@ function loadSettings(): Settings {
 
 const BLOCKS = [" ", "\u2581", "\u2582", "\u2583", "\u2584", "\u2585", "\u2586", "\u2587", "\u2588"];
 const PARTIAL = ["\u258f", "\u258e", "\u258d", "\u258c", "\u258b", "\u258a", "\u2589"];
+
+// coralline pill caps (powerline glyphs, Nerd Font).
+// CAP_L seals the left edge of a pill, CAP_R the right; both are solid
+// glyph shapes drawn with the pill's own role color so each cap reads as
+// a seamless rounded end of the bg block, not a stray arc.
+const CAP_L = "\uE0B6";
+const CAP_R = "\uE0B4";
+// Powerline separator triangle: drawn between adjacent pills in a train so
+// two bg blocks flow into one shape. Its foreground is the previous pill's
+// ground (dints the triangle into the last block) and its background is the
+// next pill's ground (the transition).
+const SEP = "\uE0B0";
+
+// Context gauge glyph: U+25B0 (▰) filled. Only filled cells render; no
+// hollow-trailing glyph is emitted so the % sits right after the fill.
+const GAUGE_FILL = "\u25B0";
+const GAUGE_WARN_PCT = 50;
+const GAUGE_HOT_PCT = 75;
+
+// Pill ground palette: each visible segment gets its own warm, low-luminance
+// RGB ground so every pill background is distinct yet the hues form one
+// coherent warm family (brick reds, ambers, ochres, wine, olive). Luminance is
+// kept low so the HOST's own "text" foreground (light on dark terminals,
+// dark on light terminals) stays high-contrast against any of these grounds
+// in both built-in themes, without depending on a per-theme color name.
+// These are emitted as raw 24-bit ANSI escapes (\x1b[48;2;r;g;bm), so no
+// theme color-name slot is consumed and the grounds render identically
+// regardless of whether the host picked the dark or light theme.
+type Rgb = readonly [number, number, number];
+const PALETTE: Record<string, Rgb> = {
+	"git-branch": [122, 59, 59],   // muted brick red
+	"git-head":   [125, 90, 60],   // dark amber / ochre
+	"tokens-up":   [120, 70, 78],   // warm rose
+	"tokens-down": [110, 80, 58],   // burnt orange
+	"context-tokens": [128, 78, 64],   // warm rust-brown
+	"context-usage": [94, 90, 58], // dark olive
+	messages:      [120, 104, 56],  // warm amber/gold
+	model:        [94, 58, 90],    // warm mulberry
+};
+
+// Resolve a segment's warm ground RGB from the PALETTE. Returns undefined for
+// ids that are not in the palette (none of the current visible segments fall
+// outside it after splitting tokens/context).
+function segGround(s: Segment | undefined): Rgb | undefined {
+	if (!s) return undefined;
+	return PALETTE[s.id];
+}
+
+// Build a 24-bit background escape from an RGB triple.
+function rgbBg(rgb: Rgb): string {
+	return `\x1b[48;2;${rgb[0]};${rgb[1]};${rgb[2]}m`;
+}
+
+// Build a 24-bit foreground escape from an RGB triple (used for caps/sep
+// glyphs so they blend into the adjacent ground).
+function rgbFg(rgb: Rgb): string {
+	return `\x1b[38;2;${rgb[0]};${rgb[1]};${rgb[2]}m`;
+}
+
+const RESET_FG = "\x1b[39m";
+const RESET_BG = "\x1b[49m";
+const RESET_BOTH = "\x1b[39m\x1b[49m";
+
+function thresholdColor(pct: number): ThemeColor {
+	return pct >= GAUGE_HOT_PCT ? "error" : pct >= GAUGE_WARN_PCT ? "warning" : "success";
+}
 
 function renderContinuous(percent: number, width: number, theme: Theme, color: ThemeColor): string {
 	const p = percent < 0 ? 0 : percent > 100 ? 100 : percent;
@@ -147,7 +213,7 @@ function renderBlocks(percent: number, n: number, theme: Theme, color: ThemeColo
 	const filledFloat = (p / 100) * n;
 	const dimBg = theme.getFgAnsi("dim").replace("\x1b[38;", "\x1b[48;");
 	const fg = theme.getFgAnsi(color);
-	const reset = "\x1b[39m\x1b[49m";
+	const reset = RESET_BOTH;
 	let out = "";
 	for (let i = 0; i < n; i++) {
 		if (i > 0) out += " ";
@@ -158,8 +224,18 @@ function renderBlocks(percent: number, n: number, theme: Theme, color: ThemeColo
 	return out;
 }
 
-function segColor(s: Segment): ThemeColor {
-	return (s.color || "muted") as ThemeColor;
+// coralline gauge: filled U+25B0 glyph recolored by threshold. Width is the
+// number of gauge cells. pct drives both the fill count and the threshold
+// color (green -> yellow -> red), mirroring coralline's limit bars. No empty
+// trailing glyph is rendered, so the bar reads as a compact filled run.
+function renderGauge(percent: number, n: number, theme: Theme): string {
+	// Only filled cells (U+25B0) are emitted; the trailing hollow cells are
+	// omitted so the % reads right after the filled run instead of being
+	// pushed aside by a row of empty placeholders.
+	const p = percent < 0 ? 0 : percent > 100 ? 100 : percent;
+	const filled = Math.round((p / 100) * n);
+	const fillColor = thresholdColor(p);
+	return theme.fg(fillColor, GAUGE_FILL.repeat(filled));
 }
 
 function renderSegment(s: Segment, settings: Settings, theme: Theme): string {
@@ -168,16 +244,44 @@ function renderSegment(s: Segment, settings: Settings, theme: Theme): string {
 	if (s.bar !== undefined) {
 		// bar-only segments emit bar first, then text/suffix (statusline convention)
 		const bw = s.barSegments ?? settings.barWidth;
-		parts.push(settings.barStyle === "blocks" ? renderBlocks(s.bar, bw, theme, c) : renderContinuous(s.bar, bw, theme, c));
+		parts.push(settings.barStyle === "blocks" ? renderBlocks(s.bar, bw, theme, c) : settings.barStyle === "coralline" ? renderGauge(s.bar, bw, theme) : renderContinuous(s.bar, bw, theme, c));
 	}
 	if (s.text) parts.push(theme.fg(c, s.text));
 	if (s.suffix) parts.push(theme.fg(c, s.suffix));
 	return parts.join(" ");
 }
 
+// coralline pill: a warm, segment-specific RGB ground block (see PALETTE)
+// carrying the host's own "text" foreground as the ink, so contrast is
+// governed by the host theme (light on dark terminals, dark on light) and
+// stays readable on every warm ground. The gauge (context-usage) keeps its
+// threshold color since that encodes state. Caps/separator are applied by
+// joinPills at the train level.
+function renderPill(s: Segment, settings: Settings, theme: Theme): string {
+	const ground = segGround(s);
+	if (!ground) return renderSegment(s, settings, theme);
+	const textFg = theme.getFgAnsi("text");
+	const parts: string[] = [];
+	if (s.bar !== undefined) {
+		const bw = s.barSegments ?? settings.barWidth;
+		// gauge keeps threshold color; blocks/continuous use the bar color.
+		if (settings.barStyle === "coralline") {
+			parts.push(renderGauge(s.bar, bw, theme));
+		} else {
+			parts.push(settings.barStyle === "blocks" ? renderBlocks(s.bar, bw, theme, s.color as ThemeColor) : renderContinuous(s.bar, bw, theme, s.color as ThemeColor));
+		}
+	}
+	if (s.text) parts.push(`${textFg}${s.text}`);
+	if (s.suffix) parts.push(`${textFg}${s.suffix}`);
+	const inner = parts.length ? parts.join(" ") : "";
+	const reset = parts.length ? RESET_FG : "";
+	return `${rgbBg(ground)}${inner}${reset}${RESET_BG}`;
+}
+
 interface RSeg {
 	text: string;
 	width: number;
+	seg?: Segment;
 }
 
 function renderSide(ids: string[], segs: Map<string, Segment>, settings: Settings, theme: Theme): RSeg[] {
@@ -185,8 +289,8 @@ function renderSide(ids: string[], segs: Map<string, Segment>, settings: Setting
 	for (const id of ids) {
 		const s = segs.get(id);
 		if (!s || !s.visible) continue;
-		const t = renderSegment(s, settings, theme);
-		out.push({ text: t, width: visibleWidth(t) });
+		const t = settings.barStyle === "coralline" ? renderPill(s, settings, theme) : renderSegment(s, settings, theme);
+		out.push({ text: t, width: visibleWidth(t), seg: s });
 	}
 	return out;
 }
@@ -201,53 +305,178 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 }
 
 export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string[] {
-	// First line: git-branch (left) + messages (right).
-	const header = segs.get("git-branch");
-	const msgs = segs.get("messages");
-	const leftTxt = header?.visible && header.text ? renderSegment(header, settings, theme) : "";
-	const rightTxt = msgs?.visible && msgs.text ? renderSegment(msgs, settings, theme) : "";
-	const firstLine = layoutPair(leftTxt, rightTxt, width);
-
-	// Second line: all remaining segments in the configured left/right order.
-	const lineLeft = settings.left.filter((id) => id !== "git-branch" && id !== "messages");
-	const lineRight = settings.right.filter((id) => id !== "git-branch" && id !== "messages");
-	const secondLine = renderLine(lineLeft, lineRight, segs, settings, theme, width);
-	return [firstLine, secondLine];
+	// Single-line layout: every active segment shares one row. The configured
+	// left-side segments cluster left, the configured right-side segments
+	// cluster right, and the gap between the two trains fills with spaces so
+	// the left/right split stays visually clear.
+	const lineLeft = settings.left;
+	const lineRight = settings.right;
+	const singleLine = renderLine(lineLeft, lineRight, segs, settings, theme, width);
+	return [singleLine];
 }
 
-function layoutPair(leftTxt: string, rightTxt: string, width: number): string {
-	const lw = visibleWidth(leftTxt);
-	const rw = visibleWidth(rightTxt);
-	if (lw + rw + 1 > width) {
-		return truncateToWidth(`${leftTxt} ${rightTxt}`.trim(), width, "\u2026");
-	}
-	const pad = Math.max(1, width - lw - rw);
-	return `${leftTxt}${" ".repeat(pad)}${rightTxt}`;
-}
-
+// Render the single bar line. The context-usage segment is elastic: it sits
+// between the left train and the right train and expands to fill all leftover
+// columns so the bar spans the full width. The messages count (`#N`) and the
+// per-message token counts (`↑/↓`) live in their own separate pills in the
+// right and left trains; the left/right trains keep their rounded outer caps
+// (U+E0B6 / U+E0B4) and meet the elastic segment via the powerline separator
+// (U+E0B0) so all bg blocks flow into one continuous shape. Non-pill style
+// falls back to plain space-separated segments with the elastic gap as spaces.
 function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string {
-	const sep = " ";
-	const sepW = 1;
-	const left = renderSide(lineLeft, segs, settings, theme);
+	const pill = settings.barStyle === "coralline";
+	// Split the elastic context-usage segment out of the left train; it is rendered
+	// separately as the expanding middle block. The token count and messages
+	// count are separate pills and are not part of this elastic block.
+	const elasticId = "context-usage";
+	const fixedLeft = lineLeft.filter((id) => id !== elasticId);
+	const hasElastic = lineLeft.includes(elasticId);
+	const left = renderSide(fixedLeft, segs, settings, theme);
 	const right = renderSide(lineRight, segs, settings, theme);
+	const elastic = hasElastic ? segs.get(elasticId) : undefined;
 	const all = left.concat(right);
-	const sepCount = Math.max(0, left.length - 1) + Math.max(0, right.length - 1);
-	const segW = all.reduce((a, s) => a + s.width, 0);
-	const minPad = 1;
-	let need = segW + sepCount * sepW + minPad;
+	// Fixed-width cost of the two trains: caps at the outer ends (U+E0B6/E0B4)
+	// and a separator (U+E0B0) at every shared boundary, plus one column joining
+	// each train to the elastic block. Non-pill style joins on plain spaces
+	// (1 column each) and has no caps.
+	const trainCaps = pill ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
+	const innerJoints = pill ? Math.max(0, left.length - 1) + Math.max(0, right.length - 1) : (Math.max(0, left.length - 1) + Math.max(0, right.length - 1)) * 1;
+	const elasticSeams = hasElastic ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
+	const trainW = all.reduce((a, s) => a + s.width, 0);
+	// Minimum width for the elastic block: percent text + messages tail + 1 gap.
+	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
+	const minGap = hasElastic ? 0 : 1;
+	let need = trainW + trainCaps + innerJoints + elasticSeams + ellMin + minGap;
 	if (need > width) {
 		let overflow = need - width;
 		for (let i = 0; i < all.length && overflow > 0; i++) {
 			shrinkWidest(all, overflow);
-			overflow = all.reduce((a, s) => a + s.width, 0) + sepCount * sepW + minPad - width;
+			overflow = all.reduce((a, s) => a + s.width, 0) + trainCaps + innerJoints + elasticSeams + ellMin + minGap - width;
 		}
 	}
-	const joined = (arr: RSeg[]): RSeg =>
-		arr.length === 0 ? { text: "", width: 0 } : { text: arr.map((s) => s.text).join(sep), width: arr.reduce((a, s) => a + s.width, 0) + (arr.length - 1) * sepW };
-	const l = joined(left);
-	const r = joined(right);
-	const pad = Math.max(minPad, width - l.width - r.width);
-	return truncateToWidth(`${l.text}${" ".repeat(pad)}${r.text}`, width, "\u2026");
+	const l = left.length ? joinPills(left, pill, theme, /*leftCap*/ true, /*rightCap*/ !hasElastic && right.length === 0) : { text: "", width: 0 };
+	const r = right.length ? joinPills(right, pill, theme, /*leftCap*/ !hasElastic && left.length === 0, /*rightCap*/ true) : { text: "", width: 0 };
+	if (!hasElastic) {
+		const pad = Math.max(minGap, width - l.width - r.width);
+		return truncateToWidth(`${l.text}${" ".repeat(pad)}${r.text}`, width, "\u2026");
+	}
+	// Elastic block: fill everything between the trains. Its width is whatever
+	// remains after the trains and their seams, floored to its minimum.
+	const elasticW = Math.max(ellMin, width - l.width - r.width - (left.length > 0 ? 1 : 0) - (right.length > 0 ? 1 : 0));
+	const e = renderElastic(elastic, segs, theme, settings, pill, elasticW, /*leftSeam*/ left.length > 0, /*rightSeam*/ right.length > 0);
+	// Stitch: left train | seam | elastic | seam | right train.
+	let parts: string[] = [];
+	if (left.length > 0) {
+		parts.push(l.text);
+		if (pill) parts.push(seamInto(elastic, left[left.length - 1]!.seg, theme));
+		else parts.push(" ");
+	}
+	parts.push(e.text);
+	if (right.length > 0) {
+		if (pill) parts.push(seamInto(right[0]!.seg, elastic, theme));
+		else parts.push(" ");
+		parts.push(r.text);
+	}
+	return truncateToWidth(parts.join(""), width, "\u2026");
+}
+
+// Stitch rendered pill segments into one train. leftCap/rightCap choose
+// which outer ends get a rounded cap (U+E0B6 / U+E0B4): only the train's
+// true left end and true right end round off, while shared boundaries
+// between adjacent pills use the powerline separator (U+E0B0) carrying the
+// previous ground as foreground (forms the notch) and the next ground as
+// background (the transition), so two bg blocks merge into one shape. In
+// non-pill style segments are joined by plain spaces.
+interface Train { text: string; width: number }
+function joinPills(arr: RSeg[], pill: boolean, theme: Theme, leftCap: boolean, rightCap: boolean): Train {
+	if (arr.length === 0) return { text: "", width: 0 };
+	if (!pill) {
+		const text = arr.map((s) => s.text).join(" ");
+		return { text, width: visibleWidth(text) };
+	}
+	// Each train has a rounded left cap (U+E0B6) at its first pill and a
+	// rounded right cap (U+E0B4) at its last; adjacent pills inside the train
+	// meet at a separator triangle (U+E0B0). Each cap/sep is 1 visible column,
+	// so the final width = caps + sum(segWidth) + joints.
+	let parts: string[] = [];
+	let widthSum = 0;
+	if (leftCap && arr.length > 0) {
+		const firstGround = segGround(arr[0]!.seg);
+		const firstFg = firstGround ? rgbFg(firstGround) : "";
+		parts.push(`${firstFg}${CAP_L}${RESET_FG}`);
+		widthSum += 1;
+	}
+	for (let i = 0; i < arr.length; i++) {
+		if (i > 0) {
+			// Separator between the previous pill and this one: foreground is
+			// the previous pill's ground (dints the triangle into the last
+			// block) and background is this pill's ground (starts the new
+			// block), so the two colored grounds flow through the glyph.
+			const prevGround = segGround(arr[i - 1]!.seg);
+			const prevFg = prevGround ? rgbFg(prevGround) : "";
+			const curGround = segGround(arr[i]!.seg);
+			const curBg = curGround ? rgbBg(curGround) : "";
+			parts.push(`${prevFg}${curBg}${SEP}${RESET_BOTH}`);
+			widthSum += 1;
+		}
+		parts.push(arr[i]!.text);
+		widthSum += arr[i]!.width;
+	}
+	if (rightCap && arr.length > 0) {
+		const lastGround = segGround(arr[arr.length - 1]!.seg);
+		const lastFg = lastGround ? rgbFg(lastGround) : "";
+		parts.push(`${lastFg}${CAP_R}${RESET_BOTH}`);
+		widthSum += 1;
+	}
+	return { text: parts.join(""), width: widthSum };
+}
+
+// Minimum width of the elastic context-usage block: just its percent text
+// plus, in pill style, the two outer cap/seam columns. The messages count is
+// no longer part of this block (it is a separate right-side pill).
+function elasticMinWidth(elastic: Segment | undefined, _segs: Map<string, Segment>, _theme: Theme, _settings: Settings): number {
+	const pctTxt = elastic?.suffix ?? "0%";
+	const hasGround = elastic ? Boolean(segGround(elastic)) : false;
+	return visibleWidth(pctTxt) + (hasGround ? 2 : 0);
+}
+
+// Render the elastic context-usage block at a target visible width. Its body
+// is the percent text left-anchored, with the rest as plain space padding so
+// the block spans the whole gap between the left and right trains. In pill
+// style the block is a warm RGB ground carrying the host text; if
+// leftSeam/rightSeam are false the corresponding outer end gets a rounded cap
+// (U+E0B6 / U+E0B4) instead of being joined by a separator to a neighboring
+// train. The messages count is rendered as its own separate pill in the
+// right train, separated from this block by a powerline seam.
+function renderElastic(elastic: Segment | undefined, _segs: Map<string, Segment>, theme: Theme, _settings: Settings, pill: boolean, targetW: number, leftSeam: boolean, rightSeam: boolean): Train {
+	const pctTxt = elastic?.suffix ?? "";
+	const textFg = theme.getFgAnsi("text");
+	const ground = elastic ? segGround(elastic) : undefined;
+	if (!pill || !ground) {
+		const gap = Math.max(1, targetW - visibleWidth(pctTxt));
+		const text = `${textFg}${pctTxt}${" ".repeat(gap)}${RESET_FG}`;
+		return { text, width: visibleWidth(text) };
+	}
+	const bg = rgbBg(ground);
+	const caps = (leftSeam ? 0 : 1) + (rightSeam ? 0 : 1);
+	const innerW = Math.max(0, targetW - caps);
+	const leftCapTxt = leftSeam ? "" : `${rgbFg(ground)}${CAP_L}${RESET_FG}`;
+	const rightCapTxt = rightSeam ? "" : `${rgbFg(ground)}${CAP_R}${RESET_BOTH}`;
+	const gap = Math.max(1, innerW - visibleWidth(pctTxt));
+	const body = `${bg}${textFg}${pctTxt}${" ".repeat(gap)}${RESET_FG}${RESET_BG}`;
+	return { text: `${leftCapTxt}${body}${rightCapTxt}`, width: targetW };
+}
+
+// Powerline separator (U+E0B0) joining two colored blocks: foreground is the
+// source block's ground (dints the triangle into the last block) and
+// background is the destination block's ground (starts the new block), so the
+// two grounds flow into each other through the glyph.
+function seamInto(toSeg: Segment | undefined, fromSeg: Segment | undefined, theme: Theme): string {
+	const toGround = segGround(toSeg);
+	const fromGround = segGround(fromSeg);
+	const fromFg = fromGround ? rgbFg(fromGround) : "";
+	const toBg = toGround ? rgbBg(toGround) : "";
+	return `${fromFg}${toBg}${SEP}${RESET_BOTH}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,6 +491,7 @@ function segEqual(a: Segment | undefined, b: Segment): boolean {
 		a.suffix === b.suffix &&
 		a.icon === b.icon &&
 		a.color === b.color &&
+		a.bg === b.bg &&
 		a.bar === b.bar &&
 		a.barSegments === b.barSegments
 	);
@@ -273,20 +503,6 @@ function fmtTokens(n: number): string {
 	if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
 	if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
 	return `${Math.round(n / 1_000_000)}M`;
-}
-
-// Duration always keeps seconds as the lowest unit so the running timer
-// ticks visibly even once minutes/hours accrue.
-function fmtDuration(ms: number): string {
-	if (ms < 0) ms = 0;
-	const s = Math.floor(ms / 1000);
-	if (s < 60) return `${s}s`;
-	const m = Math.floor(s / 60);
-	const remS = s % 60;
-	if (m < 60) return `${m}m ${remS}s`;
-	const h = Math.floor(m / 60);
-	const remM = m % 60;
-	return `${h}h ${remM}m ${remS}s`;
 }
 
 function displayPath(cwd: string, home: string): string {
@@ -325,9 +541,7 @@ function isSvn(cwd: string): boolean {
 	return false;
 }
 
-function usageColor(pct: number): string {
-	return pct > 80 ? "error" : pct > 60 ? "warning" : "muted";
-}
+// git working-tree dirty probe (zero-subprocess heuristic).
 // Mini Reimu (博丽灵梦) working indicator: 3-line half-body ASCII in warm palette B.
 // Frames carry inline ANSI colors + newlines; host Loader renders them verbatim.
 const RIBBON = "\x1b[38;2;240;198;116m";
@@ -352,8 +566,6 @@ export default function (pi: ExtensionAPI): void {
 	let settings: Settings = DEFAULTS;
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
-	// Active agent run start (epoch ms); undefined when idle. See agent_start/agent_settled.
-	let workStartMs: number | undefined;
 
 	// Register API surface for other extensions (kept compatible with the
 	// upstream event contract so segment emitters keep working transparently).
@@ -379,6 +591,7 @@ export default function (pi: ExtensionAPI): void {
 			suffix: ev.suffix,
 			icon: ev.icon,
 			color: ev.color,
+			bg: ev.bg,
 			bar: ev.bar,
 			barSegments: ev.barSegments,
 			visible: !!(ev.text || ev.suffix || ev.bar !== undefined),
@@ -387,41 +600,6 @@ export default function (pi: ExtensionAPI): void {
 		segs.set(id, next);
 		dirty = true;
 	});
-
-	// Subscription usage events from pi-usage (if loaded as a sibling).
-	// Inert when no usage provider is present: events simply never fire.
-	pi.events.on("usage-core:ready", (payload: unknown) => emitUsage(payload));
-	pi.events.on("usage-core:update-current", (payload: unknown) => emitUsage(payload));
-
-	function emitUsage(payload: unknown): void {
-		const state = (payload as { state?: UsageState })?.state;
-		if (!state?.provider || !state.usage?.windows?.length) {
-			pi.events.emit("pi-bar:update", { id: "sub-hourly", text: undefined });
-			pi.events.emit("pi-bar:update", { id: "sub-weekly", text: undefined });
-			return;
-		}
-		emitWindow("sub-hourly", state.usage.windows[0], 5);
-		emitWindow("sub-weekly", state.usage.windows[1], 7);
-	}
-
-	function emitWindow(id: string, w: RateWindow | undefined, bw: number): void {
-		if (!w) {
-			pi.events.emit("pi-bar:update", { id, text: undefined });
-			return;
-		}
-		const pct = Math.round(w.usedPercent);
-		const parts: string[] = [];
-		if (w.label) parts.push(w.label);
-		if (w.resetDescription) parts.push(w.resetDescription);
-		pi.events.emit("pi-bar:update", {
-			id,
-			text: parts.join(" "),
-			suffix: `${pct}%`,
-			bar: pct,
-			barSegments: bw,
-			color: usageColor(pct),
-		});
-	}
 
 	// --- Built-in producers ---
 
@@ -441,8 +619,9 @@ export default function (pi: ExtensionAPI): void {
 			return;
 		}
 		pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
-		pi.events.emit("pi-bar:update", { id: "git-head", text: `git.${b}`, color: "mdLink" });
+		pi.events.emit("pi-bar:update", { id: "git-head", text: b, color: "mdLink" });
 	}
+
 
 	function emitTokens(ctx: ExtensionContext): void {
 		let ti = 0;
@@ -460,25 +639,17 @@ export default function (pi: ExtensionAPI): void {
 			cost += m.usage.cost?.total ?? 0;
 		}
 		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
-		emitWorkTime(ctx);
-		if (ti === 0 && to === 0) {
-			pi.events.emit("pi-bar:update", { id: "tokens", text: "\u21910 \u21930", color: "text" });
-			return;
-		}
-		const parts = [`\u2191${fmtTokens(ti)}`, `\u2193${fmtTokens(to)}`];
-		if (cost > 0) parts.push(`$${cost.toFixed(2)}`);
-		pi.events.emit("pi-bar:update", { id: "tokens", text: parts.join(" "), color: "text" });
+		const tiText = `\u2191${fmtTokens(ti)}`;
+		pi.events.emit("pi-bar:update", { id: "tokens-up", text: cost > 0 ? `${tiText} $${cost.toFixed(2)}` : tiText, color: "text" });
+		pi.events.emit("pi-bar:update", { id: "tokens-down", text: `\u2193${fmtTokens(to)}`, color: "text" });
 	}
 
-	function emitWorkTime(_ctx: ExtensionContext): void {
-		const workMs = workStartMs ? Date.now() - workStartMs : 0;
-		pi.events.emit("pi-bar:update", { id: "work-time", text: fmtDuration(workMs), color: "syntaxComment" });
-	}
 
 	function emitContext(ctx: ExtensionContext): void {
 		const u = ctx.getContextUsage();
 		if (!u || u.tokens == null) {
 			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
+			pi.events.emit("pi-bar:update", { id: "context-tokens", text: "0" });
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
@@ -486,21 +657,17 @@ export default function (pi: ExtensionAPI): void {
 			id: "context-usage",
 			text: "",
 			suffix: `${pct}%`,
-			color: "syntaxString",
+			bar: pct,
+			color: thresholdColor(pct),
 		});
+		pi.events.emit("pi-bar:update", { id: "context-tokens", text: fmtTokens(u.tokens) });
 	}
-
 
 	function emitModel(ctx: ExtensionContext): void {
 		const m = ctx.model;
 		if (!m) return;
 		const name = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
-		let text = name;
-		if (m.reasoning) {
-			const lvl = pi.getThinkingLevel();
-			text = lvl === "off" ? `${name} \u00b7 off` : `${name} \u00b7 ${lvl}`;
-		}
-		pi.events.emit("pi-bar:update", { id: "model", text, color: "thinkingHigh" });
+		pi.events.emit("pi-bar:update", { id: "model", text: name, color: "thinkingHigh" });
 	}
 
 	// --- Render refresh (coalesced) ---
@@ -566,8 +733,6 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {
-		workStartMs = Date.now();
-		emitWorkTime(ctx);
 		emitContext(ctx);
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator({ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS });
@@ -576,8 +741,6 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		workStartMs = undefined;
-		emitWorkTime(ctx);
 		emitContext(ctx);
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator();
