@@ -141,3 +141,40 @@ test("usage-core, last-tool and git-dirty dead segments purged", () => {
     assert.doesNotMatch(statuslineSource, new RegExp(dead), `source must not reference ${dead}`);
   }
 });
+
+test("right-train drops the messages pill when the model name risks clipping", () => {
+  // Goal: when the model pill would not fit, hide `#N` so the model fills the
+  // leftover width. Pruning is gated on model+messages both being present.
+  assert.match(statuslineSource, /const modelIdx = right\.findIndex\(\(r\) => r\.seg\?\.id === "model"\);/);
+  assert.match(statuslineSource, /const msgIdx = right\.findIndex\(\(r\) => r\.seg\?\.id === "messages"\);/);
+  assert.match(statuslineSource, /if \(modelIdx >= 0 && msgIdx >= 0\) \{/);
+  // The decision recomputes the full pre-shrink cost including the elastic min.
+  assert.match(statuslineSource, /const need0 = trainW0 \+ caps0 \+ joints0 \+ seams0 \+ ellMin \+ minGap;/);
+  // Messages is removed by filtering it out of the right train (not by clearing
+  // its text), so the surviving right train is just the model pill.
+  assert.match(statuslineSource, /if \(need0 > width\) right = right\.filter\(\(r\) => r\.seg\?\.id !== "messages"\);/);
+});
+
+test("shrinkWidest mutates slot fields in place so left/right trains sync", () => {
+  // shrinkWidest runs over left.concat(right), which shares element objects;
+  // replacing arr[wi] leaves the train arrays untouched, so the shrink must
+  // update the object's own fields instead.
+  assert.match(statuslineSource, /s\.text = truncateToWidth\(s\.text, tgt, "\\u2026"\);/);
+  assert.match(statuslineSource, /s\.width = tgt;/);
+  assert.doesNotMatch(statuslineSource, /arr\[wi\] = \{ text: t, width: tgt \};/);
+});
+
+test("final line keeps the right (model) end and clips leading overflow", () => {
+  // The rendered line's hard width must never clip the model name from the
+  // right; overflow is dropped from the left end with an elision mark.
+  assert.match(statuslineSource, /function clipKeepRight\(line: string, width: number\): string \{/);
+  assert.match(statuslineSource, /return `\$\{ELLIPSIS\}\$\{trailingText\(line, width - 1\)\}`;/);
+  // Both renderLine return paths route through clipKeepRight instead of a
+  // plain right-truncating truncateToWidth.
+  assert.match(statuslineSource, /return clipKeepRight\(`\$\{l\.text\}\$\{" ".repeat\(pad\)\}\$\{r\.text\}`, width\);/);
+  assert.match(statuslineSource, /return clipKeepRight\(parts\.join\(""\), width\);/);
+  // trailingText decomposes ANSI + cells forward so adjacent SGR escapes are
+  // not miscounted as printable cells.
+  assert.match(statuslineSource, /function trailingText\(s: string, budget: number\): string \{/);
+  assert.match(statuslineSource, /return cells\.slice\(Math\.max\(0, cells\.length - budget\)\)\.join\(""\);/);
+});

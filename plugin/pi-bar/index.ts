@@ -292,6 +292,47 @@ interface RSeg {
 	seg?: Segment;
 }
 
+// Final-fit helper: the rendered bar line must never exceed the terminal width,
+// and the model pill sits at the right end, so when the stitched line overflows
+// after all in-train shrinking and messages pruning, this keeps the RIGHT-most
+// `width` columns (the model) and drops leading overflow with an elision mark.
+// When the line already fits it is returned unchanged.
+const ELLIPSIS = "\u2026";
+function clipKeepRight(line: string, width: number): string {
+	const w = visibleWidth(line);
+	if (w <= width) return line;
+	if (width <= 0) return "";
+	if (width === 1) return ELLIPSIS;
+	return `${ELLIPSIS}${trailingText(line, width - 1)}`;
+}
+
+// Take up to `budget` visible columns from the right (tail) end of an ANSI
+// colored string, dropping leading overflow. ANSI escapes cost zero visible
+// width so they flow through; printable cells each consume one column. Walks
+// the string once from its end until the budget is spent.
+function trailingText(s: string, budget: number): string {
+	if (budget <= 0) return "";
+	// Decompose the ANSI string into visible cells (each cell keeps its
+	// preceding ANSI escape runs, which cost 0 columns), then take the tail.
+	// The lift avoids the reverse-scan ambiguity when two SGR escapes abut: a
+	// trailing 'm' that begins a new escape would otherwise be misread as a cell.
+	const cells: string[] = [];
+	let i = 0;
+	let escStart = 0;
+	while (i < s.length) {
+		if (s.charCodeAt(i) === 0x1b) {
+			let j = i + 1;
+			while (j < s.length && s.charCodeAt(j) !== 0x6d) j++;
+			i = j + 1;
+		} else {
+			cells.push(s.slice(escStart, i + 1));
+			escStart = i + 1;
+			i++;
+		}
+	}
+	return cells.slice(Math.max(0, cells.length - budget)).join("");
+}
+
 function renderSide(ids: string[], segs: Map<string, Segment>, settings: Settings, theme: Theme): RSeg[] {
 	const out: RSeg[] = [];
 	for (const id of ids) {
@@ -313,8 +354,13 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 	}
 	const s = arr[wi]!;
 	const tgt = Math.max(1, s.width - overflow);
-	const t = truncateToWidth(s.text, tgt, "\u2026");
-	arr[wi] = { text: t, width: tgt };
+	// Mutate the slot's own fields: arr shares element objects with the left/right
+	// arrays (built via left.concat(right)), so replacing only arr[wi] leaves the
+	// underlying train array untouched and the shrink never takes effect. Updating
+	// the object's fields keeps both views in sync so the next joinPills reuses the
+	// shrunk text and width.
+	s.text = truncateToWidth(s.text, tgt, "\u2026");
+	s.width = tgt;
 }
 
 export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string[] {
@@ -344,9 +390,31 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const elasticId = "context-usage";
 	const fixedLeft = lineLeft.filter((id) => id !== elasticId);
 	const hasElastic = lineLeft.includes(elasticId);
-	const left = renderSide(fixedLeft, segs, settings, theme);
-	const right = renderSide(lineRight, segs, settings, theme);
+	let left = renderSide(fixedLeft, segs, settings, theme);
+	let right = renderSide(lineRight, segs, settings, theme);
 	const elastic = hasElastic ? segs.get(elasticId) : undefined;
+	// Pre-compute the elastic block's minimum so the right-train pruning
+	// decision below can budget against it.
+	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
+	const minGap = hasElastic ? 0 : 1;
+	// Goal-driven right-train pruning: when the model name risks being
+	// clipped, drop the `#N` messages pill so the model pill can fill the
+	// leftover width. Messages is the only right-side sacrificial segment
+	// (by default it sits immediately left of model); unlike the left train
+	// it carries no gauge, so hiding it never loses context-state info.
+	// Pruning runs before the shrink pass so the model is never shrunk below
+	// its full name.
+	const modelIdx = right.findIndex((r) => r.seg?.id === "model");
+	const msgIdx = right.findIndex((r) => r.seg?.id === "messages");
+	if (modelIdx >= 0 && msgIdx >= 0) {
+		// Total minimum cost if the messages pill is kept (pre-shrink amounts).
+		const trainW0 = left.reduce((a, s) => a + s.width, 0) + right.reduce((a, s) => a + s.width, 0);
+		const caps0 = pill ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
+		const joints0 = pill ? Math.max(0, left.length - 1) + Math.max(0, right.length - 1) : (Math.max(0, left.length - 1) + Math.max(0, right.length - 1)) * 1;
+		const seams0 = hasElastic ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
+		const need0 = trainW0 + caps0 + joints0 + seams0 + ellMin + minGap;
+		if (need0 > width) right = right.filter((r) => r.seg?.id !== "messages");
+	}
 	const all = left.concat(right);
 	// Fixed-width cost of the two trains: caps at the outer ends (U+E0B6/E0B4)
 	// and a separator (U+E0B0) at every shared boundary, plus one column joining
@@ -356,9 +424,6 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const innerJoints = pill ? Math.max(0, left.length - 1) + Math.max(0, right.length - 1) : (Math.max(0, left.length - 1) + Math.max(0, right.length - 1)) * 1;
 	const elasticSeams = hasElastic ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
 	const trainW = all.reduce((a, s) => a + s.width, 0);
-	// Minimum width for the elastic block: percent text + messages tail + 1 gap.
-	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
-	const minGap = hasElastic ? 0 : 1;
 	let need = trainW + trainCaps + innerJoints + elasticSeams + ellMin + minGap;
 	if (need > width) {
 		let overflow = need - width;
@@ -371,7 +436,7 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const r = right.length ? joinPills(right, pill, theme, /*leftCap*/ !hasElastic && left.length === 0, /*rightCap*/ true) : { text: "", width: 0 };
 	if (!hasElastic) {
 		const pad = Math.max(minGap, width - l.width - r.width);
-		return truncateToWidth(`${l.text}${" ".repeat(pad)}${r.text}`, width, "\u2026");
+		return clipKeepRight(`${l.text}${" ".repeat(pad)}${r.text}`, width);
 	}
 	// Elastic block: fill everything between the trains. Its width is whatever
 	// remains after the trains and their seams, floored to its minimum.
@@ -390,7 +455,7 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 		else parts.push(" ");
 		parts.push(r.text);
 	}
-	return truncateToWidth(parts.join(""), width, "\u2026");
+	return clipKeepRight(parts.join(""), width);
 }
 
 // Stitch rendered pill segments into one train. leftCap/rightCap choose
