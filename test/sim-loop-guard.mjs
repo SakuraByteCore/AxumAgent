@@ -12,7 +12,8 @@ const { createJiti } = require(jitiPath);
 // Mock ExtensionAPI matching the real contract from types.d.ts.
 const handlers = {};
 const sentMessages = [];
-const mockCtx = { hasUI: true, ui: { notify() {} } };
+const MOCK_SYSTEM_PROMPT = "BASE SYSTEM PROMPT\nYou are helpful.";
+const mockCtx = { hasUI: true, ui: { notify() {} }, getSystemPrompt: () => MOCK_SYSTEM_PROMPT };
 
 const mockPi = {
   on(event, handler) {
@@ -82,7 +83,8 @@ if (sentMessages.length === 1) {
   console.log("  content:", sentMessages[0].content.slice(0, 60));
   console.log("  options:", JSON.stringify(sentMessages[0].options));
   check("deliverAs is steer", sentMessages[0].options?.deliverAs === "steer");
-  check("content mentions degradation", sentMessages[0].content.includes("重复退化") || sentMessages[0].content.includes("循环"));
+  check("content has correction prefix", sentMessages[0].content.includes("系统纠正"));
+  check("content re-loads system prompt", sentMessages[0].content.includes(MOCK_SYSTEM_PROMPT));
 }
 
 // --- Scenario 3: same turn again, suppression latch ---
