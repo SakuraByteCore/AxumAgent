@@ -91,13 +91,13 @@ Edit it from the System Prompt tab in `axum web` (see "Quick Start" for how to l
 Defaults to:
 
 ```text
-~/.pi/agent/APPEND_SYSTEM.md
+~/.pi/agent/SYSTEM.md
 ```
 
 Targets:
 
-- Global `APPEND_SYSTEM.md` — default. Appended to the standard prompt
-- Global `SYSTEM.md` — replaces the standard prompt
+- Global `SYSTEM.md` — default. Replaces the standard prompt
+- Global `APPEND_SYSTEM.md` — appends to the standard prompt
 - Project `APPEND_SYSTEM.md` — `<cwd>/.pi/APPEND_SYSTEM.md`
 - Project `SYSTEM.md` — `<cwd>/.pi/SYSTEM.md`
 

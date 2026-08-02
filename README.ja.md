@@ -91,13 +91,13 @@ axum code
 既定:
 
 ```text
-~/.pi/agent/APPEND_SYSTEM.md
+~/.pi/agent/SYSTEM.md
 ```
 
 対象:
 
-- Global `APPEND_SYSTEM.md` — 既定。標準 prompt に追記
-- Global `SYSTEM.md` — 標準 prompt を置換
+- Global `SYSTEM.md` — 既定。標準 prompt を置換
+- Global `APPEND_SYSTEM.md` — 標準 prompt に追記
 - Project `APPEND_SYSTEM.md` — `<cwd>/.pi/APPEND_SYSTEM.md`
 - Project `SYSTEM.md` — `<cwd>/.pi/SYSTEM.md`
 
