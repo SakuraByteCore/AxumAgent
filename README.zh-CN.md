@@ -118,7 +118,6 @@ axum doctor
 
 ```bash
 axum update
-npm run update
 ```
 
 用 GitHub main 分支的 tarball 重新安装 npm 全局包。通常无需重新执行首次安装流程。

@@ -118,7 +118,6 @@ The bundled Pi runtime is stored in the user cache, not the npm global package d
 
 ```bash
 axum update
-npm run update
 ```
 
 Reinstalls the npm global from the main branch tarball on GitHub. Usually no need to rerun first-run setup.
