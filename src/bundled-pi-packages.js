@@ -28,6 +28,10 @@ export const bundledPiPackages = [
   // pi-header: sakura cyberdeck startup header. Pixel-faithful port of the header
   // extension from the pi-sakura-cyberdeck visual pack (single-file, zero native deps).
   { name: "pi-header@file:plugin/pi-header", packageName: "pi-header", extensionPath: "index.ts", android: true },
+  // pi-loop-guard: detects assistant output degeneration (repetitive loop
+  // / self-reference stacking) at turn_end and re-injects a corrective user
+  // message plus a continuous system-prompt guard block. Pure TS, no native deps.
+  { name: "pi-loop-guard@file:plugin/pi-loop-guard", packageName: "pi-loop-guard", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
