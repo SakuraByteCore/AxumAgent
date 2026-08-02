@@ -11,6 +11,7 @@ const UNDICI_MARK_AS_UNCLONEABLE_PATCH_MARKER = "AXUM_UNDICI_MARK_AS_UNCLONEABLE
 const PI_GOAL_PACKAGE = "@narumitw/pi-goal";
 const PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER = "AXUM_PI_GOAL_LINKSYNC_FALLBACK";
 const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
+const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -186,6 +187,69 @@ function patchPiVersionNotificationSuppress(content) {
   return content.replace(needle, replacement);
 }
 
+/**
+ * Hide the duplicate `[Skills]` / `[Extensions]` sections that Pi's
+ * `showLoadedResources` prints in the startup banner. Axum's SAKURA CYBERDECK
+ * header already frames these same lists in sakura cards, so leaving Pi's plain
+ * `[Skills] find-skills, impeccable` / `[Extensions] pi-edit, pi-bar, ...` lines
+ * would render the information twice. Conflicts/diagnostics are untouched.
+ */
+function patchPiLoadedSkillsExtensionsHide(content) {
+  if (content.includes(PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER)) return content;
+
+  // Skills listing block:
+  //   const skills = skillsResult.skills;
+  //   if (skills.length > 0) { ... addLoadedSection("Skills", skillCompactList, skillList); }
+  const skillsBlockNeedle = [
+    "            const skills = skillsResult.skills;",
+    "            if (skills.length > 0) {",
+    "                const groups = this.buildScopeGroups(skills.map((skill) => ({ path: skill.filePath, sourceInfo: skill.sourceInfo })));",
+    "                const skillList = this.formatScopeGroups(groups, {",
+    "                    formatPath: (item) => this.formatDisplayPath(item.path),",
+    "                    formatPackagePath: (item) => this.getShortPath(item.path, item.sourceInfo),",
+    "                });",
+    "                const skillCompactList = formatCompactList(skills.map((skill) => skill.name));",
+    "                addLoadedSection(\"Skills\", skillCompactList, skillList);",
+    "            }",
+  ].join("\n");
+
+  // Extensions listing block:
+  //   if (extensions.length > 0) { ... addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading"); }
+  const extensionsBlockNeedle = [
+    "            if (extensions.length > 0) {",
+    "                const groups = this.buildScopeGroups(extensions);",
+    "                const extList = this.formatScopeGroups(groups, {",
+    "                    formatPath: (item) => this.formatExtensionDisplayPath(item.path),",
+    "                    formatPackagePath: (item) => this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo)),",
+    "                });",
+    "                const extensionCompactList = formatCompactList(this.getCompactExtensionLabels(extensions));",
+    "                addLoadedSection(\"Extensions\", extensionCompactList, extList, \"mdHeading\");",
+    "            }",
+  ].join("\n");
+
+  if (!content.includes(skillsBlockNeedle) || !content.includes(extensionsBlockNeedle)) {
+    // Upstream interactive-mode may restructure the loaded-resources section in a
+    // future release. Hiding is a dedup UX preference, not a correctness need, so
+    // skip it instead of hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  // Keep `const skills = skillsResult.skills;` so later diagnostic code (which may
+  // reference `skills`) still resolves; only drop the listing `if`-block.
+  const skillsReplacement = [
+    "            const skills = skillsResult.skills;",
+    "            // " + PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER + ": Skills listing moved into the SAKURA CYBERDECK header.",
+    "            void skills;",
+  ].join("\n");
+  const extensionsReplacement = [
+    "            // " + PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER + ": Extensions listing moved into the SAKURA CYBERDECK header.",
+  ].join("\n");
+
+  return content
+    .replace(skillsBlockNeedle, skillsReplacement)
+    .replace(extensionsBlockNeedle, extensionsReplacement);
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -239,16 +303,17 @@ export function applyBundledPiPatches(options) {
   }
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(piInteractiveModePath)) {
-    const piVersionOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
-    const piVersionPatched = patchPiVersionNotificationSuppress(piVersionOriginal);
-    if (piVersionPatched !== piVersionOriginal) {
-      fs.writeFileSync(piInteractiveModePath, piVersionPatched);
+    const piInteractiveOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
+    let piInteractivePatched = patchPiVersionNotificationSuppress(piInteractiveOriginal);
+    piInteractivePatched = patchPiLoadedSkillsExtensionsHide(piInteractivePatched);
+    if (piInteractivePatched !== piInteractiveOriginal) {
+      fs.writeFileSync(piInteractiveModePath, piInteractivePatched);
     }
-    results.push({ patched: piVersionPatched !== piVersionOriginal, file: piInteractiveModePath });
+    results.push({ patched: piInteractivePatched !== piInteractiveOriginal, file: piInteractiveModePath });
   } else {
     results.push({ patched: false, file: piInteractiveModePath });
   }
   return results;
 }
 
-export { patchPiGoalLinkSyncFallback, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

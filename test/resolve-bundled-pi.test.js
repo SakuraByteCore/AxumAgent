@@ -26,14 +26,15 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
+  writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 3);
-  assert.equal(existingBundledExtensions(options).length, 3);
+  assert.equal(extensions.length, 4);
+  assert.equal(existingBundledExtensions(options).length, 4);
 });
 
 test("Android loads pi-edit and pi-goal", () => {
@@ -42,14 +43,16 @@ test("Android loads pi-edit and pi-goal", () => {
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
+  writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 3);
+  assert.equal(extensions.length, 4);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-edit", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-bar", "index.ts"));
-  assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 3);
+  assert.equal(extensions[2], path.join(cache, "node_modules", "pi-header", "index.ts"));
+  assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 4);
 });
 
 test("Windows loads same extension set as other platforms", () => {
@@ -58,14 +61,16 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
+  writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 3);
+  assert.equal(extensions.length, 4);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-edit", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-bar", "index.ts"));
-  assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 3);
+  assert.equal(extensions[2], path.join(cache, "node_modules", "pi-header", "index.ts"));
+  assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 4);
 });
 
 test("cache root is stable and short outside npm package install directory", () => {
@@ -291,6 +296,7 @@ class StdinBuffer {
 `)} });
 pkg('pi-edit', { 'index.ts': '' });
 pkg('pi-bar', { 'index.ts': '' });
+pkg('pi-header', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
@@ -299,7 +305,7 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 3);
+  assert.equal(existingBundledExtensions(options).length, 4);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
@@ -354,6 +360,7 @@ writePkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 writePkg("pi-edit", { "index.ts": "" });
 writePkg("pi-bar", { "index.ts": "" });
+writePkg("pi-header", { "index.ts": "" });
 writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);

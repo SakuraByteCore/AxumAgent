@@ -1,0 +1,16 @@
+{
+  "name": "pi-header",
+  "version": "0.1.0",
+  "description": "Sakura cyberdeck startup header for pi-coding-agent (pixel-faithful port of pi-sakura-cyberdeck header; single-file, zero native deps)",
+  "type": "module",
+  "main": "index.ts",
+  "files": ["index.ts"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "keywords": ["pi-package", "pi", "coding-agent", "extension", "header", "sakura", "cyberdeck", "android", "termux"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  }
+}

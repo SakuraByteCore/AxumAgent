@@ -18,9 +18,10 @@ test("loads pi-edit and pi-goal on Android", () => {
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-edit@file:plugin/pi-edit",
     "pi-bar@file:plugin/pi-bar",
+    "pi-header@file:plugin/pi-header",
     "@narumitw/pi-goal@0.31.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 3);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -29,9 +30,10 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-edit@file:plugin/pi-edit",
     "pi-bar@file:plugin/pi-bar",
+    "pi-header@file:plugin/pi-header",
     "@narumitw/pi-goal@0.31.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 3);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -40,9 +42,10 @@ test("Windows loads the same extension set as other platforms", () => {
     "@earendil-works/pi-coding-agent@0.80.10",
     "pi-edit@file:plugin/pi-edit",
     "pi-bar@file:plugin/pi-bar",
+    "pi-header@file:plugin/pi-header",
     "@narumitw/pi-goal@0.31.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 3);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -52,9 +55,9 @@ test("Windows loads the same extension set as other platforms", () => {
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-edit", "pi-bar"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-edit", "pi-bar"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-edit", "pi-bar"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-edit", "pi-bar", "pi-header"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-edit", "pi-bar", "pi-header"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-edit", "pi-bar", "pi-header"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {

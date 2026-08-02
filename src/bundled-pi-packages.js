@@ -25,6 +25,9 @@ export const bundledPiPackages = [
   // local file: copy replaces all native deps with node:crypto + pure-JS file backend.
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
+  // pi-header: sakura cyberdeck startup header. Pixel-faithful port of the header
+  // extension from the pi-sakura-cyberdeck visual pack (single-file, zero native deps).
+  { name: "pi-header@file:plugin/pi-header", packageName: "pi-header", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
