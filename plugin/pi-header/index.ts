@@ -141,25 +141,6 @@ function boxedLine(content: string, width: number, rail: string): string {
 }
 
 const ANIME_ART = [
-  "████████████████████████████████████████████████████████████████████████████████▒██▓▒▓██▓███████████  ",
-  "████████████████████████████████████████████████████████████████████████████████░██▓▒███▒███████████  ",
-  "██████████████████████████████████████████████████████████████████▓░░░░░░▒████░░░░▒▒▒▒░███████████    ",
-  "█████████████████████████████████████████████████████████████████▒░░░░░    ░▒██▓▒▒▒▓▓▓▓▓▓███████████  ",
-  "██████████████████░███████████████████████████████████████████▓░░░ ░░░     ░░▒█▒▒▒▓▓▓▓▓▓▓███████████  ",
-  "█████████████████░░  ░  ░░▓▓▓█████████▓░░░     ░▒▓███████████░░░░░░░░░   ░   ░█░░░░░▒▒▒▒▓███████████  ",
-  "█████████████████░░ ░        ░░░ ░░░█▒░░          ░░░▒▓█▓▒▒▒▒░░░░░░░░░    ░  ▒█░░░░░▒▒▒░████████████  ",
-  "████████████████▒░░            ░░░  █▒░░░░        ░░░░░▒░░░░▒▒░░░░░░░░░ ░    ▓█░░░░░▒▒▒▒████████████  ",
-  "████████████████▓▒▒░░░          ░░  █▒░░         ░░░░░░░▒░░░▒▒░░░░░░░░       ▓█░░░░░▒▒▒░████████████  ",
-  "████████████████████████▓▓▓▓▓▒░░    █▒░          ░░░░░░░▒▒▒▓██▓░             ▓▓░░░░░▒▒▒▒████████████  ",
-  "█████████████████████████████████████▒          ░ ░░░  ▒███████████▒░░░     ░▓▒░░░░░▒▒▒▒████████████  ",
-  "██████████████████████████████████████░         ░  ░░▓██████████████████████████████████████████████  ",
-  "██████████████████████████████████████▒░         ░▓█████████████████████████████████████████████████  ",
-  "███████████████████████████████████████░      ░▓████████████████████████████████████████████████████  ",
-  "████████████████████████████████████████▒░▒█████████████████████████████████████████████████████████  ",
-  "████████████████████████████████████████████████████████████████████████████████████████████████████  ",
-  "████████████████████████████████████████████████████████████████████████████████████████████████████  ",
-  "████████████████████████████████████████████████████████████████████████████████████████████████████  ",
-  "░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▓▓██████████████████████████████████████████████████████████████████████████  ",
   "▒████▒░░░░░   ▒██░░░░ ░   ░▓█░░░░░░░░░░░░▒▒▓▓████████████████████████████████████▓▒▒▒░░░░░░░░░░░░▓██▓▓",
   "▓▓▓▓█▓▓███████░░░▒▓███████▒░░▓██▒░░░░░░░░░░▓▓▒░░░░░░░░░░░▓███▒░░░░░░░░░░░░▓███▒░░░░░▒▓██████████▓▓▓▓█ ",
   "▓▓▓▓█▒░█░░░░░░░░░░░░░█▓░░░░░░░░░▒▓▓█▓▓▓▓▓▒░░░▒▓▓▓██▓▓▓▒▒░░░░▒▓█▓▓▓██▓▓▓▓▓▒▒▒░░░▒▒▒▒░░░▒▓▒░░░░▒██████  ",
@@ -197,6 +178,7 @@ const ANIME_ART = [
   "░░░░░▒▒░░░░░░░░▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██▒░░░░░░░░░░░█▒░░█████▓░░░▒░░▒▒█░░░░░░▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒█▓░░░░░░░░░░░▒█ ",
   "░░░░░▒░░░░░░░░▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓░░░▓█▓▒▒▒▒▒▓███░░ ░█████░░░▒░░░▓░░ ░░░ ▓█▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒▒░░░░░░░▒█▒  "
 ] as const;
+
 
 function getAvailableRows(tui: unknown): number {
   try {
@@ -310,16 +292,13 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
   const lavender: RGB = [199, 184, 245];
   const sky: RGB = [159, 211, 242];
 
-  const artWidth = Math.max(...ANIME_ART.map((line) => [...line].length));
-  // Termux and other narrow terminals can't show the full 80-col cyberdeck art
-  // without it looking huge and unreadable. Downsample columns proportionally
-  // so the whole silhouette stays visible at any width, preserving the sakura→sky
-  // gradient feel; center the artwork once it fits natively.
+  const sourceArt = ANIME_ART;
+  const artWidth = sourceArt.length > 0 ? [...sourceArt[0]].length : 0;
   const fitsNatively = width >= artWidth;
   const visibleArtWidth = fitsNatively ? artWidth : Math.min(artWidth, width);
   const artPad = " ".repeat(Math.max(0, Math.floor((width - visibleArtWidth) / 2) - 2));
 
-  const art = ANIME_ART.map((line) => {
+  const art = sourceArt.map((line) => {
     const src = [...line];
     let row: string;
     if (fitsNatively) {
@@ -339,9 +318,8 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
     }
     return `${artPad}${gradient(row, sakura, sky)}`;
   });
-
   const hasCards = skills.length > 0 || extensions.length > 0;
-  const visualHeight = ANIME_ART.length + 3 + (hasCards ? 1 : 0); // artwork + gap + divider + label (+card gap)
+  const visualHeight = sourceArt.length + 3 + (hasCards ? 1 : 0); // artwork + gap + divider + label (+card gap)
   const extraTopPadding = Math.max(0, Math.floor((availableRows - visualHeight) / 2) - 1);
 
   const cards: string[] = [];
@@ -361,7 +339,6 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
     ...art,
     "",
     ...cards,
-    "",
     `${dashTitleLine(width, sakura, sky, lavender, peach)}`,
     "",
   ];
