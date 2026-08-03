@@ -15,3 +15,9 @@ Re-anchor to the active task: restate the current goal in one line, then resume
 concrete, non-repetitive work using the available tools. Never emit filler, stacked
 self-references, or noise to pad a response.
 `.trim();
+
+export function withDegradationGuardPrompt(systemPrompt: string): string {
+  return systemPrompt.includes(DEGRADATION_GUARD_PROMPT)
+    ? systemPrompt
+    : `${systemPrompt}\n\n${DEGRADATION_GUARD_PROMPT}`;
+}

@@ -6,6 +6,7 @@ import test from "node:test";
 // pi-coding-agent (a bundled peer dependency) registers the TS loader that
 // both the runtime and node --test rely on for plugin sources.
 import { detectDegradation, extractAssistantText } from "../plugin/pi-loop-guard/src/detect.ts";
+import { DEGRADATION_GUARD_PROMPT, withDegradationGuardPrompt } from "../plugin/pi-loop-guard/src/prompt.ts";
 
 test("detectDegradation flags stacked 御坂 self-reference run", () => {
   const text = "御坂御坂御坂御坂御坂御坂御坂御坂御坂御坂御坂";
@@ -81,4 +82,15 @@ test("detectDegradation flags 2-char run at exact threshold", () => {
   const hit = detectDegradation(text);
   assert.ok(hit, "3x 御坂 should hit the substr threshold");
   assert.ok(hit.count >= 3, `expected >=3 repeats, got ${hit.count}`);
+});
+
+test("withDegradationGuardPrompt appends the guard block once", () => {
+  const base = "BASE SYSTEM PROMPT";
+  const once = withDegradationGuardPrompt(base);
+  const twice = withDegradationGuardPrompt(once);
+
+  assert.ok(once.includes(base));
+  assert.ok(once.includes(DEGRADATION_GUARD_PROMPT));
+  assert.equal(twice, once);
+  assert.equal(twice.split(DEGRADATION_GUARD_PROMPT).length - 1, 1);
 });

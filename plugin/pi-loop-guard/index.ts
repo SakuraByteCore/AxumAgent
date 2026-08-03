@@ -26,7 +26,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { detectDegradation, extractAssistantText } from "./src/detect.js";
-import { DEGRADATION_GUARD_PROMPT } from "./src/prompt.js";
+import { withDegradationGuardPrompt } from "./src/prompt.js";
 
 const MAX_CONSECUTIVE_INJECTIONS = 2;
 
@@ -88,7 +88,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("before_agent_start", (event) => {
-    cachedSystemPrompt = `${event.systemPrompt}\n\n${DEGRADATION_GUARD_PROMPT}`;
+    cachedSystemPrompt = withDegradationGuardPrompt(event.systemPrompt);
     return {
       systemPrompt: cachedSystemPrompt,
     };
