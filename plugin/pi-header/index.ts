@@ -397,10 +397,18 @@ export default function sakuraCyberdeckHeader(pi: ExtensionAPI): void {
     // Probe on every start so freshly installed skills / extensions surface.
     skillsCache = detectSkills(ctx.cwd);
     extensionsCache = detectExtensions(process.argv);
-    ctx.ui.setHeader((tui) => ({
-      render: (width) => renderHeader(width, getAvailableRows(tui), skillsCache, extensionsCache),
-      invalidate() {},
-    }));
+    ctx.ui.setHeader((tui) => {
+      // Snapshot terminal rows once at header creation time. Re-reading the
+      // live row count on every render causes the top padding (and thus the
+      // total header height) to shift when the software keyboard toggles rows
+      // in Termux — the resulting differential repaints make the ASCII art
+      // flash. A fixed cached value keeps the header layout stable.
+      const cachedRows = getAvailableRows(tui);
+      return {
+        render: (width) => renderHeader(width, cachedRows, skillsCache, extensionsCache),
+        invalidate() {},
+      };
+    });
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
