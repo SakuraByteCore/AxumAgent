@@ -1,10 +1,8 @@
 # Axum Agent
 
 <p align="center">
-  <a href="https://github.com/SakuraByteCore/AxumAgent/releases"> <img src="https://img.shields.io/github/v/release/SakuraByteCore/AxumAgent?style=flat-square" alt="Release"> </a>
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
   <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square" alt="Node"> </a>
-  <a href="https://github.com/SakuraByteCore/AxumAgent/actions"> <img src="https://img.shields.io/github/actions/workflow/status/SakuraByteCore/AxumAgent/build.yml?style=flat-square" alt="Build"> </a>
 </p>
 
 > Pi ベースのコーディングエージェント配布パッケージ。Pi 本体と厳選拡張を同梱して起動します。
