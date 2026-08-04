@@ -153,8 +153,14 @@ const PLAN_STEER =
  * System-prompt guard block appended every turn so the model stays in the
  * interviewer role across the whole session, not just the opening.
  */
+// Cache the assembled guard block per subject: the block string is identical
+// across every turn of a session, so join work repeats needlessly each turn.
+let cachedGuardSubject: string | undefined;
+let cachedGuardBlock: string | undefined;
 function planGuardBlock(subject: string): string {
-  return [
+  if (cachedGuardSubject === subject && cachedGuardBlock !== undefined) return cachedGuardBlock;
+  cachedGuardSubject = subject;
+  return (cachedGuardBlock = [
     "PLAN SESSION ACTIVE",
     `Subject under review: ${subject}`,
     "",
@@ -190,10 +196,12 @@ function isAsking(text: string): boolean {
   // Truncate to a probe window so a long answer that ends with a rhetorical
   // question does not falsely pass; a real question lives up front.
   const head = truncate(trimmed, MAX_QUESTION_LENGTH);
-  // A questioning turn asks; require a "?" in the opening probe window. Code blocks
-  // are not questions (``` blocks fence answers/specs).
+  // A questioning turn asks; require a question mark in the opening probe
+  // window. Both half-width "?" and full-width "\uFF1F" count, since CJK
+  // agents often end questions with the full-width mark. Code blocks are not
+  // questions (``` blocks fence answers/specs).
   if (/```/.test(head)) return false;
-  return /\?/.test(head);
+  return /[\?\uFF1F]/.test(head);
 }
 
 /**
