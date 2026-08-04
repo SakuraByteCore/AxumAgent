@@ -8,6 +8,8 @@ Bundled runtime:
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
 - `@narumitw/pi-goal`
+- `@sherif-fanous/pi-rtk`
+- `pi-blackhole`
 
 ## Quick Start
 
@@ -108,7 +110,7 @@ axum doctor
 ```
 
 `doctor` checks the bundled Pi cache and entrypoint.
-If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-goal` / `pi-header`.
+If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-goal` / `pi-header` / `pi-rtk` / `pi-blackhole`.
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.
 

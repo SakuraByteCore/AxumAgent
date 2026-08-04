@@ -82,6 +82,8 @@ class StdinBuffer {
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  writePackage(cache, "@sherif-fanous/pi-rtk", { "index.ts": "" });
+  writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
 
@@ -92,7 +94,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 4;
+  const expectedExtensionCount = 6;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
 });
@@ -132,6 +134,8 @@ class StdinBuffer {
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  writePackage(cache, "@sherif-fanous/pi-rtk", { "index.ts": "" });
+  writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
 

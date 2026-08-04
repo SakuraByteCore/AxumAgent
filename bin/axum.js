@@ -30,6 +30,8 @@ Commands:
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-bar
   - @narumitw/pi-goal
+  - @sherif-fanous/pi-rtk
+  - pi-blackhole
 
 Run \`axum code --help\` for Pi options.
 `;

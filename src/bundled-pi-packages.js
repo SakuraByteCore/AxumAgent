@@ -30,6 +30,16 @@ export const bundledPiPackages = [
   { name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
+  // pi-rtk: routes bash commands through rtk (Rust Token Killer) to compress
+  // shell output for LLM token savings. Pure TS; calls an external `rtk` binary
+  // via spawnSync and falls back to Pi's normal shell behavior when rtk is
+  // missing or fails. No native deps.
+  { name: "@sherif-fanous/pi-rtk@0.6.0", packageName: "@sherif-fanous/pi-rtk", extensionPath: "index.ts", android: true },
+  // pi-blackhole: unified context compaction + observational memory. Compresses
+  // conversation context while preserving durable observations/reflections.
+  // Pure JS, no native deps; peerRequires pi-coding-agent >=0.81.1 (best-effort
+  // under the pinned 0.80.10 core — runtime APIs are forward-compatible).
+  { name: "pi-blackhole@0.4.3", packageName: "pi-blackhole", extensionPath: "dist/index.js", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a
