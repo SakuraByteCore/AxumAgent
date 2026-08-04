@@ -35,7 +35,7 @@ The distribution ships these packages, all in one install:
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
-- `pi-guard`
+- `pi-guard` (AxumAgent bundled fork)
 - `@narumitw/pi-goal`
 - `@sherif-fanous/pi-rtk`
 - `pi-blackhole`

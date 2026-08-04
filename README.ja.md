@@ -35,7 +35,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent 同梱フォーク)
 - `pi-header` (AxumAgent 同梱フォーク)
-- `pi-guard`
+- `pi-guard` (AxumAgent 同梱フォーク)
 - `@narumitw/pi-goal`
 - `@sherif-fanous/pi-rtk`
 - `pi-blackhole`
