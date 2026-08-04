@@ -28,7 +28,6 @@ Commands:
                 branch tarball, with a version it pulls that git tag instead
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
-  - pi-edit
   - pi-bar
   - @narumitw/pi-goal
 

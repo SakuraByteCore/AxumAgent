@@ -20,18 +20,14 @@
 
 export const bundledPiPackages = [
   { name: "@earendil-works/pi-coding-agent@0.80.10", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
-  // pi-edit: AxumAgent bundled fork. The upstream npm package
-  // depends on better-sqlite3 (native C++) which fails on Android/Termux. This
-  // local file: copy replaces all native deps with node:crypto + pure-JS file backend.
-  { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
   // pi-header: sakura cyberdeck startup header. Pixel-faithful port of the header
   // extension from the pi-sakura-cyberdeck visual pack (single-file, zero native deps).
   { name: "pi-header@file:plugin/pi-header", packageName: "pi-header", extensionPath: "index.ts", android: true },
-  // pi-loop-guard: detects assistant output degeneration (repetitive loop
+  // pi-guard: detects assistant output degeneration (repetitive loop
   // / self-reference stacking) at turn_end and re-injects a corrective user
   // message plus a continuous system-prompt guard block. Pure TS, no native deps.
-  { name: "pi-loop-guard@file:plugin/pi-loop-guard", packageName: "pi-loop-guard", extensionPath: "index.ts", android: true },
+  { name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The

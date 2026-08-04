@@ -1,4 +1,4 @@
-// pi-loop-guard
+// pi-guard
 //
 // Detects assistant output degeneration ("发癫" / loop) at turn boundaries and
 // re-steers the agent back to productive work by injecting a corrective user

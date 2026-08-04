@@ -72,10 +72,9 @@ test("pi-header still downsamples only for narrow terminals", () => {
 
 test("pi-header centers the Extensions card and matches the ASCII vertical gap", () => {
   const argv = [
-    "-e", "C:/x/pi-edit/index.ts",
     "-e", "C:/x/pi-bar/index.ts",
     "-e", "C:/x/pi-header/index.ts",
-    "-e", "C:/x/pi-loop-guard/index.ts",
+    "-e", "C:/x/pi-guard/index.ts",
     "-e", "C:/x/src/index.ts",
   ];
 
@@ -96,7 +95,7 @@ test("pi-header centers the Extensions card and matches the ASCII vertical gap",
     assert.notEqual(extensionsBottomIndex, -1);
     assert.notEqual(bottomRuleIndex, -1);
     assert.ok(extensionsTop);
-    assert.equal(lines.some((line) => line.includes("pi-edit, pi-bar, pi-header, pi-loop-guard, src")), true);
+    assert.equal(lines.some((line) => line.includes("pi-bar, pi-header, pi-guard, src")), true);
 
     const cardWidth = [...extensionsTop.trimStart()].length;
     assert.equal(extensionsTop.search(/\S/), Math.floor((width - cardWidth) / 2));

@@ -5,11 +5,9 @@ Axum Agent is a Pi-based coding agent distribution package. It bundles the Pi co
 Bundled runtime:
 
 - `@earendil-works/pi-coding-agent`
-- `pi-edit` (AxumAgent bundled fork)
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
 - `@narumitw/pi-goal`
-> On Android / Termux, `pi-edit` uses `node:crypto` and runs without native compilation.
 
 ## Quick Start
 
@@ -110,7 +108,7 @@ axum doctor
 ```
 
 `doctor` checks the bundled Pi cache and entrypoint.
-If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header`.
+If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-goal` / `pi-header`.
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.
 

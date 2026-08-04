@@ -5,11 +5,9 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 同梱ランタイム:
 
 - `@earendil-works/pi-coding-agent`
-- `pi-edit` (AxumAgent 同梱フォーク)
 - `pi-bar` (AxumAgent 同梱フォーク)
 - `pi-header` (AxumAgent 同梱フォーク)
 - `@narumitw/pi-goal`
-> Android / Termux 環境では、`pi-edit` は `node:crypto` を使用し、ネイティブコンパイル不要で動作します。
 
 ## クイックスタート
 
@@ -110,7 +108,7 @@ axum doctor
 ```
 
 `doctor` は bundled Pi cache と entrypoint を確認します。
-拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-edit` / `pi-bar` / `pi-goal` / `pi-header` を読み込みません。
+拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-bar` / `pi-goal` / `pi-header` を読み込みません。
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザー cache に保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 

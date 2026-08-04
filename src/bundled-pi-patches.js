@@ -191,7 +191,7 @@ function patchPiVersionNotificationSuppress(content) {
  * Hide the duplicate `[Skills]` / `[Extensions]` sections that Pi's
  * `showLoadedResources` prints in the startup banner. Axum's SAKURA CYBERDECK
  * header already frames these same lists in sakura cards, so leaving Pi's plain
- * `[Skills] find-skills, impeccable` / `[Extensions] pi-edit, pi-bar, ...` lines
+ * `[Skills] find-skills, impeccable` / `[Extensions] pi-bar, pi-header, ...` lines
  * would render the information twice. Conflicts/diagnostics are untouched.
  */
 function patchPiLoadedSkillsExtensionsHide(content) {

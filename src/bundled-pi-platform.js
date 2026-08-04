@@ -28,7 +28,7 @@ export function supportedBundledPiPackages(options) {
 // set from the registry instead of maintaining a separate hand-written list, so
 // adding a file: plugin to bundled-pi-packages.js never silently drops its
 // source sync (the bug that broke axum doctor when pi-bar was added).
-// Returns packageName strings (e.g. "pi-edit"), matching the plugin/ subdir name.
+// Returns packageName strings (e.g. "pi-bar"), matching the plugin/ subdir name.
 export function localPluginNames(options) {
   return supportedBundledPiPackageEntries(options)
     .filter((pkg) => pkg.name.includes("file:"))

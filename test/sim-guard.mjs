@@ -1,4 +1,4 @@
-// Simulate the pi-loop-guard extension lifecycle against a mock ExtensionAPI,
+// Simulate the pi-guard extension lifecycle against a mock ExtensionAPI,
 // loading the actual extension via jiti (same loader pi uses at runtime) so the
 // .ts imports resolve identically to production.
 import { createRequire } from "node:module";
@@ -29,7 +29,7 @@ const mockPi = {
 
 // Load the extension via jiti, exactly like pi's loader does at runtime.
 const jiti = createJiti(import.meta.url, { moduleCache: false });
-const mod = jiti(new URL("../plugin/pi-loop-guard/index.ts", import.meta.url).pathname);
+const mod = jiti(new URL("../plugin/pi-guard/index.ts", import.meta.url).pathname);
 mod.default(mockPi);
 
 console.log("=== registered handlers ===");

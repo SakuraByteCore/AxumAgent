@@ -5,8 +5,8 @@ import test from "node:test";
 // directly from the plugin source. The .ts extension is resolvable because
 // pi-coding-agent (a bundled peer dependency) registers the TS loader that
 // both the runtime and node --test rely on for plugin sources.
-import { detectDegradation, extractAssistantText } from "../plugin/pi-loop-guard/src/detect.ts";
-import { DEGRADATION_GUARD_PROMPT, withDegradationGuardPrompt } from "../plugin/pi-loop-guard/src/prompt.ts";
+import { detectDegradation, extractAssistantText } from "../plugin/pi-guard/src/detect.ts";
+import { DEGRADATION_GUARD_PROMPT, withDegradationGuardPrompt } from "../plugin/pi-guard/src/prompt.ts";
 
 test("detectDegradation flags stacked 御坂 self-reference run", () => {
   const text = "御坂御坂御坂御坂御坂御坂御坂御坂御坂御坂御坂";
