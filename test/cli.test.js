@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
+import { getInstalledVersion } from "../src/version-config.js";
 
 function run(args) {
   return spawnSync(process.execPath, ["bin/axum.js", ...args], { encoding: "utf8" });
@@ -309,5 +310,5 @@ test("axum versions prints the installed version", async () => {
   child.stdout.on("data", (chunk) => { output += chunk; });
   child.stderr.on("data", (chunk) => { output += chunk; });
   await new Promise((resolve) => child.once("exit", resolve));
-  assert.match(output, /axum 0\.1\.0 \(installed\)/);
+  assert.match(output, new RegExp(`axum ${getInstalledVersion().replace(/\./g, "\\.")} \\(installed\\)`));
 });
