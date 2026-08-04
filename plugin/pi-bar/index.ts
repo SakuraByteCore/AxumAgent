@@ -698,6 +698,17 @@ export default function (pi: ExtensionAPI): void {
 
 	// --- Built-in producers ---
 
+	// Cache the last cwd probed by emitGit: branch/path probing touches the
+	// filesystem (isSvn ascent + readFileSync(.git/HEAD)), and a bash tool
+	// result only changes cwd if the shell actually `cd`'d, which is rare.
+	// Re-probing when cwd is unchanged is pure waste, so skip it.
+	let lastGitCwd: string | undefined;
+	function runEmitGit(ctx: ExtensionContext): void {
+		if (lastGitCwd === ctx.cwd) return;
+		lastGitCwd = ctx.cwd;
+		emitGit(ctx);
+	}
+
 	function emitGit(ctx: ExtensionContext): void {
 		const path = displayPath(ctx.cwd, homedir());
 		// Precedence: svn > git > empty.
@@ -715,13 +726,36 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 
+	// Token accumulator cache: getEntries() returns a shallow copy of an
+	// append-only array (entries cannot be modified or deleted — see
+	// SessionManager contract), so the running totals survive across calls.
+	// Each emitTokens call resumes from the cached index instead of rescanning
+	// the whole history, turning the per-turn cost from O(history) → O(new).
+	let tokenCache: { idx: number; ti: number; to: number; cost: number; msgCount: number } | undefined;
+
 	function emitTokens(ctx: ExtensionContext): void {
 		let ti = 0;
 		let to = 0;
 		let cost = 0;
 		let msgCount = 0;
 		const entries = ctx.sessionManager.getEntries();
-		for (const e of entries) {
+		const start = tokenCache?.idx ?? 0;
+		// getEntries() is the append-only source of truth, but structural
+		// operations (createBranchedSession) can shorten the array below the
+		// cached index — when that happens the cache is stale, so reset and
+		// rescan from zero.
+		if (start > 0 && start > entries.length) {
+			tokenCache = undefined;
+		}
+		const from = tokenCache?.idx ?? 0;
+		if (tokenCache) {
+			ti = tokenCache.ti;
+			to = tokenCache.to;
+			cost = tokenCache.cost;
+			msgCount = tokenCache.msgCount;
+		}
+		for (let i = from; i < entries.length; i++) {
+			const e = entries[i]!;
 			if (e.type !== "message") continue;
 			msgCount += 1;
 			const m = (e as { message: { role?: string; usage?: { input: number; output: number; cost?: { total: number } } } }).message;
@@ -730,6 +764,7 @@ export default function (pi: ExtensionAPI): void {
 			to += m.usage.output;
 			cost += m.usage.cost?.total ?? 0;
 		}
+		tokenCache = { idx: entries.length, ti, to, cost, msgCount };
 		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
 		const tiText = `\u2191${fmtTokens(ti)}`;
 		pi.events.emit("pi-bar:update", { id: "tokens-up", text: cost > 0 ? `${tiText} $${cost.toFixed(2)}` : tiText, color: "text" });
@@ -803,7 +838,7 @@ export default function (pi: ExtensionAPI): void {
 		settings = loadSettings();
 		currentCtx = ctx;
 		hideFooter(ctx);
-		emitGit(ctx);
+		runEmitGit(ctx);
 		emitTokens(ctx);
 		emitContext(ctx);
 		emitModel(ctx);
@@ -814,6 +849,8 @@ export default function (pi: ExtensionAPI): void {
 		if (ctx.hasUI) ctx.ui.setWidget("pi-bar", undefined);
 		currentCtx = undefined;
 		segs.clear();
+		lastGitCwd = undefined;
+		tokenCache = undefined;
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
@@ -850,7 +887,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
-		if (event.toolName === "bash") emitGit(ctx);
+		if (event.toolName === "bash") runEmitGit(ctx);
 		emitTokens(ctx);
 		emitContext(ctx);
 	});
