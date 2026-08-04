@@ -160,7 +160,7 @@ let cachedGuardBlock: string | undefined;
 function planGuardBlock(subject: string): string {
   if (cachedGuardSubject === subject && cachedGuardBlock !== undefined) return cachedGuardBlock;
   cachedGuardSubject = subject;
-  return (cachedGuardBlock = [
+  const block: string = [
     "PLAN SESSION ACTIVE",
     `Subject under review: ${subject}`,
     "",
@@ -171,6 +171,8 @@ function planGuardBlock(subject: string): string {
     "- Be specific and adversarial: name files, edge cases, failure modes, costs, or alternatives that the subject glosses over.",
     "- Keep the question short and concrete; avoid preamble or praise.",
   ].join("\n");
+  cachedGuardBlock = block;
+  return block;
 }
 
 function withPlanGuard(baseSystemPrompt: string, subject: string): string {
