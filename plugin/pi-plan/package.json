@@ -1,0 +1,16 @@
+{
+  "name": "pi-plan",
+  "version": "0.1.0",
+  "description": "Relentless interview for pi-coding-agent — drives a /plan session that sharpens a subject with pointed follow-up questions until it is sharpened or the user stops (single-file, zero native deps, pure JS)",
+  "type": "module",
+  "main": "index.ts",
+  "files": ["index.ts"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "keywords": ["pi-package", "pi", "coding-agent", "extension", "pi-plan", "interview", "plan", "android", "termux"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  }
+}
