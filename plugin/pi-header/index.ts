@@ -232,18 +232,32 @@ function detectSkills(cwd: string | undefined): string[] {
 
 /**
  * Detect active Pi extensions from the launching argv: every `-e <path>`
- * becomes a card labelled by its entry directory (`basename(dirname(path))`),
- * so pi-goal's `src/index.ts` shows up as "src" exactly as seen at runtime.
+ * becomes a card labelled by its package name. Installed npm packages sit
+ * under `node_modules/<pkg>/...` (or `node_modules/@scope/pkg/...`), so the
+ * package segment — not the entry directory — is the stable label: otherwise
+ * third-party entries such as `src/index.ts` or `dist/index.js` would show up
+ * as "src" / "dist". Path specs without a `node_modules` segment (local `file:`
+ * plugins, ad-hoc `-e` loads) fall back to `basename(dirname(path))`.
  */
+function extensionLabel(p: string): string {
+  const idx = p.lastIndexOf("node_modules");
+  if (idx >= 0) {
+    const tail = p.slice(idx + "node_modules".length).replace(/^[\\/]+/, "");
+    const segs = tail.split(/[\\/]+/).filter(Boolean);
+    if (segs.length >= 2 && segs[0].startsWith("@")) return segs[1];
+    if (segs.length >= 1) return segs[0];
+  }
+  return basename(dirname(p));
+}
+
 function detectExtensions(argv: readonly string[]): string[] {
   const names: string[] = [];
   for (let i = 0; i + 1 < argv.length; i++) {
     if (argv[i] === "-e") {
-      const p = argv[i + 1];
       try {
-        names.push(basename(dirname(p)));
+        names.push(extensionLabel(argv[i + 1]));
       } catch {
-        names.push(p);
+        names.push(argv[i + 1]);
       }
       i++;
     }
@@ -251,15 +265,45 @@ function detectExtensions(argv: readonly string[]): string[] {
   return names;
 }
 
+/**
+ * Greedy line wrap for a list of entries so a long card body does not get
+ * truncated: each line stays within `inner` visible cells, joining entries
+ * with `", ". A single entry wider than `inner` is left intact (it will be
+ * clipped by `boxedLine` rather than lost).
+ */
+function wrapEntries(entries: string[], inner: number): string[] {
+  if (inner <= 0) return [entries.join(", ")];
+  const lines: string[] = [];
+  let cur = "";
+  for (const entry of entries) {
+    if (cur.length === 0) {
+      cur = entry;
+      continue;
+    }
+    const candidate = `${cur}, ${entry}`;
+    if (visibleWidth(candidate) <= inner) {
+      cur = candidate;
+    } else {
+      lines.push(cur);
+      cur = entry;
+    }
+  }
+  if (cur.length > 0) lines.push(cur);
+  return lines.length > 0 ? lines : [""];
+}
+
 /** A sakura-framed card listing entries, centred, with the cyberdeck palette. */
 function renderCard(label: string, entries: string[], width: number): string[] {
   if (width < 8) return [];
   if (entries.length === 0) entries = ["—"];
-  const body = entries.join(", ");
   const rail = "│";
+  const inner = Math.max(0, width - visibleWidth(rail) * 2);
+  const bodyLines = wrapEntries(entries, inner).map((line) =>
+    boxedLine(gradient(line, [199, 184, 245], [252, 201, 185], true), width, rail),
+  );
   return [
     frameGradient(fitBorderLabel(label, width)),
-    boxedLine(gradient(body, [199, 184, 245], [252, 201, 185], true), width, rail),
+    ...bodyLines,
     frameGradient(bottomBorder(width)),
     "",
   ];
