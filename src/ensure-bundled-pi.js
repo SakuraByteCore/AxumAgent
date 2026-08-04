@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,18 +14,51 @@ function getPluginSourceDir(name) {
   return path.join(pkgRoot, "plugin", name);
 }
 
+function readPluginFingerprint(root) {
+  if (!fs.existsSync(root)) return "missing";
+  const entries = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop();
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      const rel = path.relative(root, full).replaceAll(path.sep, "/");
+      if (entry.isDirectory()) {
+        stack.push(full);
+        entries.push(`d:${rel}`);
+        continue;
+      }
+      if (entry.isFile()) {
+        const stat = fs.statSync(full);
+        const content = fs.readFileSync(full);
+        entries.push(`f:${rel}:${stat.size}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+      }
+    }
+  }
+  entries.sort();
+  return crypto.createHash("sha256").update(entries.join("\n")).digest("hex");
+}
+
 function ensurePluginSource(cacheRoot, options) {
   for (const name of localPluginNames(options)) {
     const pluginDir = path.join(cacheRoot, "plugin", name);
     const source = getPluginSourceDir(name);
     if (!fs.existsSync(source)) continue;
-    // Always sync plugin source so bug fixes reach existing cache directories.
+    const signaturePath = `${pluginDir}.fingerprint`;
+    const sourceFingerprint = readPluginFingerprint(source);
+    const cachedFingerprint = fs.existsSync(pluginDir) ? readPluginFingerprint(pluginDir) : "";
+    const cachedSourceFingerprint = fs.existsSync(signaturePath) ? fs.readFileSync(signaturePath, "utf8").trim() : "";
+    if (sourceFingerprint === cachedFingerprint && sourceFingerprint === cachedSourceFingerprint) continue;
+
+    // Keep the cache in sync when plugin sources change, but skip the copy when
+    // the source tree is unchanged so warm `npm run code` starts faster.
     fs.rmSync(pluginDir, { recursive: true, force: true });
     fs.mkdirSync(path.dirname(pluginDir), { recursive: true });
     // npm resolves file: dependencies through their realpath. Copy the plugin
     // into the cache so its realpath stays beside cache/node_modules and native
     // deps resolve from the cache rather than the global axum install.
     fs.cpSync(source, pluginDir, { recursive: true, dereference: true });
+    fs.writeFileSync(signaturePath, `${sourceFingerprint}\n`);
   }
 }
 
@@ -146,7 +180,6 @@ export function ensureBundledPi(options) {
     env: npmInstallEnv(options),
     shell: npm.shell,
   });
-
   if (result.error) throw new Error(`failed to install bundled Pi dependencies: ${result.error.message}`);
   if ((result.status ?? 1) !== 0) throw new Error(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");

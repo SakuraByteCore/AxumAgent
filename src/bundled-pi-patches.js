@@ -12,6 +12,7 @@ const PI_GOAL_PACKAGE = "@narumitw/pi-goal";
 const PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER = "AXUM_PI_GOAL_LINKSYNC_FALLBACK";
 const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
 const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
+const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -250,6 +251,46 @@ function patchPiLoadedSkillsExtensionsHide(content) {
     .replace(extensionsBlockNeedle, extensionsReplacement);
 }
 
+/**
+ * Pi renders the full bundled changelog during interactive startup when the
+ * `collapseChangelog` setting is off. The complete multi-release body is noise
+ * in a pinned bundled runtime, so force the condensed one-line summary always,
+ * matching the `collapseChangelog=true` path. `/changelog` (a separate handler)
+ * is untouched so the full text stays on demand.
+ */
+function patchPiStartupChangelogCollapse(content) {
+  if (content.includes(PI_STARTUP_CHANGELOG_COLLAPSED_MARKER)) return content;
+
+  const needle = [
+    "        if (this.settingsManager.getCollapseChangelog()) {",
+    "            const versionMatch = this.changelogMarkdown.match(/##\\s+\\[?(\\d+\\.\\d+\\.\\d+)\\]?/);",
+    "            const latestVersion = versionMatch ? versionMatch[1] : this.version;",
+    "            const condensedText = `Updated to v${latestVersion}. Use ${theme.bold(\"/changelog\")} to view full changelog.`;",
+    "            this.chatContainer.addChild(new Text(condensedText, 1, 0));",
+    "        }",
+    "        else {",
+    "            this.chatContainer.addChild(new Text(theme.bold(theme.fg(\"accent\", \"What's New\")), 1, 0));",
+    "            this.chatContainer.addChild(new Spacer(1));",
+    "            this.chatContainer.addChild(new Markdown(this.changelogMarkdown.trim(), 1, 0, this.getMarkdownThemeWithSettings()));",
+    "            this.chatContainer.addChild(new Spacer(1));",
+    "        }",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    // Upstream interactive-mode may restructure the startup notices block. The
+    // condensed line is a UX preference, not correctness, so skip on shape change.
+    return content;
+  }
+
+  const replacement = [
+    "        // " + PI_STARTUP_CHANGELOG_COLLAPSED_MARKER + ": always condensed; full body on /changelog.",
+    "        const versionMatch = this.changelogMarkdown.match(/##\\s+\\[?(\\d+\\.\\d+\\.\\d+)\\]?/);",
+    "        const latestVersion = versionMatch ? versionMatch[1] : this.version;",
+    "        const condensedText = `Updated to v${latestVersion}. Use ${theme.bold(\"/changelog\")} to view full changelog.`;",
+    "        this.chatContainer.addChild(new Text(condensedText, 1, 0));",
+  ].join("\n");
+  return content.replace(needle, replacement);
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -306,6 +347,7 @@ export function applyBundledPiPatches(options) {
     const piInteractiveOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
     let piInteractivePatched = patchPiVersionNotificationSuppress(piInteractiveOriginal);
     piInteractivePatched = patchPiLoadedSkillsExtensionsHide(piInteractivePatched);
+    piInteractivePatched = patchPiStartupChangelogCollapse(piInteractivePatched);
     if (piInteractivePatched !== piInteractiveOriginal) {
       fs.writeFileSync(piInteractiveModePath, piInteractivePatched);
     }
@@ -316,4 +358,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

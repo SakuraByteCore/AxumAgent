@@ -1,12 +1,4 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import fs from "node:fs";
-import { ensureBundledPi, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
-import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
-import { resolvePiCli, resolveBundledExtensions } from "../src/resolve-bundled-pi.js";
-import { getDefaultProviderSelection } from "../src/provider-config.js";
-import { startProviderWeb } from "../src/provider-web.js";
-import { getInstalledVersion, resolveTarballUrl, fetchAvailableTags } from "../src/version-config.js";
 function usage() {
   return `Axum Agent
 
@@ -30,7 +22,6 @@ Commands:
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-bar
   - @narumitw/pi-goal
-  - @sherif-fanous/pi-rtk
   - pi-blackhole
 
 Run \`axum code --help\` for Pi options.
@@ -53,13 +44,6 @@ function parseFlags(argv) {
   return flags;
 }
 
-function runWebCommand(argv) {
-  const flags = parseFlags(argv);
-  startProviderWeb({ port: flags.port ? Number(flags.port) : 0 }).catch((error) => {
-    console.error(error.message);
-    process.exit(1);
-  });
-}
 function resolveArgs(argv) {
   if (argv.length === 0) return { mode: "help" };
   if (argv[0] === "web") return { mode: "web", argv: argv.slice(1) };
@@ -71,11 +55,24 @@ function resolveArgs(argv) {
   return { mode: "help" };
 }
 
-function printDoctor() {
+async function runWebCommand(argv) {
+  const flags = parseFlags(argv);
+  const { startProviderWeb } = await import("../src/provider-web.js");
+  await startProviderWeb({ port: flags.port ? Number(flags.port) : 0 });
+}
+
+async function printDoctor() {
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { existsSync }] = await Promise.all([
+    import("../src/ensure-bundled-pi.js"),
+    import("../src/bundled-pi-cache.js"),
+    import("../src/resolve-bundled-pi.js"),
+    import("node:fs"),
+  ]);
+
   ensureBundledPi();
   const piCli = resolvePiCli();
   const extensions = resolveBundledExtensions();
-  const missing = [piCli, ...extensions].filter((file) => !fs.existsSync(file));
+  const missing = [piCli, ...extensions].filter((file) => !existsSync(file));
   console.log("Axum bundled Pi doctor");
   console.log(`cache: ${getBundledPiCacheRoot()}`);
   console.log(`pi cli: ${piCli}`);
@@ -89,12 +86,17 @@ function printDoctor() {
   return 0;
 }
 
-function runUpdate(version) {
-  const tarball = resolveTarballUrl(version);
+async function runUpdate(version) {
+  const [{ spawn }, { resolveNpmInstallCommand }, { resolveTarballUrl }] = await Promise.all([
+    import("node:child_process"),
+    import("../src/ensure-bundled-pi.js"),
+    import("../src/version-config.js"),
+  ]);
+
   const label = version ? `version ${version}` : "main branch";
   console.log(`Updating Axum from ${label}...`);
   const npm = resolveNpmInstallCommand();
-  const args = [...npm.argsPrefix, "install", "-g", tarball];
+  const args = [...npm.argsPrefix, "install", "-g", resolveTarballUrl(version)];
   const child = spawn(npm.command, args, { stdio: "inherit", shell: npm.shell });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
@@ -107,6 +109,7 @@ function runUpdate(version) {
 }
 
 async function runVersions() {
+  const { getInstalledVersion, fetchAvailableTags } = await import("../src/version-config.js");
   const installed = getInstalledVersion();
   console.log(`axum ${installed} (installed)`);
   if (process.env.AXUM_NO_FETCH_TAGS === "1") {
@@ -147,7 +150,14 @@ function buildPiEnv() {
   return { ...process.env, AXUM_BUNDLED_PI: "1" };
 }
 
-function runPi(passthrough) {
+async function runPi(passthrough) {
+  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection }, { spawn }] = await Promise.all([
+    import("../src/ensure-bundled-pi.js"),
+    import("../src/resolve-bundled-pi.js"),
+    import("../src/provider-config.js"),
+    import("node:child_process"),
+  ]);
+
   ensureBundledPi();
   const piCli = resolvePiCli();
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
@@ -171,23 +181,33 @@ function runPi(passthrough) {
   });
 }
 
-const action = resolveArgs(process.argv.slice(2));
-if (action.mode === "help") {
-  process.stdout.write(usage());
-  process.exit(0);
-}
-if (action.mode === "doctor") process.exit(printDoctor());
-if (action.mode === "versions") {
-  runVersions().catch((error) => { console.error(`failed to list versions: ${error.message}`); process.exit(1); });
-} else if (action.mode === "update") {
-  runUpdate(action.version);
-} else if (action.mode === "web") {
-  try {
-    runWebCommand(action.argv ?? []);
-  } catch (error) {
-    console.error(error.message);
-    process.exit(1);
+async function main() {
+  const action = resolveArgs(process.argv.slice(2));
+  if (action.mode === "help") {
+    process.stdout.write(usage());
+    return 0;
   }
-} else {
-  runPi(action.passthrough ?? []);
+  if (action.mode === "doctor") return printDoctor();
+  if (action.mode === "versions") {
+    await runVersions();
+    return 0;
+  }
+  if (action.mode === "update") {
+    await runUpdate(action.version);
+    return undefined;
+  }
+  if (action.mode === "web") {
+    await runWebCommand(action.argv ?? []);
+    return undefined;
+  }
+  await runPi(action.passthrough ?? []);
+  return undefined;
+}
+
+try {
+  const code = await main();
+  if (typeof code === "number") process.exit(code);
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
 }

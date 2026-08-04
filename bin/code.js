@@ -1,22 +1,17 @@
 #!/usr/bin/env node
-// `code` is a shortcut entry for `axum code`: it spawns the bundled Pi coding
-// agent with Axum defaults by delegating to bin/axum.js. Kept as a thin forwarder
-// so the axum main path stays single-purpose and has zero hidden mode behavior.
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+// `code` is a shortcut entry for `axum code`. Keep it in-process so
+// `npm run code` avoids an extra Node startup before Pi starts.
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const axum = join(here, "axum.js");
+const here = path.dirname(fileURLToPath(import.meta.url));
+const axum = path.join(here, "axum.js");
+process.argv[1] = axum;
+process.argv.splice(2, 0, "code");
 
-const child = spawn(process.execPath, [axum, "code", ...process.argv.slice(2)], {
-	stdio: "inherit",
-});
-child.on("exit", (code, signal) => {
-	if (signal) process.kill(process.pid, signal);
-	process.exit(code ?? 1);
-});
-child.on("error", (error) => {
-	console.error(`failed to start axum code: ${error.message}`);
-	process.exit(1);
-});
+try {
+  await import(pathToFileURL(axum).href);
+} catch (error) {
+  console.error(`failed to start axum code: ${error.message}`);
+  process.exit(1);
+}

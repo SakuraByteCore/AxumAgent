@@ -36,8 +36,9 @@ test("axum without args shows Axum command help", () => {
   assert.doesNotMatch(result.stdout, /provider web/);
 });
 
-test("package update script delegates to axum update", () => {
+test("package scripts delegate to axum entrypoints", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  assert.equal(packageJson.scripts.code, "node bin/axum.js code");
   assert.equal(packageJson.scripts.update, "node bin/axum.js update");
 });
 
@@ -83,7 +84,6 @@ class StdinBuffer {
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "@sherif-fanous/pi-rtk", { "index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
@@ -95,7 +95,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 6;
+  const expectedExtensionCount = 5;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
 });
@@ -135,7 +135,6 @@ class StdinBuffer {
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "@sherif-fanous/pi-rtk", { "index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
