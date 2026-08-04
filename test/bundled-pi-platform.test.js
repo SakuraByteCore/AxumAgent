@@ -15,7 +15,7 @@ test("detects Termux/Android environments", () => {
 test("loads pi-guard and pi-goal on Android", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.80.10",
+    "@earendil-works/pi-coding-agent@0.81.1",
     "pi-bar@file:plugin/pi-bar",
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
@@ -29,7 +29,7 @@ test("loads pi-guard and pi-goal on Android", () => {
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "linux", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.80.10",
+    "@earendil-works/pi-coding-agent@0.81.1",
     "pi-bar@file:plugin/pi-bar",
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
@@ -43,7 +43,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
 test("Windows loads the same extension set as other platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.80.10",
+    "@earendil-works/pi-coding-agent@0.81.1",
     "pi-bar@file:plugin/pi-bar",
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",

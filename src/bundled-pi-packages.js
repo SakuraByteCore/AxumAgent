@@ -19,7 +19,7 @@
 //   unsupportedPlatforms  array of platform ids (e.g. "win32") to exclude on.
 
 export const bundledPiPackages = [
-  { name: "@earendil-works/pi-coding-agent@0.80.10", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
+  { name: "@earendil-works/pi-coding-agent@0.81.1", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
   { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
   // pi-header: sakura cyberdeck startup header. Pixel-faithful port of the header
   // extension from the pi-sakura-cyberdeck visual pack (single-file, zero native deps).
@@ -37,8 +37,8 @@ export const bundledPiPackages = [
   { name: "@sherif-fanous/pi-rtk@0.6.0", packageName: "@sherif-fanous/pi-rtk", extensionPath: "index.ts", android: true },
   // pi-blackhole: unified context compaction + observational memory. Compresses
   // conversation context while preserving durable observations/reflections.
-  // Pure JS, no native deps; peerRequires pi-coding-agent >=0.81.1 (best-effort
-  // under the pinned 0.80.10 core — runtime APIs are forward-compatible).
+  // Pure JS, no native deps; requires pi-coding-agent >=0.81.1 (satisfied by the
+  // pinned 0.81.1 core).
   { name: "pi-blackhole@0.4.3", packageName: "pi-blackhole", extensionPath: "dist/index.js", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
