@@ -35,6 +35,11 @@ export default function planExtension(pi: ExtensionAPI): void {
   const MAX_CONSECUTIVE_STEERS = 3;
   let consecutiveSteeredTurns = 0;
 
+  // One-shot latch for the clarifying multiple-choice steer: once the cap is
+  // reached and the multiple-choice clarification is sent, do not resend it
+  // every turn — the session must wait for the user to answer.
+  let clarifySent = false;
+
   pi.on("turn_start", () => {
     suppressSteerUntilNextTurn = false;
   });
@@ -53,11 +58,23 @@ export default function planExtension(pi: ExtensionAPI): void {
 
     if (isAsking(text)) {
       consecutiveSteeredTurns = 0;
+      clarifySent = false;
       return;
     }
 
     if (suppressSteerUntilNextTurn) return;
-    if (consecutiveSteeredTurns >= MAX_CONSECUTIVE_STEERS) return;
+    if (consecutiveSteeredTurns >= MAX_CONSECUTIVE_STEERS) {
+      // Final clarification attempt: surface every remaining ambiguity at once
+      // as multiple-choice options so the user can settle them in one reply.
+      // Guarded by clarifySent so the multiple-choice request is delivered at
+      // most once per stall — after that the session waits for user input, the
+      // same stop condition the cap originally meant.
+      if (clarifySent) return;
+      clarifySent = true;
+      suppressSteerUntilNextTurn = true;
+      pi.sendUserMessage(PLAN_CLARIFY_STEER, { deliverAs: "steer" });
+      return;
+    }
 
     consecutiveSteeredTurns += 1;
     suppressSteerUntilNextTurn = true;
@@ -108,6 +125,7 @@ export default function planExtension(pi: ExtensionAPI): void {
     activeSubject = subject;
     consecutiveSteeredTurns = 0;
     suppressSteerUntilNextTurn = false;
+    clarifySent = false;
     ctx.ui.setStatus(STATUS_KEY, `plan: ${truncate(subject, 48)}`);
     const opening = buildOpening(subject);
     pi.sendUserMessage(opening, { deliverAs: "steer" });
@@ -124,6 +142,7 @@ export default function planExtension(pi: ExtensionAPI): void {
     activeSubject = undefined;
     consecutiveSteeredTurns = 0;
     suppressSteerUntilNextTurn = false;
+    clarifySent = false;
     ctx.ui.setStatus(STATUS_KEY, undefined);
     ctx.ui.notify(`Plan session stopped: ${stopped}`, "warning");
   }
@@ -150,6 +169,15 @@ const PLAN_STEER =
   "You are not asking. The plan session requires relentless questioning — continue the interview with one pointed question that probes the weakest part of the subject. Do not answer, summarize, or wrap up.";
 
 /**
+ * Steering prompt used once the one-question-at-a-time probe stalls (the model
+ * repeatedly fails to ask). Instead of another single question, this forces the
+ * model to surface every remaining uncertainty about the subject at once as a
+ * numbered multiple-choice list, so the user can resolve them in one reply.
+ */
+const PLAN_CLARIFY_STEER =
+  "The one-question-at-a-time interview has stalled. Stop asking single questions and instead surface every remaining uncertainty about the subject in ONE message as multiple-choice options. Format each open point as: a short label of the undecided thing, followed by a lettered multiple-choice list (A./B./C. ...) of the concrete alternatives you can see, plus a final option for \"other (please specify)\". Cover scope, API/behaviour choices, error handling, naming, and any place the subject is vague. Do not pick answers yourself; present options once and then stop and wait for the user to choose — do not keep asking.";
+
+/**
  * System-prompt guard block appended every turn so the model stays in the
  * interviewer role across the whole session, not just the opening.
  */
@@ -166,10 +194,12 @@ function planGuardBlock(subject: string): string {
     "",
     "You are a relentless interviewer sharpening the subject above. Rules:",
     "- Ask exactly ONE pointed question per turn — attack the weakest, vaguest, or riskiest part of the subject.",
+    "- When there are several related uncertainties the subject leaves open, prefer a multiple-choice question: name the single undecided point, then list the concrete alternatives as A./B./C. ... (one decision per letter) ending with an \"other (please specify)\" option. Only collapse multiple points into one message when you would otherwise be repeating the same theme — default to ONE decision per turn.",
+    "- If a clarifying multiple-choice list is requested, output that list ONCE and then stop and wait for the user to choose; do not resume single questions until they have answered.",
     "- Never answer your own question, summarize, or conclude. The session only ends when the user stops it.",
     "- If the latest user message answered your previous question, immediately follow up with the next sharper question uncovered by their answer — do not acknowledge it.",
     "- Be specific and adversarial: name files, edge cases, failure modes, costs, or alternatives that the subject glosses over.",
-    "- Keep the question short and concrete; avoid preamble or praise.",
+    "- Keep each question short and concrete; avoid preamble or praise.",
   ].join("\n");
   cachedGuardBlock = block;
   return block;
