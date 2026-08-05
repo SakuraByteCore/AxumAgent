@@ -28,9 +28,6 @@ export const bundledPiPackages = [
   // / self-reference stacking) at turn_end and re-injects a corrective user
   // message plus a continuous system-prompt guard block. Pure TS, no native deps.
   { name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.ts", android: true },
-  // pi-plan: relentless /plan interview that sharpens a plan or design
-  // with pointed follow-up questions until the user stops it. Pure JS, no deps.
-  { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-blackhole: unified context compaction + observational memory. Compresses

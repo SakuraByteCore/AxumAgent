@@ -21,7 +21,6 @@ Commands:
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-bar
-  - pi-plan
   - @narumitw/pi-goal
   - pi-blackhole
 

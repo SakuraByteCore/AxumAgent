@@ -36,7 +36,6 @@ The distribution ships these packages, all in one install:
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
 - `pi-guard` (AxumAgent bundled fork)
-- `pi-plan` (AxumAgent bundled fork)
 - `@narumitw/pi-goal`
 - `pi-blackhole`
 
@@ -151,7 +150,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-header` / `pi-guard` / `pi-plan` / `pi-goal` / `pi-blackhole`.
+If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-header` / `pi-guard` / `pi-goal` / `pi-blackhole`.
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.
 
