@@ -36,14 +36,14 @@ export default function (pi: ExtensionAPI): void {
   // ------- CLI flag: --pi-guard-watch (default off) -------
   pi.registerFlag(FLAG_NAME, {
     description:
-      "自动对每个 turn_end 进行输出退化扫描（默认关闭；使用 /guard 进行手动检测）",
+      "Scan every turn_end for output degradation (off by default; use /guard for manual check)",
     type: "boolean",
     default: false,
   });
 
   // ------- /guard command (primary interface) -------
   pi.registerCommand("guard", {
-    description: "手动退化巡检或状态查询（/guard status）",
+    description: "Manually scan the last assistant response for degradation or see guard status (/guard status)",
     handler: async (args, ctx) => {
       const trimmed = args.trim();
       if (trimmed === "status") {
