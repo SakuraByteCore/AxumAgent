@@ -1,96 +1,114 @@
 // pi-guard
 //
-// Detects assistant output degeneration ("发癫" / loop) at turn boundaries and
-// re-steers the agent back to productive work by injecting a corrective user
-// message. Also appends a continuous degradation-guard block to the system
-// prompt at agent start so the model is primed to avoid the pattern proactively.
+// Command-first degradation guard. The primary interface is the /guard slash
+// command. The old passive turn_end listener is replaced by an opt-in CLI flag
+// `--pi-guard-watch` (default off).
 //
-// Detection is delegated to the pure scanner in ./src/detect.ts so the
-// thresholds (2-4 char substring x3 / single char x5) stay testable without a
-// running Pi instance.
+// Detection is delegated to the pure scanner in ./src/detect.ts; thresholds
+// (2-4 char substring x3 / single char x5) stay testable without a running Pi
+// instance.
 //
-// Hot-path design:
-//  - turn_end is the only message-content scan point; message_update fires
-//    per-token and is intentionally not monitored (the partial stream may
-//    transiently look repetitive before completion).
-//  - The scan is a single pass with early exit on first hit; non-matching
-//    turns cost one string iteration.
-//  - A per-session flag suppresses re-injection for the same degeneration run
-//    so a model that keeps degenerating does not get spammed once the
-//    corrective message is queued — the next turn_end re-evaluates fresh.
-//  - The corrective injection re-loads the agent's own real system prompt in
-//    full so a model that has drifted off its operation rules is forcibly
-//    reminded of the concrete persona/self-check/fusing rules it must obey,
-//    rather than receiving an abstract "stop repeating" scold that the loop
-//    can ingest as fresh repetition fuel.
+// Modes:
+//   /guard            — inject a corrective user message that reloads the
+//                       system prompt, breaking any active degeneration loop.
+//   /guard status     — report whether --pi-guard-watch is active.
+//   --pi-guard-watch  — (CLI flag, default false) when true, re-enables
+//         turn_end auto-scan so every completed turn is monitored.
+//
+// before_agent_start is always active so the model's system prompt carries
+// the degradation guard block regardless of watch mode.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { detectDegradation, extractAssistantText } from "./src/detect.js";
 import { withDegradationGuardPrompt } from "./src/prompt.js";
 
+const FLAG_NAME = "pi-guard-watch";
 const MAX_CONSECUTIVE_INJECTIONS = 2;
 
-/**
- * Prefix framing the corrective injection. Deliberately avoids the model's
- * self-reference token and any repeated substring so the injected text itself
- * cannot become fresh fuel for the degeneration loop. The real system prompt is
- * appended after this line so the agent re-reads its own operation rules.
- */
 const INJECTION_PREFIX =
   "（系统纠正）你的上一条输出进入退化重复，违反了下述须遵守的操作准则。请即按准则原文恢复格式与动作。";
 
 export default function (pi: ExtensionAPI): void {
   let suppressUntilNextTurn = false;
   let consecutiveDegradedTurns = 0;
-  // Latest fully-assembled system prompt captured at before_agent_start so the
-  // turn_end corrective injection can re-load the agent's real operation rules
-  // without re-discovering the prompt at injection time.
   let cachedSystemPrompt = "";
 
-  pi.on("turn_start", () => {
-    // A new turn resets the suppression latch; if this turn also degrades, a
-    // fresh corrective user message is warranted.
-    suppressUntilNextTurn = false;
+  // ------- CLI flag: --pi-guard-watch (default off) -------
+  pi.registerFlag(FLAG_NAME, {
+    description:
+      "自动对每个 turn_end 进行输出退化扫描（默认关闭；使用 /guard 进行手动检测）",
+    type: "boolean",
+    default: false,
   });
 
+  // ------- /guard command (primary interface) -------
+  pi.registerCommand("guard", {
+    description: "手动退化巡检或状态查询（/guard status）",
+    handler: async (args, ctx) => {
+      const trimmed = args.trim();
+      if (trimmed === "status") {
+        const on = pi.getFlag(FLAG_NAME);
+        pi.sendUserMessage(
+          on
+            ? "[pi-guard] 自动检测已开启 (--pi-guard-watch)"
+            : "[pi-guard] 自动检测已关闭，仅 /guard 手动调用生效。使用 --pi-guard-watch 开启自动模式",
+        );
+        return;
+      }
+
+      // The command sends a reflexive corrective user message that
+      // re-loads the agent's system prompt. This breaks any active
+      // degeneration loop by forcing the model to re-read its rules.
+      const livePrompt =
+        cachedSystemPrompt || ctx?.getSystemPrompt?.() || "";
+      const correctionBody = trimmed
+        ? `（pi-guard 巡检，指令: ${trimmed}）若当前输出处于 2-4 字符重复 x3 或单字符 x5 以上的退化循环，立即停止，重读以下准则并恢复工作。`
+        : "（pi-guard 巡检）若当前输出处于退化循环，立即停止，重读操作准则并恢复工作。";
+      pi.sendUserMessage(
+        `${correctionBody}\n\n${livePrompt}`,
+        { deliverAs: "steer" },
+      );
+    },
+  });
+
+  // ------- before_agent_start: always inject guard block -------
+  pi.on("before_agent_start", (event) => {
+    cachedSystemPrompt = withDegradationGuardPrompt(event.systemPrompt);
+    return { systemPrompt: cachedSystemPrompt };
+  });
+
+  // ------- turn_end: only active when --pi-guard-watch is on -------
   pi.on("turn_end", (event, ctx) => {
+    const enabled = pi.getFlag(FLAG_NAME);
+    if (!enabled) return;
+
     const text = extractAssistantText(event.message);
     if (!text) return;
-    const hit = detectDegradation(text);
 
+    if (suppressUntilNextTurn) return;
+
+    if (consecutiveDegradedTurns >= MAX_CONSECUTIVE_INJECTIONS) return;
+
+    const hit = detectDegradation(text);
     if (!hit) {
       consecutiveDegradedTurns = 0;
       return;
     }
 
-    if (suppressUntilNextTurn) return;
-    if (consecutiveDegradedTurns >= MAX_CONSECUTIVE_INJECTIONS) {
-      // Stop nagging after the hard cap: the model has been re-loaded twice and
-      // keeps looping. Let the host agent_end settle so the user can intervene.
-      return;
-    }
-
     consecutiveDegradedTurns += 1;
     suppressUntilNextTurn = true;
-    // Reload the agent's own real system prompt so a drifted model re-reads its
-    // persona, self-check loop, and output fusing rules in full — the concrete
-    // rules it forgot — instead of an abstract scold. Prefer the cached value
-    // captured at before_agent_start; fall back to the live ctx accessor for
-    // sessions where before_agent_start was not emitted first.
+
     const livePrompt = cachedSystemPrompt || ctx?.getSystemPrompt?.() || "";
     const correction = `${INJECTION_PREFIX}\n\n${livePrompt}`;
     pi.sendUserMessage(correction, { deliverAs: "steer" });
   });
 
-  pi.on("agent_start", () => {
-    consecutiveDegradedTurns = 0;
+  pi.on("turn_start", () => {
     suppressUntilNextTurn = false;
   });
 
-  pi.on("before_agent_start", (event) => {
-    cachedSystemPrompt = withDegradationGuardPrompt(event.systemPrompt);
-    return {
-      systemPrompt: cachedSystemPrompt,
-    };
+  pi.on("agent_start", () => {
+    consecutiveDegradedTurns = 0;
+    suppressUntilNextTurn = false;
   });
 }
