@@ -68,11 +68,6 @@ export function normalizeBaseUrl(baseUrl) {
   return url.toString().replace(/\/+$/, "");
 }
 
-export function modelsUrlForBaseUrl(baseUrl) {
-  const normalized = normalizeBaseUrl(baseUrl);
-  return `${normalized}/models`;
-}
-
 function positiveNumber(value, fallback, name) {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Number(value);
@@ -202,19 +197,38 @@ export function importProviders({ config = {}, overwrite = false } = {}, file = 
   return { added, skipped, replaced, total: Object.keys(current.providers).length };
 }
 
+function extractModelIds(json) {
+  if (!json || typeof json !== "object") return [];
+  let arr = null;
+  if (Array.isArray(json.data)) arr = json.data;
+  else if (Array.isArray(json.models)) arr = json.models;
+  if (!arr) return [];
+  const ids = [];
+  for (const item of arr) {
+    if (item == null) continue;
+    if (typeof item === "string") { ids.push(item); continue; }
+    const id = item.id ?? item.name ?? item.model;
+    if (id) ids.push(String(id));
+  }
+  return ids;
+}
+
 export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs = 15000 }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(modelsUrlForBaseUrl(baseUrl), {
+    const normalized = normalizeBaseUrl(baseUrl);
+    const response = await fetch(`${normalized}/models`, {
       headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
       signal: controller.signal,
     });
     const text = await response.text();
+    if (response.status === 404) throw new Error(`GET /models failed: HTTP 404 — this service may not implement the /models endpoint`);
+    if (response.status === 401 || response.status === 403) throw new Error(`GET /models failed: HTTP ${response.status} — check your API key or auth header`);
     if (!response.ok) throw new Error(`GET /models failed: HTTP ${response.status} ${text.slice(0, 240)}`);
     let json;
     try { json = JSON.parse(text); } catch (error) { throw new Error(`GET /models returned invalid JSON: ${error.message}`); }
-    const models = Array.isArray(json.data) ? json.data.map((item) => item?.id).filter(Boolean) : [];
+    const models = extractModelIds(json);
     if (!models.length) throw new Error("GET /models returned no model ids");
     return [...new Set(models)].sort();
   } finally {
