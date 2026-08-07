@@ -12,6 +12,7 @@ const PI_GOAL_PACKAGE = "@narumitw/pi-goal";
 const PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER = "AXUM_PI_GOAL_LINKSYNC_FALLBACK";
 const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
 const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
+const PI_BLACKHOLE_PACKAGE = "pi-blackhole";
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 
 function packageDirName(packageName) {
@@ -291,6 +292,15 @@ function patchPiStartupChangelogCollapse(content) {
   return content.replace(needle, replacement);
 }
 
+function patchPiBlackholeMidRunResume(content) {
+  const needle = 'tailBehavior: "minimal",\n  midRunCompaction: "off",';
+  if (!content.includes(needle)) {
+    return content;
+  }
+
+  return content.replace(needle, needle.replace('midRunCompaction: "off"', 'midRunCompaction: "resume"'));
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -355,7 +365,21 @@ export function applyBundledPiPatches(options) {
   } else {
     results.push({ patched: false, file: piInteractiveModePath });
   }
+
+  const piBlackholeRoot = resolveBundledPackageRoot(PI_BLACKHOLE_PACKAGE, options);
+  const piBlackholeDistPath = path.join(piBlackholeRoot, "dist", "index.js");
+  if (fs.existsSync(piBlackholeDistPath)) {
+    const piBlackholeOriginal = fs.readFileSync(piBlackholeDistPath, "utf8");
+    const piBlackholePatched = patchPiBlackholeMidRunResume(piBlackholeOriginal);
+    if (piBlackholePatched !== piBlackholeOriginal) {
+      fs.writeFileSync(piBlackholeDistPath, piBlackholePatched);
+    }
+    results.push({ patched: piBlackholePatched !== piBlackholeOriginal, file: piBlackholeDistPath });
+  } else {
+    results.push({ patched: false, file: piBlackholeDistPath });
+  }
+
   return results;
 }
 
-export { patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiBlackholeMidRunResume, patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
