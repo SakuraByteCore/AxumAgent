@@ -364,9 +364,9 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
   });
   const hasCards = skills.length > 0 || extensions.length > 0;
   const visualHeight = sourceArt.length + 3 + (hasCards ? 1 : 0); // artwork + gap + divider + label (+card gap)
-  const extraTopPadding = Math.max(0, Math.floor((availableRows - visualHeight) / 2) - 1);
+   const FIXED_TOP_PADDING = 1;
 
-  const cards: string[] = [];
+ const cards: string[] = [];
   const cardWidth = Math.min(width, 52);
   const cardPad = " ".repeat(Math.max(0, Math.floor((width - cardWidth) / 2)));
   if (hasCards) {
@@ -376,8 +376,7 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
   }
 
   return [
-    ...Array(extraTopPadding).fill(""),
-    "",
+    ...Array(FIXED_TOP_PADDING).fill(""),
     `${dashTitleLine(width, sakura, sky, lavender, peach)}`,
     "",
     ...art,

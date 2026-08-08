@@ -70,38 +70,42 @@ test("pi-header still downsamples only for narrow terminals", () => {
   assert.ok(renderedArt.every((line) => [...line].length <= 40));
 });
 
-test("pi-header centers the Extensions card and matches the ASCII vertical gap", () => {
-  const argv = [
-    "-e", "C:/x/pi-bar/index.ts",
-    "-e", "C:/x/pi-header/index.ts",
-    "-e", "C:/x/pi-guard/index.ts",
-    "-e", "C:/x/src/index.ts",
-  ];
+test("pi-header centers the Extensions card and uses fixed top padding", () => {
+ const argv = [
+ "-e", "C:/x/pi-bar/index.ts",
+ "-e", "C:/x/pi-header/index.ts",
+ "-e", "C:/x/pi-guard/index.ts",
+ "-e", "C:/x/src/index.ts",
+ ];
 
-  for (const width of [80, 120]) {
-    const lines = renderHeaderLines(width, 80, argv);
-    const topRuleIndex = lines.findIndex((line) => line.includes("AXUM"));
-    const firstArtIndex = lines.findIndex((line) => /[█▓▒░]/.test(line));
-    const lastArtIndex = lines.findLastIndex((line) => /[█▓▒░]/.test(line));
-    const extensionsTopIndex = lines.findIndex((line) => line.includes("Extensions"));
-    const extensionsBottomIndex = lines.findIndex((line) => line.includes("╰"));
-    const bottomRuleIndex = lines.findLastIndex((line) => line.includes("AXUM"));
-    const extensionsTop = lines[extensionsTopIndex];
+ for (const width of [80, 120]) {
+ const lines = renderHeaderLines(width, 80, argv);
+ const topRuleIndex = lines.findIndex((line) => line.includes("AXUM"));
+ const firstArtIndex = lines.findIndex((line) => /[█▓▒░]/.test(line));
+ const lastArtIndex = lines.findLastIndex((line) => /[█▓▒░]/.test(line));
+ const extensionsTopIndex = lines.findIndex((line) => line.includes("Extensions"));
+ const extensionsBottomIndex = lines.findLastIndex((line) => line.includes("╰"));
+ const bottomRuleIndex = lines.findLastIndex((line) => line.includes("AXUM"));
+ const extensionsTop = lines[extensionsTopIndex];
 
-    assert.notEqual(topRuleIndex, -1);
-    assert.notEqual(firstArtIndex, -1);
-    assert.notEqual(lastArtIndex, -1);
-    assert.notEqual(extensionsTopIndex, -1);
-    assert.notEqual(extensionsBottomIndex, -1);
-    assert.notEqual(bottomRuleIndex, -1);
-    assert.ok(extensionsTop);
-    assert.equal(lines.some((line) => line.includes("pi-bar, pi-header, pi-guard, src")), true);
+ assert.notEqual(topRuleIndex, -1);
+ assert.notEqual(firstArtIndex, -1);
+ assert.notEqual(lastArtIndex, -1);
+ assert.notEqual(extensionsTopIndex, -1);
+ assert.notEqual(extensionsBottomIndex, -1);
+ assert.notEqual(bottomRuleIndex, -1);
+ assert.ok(extensionsTop);
+ assert.equal(lines.some((line) => line.includes("pi-bar, pi-header, pi-guard, src")), true);
 
-    const cardWidth = [...extensionsTop.trimStart()].length;
-    assert.equal(extensionsTop.search(/\S/), Math.floor((width - cardWidth) / 2));
-    assert.equal(extensionsTopIndex - lastArtIndex - 1, firstArtIndex - topRuleIndex - 1);
-    assert.equal(bottomRuleIndex - extensionsBottomIndex - 1, 1);
-  }
+ const cardWidth = [...extensionsTop.trimStart()].length;
+ assert.equal(extensionsTop.search(/\S/), Math.floor((width - cardWidth) / 2));
+ assert.equal(topRuleIndex, 1, "fixed top padding");
+ assert.equal(firstArtIndex - topRuleIndex - 1, 1, "gap above art");
+ const firstCardIndex = lines.findIndex((line) => line.includes("╭"));
+ assert.notEqual(firstCardIndex, -1, "first card rendered");
+ assert.equal(firstCardIndex - lastArtIndex - 1, 1, "gap below art into first card");
+ assert.equal(bottomRuleIndex - extensionsBottomIndex - 1, 1, "gap below last card");
+ }
 });
 
 test("pi-header labels node_modules extensions by package name, not entry dir", () => {
