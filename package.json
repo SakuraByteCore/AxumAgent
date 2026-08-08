@@ -28,6 +28,7 @@
     "bin/",
     "src/",
     "plugin/",
+    "skills/",
     "README.md",
     "LICENSE"
   ],
