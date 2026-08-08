@@ -116,11 +116,15 @@ test("messages count is a separate right-side pill, separated from context-usage
 });
 
 test("model segment strips provider prefix from model id", () => {
-  assert.match(statuslineSource, /const name = m\.id\.lastIndexOf\("\/"\) >= 0 \? m\.id\.slice\(m\.id\.lastIndexOf\("\/"\) \+ 1\) : m\.id;/);
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: name, color: "thinkingHigh" \}\)/);
-  assert.doesNotMatch(statuslineSource, /\\u00b7/);
+ assert.match(statuslineSource, /m\.id\.slice\(m\.id\.lastIndexOf\("\/"\) \+ 1\)/);
+ assert.match(statuslineSource, /m\.id\.lastIndexOf\("\/"\)/);
+ assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: name, color: "thinkingHigh" \}\)/);
+ assert.doesNotMatch(statuslineSource, /\\u00b7/);
 });
-
+test("model name truncates directly when exceeding nemotron-3-ultra width", () => {
+ assert.match(statuslineSource, /const MAX_MODEL_WIDTH = visibleWidth\(".*"\)/);
+ assert.match(statuslineSource, /const name = truncateToWidth\(raw, MAX_MODEL_WIDTH, ""\)/);
+});
 test("usage-core, last-tool and git-dirty dead segments purged", () => {
   for (const dead of [
     "usage-core",
@@ -142,19 +146,16 @@ test("usage-core, last-tool and git-dirty dead segments purged", () => {
   }
 });
 
-test("right-train drops the messages pill when the model name risks clipping", () => {
-  // Goal: when the model pill would not fit, hide `#N` so the model fills the
-  // leftover width. Pruning is gated on model+messages both being present.
-  assert.match(statuslineSource, /const modelIdx = right\.findIndex\(\(r\) => r\.seg\?\.id === "model"\);/);
-  assert.match(statuslineSource, /const msgIdx = right\.findIndex\(\(r\) => r\.seg\?\.id === "messages"\);/);
-  assert.match(statuslineSource, /if \(modelIdx >= 0 && msgIdx >= 0\) \{/);
-  // The decision recomputes the full pre-shrink cost including the elastic min.
-  assert.match(statuslineSource, /const need0 = trainW0 \+ caps0 \+ joints0 \+ seams0 \+ ellMin \+ minGap;/);
-  // Messages is removed by filtering it out of the right train (not by clearing
-  // its text), so the surviving right train is just the model pill.
-  assert.match(statuslineSource, /if \(need0 > width\) right = right\.filter\(\(r\) => r\.seg\?\.id !== "messages"\);/);
+test("right-train drops low-priority segments in order when model risks clipping", () => {
+ // Goal-driven pruning hides segments from lowest to highest priority until fit.
+ // Order: tokens-down < tokens-up < context-tokens < messages. model is spared.
+ assert.match(statuslineSource, /const SACRIFICE_IDS = \[.*tokens-down.*tokens-up.*context-tokens.*messages/);
+ assert.match(statuslineSource, /function trainNeed\(l: RSeg\[\], r: RSeg\[\]\): number/);
+ assert.match(statuslineSource, /for \(const id of SACRIFICE_IDS\)/);
+ assert.match(statuslineSource, /left\.splice\(li, 1\)/);
+ assert.match(statuslineSource, /right\.splice\(ri, 1\)/);
+ assert.match(statuslineSource, /pruneNeed = trainNeed\(left, right\)/);
 });
-
 test("shrinkWidest mutates slot fields in place so left/right trains sync", () => {
   // shrinkWidest runs over left.concat(right), which shares element objects;
   // replacing arr[wi] leaves the train arrays untouched, so the shrink must

@@ -406,23 +406,38 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	// decision below can budget against it.
 	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
 	const minGap = hasElastic ? 0 : 1;
-	// Goal-driven right-train pruning: when the model name risks being
-	// clipped, drop the `#N` messages pill so the model pill can fill the
-	// leftover width. Messages is the only right-side sacrificial segment
-	// (by default it sits immediately left of model); unlike the left train
-	// it carries no gauge, so hiding it never loses context-state info.
-	// Pruning runs before the shrink pass so the model is never shrunk below
-	// its full name.
-	const modelIdx = right.findIndex((r) => r.seg?.id === "model");
-	const msgIdx = right.findIndex((r) => r.seg?.id === "messages");
-	if (modelIdx >= 0 && msgIdx >= 0) {
-		// Total minimum cost if the messages pill is kept (pre-shrink amounts).
-		const trainW0 = left.reduce((a, s) => a + s.width, 0) + right.reduce((a, s) => a + s.width, 0);
-		const caps0 = pill ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
-		const joints0 = pill ? Math.max(0, left.length - 1) + Math.max(0, right.length - 1) : (Math.max(0, left.length - 1) + Math.max(0, right.length - 1)) * 1;
-		const seams0 = hasElastic ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
-		const need0 = trainW0 + caps0 + joints0 + seams0 + ellMin + minGap;
-		if (need0 > width) right = right.filter((r) => r.seg?.id !== "messages");
+	// Goal-driven pruning: hide low-priority segments in order until fit.
+	// Priority (low first): tokens-down < tokens-up < context-tokens < messages.
+	// model is never hidden; pruning runs before shrink pass.
+	const SACRIFICE_IDS = ["tokens-down", "tokens-up", "context-tokens", "messages"] as const;
+
+	function trainNeed(l: RSeg[], r: RSeg[]): number {
+		const tw = l.reduce((a, s) => a + s.width, 0) + r.reduce((a, s) => a + s.width, 0);
+		const c = pill ? (l.length > 0 ? 1 : 0) + (r.length > 0 ? 1 : 0) : 0;
+		const j = pill
+			? Math.max(0, l.length - 1) + Math.max(0, r.length - 1)
+			: (Math.max(0, l.length - 1) + Math.max(0, r.length - 1)) * 1;
+		const s = hasElastic ? (l.length > 0 ? 1 : 0) + (r.length > 0 ? 1 : 0) : 0;
+		return tw + c + j + s + ellMin + minGap;
+	}
+
+	let pruneNeed = trainNeed(left, right);
+	if (pruneNeed > width) {
+		for (const id of SACRIFICE_IDS) {
+			const li = left.findIndex((x) => x.seg?.id === id);
+			if (li >= 0) {
+				left.splice(li, 1);
+				pruneNeed = trainNeed(left, right);
+				if (pruneNeed <= width) break;
+				continue;
+			}
+			const ri = right.findIndex((x) => x.seg?.id === id);
+			if (ri >= 0) {
+				right.splice(ri, 1);
+				pruneNeed = trainNeed(left, right);
+				if (pruneNeed <= width) break;
+			}
+		}
 	}
 	const all = left.concat(right);
 	// Fixed-width cost of the two trains: caps at the outer ends (U+E0B6/E0B4)
@@ -433,7 +448,7 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const innerJoints = pill ? Math.max(0, left.length - 1) + Math.max(0, right.length - 1) : (Math.max(0, left.length - 1) + Math.max(0, right.length - 1)) * 1;
 	const elasticSeams = hasElastic ? (left.length > 0 ? 1 : 0) + (right.length > 0 ? 1 : 0) : 0;
 	const trainW = all.reduce((a, s) => a + s.width, 0);
-	let need = trainW + trainCaps + innerJoints + elasticSeams + ellMin + minGap;
+	const need = trainW + trainCaps + innerJoints + elasticSeams + ellMin + minGap;
 	if (need > width) {
 		let overflow = need - width;
 		for (let i = 0; i < all.length && overflow > 0; i++) {
@@ -791,11 +806,13 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function emitModel(ctx: ExtensionContext): void {
-		const m = ctx.model;
-		if (!m) return;
-		const name = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
-		pi.events.emit("pi-bar:update", { id: "model", text: name, color: "thinkingHigh" });
-	}
+	const m = ctx.model;
+	if (!m) return;
+	const raw = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
+	const MAX_MODEL_WIDTH = visibleWidth("nemotron-3-ultra");
+	const name = truncateToWidth(raw, MAX_MODEL_WIDTH, "");
+	pi.events.emit("pi-bar:update", { id: "model", text: name, color: "thinkingHigh" });
+}
 
 	// --- Render refresh (coalesced) ---
 
