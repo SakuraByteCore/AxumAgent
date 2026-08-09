@@ -46,18 +46,28 @@ test("context usage has no working light animation", () => {
   assert.doesNotMatch(statuslineSource, /WORKING_CURSOR_FRAMES/);
   assert.doesNotMatch(statuslineSource, /WORKING_LIGHT_FRAMES/);
   assert.doesNotMatch(statuslineSource, /breathTimer/);
-  assert.doesNotMatch(statuslineSource, /setInterval\(/);
   assert.match(statuslineSource, /pi\.on\("agent_start"/);
   assert.match(statuslineSource, /emitContext\(ctx\);[\s\S]*?flushIfDirty\(\);/);
   assert.match(statuslineSource, /pi\.on\("agent_settled"/);
 });
 
-test("working indicator shows Reimu frames via host API (no plugin timer)", () => {
+test("working indicator shows Reimu frames via host API, with a 1s elapsed timer", () => {
   assert.match(statuslineSource, /setWorkingIndicator\(\{ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS \}\)/);
   assert.match(statuslineSource, /setWorkingIndicator\(\);/);
   assert.match(statuslineSource, /REIMU_FRAMES/);
-  assert.doesNotMatch(statuslineSource, /setInterval\(/);
+  // A 1-second setInterval drives the real-time working-duration display; it
+  // is the only setInterval in the plugin and is scoped to the working row.
+  assert.match(statuslineSource, /WORKING_TIMER_INTERVAL_MS = 1000/);
+  assert.match(statuslineSource, /setInterval\(tick, WORKING_TIMER_INTERVAL_MS\)/);
+  assert.match(statuslineSource, /startWorkingTimer\(\)/);
+  assert.match(statuslineSource, /stopWorkingTimer\(\)/);
   assert.doesNotMatch(statuslineSource, /BREATH_FRAMES|WORKING_LIGHT_FRAMES|WORKING_CURSOR_FRAMES|breathTimer/);
+  // The elapsed duration is appended to the default "Working..." label,
+  // tight (one space) so the time hugs "Working" on the same line.
+  assert.match(statuslineSource, /fmtElapsed\(Date\.now\(\) - start\)/);
+  assert.match(statuslineSource, /currentCtx\.ui\.setWorkingMessage\(`Working\.\.\. \(\$\{elapsed\}\)`\)/);
+  // No stray plugin timer beyond the single working-duration interval.
+  assert.match(statuslineSource, /let workingTimerId: ReturnType<typeof setInterval> \| undefined/);
 });
 
 test("git-branch shows the display path via emitGit", () => {

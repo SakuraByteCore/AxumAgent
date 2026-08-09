@@ -666,6 +666,23 @@ const REIMU_FRAMES: string[] = [
 ];
 const REIMU_INTERVAL_MS = 280;
 
+// Working timer: the working row is a single left-anchored Loader whose
+// message text is the only host-exposed writable face. The elapsed duration
+// is appended to that message and right-aligned by padding with spaces to
+// the viewport width. Seconds are not left-padded so brackets hug the digit.
+// A 1-second setInterval drives real-time ticking so the count advances even
+// during pure-thinking stretches with no streaming events.
+const WORKING_TIMER_INTERVAL_MS = 1000;
+function fmtElapsed(ms: number): string {
+	const s = Math.floor(ms / 1000);
+	if (s < 60) return `${s}s`;
+	const m = Math.floor(s / 60);
+	const rs = s % 60;
+	if (m < 60) return `${m}m${String(rs).padStart(2, "0")}s`;
+	const h = Math.floor(m / 60);
+	return `${h}h${String(m % 60).padStart(2, "0")}m`;
+}
+
 
 // ---------------------------------------------------------------------------
 // Extension
@@ -676,6 +693,37 @@ export default function (pi: ExtensionAPI): void {
 	let settings: Settings = DEFAULTS;
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
+
+	// Working-row elapsed timer lifecycle. A 1-second interval drives the
+	// real-time tick; it runs only between agent_start and agent_settled and
+	// reuses the captured context. The host working message is the only
+	// writable face, so the duration is appended and right-aligned to the
+	// terminal width for a stable right anchor.
+	// Working-row elapsed timer lifecycle. A 1-second interval drives the
+	// real-time tick; it runs only between agent_start and agent_settled and
+	// reuses the captured context. The host working message is the only
+	// writable face. The default message ("Working...") is preserved and the
+	// elapsed duration is appended right after it, separated by a single
+	// space so the time reads immediately next to "Working" on the same line.
+	let workingTimerId: ReturnType<typeof setInterval> | undefined;
+	function startWorkingTimer(): void {
+		stopWorkingTimer();
+		const start = Date.now();
+		const tick = (): void => {
+			if (!currentCtx?.hasUI) return;
+			const elapsed = fmtElapsed(Date.now() - start);
+			// Preserve the default "Working..." label and tack the duration on
+			// behind it, tight (one space) so the time hugs "Working" as asked.
+			currentCtx.ui.setWorkingMessage(`Working... (${elapsed})`);
+		};
+		tick();
+		workingTimerId = setInterval(tick, WORKING_TIMER_INTERVAL_MS);
+	}
+	function stopWorkingTimer(): void {
+		if (workingTimerId !== undefined) clearInterval(workingTimerId);
+		workingTimerId = undefined;
+		if (currentCtx?.hasUI) currentCtx.ui.setWorkingMessage();
+	}
 
 	// Register API surface for other extensions (kept compatible with the
 	// upstream event contract so segment emitters keep working transparently).
@@ -879,6 +927,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		stopWorkingTimer();
 		if (ctx.hasUI) ctx.ui.setWidget("pi-bar", undefined);
 		currentCtx = undefined;
 		segs.clear();
@@ -899,15 +948,21 @@ export default function (pi: ExtensionAPI): void {
 		emitContext(ctx);
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator({ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS });
+			startWorkingTimer();
 		}
 		flushIfDirty();
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
 		emitContext(ctx);
+		stopWorkingTimer();
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator();
 		}
+	});
+
+	pi.on("message_update", async (_event, ctx) => {
+		emitContext(ctx);
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
