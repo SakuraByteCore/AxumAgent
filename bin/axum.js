@@ -164,7 +164,13 @@ async function runPi(passthrough) {
   const extensionArgs = safe ? [] : resolveBundledExtensions().flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
   const defaultArgs = defaults && !hasArg(piArgs, "--provider") && !hasArg(piArgs, "--model")
-    ? ["--provider", defaults.provider, "--model", defaults.model]
+    ? [
+        "--provider",
+        defaults.provider,
+        "--model",
+        defaults.model,
+        ...(defaults.thinkingLevel && !hasArg(piArgs, "--thinking") ? ["--thinking", defaults.thinkingLevel] : []),
+      ]
     : [];
   // Disable ambient Pi extensions from the user's global install before adding
   // Axum's bundled extension set. In safe mode, keep -ne but intentionally skip

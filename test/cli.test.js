@@ -86,7 +86,7 @@ class StdinBuffer {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
     encoding: "utf8",
@@ -97,7 +97,7 @@ class StdinBuffer {
   assert.equal(argv[0], "-ne");
   const expectedExtensionCount = 5;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
-  assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
+  assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
 
 test("axum code --safe disables ambient extensions without loading bundled extensions", () => {
@@ -137,7 +137,7 @@ class StdinBuffer {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a" }));
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--safe", "--help"], {
     encoding: "utf8",
@@ -148,7 +148,7 @@ class StdinBuffer {
   assert.equal(argv[0], "-ne");
   assert.equal(argv.includes("--safe"), false);
   assert.equal(argv.filter((arg) => arg === "-e").length, 0);
-  assert.deepEqual(argv.slice(-5), ["--provider", "localmock", "--model", "mock-a", "--help"]);
+  assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {
