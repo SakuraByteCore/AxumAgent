@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getSettingsPath, listProviders, loadModelsConfig, saveDefaultProviderSelection, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -100,4 +100,55 @@ test("rejects blank API key", () => {
     model: "model-a",
     apiKey: "",
   }, file), /API Key is required/);
+});
+
+test("readSettingsRaw returns missing file marker when absent", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-settings-missing-"));
+  const file = path.join(dir, "settings.json");
+  const result = readSettingsRaw(file);
+  assert.equal(result.exists, false);
+  assert.equal(result.path, file);
+  assert.equal(result.content, "");
+  assert.deepEqual(result.json, {});
+  assert.equal(result.parseError, null);
+});
+
+test("readSettingsRaw parses valid settings object with retry block", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-settings-valid-"));
+  const file = path.join(dir, "settings.json");
+  fs.writeFileSync(file, JSON.stringify({
+    defaultProvider: "localmock",
+    defaultModel: "mock-a",
+    defaultThinkingLevel: "high",
+    retry: { enabled: true, maxRetries: 5, baseDelayMs: 1500 },
+  }, null, 2));
+  const result = readSettingsRaw(file);
+  assert.equal(result.exists, true);
+  assert.equal(result.path, file);
+  assert.equal(result.parseError, null);
+  assert.equal(result.json.defaultProvider, "localmock");
+  assert.equal(result.json.retry.enabled, true);
+  assert.ok(result.content.includes("\"defaultModel\": \"mock-a\""));
+});
+
+test("readSettingsRaw reports parse errors without throwing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-settings-broken-"));
+  const file = path.join(dir, "settings.json");
+  fs.writeFileSync(file, "{ this is not valid json }");
+  const result = readSettingsRaw(file);
+  assert.equal(result.exists, true);
+  assert.ok(result.parseError);
+  assert.deepEqual(result.json, {});
+  assert.equal(result.content, "{ this is not valid json }");
+});
+
+test("readSettingsRaw treats empty file as empty object", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-settings-empty-"));
+  const file = path.join(dir, "settings.json");
+  fs.writeFileSync(file, "");
+  const result = readSettingsRaw(file);
+  assert.equal(result.exists, true);
+  assert.equal(result.parseError, null);
+  assert.deepEqual(result.json, {});
+  assert.equal(result.content, "");
 });

@@ -210,6 +210,25 @@ export function ensureDefaultProviderReasoningSupport(selection, file = getModel
   return { changed, file, provider: selection.provider, model: selection.model, thinkingLevel };
 }
 
+export function readSettingsRaw(file = getSettingsPath()) {
+  if (!fs.existsSync(file)) return { exists: false, path: file, content: "", json: {}, parseError: null };
+  const content = fs.readFileSync(file, "utf8");
+  let parsed = {};
+  let parseError = null;
+  if (content.trim()) {
+    try {
+      parsed = JSON.parse(content);
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+        parseError = `Expected a JSON object, got ${Array.isArray(parsed) ? "array" : typeof parsed}`;
+        parsed = {};
+      }
+    } catch (error) {
+      parseError = error.message;
+    }
+  }
+  return { exists: true, path: file, content, json: parsed, parseError };
+}
+
 export function getRetrySettings(file = getSettingsPath()) {
   const config = readJsonFile(file);
   const retry = config.retry || {};

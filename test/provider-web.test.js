@@ -122,6 +122,16 @@ test("provider web fetches models and saves default config", async () => {
     });
     assert.equal(blankModelsRes.status, 400);
     assert.match((await blankModelsRes.json()).error, /API Key is required/);
+
+    const settingsRes = await fetch(`${base}/api/settings?token=${token}`);
+    assert.equal(settingsRes.status, 200);
+    const settingsPreviewJson = await settingsRes.json();
+    assert.equal(settingsPreviewJson.exists, true);
+    assert.equal(settingsPreviewJson.parseError, null);
+    assert.equal(settingsPreviewJson.json.defaultProvider, "localmock");
+    assert.equal(settingsPreviewJson.json.defaultModel, "mock-a");
+    assert.equal(settingsPreviewJson.json.defaultThinkingLevel, "high");
+    assert.ok(settingsPreviewJson.content.includes("\"defaultProvider\": \"localmock\""));
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => mock.close(resolve));
