@@ -175,10 +175,39 @@ export function getDefaultProviderSelection(file = getSettingsPath()) {
   if (file === getSettingsPath()) {
     const legacy = readJsonFile(getAxumConfigPath());
     if (legacy.defaultProvider && legacy.defaultModel) {
-      return { provider: legacy.defaultProvider, model: legacy.defaultModel };
+      return { provider: legacy.defaultProvider, model: legacy.defaultModel, thinkingLevel: "high" };
     }
   }
   return undefined;
+}
+
+export function ensureDefaultProviderReasoningSupport(selection, file = getModelsPath()) {
+  const thinkingLevel = normalizeThinkingLevel(selection?.thinkingLevel, "high");
+  if (!selection?.provider || !selection?.model || thinkingLevel === "off") return { changed: false };
+  const config = loadModelsConfig(file);
+  const provider = config.providers[selection.provider];
+  const model = Array.isArray(provider?.models)
+    ? provider.models.find((item) => item.id === selection.model || item.name === selection.model)
+    : undefined;
+  if (!provider || !model) return { changed: false };
+
+  let changed = false;
+  if (model.reasoning !== true) {
+    model.reasoning = true;
+    changed = true;
+  }
+  const map = thinkingLevelMap();
+  if (JSON.stringify(model.thinkingLevelMap || {}) !== JSON.stringify(map)) {
+    model.thinkingLevelMap = map;
+    changed = true;
+  }
+  if (provider.compat?.supportsReasoningEffort === false) {
+    delete provider.compat.supportsReasoningEffort;
+    if (Object.keys(provider.compat).length === 0) delete provider.compat;
+    changed = true;
+  }
+  if (changed) saveModelsConfig(config, file);
+  return { changed, file, provider: selection.provider, model: selection.model, thinkingLevel };
 }
 
 export function getRetrySettings(file = getSettingsPath()) {

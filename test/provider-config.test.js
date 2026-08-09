@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { getDefaultProviderSelection, getModelsPath, getSettingsPath, listProviders, saveDefaultProviderSelection, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getSettingsPath, listProviders, loadModelsConfig, saveDefaultProviderSelection, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -61,6 +61,33 @@ test("saves default provider selection to Pi settings", () => {
   assert.equal(result.file, settings);
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, "utf8")), { defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" });
   assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "high" });
+});
+
+test("upgrades legacy default model config for high thinking", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-model-migrate-"));
+  const models = getModelsPath({ PI_CODING_AGENT_DIR: dir });
+  fs.mkdirSync(path.dirname(models), { recursive: true });
+  fs.writeFileSync(models, JSON.stringify({
+    providers: {
+      localmock: {
+        baseUrl: "https://api.example.com/v1",
+        api: "openai-completions",
+        apiKey: "sk-test",
+        compat: { supportsDeveloperRole: false, supportsReasoningEffort: false },
+        models: [{ id: "mock-a", name: "Mock A", reasoning: false, contextWindow: 128000, maxTokens: 32000 }],
+      },
+    },
+  }));
+
+  const result = ensureDefaultProviderReasoningSupport({ provider: "localmock", model: "mock-a", thinkingLevel: "high" }, models);
+  const config = loadModelsConfig(models);
+  const provider = config.providers.localmock;
+  const model = provider.models[0];
+
+  assert.equal(result.changed, true);
+  assert.equal(model.reasoning, true);
+  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+  assert.deepEqual(provider.compat, { supportsDeveloperRole: false });
 });
 
 
