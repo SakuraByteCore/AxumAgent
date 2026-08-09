@@ -1,4 +1,5 @@
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
+import type { TUI, EditorTheme } from "@earendil-works/pi-tui";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -387,6 +388,54 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
   ];
 }
 
+/*
+ * Dashed border editor: delegates every field to the default CustomEditor
+ * but intercepts `borderColor` writes so the solid box-drawing glyph `─`
+ * (U+2500) used for the input box top/bottom rules is rewritten to the
+ * dashed glyph `╌` (U+254C) before the theme colour callback is applied.
+ * The override rides on every `updateEditorBorderColor()` reassignment that
+ * Pi performs per thinking/bash level, so it stays in effect for the lifetime
+ * of the editor without extension-side re-hooks.
+ */
+type ColorFn = (text: string) => string;
+
+class DashedBorderEditor extends CustomEditor {
+  private dashedBorderFn: ColorFn | undefined;
+
+  constructor(
+    tui: TUI,
+    theme: EditorTheme,
+    keybindings: KeybindingsManager,
+    options?: ConstructorParameters<typeof CustomEditor>[3],
+  ) {
+    super(tui, theme, keybindings, options);
+    // The parent Editor declares `borderColor;` as a class field, which at
+    // construction time installs an own { value: undefined, writable: true }
+    // property on the instance, shadowing any prototype-level accessor we
+    // could declare. To reliably intercept writes from Pi's
+    // updateEditorBorderColor(), we re-declare the property as an accessor
+    // directly on the instance (configurable so it is replaceable).
+    const self = this as unknown as {
+      dashedBorderFn: ColorFn | undefined;
+      borderColor: ColorFn | undefined;
+    };
+    Object.defineProperty(self, "borderColor", {
+      configurable: true,
+      enumerable: true,
+      get() { return self.dashedBorderFn; },
+      set(fn: ColorFn | undefined) {
+        if (!fn) { self.dashedBorderFn = fn; return; }
+        self.dashedBorderFn = (text: string) =>
+          fn(text.replaceAll("\u2500", "\u254c"));
+      },
+    });
+  }
+}
+
+const dashedEditorFactory =
+  (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) =>
+    new DashedBorderEditor(tui, theme, keybindings);
+
 export default function sakuraCyberdeckHeader(pi: ExtensionAPI): void {
   let skillsCache: string[] = [];
   let extensionsCache: string[] = [];
@@ -408,9 +457,16 @@ export default function sakuraCyberdeckHeader(pi: ExtensionAPI): void {
         invalidate() {},
       };
     });
+    // Replace the solid-rule input box with a dashed-rule editor. The factory
+    // preserves all default editor wiring (keybindings, autocomplete, onSubmit)
+    // since interactive-mode copies them onto our instance after creation.
+    ctx.ui.setEditorComponent(dashedEditorFactory);
   });
 
   pi.on("session_shutdown", (_event, ctx) => {
-    if (ctx.hasUI) ctx.ui.setHeader(undefined);
+    if (ctx.hasUI) {
+      ctx.ui.setHeader(undefined);
+      ctx.ui.setEditorComponent(undefined);
+    }
   });
 }
