@@ -80,7 +80,7 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "tokens-up", "tokens-down", "context-tokens", "context-usage"],
+	left: ["git-branch", "thinking", "tokens-down", "context-tokens", "context-usage"],
 	right: ["messages", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
@@ -151,7 +151,7 @@ const GAUGE_HOT_PCT = 75;
 // blending into one near-equal-luminance mass.
 //
 //   left train (warm arc, luminance RISING left -> right):
-//     git-branch(8°,L30) -> tokens-up(32°,L34) -> tokens-down(46°,L38) ->
+//     git-branch(8°,L30) -> thinking(32°,L34) -> tokens-down(46°,L38) ->
 //     context-tokens(60°,L42) -> context-usage(68°,L48)
 //   right train (cool arc):
 //     messages(180°,L28) -> model(210°,L44)
@@ -174,7 +174,7 @@ const GAUGE_HOT_PCT = 75;
 type Rgb = readonly [number, number, number];
 const PALETTE: Record<string, Rgb> = {
 	"git-branch":     [104, 56, 49],  // deep brick red (8°, L30)
-	"tokens-up":      [120, 89, 54],  // burnt umber (32°, L34)
+	thinking:         [120, 89, 54],  // burnt umber (32°, L34)
 	"tokens-down":    [134, 117, 60], // antique bronze (46°, L38)
 	"context-tokens": [146, 146, 69], // olive (60°, L42)
 	"context-usage":  [155, 166, 78], // chartreuse (68°, L48)
@@ -407,9 +407,9 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
 	const minGap = hasElastic ? 0 : 1;
 	// Goal-driven pruning: hide low-priority segments in order until fit.
-	// Priority (low first): tokens-down < tokens-up < context-tokens < messages.
+	// Priority (low first): tokens-down < thinking < context-tokens < messages.
 	// model is never hidden; pruning runs before shrink pass.
-	const SACRIFICE_IDS = ["tokens-down", "tokens-up", "context-tokens", "messages"] as const;
+	const SACRIFICE_IDS = ["tokens-down", "thinking", "context-tokens", "messages"] as const;
 
 	function trainNeed(l: RSeg[], r: RSeg[]): number {
 		const tw = l.reduce((a, s) => a + s.width, 0) + r.reduce((a, s) => a + s.width, 0);
@@ -746,12 +746,22 @@ export default function (pi: ExtensionAPI): void {
 	// SessionManager contract), so the running totals survive across calls.
 	// Each emitTokens call resumes from the cached index instead of rescanning
 	// the whole history, turning the per-turn cost from O(history) → O(new).
-	let tokenCache: { idx: number; ti: number; to: number; cost: number; msgCount: number } | undefined;
+	let tokenCache: { idx: number; to: number; msgCount: number } | undefined;
+
+	// Reasoning strength: emit the model's current thinking level as a small
+	// pill that always shows the current setting ("high" / "off" / "xhigh" /
+	// ...). The segment stays visible at all times so the bar always reflects
+	// what the runtime is configured to do; the prior tokens-up display that
+	// lived in this slot is fully replaced. The host fires
+	// ThinkingLevelSelectEvent on every cycle, so the displayed level stays
+	// in sync without polling.
+	function emitThinking(ctx: ExtensionContext): void {
+		const level = ctx.thinkingLevel ?? "off";
+		pi.events.emit("pi-bar:update", { id: "thinking", text: level, color: "text" });
+	}
 
 	function emitTokens(ctx: ExtensionContext): void {
-		let ti = 0;
 		let to = 0;
-		let cost = 0;
 		let msgCount = 0;
 		const entries = ctx.sessionManager.getEntries();
 		const start = tokenCache?.idx ?? 0;
@@ -764,25 +774,19 @@ export default function (pi: ExtensionAPI): void {
 		}
 		const from = tokenCache?.idx ?? 0;
 		if (tokenCache) {
-			ti = tokenCache.ti;
 			to = tokenCache.to;
-			cost = tokenCache.cost;
 			msgCount = tokenCache.msgCount;
 		}
 		for (let i = from; i < entries.length; i++) {
 			const e = entries[i]!;
 			if (e.type !== "message") continue;
 			msgCount += 1;
-			const m = (e as { message: { role?: string; usage?: { input: number; output: number; cost?: { total: number } } } }).message;
+			const m = (e as { message: { role?: string; usage?: { output: number } } }).message;
 			if (m.role !== "assistant" || !m.usage) continue;
-			ti += m.usage.input;
 			to += m.usage.output;
-			cost += m.usage.cost?.total ?? 0;
 		}
-		tokenCache = { idx: entries.length, ti, to, cost, msgCount };
+		tokenCache = { idx: entries.length, to, msgCount };
 		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
-		const tiText = `\u2191${fmtTokens(ti)}`;
-		pi.events.emit("pi-bar:update", { id: "tokens-up", text: cost > 0 ? `${tiText} $${cost.toFixed(2)}` : tiText, color: "text" });
 		pi.events.emit("pi-bar:update", { id: "tokens-down", text: `\u2193${fmtTokens(to)}`, color: "text" });
 	}
 
@@ -859,6 +863,7 @@ export default function (pi: ExtensionAPI): void {
 		emitTokens(ctx);
 		emitContext(ctx);
 		emitModel(ctx);
+		emitThinking(ctx);
 		refresh();
 	});
 
@@ -872,10 +877,11 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("model_select", async (_event, ctx) => {
 		emitModel(ctx);
+		emitThinking(ctx);
 	});
 
 	pi.on("thinking_level_select", async (_event, ctx) => {
-		emitModel(ctx);
+		emitThinking(ctx);
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {

@@ -27,7 +27,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
   assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
-  assert.match(statuslineSource, /left: \["git-branch", "tokens-up", "tokens-down", "context-tokens", "context-usage"\]/);
+  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tokens-down", "context-tokens", "context-usage"\]/);
   assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
   assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
@@ -146,10 +146,26 @@ test("usage-core, last-tool and git-dirty dead segments purged", () => {
   }
 });
 
+test("emitThinking shows the current reasoning strength at all times", () => {
+  // The pill in the tokens-up slot now reflects pi's current thinking level
+  // and is always visible (including "off") so the bar always shows what
+  // the runtime is configured to do.
+  const body = statuslineSource.match(/function emitThinking[\s\S]*?\n\t}/)?.[0] ?? "";
+  assert.match(body, /ctx\.thinkingLevel/);
+  assert.match(body, /\?\? "off"/);
+  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "thinking", text: level/);
+  assert.doesNotMatch(body, /text: undefined/);
+  // The thinking_level_select event refreshes the pill; model_select and
+  // session_start also probe ctx.thinkingLevel so a stale pill never lingers
+  // when the model switch resets thinking to "off".
+  assert.match(statuslineSource, /pi\.on\("thinking_level_select"[\s\S]*?emitThinking\(ctx\)/);
+  assert.match(statuslineSource, /emitThinking\(ctx\)/);
+});
+
 test("right-train drops low-priority segments in order when model risks clipping", () => {
  // Goal-driven pruning hides segments from lowest to highest priority until fit.
- // Order: tokens-down < tokens-up < context-tokens < messages. model is spared.
- assert.match(statuslineSource, /const SACRIFICE_IDS = \[.*tokens-down.*tokens-up.*context-tokens.*messages/);
+ // Order: tokens-down < thinking < context-tokens < messages. model is spared.
+ assert.match(statuslineSource, /const SACRIFICE_IDS = \[.*tokens-down.*thinking.*context-tokens.*messages/);
  assert.match(statuslineSource, /function trainNeed\(l: RSeg\[\], r: RSeg\[\]\): number/);
  assert.match(statuslineSource, /for \(const id of SACRIFICE_IDS\)/);
  assert.match(statuslineSource, /left\.splice\(li, 1\)/);
