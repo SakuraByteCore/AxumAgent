@@ -151,7 +151,7 @@ function buildPiEnv() {
 }
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/resolve-bundled-pi.js"),
     import("../src/provider-config.js"),
@@ -163,18 +163,15 @@ async function runPi(passthrough) {
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
   const extensionArgs = safe ? [] : resolveBundledExtensions().flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
-  if (defaults && !hasArg(piArgs, "--provider") && !hasArg(piArgs, "--model")) {
+  const hasProviderArg = hasArg(piArgs, "--provider") || hasArg(piArgs, "--model");
+  if (defaults && !hasProviderArg) {
     ensureDefaultProviderReasoningSupport(defaults);
   }
-  const defaultArgs = defaults && !hasArg(piArgs, "--provider") && !hasArg(piArgs, "--model")
-    ? [
-        "--provider",
-        defaults.provider,
-        "--model",
-        defaults.model,
-        ...(defaults.thinkingLevel && !hasArg(piArgs, "--thinking") ? ["--thinking", defaults.thinkingLevel] : []),
-      ]
-    : [];
+  const thinkingLevel = defaults?.thinkingLevel ?? DEFAULT_THINKING_LEVEL;
+  const defaultArgs = [
+    ...(defaults && !hasProviderArg ? ["--provider", defaults.provider, "--model", defaults.model] : []),
+    ...(!hasArg(piArgs, "--thinking") && thinkingLevel ? ["--thinking", thinkingLevel] : []),
+  ];
   // Disable ambient Pi extensions from the user's global install before adding
   // Axum's bundled extension set. In safe mode, keep -ne but intentionally skip
   // every bundled -e entry so a broken extension cannot block startup.

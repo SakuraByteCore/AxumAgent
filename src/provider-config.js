@@ -70,6 +70,8 @@ export function normalizeBaseUrl(baseUrl) {
 
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"];
 
+export const DEFAULT_THINKING_LEVEL = "high";
+
 function positiveNumber(value, fallback, name) {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Number(value);
@@ -162,7 +164,7 @@ export function saveDefaultProviderSelection(selection, file = getSettingsPath()
   const config = readJsonFile(file);
   config.defaultProvider = selection.provider;
   config.defaultModel = selection.model;
-  config.defaultThinkingLevel = normalizeThinkingLevel(selection.thinkingLevel, "high");
+  config.defaultThinkingLevel = normalizeThinkingLevel(selection.thinkingLevel, DEFAULT_THINKING_LEVEL);
   writeJsonFile(file, config);
   return { file, config };
 }
@@ -170,19 +172,19 @@ export function saveDefaultProviderSelection(selection, file = getSettingsPath()
 export function getDefaultProviderSelection(file = getSettingsPath()) {
   const config = readJsonFile(file);
   if (config.defaultProvider && config.defaultModel) {
-    return { provider: config.defaultProvider, model: config.defaultModel, thinkingLevel: normalizeThinkingLevel(config.defaultThinkingLevel, "high") };
+    return { provider: config.defaultProvider, model: config.defaultModel, thinkingLevel: normalizeThinkingLevel(config.defaultThinkingLevel, DEFAULT_THINKING_LEVEL) };
   }
   if (file === getSettingsPath()) {
     const legacy = readJsonFile(getAxumConfigPath());
     if (legacy.defaultProvider && legacy.defaultModel) {
-      return { provider: legacy.defaultProvider, model: legacy.defaultModel, thinkingLevel: "high" };
+      return { provider: legacy.defaultProvider, model: legacy.defaultModel, thinkingLevel: DEFAULT_THINKING_LEVEL };
     }
   }
   return undefined;
 }
 
 export function ensureDefaultProviderReasoningSupport(selection, file = getModelsPath()) {
-  const thinkingLevel = normalizeThinkingLevel(selection?.thinkingLevel, "high");
+  const thinkingLevel = normalizeThinkingLevel(selection?.thinkingLevel, DEFAULT_THINKING_LEVEL);
   if (!selection?.provider || !selection?.model || thinkingLevel === "off") return { changed: false };
   const config = loadModelsConfig(file);
   const provider = config.providers[selection.provider];
