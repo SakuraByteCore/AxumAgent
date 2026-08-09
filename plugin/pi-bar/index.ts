@@ -809,7 +809,7 @@ export default function (pi: ExtensionAPI): void {
 	const m = ctx.model;
 	if (!m) return;
 	const raw = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
-	const MAX_MODEL_WIDTH = visibleWidth("nemotron-3-ultra");
+	const MAX_MODEL_WIDTH = visibleWidth("nemotron-3-ultra ");
 	const name = truncateToWidth(raw, MAX_MODEL_WIDTH, "");
 	pi.events.emit("pi-bar:update", { id: "model", text: name, color: "thinkingHigh" });
 }
