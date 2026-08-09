@@ -59,8 +59,8 @@ test("saves default provider selection to Pi settings", () => {
   const result = saveDefaultProviderSelection({ provider: "localmock", model: "mock-a" }, settings);
 
   assert.equal(result.file, settings);
-  assert.deepEqual(JSON.parse(fs.readFileSync(settings, "utf8")), { defaultProvider: "localmock", defaultModel: "mock-a" });
-  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "off" });
+  assert.deepEqual(JSON.parse(fs.readFileSync(settings, "utf8")), { defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" });
+  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "high" });
 });
 
 

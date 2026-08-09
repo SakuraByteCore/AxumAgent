@@ -62,6 +62,20 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 
+    const defaultHighSaveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", contextWindow: 128000, maxTokens: 32000 }),
+    });
+    assert.equal(defaultHighSaveRes.status, 200);
+    const defaultHighSettingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(defaultHighSettingsJson.defaultThinkingLevel, "high");
+    const defaultHighConfigRes = await fetch(`${base}/api/config?token=${token}`);
+    assert.equal(defaultHighConfigRes.status, 200);
+    const defaultHighConfigJson = await defaultHighConfigRes.json();
+    assert.equal(defaultHighConfigJson.defaultModel, "mock-a");
+    assert.equal(defaultHighConfigJson.defaultThinkingLevel, "high");
+
     const promptRes = await fetch(`${base}/api/system-prompt?token=${token}&scope=global&mode=append`);
     assert.equal(promptRes.status, 200);
     const promptJson = await promptRes.json();

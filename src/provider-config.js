@@ -162,9 +162,7 @@ export function saveDefaultProviderSelection(selection, file = getSettingsPath()
   const config = readJsonFile(file);
   config.defaultProvider = selection.provider;
   config.defaultModel = selection.model;
-  if (selection.thinkingLevel !== undefined) {
-    config.defaultThinkingLevel = normalizeThinkingLevel(selection.thinkingLevel);
-  }
+  config.defaultThinkingLevel = normalizeThinkingLevel(selection.thinkingLevel, "high");
   writeJsonFile(file, config);
   return { file, config };
 }
@@ -172,7 +170,7 @@ export function saveDefaultProviderSelection(selection, file = getSettingsPath()
 export function getDefaultProviderSelection(file = getSettingsPath()) {
   const config = readJsonFile(file);
   if (config.defaultProvider && config.defaultModel) {
-    return { provider: config.defaultProvider, model: config.defaultModel, thinkingLevel: normalizeThinkingLevel(config.defaultThinkingLevel, "off") };
+    return { provider: config.defaultProvider, model: config.defaultModel, thinkingLevel: normalizeThinkingLevel(config.defaultThinkingLevel, "high") };
   }
   if (file === getSettingsPath()) {
     const legacy = readJsonFile(getAxumConfigPath());
