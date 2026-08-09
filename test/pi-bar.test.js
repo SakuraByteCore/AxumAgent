@@ -150,9 +150,11 @@ test("emitThinking shows the current reasoning strength at all times", () => {
   // The pill in the tokens-up slot now reflects pi's current thinking level
   // and is always visible (including "off") so the bar always shows what
   // the runtime is configured to do.
+  const sessionBody = statuslineSource.match(/function sessionThinkingLevel[\s\S]*?\n\t}/)?.[0] ?? "";
   const body = statuslineSource.match(/function emitThinking[\s\S]*?\n\t}/)?.[0] ?? "";
-  assert.match(body, /ctx\.thinkingLevel/);
-  assert.match(body, /\?\? "off"/);
+  assert.match(sessionBody, /ctx\.sessionManager\.getBranch\(\)/);
+  assert.match(sessionBody, /thinking_level_change/);
+  assert.match(body, /sessionThinkingLevel\(ctx\) \?\? ctx\.thinkingLevel \?\? "off"/);
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "thinking", text: level/);
   assert.doesNotMatch(body, /text: undefined/);
   // The thinking_level_select event refreshes the pill; model_select and

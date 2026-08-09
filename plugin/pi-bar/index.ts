@@ -755,8 +755,19 @@ export default function (pi: ExtensionAPI): void {
 	// lived in this slot is fully replaced. The host fires
 	// ThinkingLevelSelectEvent on every cycle, so the displayed level stays
 	// in sync without polling.
+	function sessionThinkingLevel(ctx: ExtensionContext): string | undefined {
+		const entries = ctx.sessionManager.getBranch();
+		for (let i = entries.length - 1; i >= 0; i--) {
+			const entry = entries[i] as { type?: string; thinkingLevel?: string };
+			if (entry.type === "thinking_level_change" && typeof entry.thinkingLevel === "string") {
+				return entry.thinkingLevel;
+			}
+		}
+		return undefined;
+	}
+
 	function emitThinking(ctx: ExtensionContext): void {
-		const level = ctx.thinkingLevel ?? "off";
+		const level = sessionThinkingLevel(ctx) ?? ctx.thinkingLevel ?? "off";
 		pi.events.emit("pi-bar:update", { id: "thinking", text: level, color: "text" });
 	}
 
