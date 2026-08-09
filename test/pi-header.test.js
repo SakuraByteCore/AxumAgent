@@ -34,6 +34,7 @@ function renderHeaderLines(width, rows = 80, argv = []) {
         setHeader(factory) {
           render = factory({ terminal: { rows } }).render;
         },
+        setEditorComponent() {},
       },
     });
     assert.equal(typeof render, "function");
