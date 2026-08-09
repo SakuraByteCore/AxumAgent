@@ -275,3 +275,43 @@ export function deleteSession({ file, env = process.env } = {}) {
 
   return { deleted: true, file };
 }
+
+export function deleteAllSessions({ env = process.env } = {}) {
+  const sessionsDir = getSessionsDir(env);
+  const resolvedBase = path.resolve(sessionsDir);
+  if (!fs.existsSync(sessionsDir)) return { deleted: 0, total: 0, failed: [] };
+
+  let total = 0;
+  let deleted = 0;
+  const failed = [];
+
+  for (const entry of fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((e) => e.isDirectory())) {
+    const projectDir = path.join(sessionsDir, entry.name);
+    const files = fs.readdirSync(projectDir).filter((f) => f.endsWith(".jsonl"));
+    if (files.length === 0) continue;
+    total += files.length;
+    for (const fileName of files) {
+      const filePath = path.join(projectDir, fileName);
+      const file = entry.name + "/" + fileName;
+      try {
+        const resolved = path.resolve(filePath);
+        if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
+          failed.push({ file, reason: "invalid path" });
+          continue;
+        }
+        fs.unlinkSync(filePath);
+        deleted += 1;
+      } catch (err) {
+        failed.push({ file, reason: err.message });
+      }
+    }
+    try {
+      const remaining = fs.readdirSync(projectDir);
+      if (remaining.length === 0) fs.rmdirSync(projectDir);
+    } catch {
+      // Best-effort cleanup; ignore errors.
+    }
+  }
+
+  return { deleted, total, failed };
+}

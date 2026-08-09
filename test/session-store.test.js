@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deleteSession, listSessions, readSession } from "../src/session-store.js";
+import { deleteSession, deleteAllSessions, listSessions, readSession } from "../src/session-store.js";
 
 function makeAgentRoot() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-sessions-"));
@@ -98,4 +98,47 @@ test("deleteSession returns not-found for missing file", () => {
 test("deleteSession rejects path traversal", () => {
   const { dir, env } = makeAgentRoot();
   assert.throws(() => deleteSession({ file: "../../secret.txt", env }), /Invalid session file path/);
+});
+
+test("deleteAllSessions removes all jsonl files and cleans project dirs", () => {
+  const { dir, env } = makeAgentRoot();
+  writeSessionFile(dir, "--D--proj-A--", "sess1.jsonl", [
+    { type: "session", version: 3, id: "s1", timestamp: "2026-08-01T10:00:00.000Z", cwd: "D:\\proj\\A" },
+  ]);
+  writeSessionFile(dir, "--D--proj-A--", "sess2.jsonl", [
+    { type: "session", version: 3, id: "s2", timestamp: "2026-08-02T10:00:00.000Z", cwd: "D:\\proj\\A" },
+  ]);
+  writeSessionFile(dir, "--D--proj-B--", "sess3.jsonl", [
+    { type: "session", version: 3, id: "s3", timestamp: "2026-08-03T10:00:00.000Z", cwd: "D:\\proj\\B" },
+  ]);
+  const sessionsDir = path.join(dir, "sessions");
+  assert.ok(fs.existsSync(path.join(sessionsDir, "--D--proj-A--", "sess1.jsonl")));
+
+  const result = deleteAllSessions({ env });
+  assert.equal(result.total, 3);
+  assert.equal(result.deleted, 3);
+  assert.deepEqual(result.failed, []);
+  assert.ok(!fs.existsSync(path.join(sessionsDir, "--D--proj-A--")));
+  assert.ok(!fs.existsSync(path.join(sessionsDir, "--D--proj-B--")));
+});
+
+test("deleteAllSessions returns zero when sessions dir does not exist", () => {
+  const { env } = makeAgentRoot();
+  const result = deleteAllSessions({ env });
+  assert.equal(result.total, 0);
+  assert.equal(result.deleted, 0);
+  assert.deepEqual(result.failed, []);
+});
+
+test("deleteAllSessions leaves non-jsonl files untouched", () => {
+  const { dir, env } = makeAgentRoot();
+  fs.mkdirSync(path.join(dir, "sessions", "--X--proj--"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "sessions", "--X--proj--", "readme.txt"), "keep me\n");
+  fs.writeFileSync(path.join(dir, "sessions", "--X--proj--", "s.jsonl"), JSON.stringify({ type: "session", version: 3, id: "sx", timestamp: "2026-08-01T10:00:00.000Z", cwd: "X:\\proj" }) + "\n");
+
+  const result = deleteAllSessions({ env });
+  assert.equal(result.total, 1);
+  assert.equal(result.deleted, 1);
+  const sessionsDir = path.join(dir, "sessions");
+  assert.ok(fs.existsSync(path.join(sessionsDir, "--X--proj--", "readme.txt")), "non-jsonl file should survive");
 });
