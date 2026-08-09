@@ -68,6 +68,8 @@ export function normalizeBaseUrl(baseUrl) {
   return url.toString().replace(/\/+$/, "");
 }
 
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"];
+
 function positiveNumber(value, fallback, name) {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Number(value);
@@ -75,31 +77,52 @@ function positiveNumber(value, fallback, name) {
   return Math.floor(number);
 }
 
+export function normalizeThinkingLevel(value, fallback = "off") {
+  const level = String(value ?? "").trim().toLowerCase();
+  if (THINKING_LEVELS.includes(level)) return level;
+  if (value === undefined || value === null || value === "") return fallback;
+  throw new Error(`Unsupported reasoning strength: ${value}`);
+}
+
+function thinkingLevelMap() {
+  return {
+    off: null,
+    minimal: "minimal",
+    low: "low",
+    medium: "medium",
+    high: "high",
+  };
+}
+
 export function buildOpenAICompatibleProvider(options) {
   const model = String(options.model || "").trim();
   if (!model) throw new Error("Model is required");
+  const reasoningEffort = normalizeThinkingLevel(options.reasoningEffort ?? options.thinkingLevel);
+  const reasoningEnabled = reasoningEffort !== "off" || Boolean(options.reasoning);
+  const modelConfig = {
+    id: model,
+    name: options.modelName || model,
+    reasoning: reasoningEnabled,
+    contextWindow: positiveNumber(options.contextWindow, 128000, "Context window"),
+    maxTokens: positiveNumber(options.maxTokens, 32000, "Max output tokens"),
+  };
+  if (reasoningEnabled) modelConfig.thinkingLevelMap = thinkingLevelMap();
+
   const provider = {
     baseUrl: normalizeBaseUrl(options.baseUrl),
     api: "openai-completions",
-    models: [
-      {
-        id: model,
-        name: options.modelName || model,
-        reasoning: Boolean(options.reasoning),
-        contextWindow: positiveNumber(options.contextWindow, 128000, "Context window"),
-        maxTokens: positiveNumber(options.maxTokens, 32000, "Max output tokens"),
-      },
-    ],
+    models: [modelConfig],
   };
 
   if (options.apiKeyEnv) provider.apiKey = `$${options.apiKeyEnv}`;
   else if (String(options.apiKey || "").trim()) provider.apiKey = String(options.apiKey).trim();
   else throw new Error("API Key is required");
 
-  if (!options.supportsDeveloperRole || !options.supportsReasoningEffort) {
+  const supportsReasoningEffort = options.supportsReasoningEffort ?? reasoningEnabled;
+  if (!options.supportsDeveloperRole || !supportsReasoningEffort) {
     provider.compat = {};
     if (!options.supportsDeveloperRole) provider.compat.supportsDeveloperRole = false;
-    if (!options.supportsReasoningEffort) provider.compat.supportsReasoningEffort = false;
+    if (!supportsReasoningEffort) provider.compat.supportsReasoningEffort = false;
   }
 
   return provider;
@@ -126,6 +149,7 @@ export function listProviders(file = getModelsPath(), options = {}) {
         id: model.id,
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
+        reasoning: Boolean(model.reasoning),
       })) : [],
       hasApiKey: Boolean(provider.apiKey),
     };
@@ -138,6 +162,9 @@ export function saveDefaultProviderSelection(selection, file = getSettingsPath()
   const config = readJsonFile(file);
   config.defaultProvider = selection.provider;
   config.defaultModel = selection.model;
+  if (selection.thinkingLevel !== undefined) {
+    config.defaultThinkingLevel = normalizeThinkingLevel(selection.thinkingLevel);
+  }
   writeJsonFile(file, config);
   return { file, config };
 }
@@ -145,7 +172,7 @@ export function saveDefaultProviderSelection(selection, file = getSettingsPath()
 export function getDefaultProviderSelection(file = getSettingsPath()) {
   const config = readJsonFile(file);
   if (config.defaultProvider && config.defaultModel) {
-    return { provider: config.defaultProvider, model: config.defaultModel };
+    return { provider: config.defaultProvider, model: config.defaultModel, thinkingLevel: normalizeThinkingLevel(config.defaultThinkingLevel, "off") };
   }
   if (file === getSettingsPath()) {
     const legacy = readJsonFile(getAxumConfigPath());

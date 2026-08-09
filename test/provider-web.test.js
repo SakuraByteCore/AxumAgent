@@ -38,24 +38,27 @@ test("provider web fetches models and saves default config", async () => {
     const saveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock", contextWindow: 256000, maxTokens: 64000 }),
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock", contextWindow: 256000, maxTokens: 64000, reasoningEffort: "medium" }),
     });
     assert.equal(saveRes.status, 200);
     const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
     assert.equal(modelsJson.providers.localmock.models[0].id, "mock-b");
     assert.equal(modelsJson.providers.localmock.models[0].contextWindow, 256000);
     assert.equal(modelsJson.providers.localmock.models[0].maxTokens, 64000);
+    assert.equal(modelsJson.providers.localmock.models[0].reasoning, true);
+    assert.deepEqual(modelsJson.providers.localmock.models[0].thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
     assert.equal(modelsJson.providers.localmock.apiKey, "test-key");
     const settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
-    assert.deepEqual(settingsJson, { defaultProvider: "localmock", defaultModel: "mock-b" });
+    assert.deepEqual(settingsJson, { defaultProvider: "localmock", defaultModel: "mock-b", defaultThinkingLevel: "medium" });
 
     const configRes = await fetch(`${base}/api/config?token=${token}`);
     assert.equal(configRes.status, 200);
     const configJson = await configRes.json();
     assert.equal(configJson.defaultProvider, "localmock");
     assert.equal(configJson.defaultModel, "mock-b");
+    assert.equal(configJson.defaultThinkingLevel, "medium");
     assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
-    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 256000, maxTokens: 64000 }]);
+    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 256000, maxTokens: 64000, reasoning: true }]);
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 

@@ -27,6 +27,27 @@ test("writes OpenAI-compatible provider config", () => {
   assert.equal(listProviders(file, { includeSecrets: true })[0].apiKey, "$KIMI_API_KEY");
 });
 
+test("writes reasoning-capable provider config and default thinking level", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-reasoning-"));
+  const file = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+  const result = upsertOpenAICompatibleProvider({
+    name: "reasoner",
+    baseUrl: "https://api.example.com/v1",
+    model: "reasoner-a",
+    apiKey: "test-key",
+    reasoningEffort: "high",
+  }, file);
+  saveDefaultProviderSelection({ provider: result.name, model: "reasoner-a", thinkingLevel: "high" }, settings);
+
+  const json = JSON.parse(fs.readFileSync(file, "utf8"));
+  const model = json.providers.reasoner.models[0];
+  assert.equal(model.reasoning, true);
+  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+  assert.deepEqual(json.providers.reasoner.compat, { supportsDeveloperRole: false });
+  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "reasoner", model: "reasoner-a", thinkingLevel: "high" });
+});
+
 test("respects PI_CODING_AGENT_DIR for models path", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-agent-dir-"));
   assert.equal(getModelsPath({ PI_CODING_AGENT_DIR: dir }), path.join(dir, "models.json"));
@@ -39,7 +60,7 @@ test("saves default provider selection to Pi settings", () => {
 
   assert.equal(result.file, settings);
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, "utf8")), { defaultProvider: "localmock", defaultModel: "mock-a" });
-  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a" });
+  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "off" });
 });
 
 
