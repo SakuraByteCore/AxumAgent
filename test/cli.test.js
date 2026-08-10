@@ -40,6 +40,7 @@ test("package scripts delegate to axum entrypoints", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
   assert.equal(packageJson.scripts.code, "node bin/axum.js code");
   assert.equal(packageJson.scripts.update, "node bin/axum.js update");
+  assert.equal(packageJson.engines.node, ">=22.19.0");
 });
 
 test("provider command is no longer a public web entry", () => {
@@ -85,6 +86,7 @@ class StdinBuffer {
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
+  writePackage(cache, "pi-mcp-adapter", { "index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
 
@@ -95,8 +97,13 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 5;
+  const expectedExtensionCount = 6;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(agentDir, "mcp.json"), "utf8")), {
+    mcpServers: {
+      "sequential-thinking": { command: "npx", args: ["-y", "@modelcontextprotocol/server-sequential-thinking"] },
+    },
+  });
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
 
@@ -136,6 +143,7 @@ class StdinBuffer {
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
+  writePackage(cache, "pi-mcp-adapter", { "index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
 
@@ -148,6 +156,7 @@ class StdinBuffer {
   assert.equal(argv[0], "-ne");
   assert.equal(argv.includes("--safe"), false);
   assert.equal(argv.filter((arg) => arg === "-e").length, 0);
+  assert.equal(fs.existsSync(path.join(agentDir, "mcp.json")), false);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
 

@@ -38,10 +38,11 @@ The distribution ships these packages, all in one install:
 - `pi-guard` (AxumAgent bundled fork)
 - `@narumitw/pi-goal`
 - `pi-blackhole`
+- `pi-mcp-adapter` on macOS, Linux, and Windows
 
 ## Requirements
 
-- **Node.js** >= 18
+- **Node.js** >= 22.19.0
 - **npm** >= 9
 - A terminal on macOS, Linux, or Windows; Android/Termux is supported too.
 - An OpenAI-compatible API key (or any provider you configure in the web UI).
@@ -71,6 +72,8 @@ Launch the agent:
 ```bash
 axum code
 ```
+
+On the first desktop launch, Axum creates `~/.pi/agent/mcp.json` with the `sequential-thinking` MCP server. Existing MCP configuration is preserved.
 
 If a bundled extension breaks startup, you can launch in safe mode, which loads none of the bundled extensions:
 
@@ -150,7 +153,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-header` / `pi-guard` / `pi-goal` / `pi-blackhole`.
+If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-header` / `pi-guard` / `pi-goal` / `pi-blackhole` / `pi-mcp-adapter`.
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.
 

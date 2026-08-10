@@ -34,8 +34,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
     "pi-blackhole@0.4.5",
+    "pi-mcp-adapter@2.21.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 6);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -47,8 +48,9 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
     "pi-blackhole@0.4.5",
+    "pi-mcp-adapter@2.21.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 6);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

@@ -35,6 +35,7 @@ export const bundledPiPackages = [
   // Pure JS, no native deps; requires pi-coding-agent >=0.81.1 (satisfied by the
   // pinned 0.81.1 core).
   { name: "pi-blackhole@0.4.5", packageName: "pi-blackhole", extensionPath: "dist/index.js", android: true },
+  { name: "pi-mcp-adapter@2.21.0", packageName: "pi-mcp-adapter", extensionPath: "index.ts", android: false },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a

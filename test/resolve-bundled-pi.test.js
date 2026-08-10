@@ -29,13 +29,14 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
+  writePackage(cache, "pi-mcp-adapter", { "index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 5);
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(extensions.length, 6);
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 test("Android loads pi-guard and pi-goal", () => {
@@ -67,15 +68,17 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-blackhole", { "dist/index.js": "" });
+  writePackage(cache, "pi-mcp-adapter", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 5);
+  assert.equal(extensions.length, 6);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-header", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-guard", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-blackhole", "dist", "index.js"));
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(extensions[5], path.join(cache, "node_modules", "pi-mcp-adapter", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 
@@ -126,6 +129,7 @@ pkg("pi-header", { "index.ts": "" });
 pkg("pi-guard", { "index.ts": "" });
 pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("pi-blackhole", { "dist/index.js": "" });
+pkg("pi-mcp-adapter", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
 
@@ -366,6 +370,7 @@ pkg('pi-header', { 'index.ts': '' });
 pkg('pi-guard', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('pi-blackhole', { 'dist/index.js': '' });
+pkg('pi-mcp-adapter', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
@@ -373,7 +378,7 @@ pkg('pi-blackhole', { 'dist/index.js': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(existingBundledExtensions(options).length, 6);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
@@ -431,6 +436,7 @@ writePkg("pi-header", { "index.ts": "" });
 writePkg("pi-guard", { "index.ts": "" });
 writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
 writePkg("pi-blackhole", { "dist/index.js": "" });
+writePkg("pi-mcp-adapter", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   ensureBundledPi({ env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm });
