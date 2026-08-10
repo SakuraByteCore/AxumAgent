@@ -23,7 +23,6 @@ Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-bar
   - @narumitw/pi-goal
   - pi-blackhole
-  - pi-mcp-adapter (desktop only)
 
 Run \`axum code --help\` for Pi options.
 `;
@@ -152,18 +151,16 @@ function buildPiEnv() {
 }
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL }, { ensureDefaultMcpConfig }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/resolve-bundled-pi.js"),
     import("../src/provider-config.js"),
-    import("../src/default-mcp-config.js"),
     import("node:child_process"),
   ]);
 
   ensureBundledPi();
   const piCli = resolvePiCli();
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
-  if (!safe) ensureDefaultMcpConfig();
   const extensionArgs = safe ? [] : resolveBundledExtensions().flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
   const hasProviderArg = hasArg(piArgs, "--provider") || hasArg(piArgs, "--model");

@@ -38,7 +38,6 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - `pi-guard`（AxumAgent 打包分支）
 - `@narumitw/pi-goal`
 - `pi-blackhole`
-- `pi-mcp-adapter`（macOS、Linux 与 Windows）
 
 ## 环境要求
 
@@ -73,7 +72,6 @@ axum web
 axum code
 ```
 
-桌面端首次启动时，Axum 会创建包含 `sequential-thinking` MCP 服务器的 `~/.pi/agent/mcp.json`，不会覆盖已有 MCP 配置。
 
 若打包扩展导致启动失败，可进入安全模式启动，该模式不加载任何打包扩展:
 
@@ -153,7 +151,7 @@ axum doctor
 
 `doctor` 检查打包 Pi 缓存与入口点。
 
-若扩展问题导致无法正常启动，可使用 `axum code --safe`，仅以 `-ne` 启动 Pi 本体，不加载 `pi-bar` / `pi-header` / `pi-guard` / `pi-goal` / `pi-blackhole` / `pi-mcp-adapter`。
+若扩展问题导致无法正常启动，可使用 `axum code --safe`，仅以 `-ne` 启动 Pi 本体，不加载 `pi-bar` / `pi-header` / `pi-guard` / `pi-goal` / `pi-blackhole`。
 
 打包 Pi 运行时存储于用户缓存，而非 npm 全局包目录。因此重新安装 Axum 通常不会重复执行 `axum code` 的首次安装流程。
 
