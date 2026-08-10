@@ -181,16 +181,6 @@ const ANIME_ART = [
 ] as const;
 
 
-function getAvailableRows(tui: unknown): number {
-  try {
-    const terminal = (tui as { terminal?: { rows?: unknown } }).terminal;
-    const rows = terminal?.rows;
-    return typeof rows === "number" && Number.isFinite(rows) ? Math.max(0, Math.floor(rows)) : 0;
-  } catch {
-    return 0;
-  }
-}
-
 /**
  * Detect skills available to the agent from the Pi skill discovery roots
  * (home `~/.agents/skills/<name>/SKILL.md` and project `<cwd>/.agents/skills/...`),
@@ -329,7 +319,7 @@ function dashTitleLine(width: number, edgeA: RGB, edgeB: RGB, textA: RGB, textB:
   return gradient(left, edgeA, edgeB) + gradient(visibleTitle, textA, textB, true) + gradient(right, edgeB, edgeA);
 }
 
-function renderHeader(width: number, availableRows = 0, skills: string[] = [], extensions: string[] = []): string[] {
+function renderHeader(width: number, skills: string[] = [], extensions: string[] = []): string[] {
   if (width <= 0) return [];
 
   const sakura: RGB = [242, 167, 198];
@@ -364,10 +354,9 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
     return `${artPad}${gradient(row, sakura, sky)}`;
   });
   const hasCards = skills.length > 0 || extensions.length > 0;
-  const visualHeight = sourceArt.length + 3 + (hasCards ? 1 : 0); // artwork + gap + divider + label (+card gap)
-   const FIXED_TOP_PADDING = 1;
+  const fixedTopPadding = 1;
 
- const cards: string[] = [];
+  const cards: string[] = [];
   const cardWidth = Math.min(width, 52);
   const cardPad = " ".repeat(Math.max(0, Math.floor((width - cardWidth) / 2)));
   if (hasCards) {
@@ -377,7 +366,7 @@ function renderHeader(width: number, availableRows = 0, skills: string[] = [], e
   }
 
   return [
-    ...Array(FIXED_TOP_PADDING).fill(""),
+    ...Array(fixedTopPadding).fill(""),
     `${dashTitleLine(width, sakura, sky, lavender, peach)}`,
     "",
     ...art,
@@ -445,16 +434,21 @@ export default function sakuraCyberdeckHeader(pi: ExtensionAPI): void {
     // Probe on every start so freshly installed skills / extensions surface.
     skillsCache = detectSkills(ctx.cwd);
     extensionsCache = detectExtensions(process.argv);
-    ctx.ui.setHeader((tui) => {
-      // Snapshot terminal rows once at header creation time. Re-reading the
-      // live row count on every render causes the top padding (and thus the
-      // total header height) to shift when the software keyboard toggles rows
-      // in Termux — the resulting differential repaints make the ASCII art
-      // flash. A fixed cached value keeps the header layout stable.
-      const cachedRows = getAvailableRows(tui);
+    ctx.ui.setHeader(() => {
+      let cachedWidth: number | undefined;
+      let cachedLines: string[] = [];
       return {
-        render: (width) => renderHeader(width, cachedRows, skillsCache, extensionsCache),
-        invalidate() {},
+        render: (width) => {
+          if (width !== cachedWidth) {
+            cachedWidth = width;
+            cachedLines = renderHeader(width, skillsCache, extensionsCache);
+          }
+          return cachedLines;
+        },
+        invalidate() {
+          cachedWidth = undefined;
+          cachedLines = [];
+        },
       };
     });
     // Replace the solid-rule input box with a dashed-rule editor. The factory

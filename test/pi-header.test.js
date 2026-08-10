@@ -13,9 +13,9 @@ function getSourceArtRows() {
   return [...artBlock.matchAll(/^\s+"(.*)",?\r?$/gm)].map((match) => match[1]);
 }
 
-function renderHeaderLines(width, rows = 80, argv = []) {
+function createHeaderRenderer(rows = 80, argv = []) {
   let sessionStart;
-  let render;
+  let headerComponent;
   const originalArgv = process.argv.slice();
   process.argv.push(...argv);
 
@@ -32,19 +32,52 @@ function renderHeaderLines(width, rows = 80, argv = []) {
       cwd: process.cwd(),
       ui: {
         setHeader(factory) {
-          render = factory({ terminal: { rows } }).render;
+          headerComponent = factory({ terminal: { rows } });
         },
         setEditorComponent() {},
       },
     });
-    assert.equal(typeof render, "function");
+    assert.equal(typeof headerComponent?.render, "function");
 
-    return render(width).map((line) => line.replace(ANSI_PATTERN, ""));
-  } finally {
+    return {
+      render: (width) => headerComponent.render(width),
+      invalidate: () => headerComponent.invalidate(),
+      restore() {
+        process.argv.length = 0;
+        process.argv.push(...originalArgv);
+      },
+    };
+  } catch (error) {
     process.argv.length = 0;
     process.argv.push(...originalArgv);
+    throw error;
   }
 }
+
+function renderHeaderLines(width, rows = 80, argv = []) {
+  const headerRenderer = createHeaderRenderer(rows, argv);
+  try {
+    return headerRenderer.render(width).map((line) => line.replace(ANSI_PATTERN, ""));
+  } finally {
+    headerRenderer.restore();
+  }
+}
+
+test("pi-header reuses rendered lines until width changes or the theme invalidates", () => {
+  const headerRenderer = createHeaderRenderer();
+  try {
+    const initialLines = headerRenderer.render(120);
+    assert.strictEqual(headerRenderer.render(120), initialLines);
+
+    const narrowLines = headerRenderer.render(80);
+    assert.notStrictEqual(narrowLines, initialLines);
+
+    headerRenderer.invalidate();
+    assert.notStrictEqual(headerRenderer.render(80), narrowLines);
+  } finally {
+    headerRenderer.restore();
+  }
+});
 
 test("pi-header keeps the trimmed ASCII source", () => {
   const artRows = getSourceArtRows();
