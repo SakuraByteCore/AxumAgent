@@ -147,7 +147,7 @@ function splitAxumCodeArgs(passthrough) {
 }
 
 function buildPiEnv() {
-  return { ...process.env, AXUM_BUNDLED_PI: "1", PI_BLACKHOLE_MEMORY: "false" };
+  return { ...process.env, AXUM_BUNDLED_PI: "1" };
 }
 
 async function runPi(passthrough) {
