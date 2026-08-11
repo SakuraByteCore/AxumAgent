@@ -18,9 +18,6 @@
     "pack:dry": "npm pack --dry-run",
     "prepare": "npm run build"
   },
-  "dependencies": {
-    "pi-blackhole": "^0.4.3"
-  },
   "engines": {
     "node": ">=22.19.0"
   },

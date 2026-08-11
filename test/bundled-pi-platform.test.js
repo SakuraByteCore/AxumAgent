@@ -20,9 +20,8 @@ test("loads pi-guard and pi-goal on Android", () => {
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
-    "pi-blackhole@0.4.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -33,9 +32,8 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
-    "pi-blackhole@0.4.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -46,9 +44,8 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
-    "pi-blackhole@0.4.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

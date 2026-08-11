@@ -30,11 +30,6 @@ export const bundledPiPackages = [
   { name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
-  // pi-blackhole: unified context compaction + observational memory. Compresses
-  // conversation context while preserving durable observations/reflections.
-  // Pure JS, no native deps; requires pi-coding-agent >=0.81.1 (satisfied by the
-  // pinned 0.81.1 core).
-  { name: "pi-blackhole@0.4.5", packageName: "pi-blackhole", extensionPath: "dist/index.js", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a
