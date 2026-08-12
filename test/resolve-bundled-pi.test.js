@@ -27,6 +27,7 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
+  writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
 
@@ -34,8 +35,8 @@ test("resolves bundled Pi from Axum cache directory", () => {
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 5);
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(extensions.length, 6);
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 test("Android loads pi-guard and pi-goal", () => {
@@ -45,17 +46,19 @@ test("Android loads pi-guard and pi-goal", () => {
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
+  writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 5);
+  assert.equal(extensions.length, 6);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-header", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-guard", "index.ts"));
-  assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(extensions[4], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(extensions[3], path.join(cache, "node_modules", "pi-clear", "index.ts"));
+  assert.equal(extensions[4], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(extensions[5], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 test("Windows loads same extension set as other platforms", () => {
@@ -65,17 +68,19 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
+  writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 5);
+  assert.equal(extensions.length, 6);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-header", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-guard", "index.ts"));
-  assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(extensions[4], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(extensions[3], path.join(cache, "node_modules", "pi-clear", "index.ts"));
+  assert.equal(extensions[4], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
+  assert.equal(extensions[5], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 
@@ -124,6 +129,7 @@ pkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": std
 pkg("pi-bar", { "index.ts": "" });
 pkg("pi-header", { "index.ts": "" });
 pkg("pi-guard", { "index.ts": "" });
+pkg("pi-clear", { "index.ts": "" });
 pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("@gotgenes/pi-subagents", { "src/index.ts": "" });
 `);
@@ -364,6 +370,7 @@ class StdinBuffer {
 pkg('pi-bar', { 'index.ts': '' });
 pkg('pi-header', { 'index.ts': '' });
 pkg('pi-guard', { 'index.ts': '' });
+pkg('pi-clear', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('@gotgenes/pi-subagents', { 'src/index.ts': '' });
 `);
@@ -373,7 +380,7 @@ pkg('@gotgenes/pi-subagents', { 'src/index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(existingBundledExtensions(options).length, 6);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
@@ -400,6 +407,9 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
     "dist/cli.js": "",
   });
   writePkg(cache, "pi-bar", { "index.ts": "" });
+  writePkg(cache, "pi-header", { "index.ts": "" });
+  writePkg(cache, "pi-guard", { "index.ts": "" });
+  writePkg(cache, "pi-clear", { "index.ts": "" });
   writePkg(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePkg(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
 
@@ -430,6 +440,7 @@ writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js"
 writePkg("pi-bar", { "index.ts": "" });
 writePkg("pi-header", { "index.ts": "" });
 writePkg("pi-guard", { "index.ts": "" });
+writePkg("pi-clear", { "index.ts": "" });
 writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
 writePkg("@gotgenes/pi-subagents", { "src/index.ts": "" });
 `);
