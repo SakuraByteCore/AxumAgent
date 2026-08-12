@@ -20,8 +20,9 @@ test("loads pi-guard and pi-goal on Android", () => {
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
+    "@gotgenes/pi-subagents@19.2.2",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -32,8 +33,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
+    "@gotgenes/pi-subagents@19.2.2",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 5);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -44,8 +46,9 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-header@file:plugin/pi-header",
     "pi-guard@file:plugin/pi-guard",
     "@narumitw/pi-goal@0.31.0",
+    "@gotgenes/pi-subagents@19.2.2",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 5);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

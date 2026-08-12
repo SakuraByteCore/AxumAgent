@@ -37,6 +37,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-header` (AxumAgent 同梱フォーク)
 - `pi-guard` (AxumAgent 同梱フォーク)
 - `@narumitw/pi-goal`
+- `@gotgenes/pi-subagents`
 
 ## 要件
 
@@ -150,7 +151,7 @@ axum doctor
 
 `doctor` は bundled Pi cache と entrypoint を確認します。
 
-拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-bar` / `pi-header` / `pi-guard` / `pi-goal` を読み込みません。
+拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-bar` / `pi-header` / `pi-guard` / `pi-goal` / `pi-subagents` を読み込みません。
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザーキャッシュに保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 
