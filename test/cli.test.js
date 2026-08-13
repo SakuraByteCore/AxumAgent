@@ -82,7 +82,6 @@ class StdinBuffer {
 `,
   });
   writePackage(cache, "pi-bar", { "index.ts": "" });
-  writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
@@ -97,7 +96,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 6;
+  const expectedExtensionCount = 5;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
@@ -134,7 +133,6 @@ class StdinBuffer {
 `,
   });
   writePackage(cache, "pi-bar", { "index.ts": "" });
-  writePackage(cache, "pi-header", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });

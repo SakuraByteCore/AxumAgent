@@ -3,9 +3,12 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 
-import header from "../plugin/pi-header/index.ts";
+import bar from "../plugin/pi-bar/index.ts";
 
-const headerSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-header", "index.ts"), "utf8");
+// The sakura cyberdeck header was merged into pi-bar; render the header through
+// pi-bar's session_start flow with a minimal mock that satisfies pi-bar's full
+// startup contract (status-bar producers + header installation).
+const headerSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8");
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
 function getSourceArtRows() {
@@ -20,21 +23,40 @@ function createHeaderRenderer(rows = 80, argv = []) {
   process.argv.push(...argv);
 
   try {
-    header({
+    bar({
       on(name, callback) {
         if (name === "session_start") sessionStart = callback;
       },
+      events: { on() {}, emit() {} },
     });
     assert.equal(typeof sessionStart, "function");
 
+    // Minimal ctx stub covering pi-bar's session_start: header installation plus
+    // the status-bar producers (git probe, tokens, context, model, thinking,
+    // widget refresh). All producer outputs are dropped via the noop events.emit
+    // on the mock pi, so only the header factory is captured.
+    const sessionManager = {
+      getEntries: () => [],
+      getBranch: () => [],
+    };
     sessionStart({}, {
       hasUI: true,
       cwd: process.cwd(),
+      model: undefined,
+      thinkingLevel: "off",
+      sessionManager,
+      getContextUsage: () => undefined,
       ui: {
         setHeader(factory) {
           headerComponent = factory({ terminal: { rows } });
         },
         setEditorComponent() {},
+        setWorkingMessage() {},
+        setWorkingIndicator() {},
+        setWidget() {},
+        setFooter() {
+          return { render: () => [], invalidate() {} };
+        },
       },
     });
     assert.equal(typeof headerComponent?.render, "function");

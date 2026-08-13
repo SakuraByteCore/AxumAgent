@@ -86,8 +86,8 @@ test("isSvn walks up from cwd looking for a .svn directory", () => {
   assert.match(statuslineSource, /const parent = dirname\(dir\);[\s\S]*?if \(parent === dir\) break;/);
   assert.match(statuslineSource, /if \(existsSync\(svnDir\) && statSync\(svnDir\)\.isDirectory\(\)\) return true;/);
   // fs/path imports extended for the probe.
-  assert.match(statuslineSource, /import \{ existsSync, readFileSync, statSync \} from "node:fs";/);
-  assert.match(statuslineSource, /import \{ dirname, join \} from "node:path";/);
+  assert.match(statuslineSource, /import \{ existsSync, readdirSync, readFileSync, statSync \} from "node:fs";/);
+  assert.match(statuslineSource, /import \{ basename, dirname, join \} from "node:path";/);
 });
 
 test("emitGit precedence is svn > git > empty", () => {

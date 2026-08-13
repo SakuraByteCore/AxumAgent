@@ -21,9 +21,9 @@
 export const bundledPiPackages = [
   { name: "@earendil-works/pi-coding-agent@0.81.1", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
   { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
-  // pi-header: sakura cyberdeck startup header. Pixel-faithful port of the header
-  // extension from the pi-sakura-cyberdeck visual pack (single-file, zero native deps).
-  { name: "pi-header@file:plugin/pi-header", packageName: "pi-header", extensionPath: "index.ts", android: true },
+  // pi-bar now also hosts the sakura cyberdeck startup header (formerly the
+  // standalone pi-header plugin), rendered via ctx.ui.setHeader() at session
+  // start, plus a dashed-rule CustomEditor. Single-file, zero native deps.
   // pi-guard: detects assistant output degeneration (repetitive loop
   // / self-reference stacking) at turn_end and re-injects a corrective user
   // message plus a continuous system-prompt guard block. Pure TS, no native deps.
