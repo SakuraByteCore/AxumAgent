@@ -35,35 +35,16 @@ export default function (pi: ExtensionAPI): void {
       const sessionFile = ctx.sessionManager.getSessionFile();
 
       if (!sessionFile) {
-        if (ctx.hasUI) {
-          await ctx.ui.confirm("Clear session", "Current session is in-memory (no file to delete). Start a new session?");
-        }
-        const result = await ctx.newSession({
+        await ctx.newSession({
           withSession: (newCtx) => {
             newCtx.ui.notify("Started a fresh session (in-memory, no file was deleted).", "info");
           },
         });
-        if (result.cancelled) {
-          ctx.ui.notify("New session cancelled.", "info");
-        }
         return;
       }
 
       if (extname(sessionFile) !== ".jsonl") {
         ctx.ui.notify(`Refusing to delete: session file is not .jsonl (${sessionFile}).`, "error");
-        return;
-      }
-
-      let confirmed = true;
-      if (ctx.hasUI) {
-        confirmed = await ctx.ui.confirm(
-          "Clear session",
-          "This will permanently delete the current conversation file and start a new session. Continue?",
-        );
-      }
-
-      if (!confirmed) {
-        ctx.ui.notify("Clear cancelled.", "info");
         return;
       }
 
