@@ -39,6 +39,7 @@ export const bundledPiPackages = [
   // concurrency template so the main agent splits parallel work into sub-agents
   // and integrates the results. Single-file, zero native deps.
   { name: "pi-task@file:plugin/pi-task", packageName: "pi-task", extensionPath: "index.ts", android: true },
+  { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a
