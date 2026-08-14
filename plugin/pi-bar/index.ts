@@ -400,7 +400,7 @@ function renderHeader(width: number, skills: string[] = [], extensions: string[]
   const fixedTopPadding = 1;
 
   const cards: string[] = [];
-  const cardWidth = Math.min(width, 52);
+  const cardWidth = Math.min(width, 64);
   const cardPad = " ".repeat(Math.max(0, Math.floor((width - cardWidth) / 2)));
   if (hasCards) {
     const mk = (lines: string[]): string[] => lines.map((l) => `${cardPad}${l}`);
