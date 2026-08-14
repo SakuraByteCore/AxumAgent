@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -151,4 +151,49 @@ test("readSettingsRaw treats empty file as empty object", () => {
   assert.equal(result.parseError, null);
   assert.deepEqual(result.json, {});
   assert.equal(result.content, "");
+});
+
+test("getSteeringMode defaults to one-at-a-time when unset", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-steer-default-"));
+  const file = path.join(dir, "settings.json");
+  assert.deepEqual(getSteeringMode(file), { mode: "one-at-a-time", available: ["all", "one-at-a-time"] });
+});
+
+test("getSteeringMode falls back when disk holds an unsupported value", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-steer-unsupported-"));
+  const file = path.join(dir, "settings.json");
+  fs.writeFileSync(file, JSON.stringify({ steeringMode: "bogus" }));
+  assert.equal(getSteeringMode(file).mode, "one-at-a-time");
+});
+
+test("saveSteeringMode persists and reads back 'all' and 'one-at-a-time'", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-steer-save-"));
+  const file = path.join(dir, "settings.json");
+  const r1 = saveSteeringMode("all", file);
+  assert.equal(r1.mode, "all");
+  assert.equal(r1.file, file);
+  assert.equal(getSteeringMode(file).mode, "all");
+  const raw1 = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(raw1.steeringMode, "all");
+  saveSteeringMode("one-at-a-time", file);
+  assert.equal(getSteeringMode(file).mode, "one-at-a-time");
+});
+
+test("saveSteeringMode preserves existing settings keys", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-steer-preserve-"));
+  const file = path.join(dir, "settings.json");
+  fs.writeFileSync(file, JSON.stringify({ retry: { enabled: true, maxRetries: 5 }, defaultProvider: "acme" }));
+  saveSteeringMode("all", file);
+  const merged = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(merged.steeringMode, "all");
+  assert.equal(merged.retry.enabled, true);
+  assert.equal(merged.defaultProvider, "acme");
+});
+
+test("saveSteeringMode rejects unsupported mode", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-steer-reject-"));
+  const file = path.join(dir, "settings.json");
+  assert.throws(() => saveSteeringMode("bogus", file), /Unsupported steering mode/);
+  assert.throws(() => saveSteeringMode("followUp", file), /Unsupported steering mode/);
+  assert.throws(() => saveSteeringMode(undefined, file), /Unsupported steering mode/);
 });

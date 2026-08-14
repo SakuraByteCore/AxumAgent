@@ -253,6 +253,24 @@ export function saveRetrySettings({ enabled, maxRetries, baseDelayMs } = {}, fil
   return { file, retry: getRetrySettings(file) };
 }
 
+const STEERING_MODES = ["all", "one-at-a-time"];
+
+export function getSteeringMode(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  return {
+    mode: STEERING_MODES.includes(config.steeringMode) ? config.steeringMode : "one-at-a-time",
+    available: STEERING_MODES,
+  };
+}
+
+export function saveSteeringMode(mode, file = getSettingsPath()) {
+  if (!STEERING_MODES.includes(mode)) throw new Error(`Unsupported steering mode: ${mode}`);
+  const config = readJsonFile(file);
+  config.steeringMode = mode;
+  writeJsonFile(file, config);
+  return { file, mode: mode, available: STEERING_MODES };
+}
+
 export function exportProviders(file = getModelsPath()) {
   return loadModelsConfig(file);
 }
