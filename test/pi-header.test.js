@@ -167,7 +167,7 @@ test("pi-header centers the Extensions card and uses fixed top padding", () => {
 test("pi-header labels node_modules extensions by package name, not entry dir", () => {
   const argv = [
     "-e", "/home/u/AxumAgent/node_modules/pi-bar/index.ts",
-    "-e", "/home/u/AxumAgent/node_modules/@narumitw/pi-goal/src/index.ts",
+    "-e", "/home/u/AxumAgent/node_modules/@gotgenes/pi-subagents/src/index.ts",
     "-e", "/home/u/AxumAgent/plugin/pi-header/index.ts",
   ];
 
@@ -175,7 +175,7 @@ test("pi-header labels node_modules extensions by package name, not entry dir", 
   const cardLine = lines.find((line) => line.includes("Extensions"));
   const nextLine = lines[lines.indexOf(cardLine) + 1];
 
-  assert.ok(nextLine.includes("pi-bar, pi-goal, pi-header"));
+  assert.ok(nextLine.includes("pi-bar, pi-subagents, pi-header"));
   assert.equal(nextLine.includes("src"), false);
   assert.equal(nextLine.includes("dist"), false);
   assert.equal(nextLine.includes("@narumitw"), false);
@@ -184,7 +184,7 @@ test("pi-header labels node_modules extensions by package name, not entry dir", 
 test("pi-header wraps the Extensions card body onto multiple lines", () => {
   const argv = [
     "-e", "/x/node_modules/pi-bar/index.ts",
-    "-e", "/x/node_modules/@narumitw/pi-goal/src/index.ts",
+    "-e", "/x/node_modules/@gotgenes/pi-subagents/src/index.ts",
     "-e", "/x/node_modules/pi-guard/index.ts",
     "-e", "/x/plugin/pi-header/index.ts",
     "-e", "/x/node_modules/pi-extra-one/index.ts",

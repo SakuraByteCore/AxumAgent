@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
-import { patchPiGoalLinkSyncFallback, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -27,41 +27,35 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
-  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
-  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 7);
-  assert.equal(existingBundledExtensions(options).length, 7);
+  assert.equal(extensions.length, 5);
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
-test("Android loads pi-guard and pi-goal", () => {
+test("Android loads pi-guard and pi-subagents", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-android-cache-"));
   const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
-  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
-  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 7);
+  assert.equal(extensions.length, 5);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-guard", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-clear", "index.ts"));
-  assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(extensions[4], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "pi-task", "index.ts"));
-  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-plan", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 7);
+  assert.equal(extensions[3], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
+  assert.equal(extensions[4], path.join(cache, "node_modules", "pi-plan", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 test("Windows loads same extension set as other platforms", () => {
@@ -71,21 +65,17 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
-  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
-  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 7);
+  assert.equal(extensions.length, 5);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-guard", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-clear", "index.ts"));
-  assert.equal(extensions[3], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
-  assert.equal(extensions[4], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "pi-task", "index.ts"));
-  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-plan", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 7);
+  assert.equal(extensions[3], path.join(cache, "node_modules", "@gotgenes", "pi-subagents", "src", "index.ts"));
+  assert.equal(extensions[4], path.join(cache, "node_modules", "pi-plan", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 
@@ -134,9 +124,7 @@ pkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": std
 pkg("pi-bar", { "index.ts": "" });
 pkg("pi-guard", { "index.ts": "" });
 pkg("pi-clear", { "index.ts": "" });
-pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("@gotgenes/pi-subagents", { "src/index.ts": "" });
-pkg("pi-task", { "index.ts": "" });
 pkg("pi-plan", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
@@ -207,43 +195,6 @@ test("patches bundled undici markAsUncloneable fallback for current Node 22", ()
   assert.equal(patchUndiciMarkAsUncloneableFallback(patched), patched);
 });
 
-test("patches pi-goal linkSync EACCES to fall back to a direct write", () => {
-  const T = "\t";
-  const source = [
-    "export const DEFAULT_GOAL_SETTINGS_DOCUMENT = \"{}\\n\";",
-    "function isAlreadyExistsError(error) { return error && error.code === \"EEXIST\"; }",
-    "function readGoalSettings(p) { return p ? { kind: \"loaded\", settings: {} } : { kind: \"missing\" }; }",
-    "export function loadOrCreateGoalSettings(settingsPath, overrides = {}) {",
-    T + "const fs = { mkdirSync: () => {}, writeFileSync: () => {}, linkSync: () => { throw Object.assign(new Error(\"EACCES\"), { code: \"EACCES\" }); } };",
-    T + "const temporaryPath = \".pi-goal.json.tmp\";",
-    T + "try {",
-    T + T + "fs.mkdirSync(\"x\", { recursive: true });",
-    T + T + "fs.writeFileSync(temporaryPath, DEFAULT_GOAL_SETTINGS_DOCUMENT, { encoding: \"utf8\", flag: \"wx\" });",
-    T + T + "try {",
-    T + T + T + "fs.linkSync(temporaryPath, settingsPath);",
-    T + T + "} catch (error) {",
-    T + T + T + "if (!isAlreadyExistsError(error)) throw error;",
-    T + T + "}",
-    "",
-    T + T + "const published = readGoalSettings(settingsPath);",
-    T + T + "return published;",
-    T + "} catch (error) {",
-    T + T + "return { kind: \"create-failed\", reason: String(error) };",
-    T + "}",
-    "}",
-  ].join("\n");
-  const patched = patchPiGoalLinkSyncFallback(source);
-  assert.notEqual(patched, source, "patch should change the source");
-  assert.match(patched, /AXUM_PI_GOAL_LINKSYNC_FALLBACK/);
-  assert.match(patched, /fs\.writeFileSync\(settingsPath, DEFAULT_GOAL_SETTINGS_DOCUMENT/);
-  // Falling back must keep the original linkSync call so the happy path is unchanged.
-  assert.match(patched, /fs\.linkSync\(temporaryPath, settingsPath\)/);
-  // Idempotent: re-running the patch on already-patched content is a no-op.
-  assert.equal(patchPiGoalLinkSyncFallback(patched), patched);
-  // Unknown block shape is left untouched rather than crashing.
-  const reshaped = source.replace("if (!isAlreadyExistsError(error)) throw error;", "// link removed upstream");
-  assert.equal(patchPiGoalLinkSyncFallback(reshaped), reshaped);
-});
 
 test("suppresses the bundled Pi new-version notification render", () => {
   const I = "        ";
@@ -376,9 +327,7 @@ class StdinBuffer {
 pkg('pi-bar', { 'index.ts': '' });
 pkg('pi-guard', { 'index.ts': '' });
 pkg('pi-clear', { 'index.ts': '' });
-pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('@gotgenes/pi-subagents', { 'src/index.ts': '' });
-pkg('pi-task', { 'index.ts': '' });
 pkg('pi-plan', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
@@ -387,7 +336,7 @@ pkg('pi-plan', { 'index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 7);
+  assert.equal(existingBundledExtensions(options).length, 5);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
@@ -416,9 +365,7 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-bar", { "index.ts": "" });
   writePkg(cache, "pi-guard", { "index.ts": "" });
   writePkg(cache, "pi-clear", { "index.ts": "" });
-  writePkg(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePkg(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
-  writePkg(cache, "pi-task", { "index.ts": "" });
   writePkg(cache, "pi-plan", { "index.ts": "" });
 
   fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
@@ -448,9 +395,7 @@ writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js"
 writePkg("pi-bar", { "index.ts": "" });
 writePkg("pi-guard", { "index.ts": "" });
 writePkg("pi-clear", { "index.ts": "" });
-writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
 writePkg("@gotgenes/pi-subagents", { "src/index.ts": "" });
-writePkg("pi-task", { "index.ts": "" });
 writePkg("pi-plan", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);

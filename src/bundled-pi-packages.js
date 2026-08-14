@@ -31,14 +31,8 @@ export const bundledPiPackages = [
   // pi-clear: /clear slash command — deletes the current session file and
   // starts a fresh session. Pure TS, no native deps.
   { name: "pi-clear@file:plugin/pi-clear", packageName: "pi-clear", extensionPath: "index.ts", android: true },
-  // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
-  { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-subagents: spawn and manage sub-agents for parallel task delegation. Pure TS, no native deps.
   { name: "@gotgenes/pi-subagents@19.2.2", packageName: "@gotgenes/pi-subagents", extensionPath: "src/index.ts", android: true },
-  // pi-task: /task slash command prefixes a requirement with a fixed Japanese
-  // concurrency template so the main agent splits parallel work into sub-agents
-  // and integrates the results. Single-file, zero native deps.
-  { name: "pi-task@file:plugin/pi-task", packageName: "pi-task", extensionPath: "index.ts", android: true },
   { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
