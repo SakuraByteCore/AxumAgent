@@ -1,0 +1,16 @@
+{
+  "name": "pi-debug",
+  "version": "0.1.0",
+  "description": "Real debugger driver for pi-coding-agent — attach lldb-dap / dlv / debugpy, set breakpoints, step, read stack and variables. Zero native deps, speaks DAP (Debug Adapter Protocol) over stdio.",
+  "type": "module",
+  "main": "index.ts",
+  "files": ["index.ts", "src/", "LICENSE"],
+  "pi": {
+    "extensions": ["./index.ts"]
+  },
+  "keywords": ["pi-package", "pi", "coding-agent", "extension", "pi-debug", "dap", "debugger", "android", "termux"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  }
+}

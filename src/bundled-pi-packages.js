@@ -27,6 +27,10 @@ export const bundledPiPackages = [
   // pi-clear: /clear slash command — deletes the current session file and
   // starts a fresh session. Pure TS, no native deps.
   { name: "pi-clear@file:plugin/pi-clear", packageName: "pi-clear", extensionPath: "index.ts", android: true },
+  // pi-debug: real debugger driver (DAP over stdio) exposing attach / break /
+  // continue / step / stack / variables slash commands. Speaks the Debug Adapter
+  // Protocol to lldb-dap / dlv / debugpy. Pure TS, zero native deps.
+  { name: "pi-debug@file:plugin/pi-debug", packageName: "pi-debug", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-subagents: spawn and manage sub-agents for parallel task delegation. Pure TS, no native deps.
