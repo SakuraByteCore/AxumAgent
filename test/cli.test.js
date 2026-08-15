@@ -82,7 +82,7 @@ class StdinBuffer {
 `,
   });
   writePackage(cache, "pi-bar", { "index.ts": "" });
-  writePackage(cache, "pi-guard", { "index.ts": "" });
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });
@@ -134,7 +134,7 @@ class StdinBuffer {
 `,
   });
   writePackage(cache, "pi-bar", { "index.ts": "" });
-  writePackage(cache, "pi-guard", { "index.ts": "" });
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });

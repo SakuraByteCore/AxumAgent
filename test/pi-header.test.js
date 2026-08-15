@@ -130,8 +130,7 @@ test("pi-header centers the Extensions card and uses fixed top padding", () => {
  const argv = [
  "-e", "C:/x/pi-bar/index.ts",
  "-e", "C:/x/pi-header/index.ts",
- "-e", "C:/x/pi-guard/index.ts",
- "-e", "C:/x/src/index.ts",
+  "-e", "C:/x/src/index.ts",
  ];
 
  for (const width of [80, 120]) {
@@ -151,7 +150,7 @@ test("pi-header centers the Extensions card and uses fixed top padding", () => {
  assert.notEqual(extensionsBottomIndex, -1);
  assert.notEqual(bottomRuleIndex, -1);
  assert.ok(extensionsTop);
- assert.equal(lines.some((line) => line.includes("pi-bar, pi-header, pi-guard, src")), true);
+ assert.equal(lines.some((line) => line.includes("pi-bar, pi-header, src")), true);
 
  const cardWidth = [...extensionsTop.trimStart()].length;
  assert.equal(extensionsTop.search(/\S/), Math.floor((width - cardWidth) / 2));
@@ -185,8 +184,8 @@ test("pi-header wraps the Extensions card body onto multiple lines", () => {
   const argv = [
     "-e", "/x/node_modules/pi-bar/index.ts",
     "-e", "/x/node_modules/@gotgenes/pi-subagents/src/index.ts",
-    "-e", "/x/node_modules/pi-guard/index.ts",
-    "-e", "/x/plugin/pi-header/index.ts",
+    "-e", "/x/node_modules/pi-response-guard/index.ts",
+        "-e", "/x/plugin/pi-header/index.ts",
     "-e", "/x/node_modules/pi-extra-one/index.ts",
     "-e", "/x/node_modules/pi-extra-two/index.ts",
   ];

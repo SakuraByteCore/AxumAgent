@@ -24,13 +24,11 @@ export const bundledPiPackages = [
   // pi-bar now also hosts the sakura cyberdeck startup header (formerly the
   // standalone pi-header plugin), rendered via ctx.ui.setHeader() at session
   // start, plus a dashed-rule CustomEditor. Single-file, zero native deps.
-  // pi-guard: detects assistant output degeneration (repetitive loop
-  // / self-reference stacking) at turn_end and re-injects a corrective user
-  // message plus a continuous system-prompt guard block. Pure TS, no native deps.
-  { name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.ts", android: true },
   // pi-clear: /clear slash command — deletes the current session file and
   // starts a fresh session. Pure TS, no native deps.
   { name: "pi-clear@file:plugin/pi-clear", packageName: "pi-clear", extensionPath: "index.ts", android: true },
+  // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
+  { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-subagents: spawn and manage sub-agents for parallel task delegation. Pure TS, no native deps.
   { name: "@gotgenes/pi-subagents@19.2.2", packageName: "@gotgenes/pi-subagents", extensionPath: "src/index.ts", android: true },
   { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
