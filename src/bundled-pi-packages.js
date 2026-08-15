@@ -34,6 +34,12 @@ export const bundledPiPackages = [
   // pi-subagents: spawn and manage sub-agents for parallel task delegation. Pure TS, no native deps.
   { name: "@gotgenes/pi-subagents@19.2.2", packageName: "@gotgenes/pi-subagents", extensionPath: "src/index.ts", android: true },
   { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
+  // pi-response-guard: auto-recovers from empty, errored, or interrupted
+  // model responses by retrying with a configurable message (rate-limit /
+  // 429 / 5xx / timeouts / empty-output stop). Fork of the upstream npm
+  // pi-response-guard package to drop its mariozechner peer dependency.
+  // Pure TS, zero native deps.
+  { name: "pi-response-guard@file:plugin/pi-response-guard", packageName: "pi-response-guard", extensionPath: "index.ts", android: true },
   // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
   // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
   // fails to load (__clear_cache symbol missing). Rather than maintain a

@@ -86,6 +86,7 @@ class StdinBuffer {
   writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });
+  writePackage(cache, "pi-response-guard", { "index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
 
@@ -96,7 +97,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 5;
+  const expectedExtensionCount = 6;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
@@ -137,6 +138,7 @@ class StdinBuffer {
   writePackage(cache, "pi-clear", { "index.ts": "" });
   writePackage(cache, "@gotgenes/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-plan", { "index.ts": "" });
+  writePackage(cache, "pi-response-guard", { "index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
 

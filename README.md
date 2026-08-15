@@ -39,6 +39,7 @@ The distribution ships these packages, all in one install:
 - `pi-clear` (AxumAgent bundled fork)
 - `@gotgenes/pi-subagents`
 - `pi-plan`
+- `pi-response-guard`
 
 ## Requirements
 
@@ -151,7 +152,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-header` / `pi-guard` / `pi-clear` / `pi-subagents` / `pi-plan`.
+If a broken extension prevents normal startup, use `axum code --safe` to launch only the Pi core with `-ne`, without loading `pi-bar` / `pi-header` / `pi-guard` / `pi-clear` / `pi-subagents` / `pi-plan` / `pi-response-guard`.
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.
 

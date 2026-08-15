@@ -1,0 +1,225 @@
+/**
+ * pi-response-guard — index.ts
+ *
+ * Pi extension that auto-recovers from empty, errored, or interrupted
+ * model responses. Sends a configurable retry message when the
+ * assistant stops in a retryable way.
+ *
+ * Based on pi-hodor approach with additional detection for:
+ * - Empty responses with 0 output tokens (rate limit / proxy failures)
+ * - Rate limit and usage limit error patterns
+ */
+
+import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import {
+	extractUserText,
+	getAutoContinueReason,
+	normalizeConfig,
+	type AutoContinueConfig,
+} from "./guard-logic.js";
+
+// ── Constants ───────────────────────────────────────────────────────
+
+const EXTENSION_NAME = "pi-response-guard";
+const MODULE_DIR = dirname(fileURLToPath(import.meta.url));
+const BUNDLED_CONFIG_PATH = join(MODULE_DIR, "config.json");
+const GLOBAL_CONFIG_PATH = join(homedir(), ".pi", "agent", "extensions", EXTENSION_NAME, "config.json");
+const PROJECT_CONFIG_CANDIDATES = [".pi-response-guard.json", join(".pi", "pi-response-guard.json")] as const;
+
+type NotifyLevel = "info" | "success" | "warning" | "error";
+
+interface QueueAwareContext {
+	hasUI: boolean;
+	ui: { notify(message: string, level: NotifyLevel): void };
+	cwd: string;
+	isIdle(): boolean;
+	hasPendingMessages(): boolean;
+}
+
+// ── Config helpers ──────────────────────────────────────────────────
+
+async function pathExists(path: string): Promise<boolean> {
+	try {
+		await access(path);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+async function ensureBundledConfigFile(): Promise<void> {
+	try {
+		await access(BUNDLED_CONFIG_PATH);
+	} catch {
+		// Write defaults inline if bundled config is missing
+		const defaults: AutoContinueConfig = {
+			enabled: true,
+			retryMessage: "continue",
+			maxConsecutiveAutoRetries: 10,
+			notifyOnAutoContinue: true,
+			autoContinueOnLength: true,
+			autoContinueOnThinkingOnlyStop: true,
+			autoContinueOnSilentStopAfterTool: true,
+			autoContinueOnEmptyResponse: true,
+			errorPatterns: [
+				"rate limit", "usage limit", "rate_limit", "too many requests",
+				"429", "500", "502", "503", "504",
+				"service unavailable", "server error", "internal error",
+				"fetch failed", "ECONNRESET", "ETIMEDOUT", "socket hang up",
+				"connection reset", "connection refused", "connection lost",
+				"premature close", "stream closed", "stream interrupted",
+				"unexpected end", "upstream connect", "retry delay",
+				"timeout", "terminated",
+			],
+		};
+		await writeFile(BUNDLED_CONFIG_PATH, `${JSON.stringify(defaults, null, 2)}\n`, "utf8");
+	}
+}
+
+async function resolveConfigPath(cwd: string): Promise<string> {
+	for (const relativePath of PROJECT_CONFIG_CANDIDATES) {
+		const candidatePath = join(cwd, relativePath);
+		if (await pathExists(candidatePath)) return candidatePath;
+	}
+	if (await pathExists(GLOBAL_CONFIG_PATH)) return GLOBAL_CONFIG_PATH;
+	return BUNDLED_CONFIG_PATH;
+}
+
+function safeNotify(ctx: QueueAwareContext, message: string, level: NotifyLevel): void {
+	if (!ctx.hasUI) return;
+	ctx.ui.notify(message, level);
+}
+
+async function loadConfig(ctx: QueueAwareContext, lastConfigError: { value?: string }): Promise<AutoContinueConfig> {
+	await ensureBundledConfigFile();
+	const configPath = await resolveConfigPath(ctx.cwd);
+	try {
+		const config = normalizeConfig(JSON.parse(await readFile(configPath, "utf8")));
+		lastConfigError.value = undefined;
+		return config;
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const errorKey = `${configPath}:${message}`;
+		if (lastConfigError.value !== errorKey) {
+			lastConfigError.value = errorKey;
+			safeNotify(ctx, `[${EXTENSION_NAME}] Failed to read config from ${configPath}. Falling back to defaults: ${message}`, "warning");
+		}
+		return normalizeConfig({});
+	}
+}
+
+// ── Extension entry point ───────────────────────────────────────────
+
+export default function (pi: ExtensionAPI): void {
+	let consecutiveAutoRetries = 0;
+	let pendingAutoRetryMessage: string | undefined;
+	let previousMessageRole: string | undefined;
+	let lastUserMessageWasAutoRetry = false;
+	const lastConfigError: { value?: string } = {};
+
+	pi.registerCommand(`${EXTENSION_NAME}:setup`, {
+		description: `Copy the default config to ${GLOBAL_CONFIG_PATH}`,
+		handler: async (_args, ctx) => {
+			if (await pathExists(GLOBAL_CONFIG_PATH)) {
+				ctx.ui.notify(`[${EXTENSION_NAME}] Config already exists at ${GLOBAL_CONFIG_PATH}`, "warning");
+				return;
+			}
+			await ensureBundledConfigFile();
+			await mkdir(dirname(GLOBAL_CONFIG_PATH), { recursive: true });
+			await copyFile(BUNDLED_CONFIG_PATH, GLOBAL_CONFIG_PATH);
+			ctx.ui.notify(`[${EXTENSION_NAME}] Config copied to ${GLOBAL_CONFIG_PATH}`, "info");
+		},
+	});
+
+	pi.on("session_start", async () => {
+		await ensureBundledConfigFile();
+	});
+
+	pi.on("message_end", async (event, ctx) => {
+		const messageRole = event.message.role;
+		const previousRole = previousMessageRole;
+		const previousMessageWasAutoRetry = previousRole === "user" && lastUserMessageWasAutoRetry;
+		previousMessageRole = messageRole;
+		lastUserMessageWasAutoRetry = false;
+
+		// ── Track user messages ──
+		if (messageRole === "user") {
+			const userText = extractUserText(event.message.content);
+			if (pendingAutoRetryMessage && userText === pendingAutoRetryMessage) {
+				lastUserMessageWasAutoRetry = true;
+				pendingAutoRetryMessage = undefined;
+				return;
+			}
+			consecutiveAutoRetries = 0;
+			pendingAutoRetryMessage = undefined;
+			return;
+		}
+
+		// ── Only handle assistant messages ──
+		if (messageRole !== "assistant") return;
+
+		// Only check retryable stop reasons
+		const retryableStopReasons = new Set(["error", "length", "stop"]);
+		if (!retryableStopReasons.has(event.message.stopReason)) {
+			consecutiveAutoRetries = 0;
+			pendingAutoRetryMessage = undefined;
+			return;
+		}
+
+		// ── Load config ──
+		const config = await loadConfig(ctx as QueueAwareContext, lastConfigError);
+		if (!config.enabled) {
+			consecutiveAutoRetries = 0;
+			pendingAutoRetryMessage = undefined;
+			return;
+		}
+
+		// ── Check if auto-continue is warranted ──
+		const autoContinueReason = getAutoContinueReason(event.message, config, {
+			previousMessageRole: previousRole,
+			previousMessageWasAutoRetry,
+		});
+		if (!autoContinueReason) {
+			consecutiveAutoRetries = 0;
+			pendingAutoRetryMessage = undefined;
+			return;
+		}
+
+		// ── Don't interrupt pending messages ──
+		if ((ctx as QueueAwareContext).hasPendingMessages()) return;
+
+		// ── Check retry limit ──
+		if (consecutiveAutoRetries >= config.maxConsecutiveAutoRetries) {
+			if (config.notifyOnAutoContinue) {
+				safeNotify(
+					ctx as QueueAwareContext,
+					`[${EXTENSION_NAME}] Reached retry limit (${config.maxConsecutiveAutoRetries}). Skipping "${config.retryMessage}".`,
+					"warning",
+				);
+			}
+			return;
+		}
+
+		// ── Send retry ──
+		consecutiveAutoRetries += 1;
+		pendingAutoRetryMessage = config.retryMessage;
+
+		if (config.notifyOnAutoContinue) {
+			safeNotify(
+				ctx as QueueAwareContext,
+				`[${EXTENSION_NAME}] ${autoContinueReason.notification}. Sending "${config.retryMessage}" (${consecutiveAutoRetries}/${config.maxConsecutiveAutoRetries}).`,
+				"info",
+			);
+		}
+
+		if ((ctx as QueueAwareContext).isIdle()) {
+			await pi.sendUserMessage(config.retryMessage);
+		} else {
+			await pi.sendUserMessage(config.retryMessage, { deliverAs: "followUp" });
+		}
+	});
+}
