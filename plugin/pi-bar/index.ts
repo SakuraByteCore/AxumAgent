@@ -461,6 +461,8 @@ class DashedBorderEditor extends CustomEditor {
           fn(text.replaceAll("\u2500", "\u254c"));
       },
     });
+    self.dashedBorderFn = (text: string) =>
+      theme.borderColor(text.replaceAll("\u2500", "\u254c"));
   }
 }
 
