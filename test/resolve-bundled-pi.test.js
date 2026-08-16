@@ -255,9 +255,8 @@ test("patches pi-goal to auto-resume at the continuation-limit checkpoint", () =
   assert.match(patched, /cause === \"continuation_limit\" \|\| cause === \"no_progress\"/);
   assert.match(patched, /autoResumeOnContinuationLimit/);
   assert.match(patched, /autoResumeOnNoProgress/);
-  assert.match(patched, /maxAutoResumesOnContinuationLimit/);
-  assert.match(patched, /maxAutoResumesOnNoProgress/);
-  assert.match(patched, /autoResumeCount < maxAutoResumes/);
+  // Auto-resume runs unconditionally (no maxAutoResumes cap).
+  assert.match(patched, /autoResumeCount = Math\.max\(0, Math\.floor\(Number\(\(goal as any\)\[\w+\] \?\? 0\)\)\)/);
   assert.match(patched, /axumAutoResumeCount/);
   assert.match(patched, /axumNoProgressAutoResumeCount/);
   assert.match(patched, /goal\.automaticModelTurns = 0/);
@@ -265,7 +264,8 @@ test("patches pi-goal to auto-resume at the continuation-limit checkpoint", () =
   assert.match(patched, /goal\.lastToolFreeOutputFingerprint = undefined/);
   assert.match(patched, /dispatchContinuationIfSettled\(ctx\)/);
   assert.match(patched, /requestContinuation\(goal\)/);
-  assert.match(patched, /pausing for manual confirmation/);
+  // No path should reach the "pausing for manual confirmation" warn branch.
+  assert.doesNotMatch(patched, /pausing for manual confirmation/);
   // Original pause body still present after the branch.
   assert.match(patched, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, \"paused\"\)/);
   // Idempotent.

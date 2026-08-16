@@ -175,10 +175,10 @@ function patchPiGoalLinkSyncFallback(content) {
  * The behavior honors `settings.autoResumeOnContinuationLimit` and
  * `settings.autoResumeOnNoProgress`; absent fields default to enabled so new
  * users get autonomy without any config. Set either to false to restore the
- * upstream pause-and-require-manual-resume semantics for that cause. Auto-resumes
- * are capped by `settings.maxAutoResumesOnContinuationLimit` and
- * `settings.maxAutoResumesOnNoProgress` (both default 10) so a runaway goal
- * eventually falls back to the upstream manual pause instead of looping forever.
+ * upstream pause-and-require-manual-resume semantics for that cause. For the
+ * two automatic-run checkpoints (`continuation_limit` and `no_progress`) the
+ * auto-resume fires unconditionally whenever enabled, so goals never display
+ * the upstream pause-and-require-manual-resume prompt.
  */
 function patchPiGoalAutoResume(content) {
   const T = "\t";
@@ -200,31 +200,26 @@ function patchPiGoalAutoResume(content) {
     T + T + T + "const isNoProgress = cause === \"no_progress\";",
     T + T + T + "const autoResumeEnabled = isNoProgress ? this.settings?.autoResumeOnNoProgress !== false : this.settings?.autoResumeOnContinuationLimit !== false;",
     T + T + T + "if (autoResumeEnabled) {",
-    T + T + T + T + "const maxAutoResumes = Math.max(0, Math.floor(Number(isNoProgress ? this.settings?.maxAutoResumesOnNoProgress ?? 10 : this.settings?.maxAutoResumesOnContinuationLimit ?? 10)));",
     T + T + T + T + "const countKey = isNoProgress ? \"axumNoProgressAutoResumeCount\" : \"axumAutoResumeCount\";",
-    T + T + T + T + "const autoResumeCount = Math.max(0, Math.floor(Number((goal as any)[countKey] ?? 0)));",
-    T + T + T + T + "if (autoResumeCount < maxAutoResumes) {",
-    T + T + T + T + T + "this.cancelContinuationWork();",
-    T + T + T + T + T + "this.clearGoalRecoveryForGoal(goal.id);",
-    T + T + T + T + T + "this.clearBudgetWrapUp();",
-    T + T + T + T + T + "if (isNoProgress) {",
-    T + T + T + T + T + T + "goal.toolFreeRepeatCount = 0;",
+    T + T + T + T + "this.cancelContinuationWork();",
+    T + T + T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + T + T + "this.clearBudgetWrapUp();",
+    T + T + T + T + "if (isNoProgress) {",
+    T + T + T + T + T + "goal.toolFreeRepeatCount = 0;",
     T + T + T + T + T + T + "goal.lastToolFreeOutputFingerprint = undefined;",
     T + T + T + T + T + "} else {",
     T + T + T + T + T + T + "goal.automaticModelTurns = 0;",
     T + T + T + T + T + "}",
-    T + T + T + T + T + "(goal as any)[countKey] = autoResumeCount + 1;",
-    T + T + T + T + T + "this.persistGoal(goal);",
-    T + T + T + T + T + "this.updateStatus(ctx, goal);",
-    T + T + T + T + T + "const checkpoint = isNoProgress ? \"no-progress checkpoint\" : \"automatic-turns checkpoint\";",
-    T + T + T + T + T + "this.setTerminalReason(goal.id, `auto-resumed at ${checkpoint} (${autoResumeCount + 1}/${maxAutoResumes})`);",
-    T + T + T + T + T + "ctx.ui.notify(`Goal reached the ${checkpoint}; auto-resumed without pausing (${autoResumeCount + 1}/${maxAutoResumes}).`, \"info\");",
-    T + T + T + T + T + "this.requestContinuation(goal);",
-    T + T + T + T + T + "this.dispatchContinuationIfSettled(ctx);",
-    T + T + T + T + T + "return false;",
-    T + T + T + T + "}",
+    T + T + T + T + "const autoResumeCount = Math.max(0, Math.floor(Number((goal as any)[countKey] ?? 0)));",
+    T + T + T + T + "(goal as any)[countKey] = autoResumeCount + 1;",
+    T + T + T + T + "this.persistGoal(goal);",
+    T + T + T + T + "this.updateStatus(ctx, goal);",
     T + T + T + T + "const checkpoint = isNoProgress ? \"no-progress checkpoint\" : \"automatic-turns checkpoint\";",
-    T + T + T + T + "ctx.ui.notify(`Goal reached the ${checkpoint} after ${autoResumeCount}/${maxAutoResumes} auto-resumes; pausing for manual confirmation.`, \"warn\");",
+    T + T + T + T + "this.setTerminalReason(goal.id, `auto-resumed at ${checkpoint}`);",
+    T + T + T + T + "ctx.ui.notify(`Goal reached the ${checkpoint}; auto-resumed without pausing.`, \"info\");",
+    T + T + T + T + "this.requestContinuation(goal);",
+    T + T + T + T + "this.dispatchContinuationIfSettled(ctx);",
+    T + T + T + T + "return false;",
     T + T + T + "}",
     T + T + "}",
     T + T + "this.cancelContinuationWork();",
