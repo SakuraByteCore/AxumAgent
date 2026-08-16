@@ -203,6 +203,53 @@ export function normalizeConfig(raw: unknown): AutoContinueConfig {
 	};
 }
 
+export interface TerminalContinueContext {
+	/** The last assistant message recorded from message_end / agent_end. */
+	lastMessage?: GuardMessage;
+	/** True if the message_end fast path already handled this terminal message. */
+	alreadyHandled?: boolean;
+	/** True if the agent still has pending queued messages (run not settled). */
+	hasPendingMessages?: boolean;
+	/** Running auto-retry count (compared against maxConsecutiveAutoRetries). */
+	consecutiveAutoRetries?: number;
+	/** Previous message role, used for silent-stop-after-* detection. */
+	previousMessageRole?: string;
+}
+
+/**
+ * Terminal fallback for non-goal tasks.
+ *
+ * The agent's internal retry loop (agent.prompt -> _prepareRetry ->
+ * agent.continue) fires an error message_end before the queue drains, so the
+ * message_end fast path bails via hasPendingMessages() and never sends. When
+ * retries are exhausted the run emits agent_end(willRetry=false) +
+ * agent_settled — the only events fired after the queue is finally empty. This
+ * decides whether to send the retry message then.
+ */
+export function shouldTerminalAutoContinue(
+	config: AutoContinueConfig,
+	context: TerminalContinueContext,
+): AutoContinueReason | undefined {
+	if (!config.enabled) return undefined;
+	const msg = context.lastMessage;
+	if (!msg || context.alreadyHandled) return undefined;
+	if (msg.role !== "assistant") return undefined;
+	const retryableStopReasons = new Set(["error", "length", "stop"]);
+	if (!retryableStopReasons.has(msg.stopReason ?? "")) return undefined;
+	// Queue must be drained; otherwise the retry is redundant or the run is
+	// still driving more work.
+	if (context.hasPendingMessages) return undefined;
+	const existing = context.consecutiveAutoRetries ?? 0;
+	const max = config.maxConsecutiveAutoRetries;
+	if (existing >= max) return undefined;
+	const reason = getAutoContinueReason(msg, config, {
+		previousMessageRole: context.previousMessageRole,
+		previousMessageWasAutoRetry: false,
+	});
+	if (!reason) return undefined;
+	return reason;
+}
+
 // ── Main detection logic ────────────────────────────────────────────
 
 /**

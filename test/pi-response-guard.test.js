@@ -17,6 +17,7 @@ import {
 	getAutoContinueReason,
 	matchesConfiguredError,
 	normalizeConfig,
+	shouldTerminalAutoContinue,
 } from "../plugin/pi-response-guard/guard-logic.ts";
 
 function guardMessage(stopReason, errorMessage, content) {
@@ -125,4 +126,76 @@ test("normalizeConfig preserves defaults when raw is empty", () => {
 	assert.deepEqual(normalized.errorPatterns, DEFAULT_CONFIG.errorPatterns);
 	assert.equal(normalized.enabled, true);
 	assert.equal(normalized.maxConsecutiveAutoRetries, 10);
+});
+
+test("terminal fallback sends continue after retries exhaust (pending drained)", () => {
+	const reason = shouldTerminalAutoContinue(DEFAULT_CONFIG, {
+		lastMessage: guardMessage("error", "Connection error."),
+		hasPendingMessages: false,
+		consecutiveAutoRetries: 0,
+	});
+	assert.ok(reason, "expected terminal continue reason");
+	assert.equal(reason.kind, "error");
+});
+
+test("terminal fallback does NOT send while messages are still pending", () => {
+	const reason = shouldTerminalAutoContinue(DEFAULT_CONFIG, {
+		lastMessage: guardMessage("error", "Connection error."),
+		hasPendingMessages: true,
+		consecutiveAutoRetries: 0,
+	});
+	assert.equal(reason, undefined);
+});
+
+test("terminal fallback does NOT double-send when fast path already handled it", () => {
+	const reason = shouldTerminalAutoContinue(DEFAULT_CONFIG, {
+		lastMessage: guardMessage("error", "Connection error."),
+		hasPendingMessages: false,
+		alreadyHandled: true,
+		consecutiveAutoRetries: 0,
+	});
+	assert.equal(reason, undefined);
+});
+
+test("terminal fallback skipped when retry limit reached or disabled", () => {
+	const noRetry = shouldTerminalAutoContinue(
+		{ ...DEFAULT_CONFIG, maxConsecutiveAutoRetries: 2 },
+		{
+			lastMessage: guardMessage("error", "Connection error."),
+			hasPendingMessages: false,
+			consecutiveAutoRetries: 2,
+		},
+	);
+	assert.equal(noRetry, undefined);
+
+	const disabled = shouldTerminalAutoContinue(
+		{ ...DEFAULT_CONFIG, enabled: false },
+		{
+			lastMessage: guardMessage("error", "Connection error."),
+			hasPendingMessages: false,
+			consecutiveAutoRetries: 0,
+		},
+	);
+	assert.equal(disabled, undefined);
+});
+
+test("terminal fallback skipped for non-retryable or non-assistant messages", () => {
+	const notRetryable = shouldTerminalAutoContinue(DEFAULT_CONFIG, {
+		lastMessage: { role: "assistant", stopReason: "function_call" },
+		hasPendingMessages: false,
+	});
+	assert.equal(notRetryable, undefined);
+
+	const userMsg = shouldTerminalAutoContinue(DEFAULT_CONFIG, {
+		lastMessage: { role: "user", content: [{ type: "text", text: "hi" }] },
+		hasPendingMessages: false,
+	});
+	assert.equal(userMsg, undefined);
+
+	const already = shouldTerminalAutoContinue(DEFAULT_CONFIG, {
+		lastMessage: guardMessage("error", "Connection error."),
+		hasPendingMessages: false,
+		alreadyHandled: true,
+	});
+	assert.equal(already, undefined);
 });

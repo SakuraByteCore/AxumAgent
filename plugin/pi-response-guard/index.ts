@@ -19,6 +19,7 @@ import {
 	extractUserText,
 	getAutoContinueReason,
 	normalizeConfig,
+	shouldTerminalAutoContinue,
 	type AutoContinueConfig,
 } from "./guard-logic.js";
 
@@ -38,6 +39,12 @@ interface QueueAwareContext {
 	cwd: string;
 	isIdle(): boolean;
 	hasPendingMessages(): boolean;
+}
+
+interface AgentEndEvent {
+	type: "agent_end";
+	messages: unknown[];
+	willRetry?: boolean;
 }
 
 // ── Config helpers ──────────────────────────────────────────────────
@@ -125,6 +132,8 @@ export default function (pi: ExtensionAPI): void {
 	let pendingAutoRetryMessage: string | undefined;
 	let previousMessageRole: string | undefined;
 	let lastUserMessageWasAutoRetry = false;
+	let lastAssistantMessage: { role: string; stopReason?: string; content?: unknown; errorMessage?: string; usage?: { input?: number; output?: number } } | undefined;
+	let lastAssistantAlreadyHandled = false;
 	const lastConfigError: { value?: string } = {};
 
 	pi.registerCommand(`${EXTENSION_NAME}:setup`, {
@@ -145,9 +154,82 @@ export default function (pi: ExtensionAPI): void {
 		await ensureBundledConfigFile();
 	});
 
+	// ── Terminal fallback ────────────────────────────────────────────
+	// In non-goal auto-run tasks the agent's internal retry loop
+	// (agent.prompt → _prepareRetry → agent.continue) drains an error
+	// message_end before the run settles, so the message_end handler
+	// bails via hasPendingMessages() and never sends. When every retry is
+	// exhausted the run emits agent_end(willRetry=false) + agent_settled —
+	// the only events fired after the queue is finally empty. Hook those
+	// to act as the reliable terminal recovery for the last retryable
+	// assistant message (instead of just dropping the run).
+	async function maybeAutoContinueTerminal(ctx: unknown): Promise<void> {
+		const guardCtx = ctx as QueueAwareContext;
+		const config = await loadConfig(guardCtx, lastConfigError);
+
+		const autoContinueReason = shouldTerminalAutoContinue(config, {
+			lastMessage: lastAssistantMessage,
+			alreadyHandled: lastAssistantAlreadyHandled,
+			hasPendingMessages: guardCtx.hasPendingMessages(),
+			consecutiveAutoRetries,
+			previousMessageRole,
+		});
+		if (!autoContinueReason) return;
+
+		consecutiveAutoRetries += 1;
+		pendingAutoRetryMessage = config.retryMessage;
+		lastAssistantAlreadyHandled = true;
+		lastAssistantMessage = undefined;
+		previousMessageRole = undefined;
+
+		if (config.notifyOnAutoContinue) {
+			safeNotify(
+				guardCtx,
+				`[${EXTENSION_NAME}] ${autoContinueReason.notification}. Sending "${config.retryMessage}" (${consecutiveAutoRetries}/${config.maxConsecutiveAutoRetries}).`,
+				"info",
+			);
+		}
+		if (guardCtx.isIdle()) {
+			await pi.sendUserMessage(config.retryMessage);
+		} else {
+			await pi.sendUserMessage(config.retryMessage, { deliverAs: "followUp" });
+		}
+	}
+
+	pi.on("agent_end", async (event, ctx) => {
+		const agentEnd = event as AgentEndEvent;
+		// Only act when the run is terminating without a pending framework retry.
+		if (agentEnd.willRetry) return;
+		const last = Array.isArray(agentEnd.messages)
+			? agentEnd.messages[agentEnd.messages.length - 1]
+			: undefined;
+		if (last && typeof last === "object" && last !== null && (last as { role?: string }).role === "assistant") {
+			const m = last as { role: string; stopReason?: string; content?: unknown; errorMessage?: string; usage?: { input?: number; output?: number } };
+			lastAssistantMessage = m;
+			lastAssistantAlreadyHandled = false;
+		}
+		await maybeAutoContinueTerminal(ctx);
+	});
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		await maybeAutoContinueTerminal(ctx);
+	});
+
 	pi.on("message_end", async (event, ctx) => {
 		const messageRole = event.message.role;
 		const previousRole = previousMessageRole;
+
+		// Capture the terminal assistant message for the fallback handlers.
+		if (messageRole === "assistant") {
+			lastAssistantMessage = {
+				role: "assistant",
+				stopReason: event.message.stopReason,
+				content: event.message.content,
+				errorMessage: event.message.errorMessage,
+				usage: event.message.usage,
+			};
+			lastAssistantAlreadyHandled = false;
+		}
 		const previousMessageWasAutoRetry = previousRole === "user" && lastUserMessageWasAutoRetry;
 		previousMessageRole = messageRole;
 		lastUserMessageWasAutoRetry = false;
@@ -162,6 +244,11 @@ export default function (pi: ExtensionAPI): void {
 			}
 			consecutiveAutoRetries = 0;
 			pendingAutoRetryMessage = undefined;
+			// A fresh interactive user message supersedes any pending terminal
+			// fallback for a prior run: reset the captured terminal state so a
+			// stale agent_end/agent_settled can't fire a redundant retry.
+			lastAssistantMessage = undefined;
+			lastAssistantAlreadyHandled = false;
 			return;
 		}
 
@@ -213,6 +300,9 @@ export default function (pi: ExtensionAPI): void {
 		// ── Send retry ──
 		consecutiveAutoRetries += 1;
 		pendingAutoRetryMessage = config.retryMessage;
+		lastAssistantAlreadyHandled = true;
+		lastAssistantMessage = undefined;
+		previousMessageRole = undefined;
 
 		if (config.notifyOnAutoContinue) {
 			safeNotify(
