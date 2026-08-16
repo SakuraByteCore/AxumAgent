@@ -164,21 +164,23 @@ function patchPiGoalLinkSyncFallback(content) {
  * silently stalled at the "Warning: Goal paused: 25 automatic model
  * responses; ... Run /goal resume to continue" prompt.
  *
- * This patch rewires `pauseGoalForSafety` so a `continuation_limit` pause
- * resets the automatic-turn counter, keeps the goal active, and dispatches a
- * follow-up continuation in place. The net effect is exactly "auto-send
- * /goal resume when the pause prompt appears", so goals run to completion
- * without manual intervention (out-of-the-box). Other pause causes
- * (`no_progress`, user abort, usage limits) are untouched.
+ * This patch rewires `pauseGoalForSafety` so `continuation_limit` and
+ * `no_progress` safety pauses reset their matching counters, keep the goal
+ * active, and dispatch a follow-up continuation in place. The net effect is
+ * exactly "auto-send /goal resume when the pause prompt appears", so goals run
+ * to completion without manual intervention for the two automatic-run
+ * checkpoints that otherwise surface `Run /goal resume to continue`. Other
+ * pause causes (user abort, usage limits) are untouched.
  *
- * The behavior honors `settings.autoResumeOnContinuationLimit`; when that
- * field is absent (as it is in this pi-goal version) it defaults to enabled
- * so new users get autonomy without any config. Set it to false to restore
- * the upstream pause-and-require-manual-resume semantics.
+ * The behavior honors `settings.autoResumeOnContinuationLimit` and
+ * `settings.autoResumeOnNoProgress`; absent fields default to enabled so new
+ * users get autonomy without any config. Set either to false to restore the
+ * upstream pause-and-require-manual-resume semantics for that cause. Auto-resumes
+ * are capped by `settings.maxAutoResumesOnContinuationLimit` and
+ * `settings.maxAutoResumesOnNoProgress` (both default 10) so a runaway goal
+ * eventually falls back to the upstream manual pause instead of looping forever.
  */
 function patchPiGoalAutoResume(content) {
-  if (content.includes(PI_GOAL_AUTO_RESUME_PATCH_MARKER)) return content;
-
   const T = "\t";
   const needle = [
     T + "if (goal?.status !== \"active\") return false;",
@@ -187,27 +189,42 @@ function patchPiGoalAutoResume(content) {
     T + T + "this.clearBudgetWrapUp();",
     T + T + "this.blockStaleGoalToolCalls();",
   ].join("\n");
-  if (!content.includes(needle)) return content;
 
   const branch = [
     T + "if (goal?.status !== \"active\") return false;",
-    T + T + "// " + PI_GOAL_AUTO_RESUME_PATCH_MARKER + ": auto-resume at the automatic-turns",
-    T + T + "// checkpoint instead of pausing for a manual /goal resume. Absent setting",
-    T + T + "// defaults to enabled; set settings.autoResumeOnContinuationLimit=false to",
-    T + T + "// restore the upstream pause behavior.",
-    T + T + "if (cause === \"continuation_limit\") {",
-    T + T + T + "if (this.settings?.autoResumeOnContinuationLimit !== false) {",
-    T + T + T + T + "this.cancelContinuationWork();",
-    T + T + T + T + "this.clearGoalRecoveryForGoal(goal.id);",
-    T + T + T + T + "this.clearBudgetWrapUp();",
-    T + T + T + T + "goal.automaticModelTurns = 0;",
-    T + T + T + T + "this.persistGoal(goal);",
-    T + T + T + T + "this.updateStatus(ctx, goal);",
-    T + T + T + T + "this.setTerminalReason(goal.id, \"auto-resumed at automatic-turns checkpoint\");",
-    T + T + T + T + "ctx.ui.notify(\"Goal reached the automatic-turns checkpoint; auto-resumed without pausing.\", \"info\");",
-    T + T + T + T + "this.requestContinuation(goal);",
-    T + T + T + T + "this.dispatchContinuationIfSettled(ctx);",
-    T + T + T + T + "return false;",
+    T + T + "// " + PI_GOAL_AUTO_RESUME_PATCH_MARKER + ": auto-resume automatic-run",
+    T + T + "// checkpoint pauses instead of requiring manual /goal resume. Absent",
+    T + T + "// settings default to enabled; set autoResumeOnContinuationLimit=false",
+    T + T + "// or autoResumeOnNoProgress=false to restore upstream pause behavior.",
+    T + T + "if (cause === \"continuation_limit\" || cause === \"no_progress\") {",
+    T + T + T + "const isNoProgress = cause === \"no_progress\";",
+    T + T + T + "const autoResumeEnabled = isNoProgress ? this.settings?.autoResumeOnNoProgress !== false : this.settings?.autoResumeOnContinuationLimit !== false;",
+    T + T + T + "if (autoResumeEnabled) {",
+    T + T + T + T + "const maxAutoResumes = Math.max(0, Math.floor(Number(isNoProgress ? this.settings?.maxAutoResumesOnNoProgress ?? 10 : this.settings?.maxAutoResumesOnContinuationLimit ?? 10)));",
+    T + T + T + T + "const countKey = isNoProgress ? \"axumNoProgressAutoResumeCount\" : \"axumAutoResumeCount\";",
+    T + T + T + T + "const autoResumeCount = Math.max(0, Math.floor(Number((goal as any)[countKey] ?? 0)));",
+    T + T + T + T + "if (autoResumeCount < maxAutoResumes) {",
+    T + T + T + T + T + "this.cancelContinuationWork();",
+    T + T + T + T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + T + T + T + "this.clearBudgetWrapUp();",
+    T + T + T + T + T + "if (isNoProgress) {",
+    T + T + T + T + T + T + "goal.toolFreeRepeatCount = 0;",
+    T + T + T + T + T + T + "goal.lastToolFreeOutputFingerprint = undefined;",
+    T + T + T + T + T + "} else {",
+    T + T + T + T + T + T + "goal.automaticModelTurns = 0;",
+    T + T + T + T + T + "}",
+    T + T + T + T + T + "(goal as any)[countKey] = autoResumeCount + 1;",
+    T + T + T + T + T + "this.persistGoal(goal);",
+    T + T + T + T + T + "this.updateStatus(ctx, goal);",
+    T + T + T + T + T + "const checkpoint = isNoProgress ? \"no-progress checkpoint\" : \"automatic-turns checkpoint\";",
+    T + T + T + T + T + "this.setTerminalReason(goal.id, `auto-resumed at ${checkpoint} (${autoResumeCount + 1}/${maxAutoResumes})`);",
+    T + T + T + T + T + "ctx.ui.notify(`Goal reached the ${checkpoint}; auto-resumed without pausing (${autoResumeCount + 1}/${maxAutoResumes}).`, \"info\");",
+    T + T + T + T + T + "this.requestContinuation(goal);",
+    T + T + T + T + T + "this.dispatchContinuationIfSettled(ctx);",
+    T + T + T + T + T + "return false;",
+    T + T + T + T + "}",
+    T + T + T + T + "const checkpoint = isNoProgress ? \"no-progress checkpoint\" : \"automatic-turns checkpoint\";",
+    T + T + T + T + "ctx.ui.notify(`Goal reached the ${checkpoint} after ${autoResumeCount}/${maxAutoResumes} auto-resumes; pausing for manual confirmation.`, \"warn\");",
     T + T + T + "}",
     T + T + "}",
     T + T + "this.cancelContinuationWork();",
@@ -216,6 +233,18 @@ function patchPiGoalAutoResume(content) {
     T + T + "this.blockStaleGoalToolCalls();",
   ].join("\n");
 
+  if (content.includes(PI_GOAL_AUTO_RESUME_PATCH_MARKER)) {
+    if (content.includes("autoResumeOnNoProgress")) return content;
+    const start = content.lastIndexOf(T + "if (goal?.status !== \"active\") return false;", content.indexOf(PI_GOAL_AUTO_RESUME_PATCH_MARKER));
+    const endNeedle = T + T + "this.blockStaleGoalToolCalls();";
+    const end = content.indexOf(endNeedle, start);
+    if (start >= 0 && end >= 0) {
+      return content.slice(0, start) + branch + content.slice(end + endNeedle.length);
+    }
+    return content;
+  }
+
+  if (!content.includes(needle)) return content;
   return content.replace(needle, branch);
 }
 

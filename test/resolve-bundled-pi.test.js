@@ -251,12 +251,21 @@ test("patches pi-goal to auto-resume at the continuation-limit checkpoint", () =
   const patched = patchPiGoalAutoResume(source);
   assert.notEqual(patched, source, "patch should change the source");
   assert.match(patched, /AXUM_PI_GOAL_AUTO_RESUME/);
-  // Auto-resume branch injected on continuation_limit.
-  assert.match(patched, /cause === \"continuation_limit\"/);
+  // Auto-resume branch injected on continuation_limit and no_progress.
+  assert.match(patched, /cause === \"continuation_limit\" \|\| cause === \"no_progress\"/);
   assert.match(patched, /autoResumeOnContinuationLimit/);
+  assert.match(patched, /autoResumeOnNoProgress/);
+  assert.match(patched, /maxAutoResumesOnContinuationLimit/);
+  assert.match(patched, /maxAutoResumesOnNoProgress/);
+  assert.match(patched, /autoResumeCount < maxAutoResumes/);
+  assert.match(patched, /axumAutoResumeCount/);
+  assert.match(patched, /axumNoProgressAutoResumeCount/);
   assert.match(patched, /goal\.automaticModelTurns = 0/);
+  assert.match(patched, /goal\.toolFreeRepeatCount = 0/);
+  assert.match(patched, /goal\.lastToolFreeOutputFingerprint = undefined/);
   assert.match(patched, /dispatchContinuationIfSettled\(ctx\)/);
   assert.match(patched, /requestContinuation\(goal\)/);
+  assert.match(patched, /pausing for manual confirmation/);
   // Original pause body still present after the branch.
   assert.match(patched, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, \"paused\"\)/);
   // Idempotent.
@@ -264,6 +273,37 @@ test("patches pi-goal to auto-resume at the continuation-limit checkpoint", () =
   // Unknown block shape is left untouched rather than crashing.
   const reshaped = source.replace("if (goal?.status !== \"active\") return false;", "if (goal?.status !== \"active\") return;");
   assert.equal(patchPiGoalAutoResume(reshaped), reshaped);
+});
+
+test("upgrades old pi-goal auto-resume patch to cover no-progress pauses", () => {
+  const T = "\t";
+  const oldPatched = [
+    T + "pauseGoalForSafety(ctx: StatusContext, cause: SafetyPauseCause, abortTurn: boolean) {",
+    T + T + "const goal = this.activeGoal;",
+    T + T + "if (goal?.status !== \"active\") return false;",
+    T + T + "// AXUM_PI_GOAL_AUTO_RESUME: auto-resume at the automatic-turns",
+    T + T + "if (cause === \"continuation_limit\") {",
+    T + T + T + "if (this.settings?.autoResumeOnContinuationLimit !== false) {",
+    T + T + T + T + "goal.automaticModelTurns = 0;",
+    T + T + T + T + "this.requestContinuation(goal);",
+    T + T + T + T + "return false;",
+    T + T + T + "}",
+    T + T + "}",
+    T + T + "this.cancelContinuationWork();",
+    T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + "this.clearBudgetWrapUp();",
+    T + T + "this.blockStaleGoalToolCalls();",
+    T + T + "this.activeGoal = transitionGoal({ ...goal, safetyPauseCause: cause }, \"paused\");",
+    "}",
+  ].join("\n");
+
+  const upgraded = patchPiGoalAutoResume(oldPatched);
+  assert.notEqual(upgraded, oldPatched, "old marker-only patch should be upgraded");
+  assert.match(upgraded, /autoResumeOnNoProgress/);
+  assert.match(upgraded, /goal\.toolFreeRepeatCount = 0/);
+  assert.match(upgraded, /goal\.lastToolFreeOutputFingerprint = undefined/);
+  assert.match(upgraded, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, "paused"\)/);
+  assert.equal(patchPiGoalAutoResume(upgraded), upgraded);
 });
 
 test("filters invalid Windows env keys before npm install", () => {
