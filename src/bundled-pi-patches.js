@@ -10,6 +10,7 @@ const TERMUX_AUTOINSTALL_PATCH_MARKER = "AXUM_TERMUX_AUTOINSTALL";
 const UNDICI_MARK_AS_UNCLONEABLE_PATCH_MARKER = "AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK";
 const PI_GOAL_PACKAGE = "@narumitw/pi-goal";
 const PI_GOAL_LINKSYNC_FALLBACK_PATCH_MARKER = "AXUM_PI_GOAL_LINKSYNC_FALLBACK";
+const PI_GOAL_AUTO_RESUME_PATCH_MARKER = "AXUM_PI_GOAL_AUTO_RESUME";
 const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
 const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
@@ -153,6 +154,69 @@ function patchPiGoalLinkSyncFallback(content) {
   ].join("\n");
 
   return content.replace(needle, replacement);
+}
+
+/**
+ * Make pi-goal auto-resume when the automatic-run checkpoint pause would
+ * fire. pi-goal intentionally pauses at `continuationLimits.automaticTurns`
+ * (default 25) and aborts the turn so the human must run `/goal resume` to
+ * continue. For Axum's autonomous /goal workflow this leaves long goals
+ * silently stalled at the "Warning: Goal paused: 25 automatic model
+ * responses; ... Run /goal resume to continue" prompt.
+ *
+ * This patch rewires `pauseGoalForSafety` so a `continuation_limit` pause
+ * resets the automatic-turn counter, keeps the goal active, and dispatches a
+ * follow-up continuation in place. The net effect is exactly "auto-send
+ * /goal resume when the pause prompt appears", so goals run to completion
+ * without manual intervention (out-of-the-box). Other pause causes
+ * (`no_progress`, user abort, usage limits) are untouched.
+ *
+ * The behavior honors `settings.autoResumeOnContinuationLimit`; when that
+ * field is absent (as it is in this pi-goal version) it defaults to enabled
+ * so new users get autonomy without any config. Set it to false to restore
+ * the upstream pause-and-require-manual-resume semantics.
+ */
+function patchPiGoalAutoResume(content) {
+  if (content.includes(PI_GOAL_AUTO_RESUME_PATCH_MARKER)) return content;
+
+  const T = "\t";
+  const needle = [
+    T + "if (goal?.status !== \"active\") return false;",
+    T + T + "this.cancelContinuationWork();",
+    T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + "this.clearBudgetWrapUp();",
+    T + T + "this.blockStaleGoalToolCalls();",
+  ].join("\n");
+  if (!content.includes(needle)) return content;
+
+  const branch = [
+    T + "if (goal?.status !== \"active\") return false;",
+    T + T + "// " + PI_GOAL_AUTO_RESUME_PATCH_MARKER + ": auto-resume at the automatic-turns",
+    T + T + "// checkpoint instead of pausing for a manual /goal resume. Absent setting",
+    T + T + "// defaults to enabled; set settings.autoResumeOnContinuationLimit=false to",
+    T + T + "// restore the upstream pause behavior.",
+    T + T + "if (cause === \"continuation_limit\") {",
+    T + T + T + "if (this.settings?.autoResumeOnContinuationLimit !== false) {",
+    T + T + T + T + "this.cancelContinuationWork();",
+    T + T + T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + T + T + "this.clearBudgetWrapUp();",
+    T + T + T + T + "goal.automaticModelTurns = 0;",
+    T + T + T + T + "this.persistGoal(goal);",
+    T + T + T + T + "this.updateStatus(ctx, goal);",
+    T + T + T + T + "this.setTerminalReason(goal.id, \"auto-resumed at automatic-turns checkpoint\");",
+    T + T + T + T + "ctx.ui.notify(\"Goal reached the automatic-turns checkpoint; auto-resumed without pausing.\", \"info\");",
+    T + T + T + T + "this.requestContinuation(goal);",
+    T + T + T + T + "this.dispatchContinuationIfSettled(ctx);",
+    T + T + T + T + "return false;",
+    T + T + T + "}",
+    T + T + "}",
+    T + T + "this.cancelContinuationWork();",
+    T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + "this.clearBudgetWrapUp();",
+    T + T + "this.blockStaleGoalToolCalls();",
+  ].join("\n");
+
+  return content.replace(needle, branch);
 }
 
 function patchPiVersionNotificationSuppress(content) {
@@ -342,6 +406,17 @@ export function applyBundledPiPatches(options) {
   } else {
     results.push({ patched: false, file: piGoalSettingsPath });
   }
+  const piGoalRuntimePath = path.join(piGoalRoot, "src", "runtime.ts");
+  if (fs.existsSync(piGoalRuntimePath)) {
+    const piGoalRuntimeOriginal = fs.readFileSync(piGoalRuntimePath, "utf8");
+    const piGoalRuntimePatched = patchPiGoalAutoResume(piGoalRuntimeOriginal);
+    if (piGoalRuntimePatched !== piGoalRuntimeOriginal) {
+      fs.writeFileSync(piGoalRuntimePath, piGoalRuntimePatched);
+    }
+    results.push({ patched: piGoalRuntimePatched !== piGoalRuntimeOriginal, file: piGoalRuntimePath });
+  } else {
+    results.push({ patched: false, file: piGoalRuntimePath });
+  }
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(piInteractiveModePath)) {
     const piInteractiveOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
@@ -359,4 +434,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

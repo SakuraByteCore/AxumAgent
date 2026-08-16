@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
-import { patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiGoalAutoResume, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -232,6 +232,38 @@ test("suppresses the bundled Pi new-version notification render", () => {
   // Unknown block shape is left untouched rather than crashing.
   const reshaped = source.replace("// Start version check asynchronously", "// version check changed upstream");
   assert.equal(patchPiVersionNotificationSuppress(reshaped), reshaped);
+});
+
+test("patches pi-goal to auto-resume at the continuation-limit checkpoint", () => {
+  const T = "\t";
+  const source = [
+    T + "pauseGoalForSafety(ctx: StatusContext, cause: SafetyPauseCause, abortTurn: boolean) {",
+    T + T + "const goal = this.activeGoal;",
+    T + T + "if (goal?.status !== \"active\") return false;",
+    T + T + "this.cancelContinuationWork();",
+    T + T + "this.clearGoalRecoveryForGoal(goal.id);",
+    T + T + "this.clearBudgetWrapUp();",
+    T + T + "this.blockStaleGoalToolCalls();",
+    T + T + "this.activeGoal = transitionGoal({ ...goal, safetyPauseCause: cause }, \"paused\");",
+    "}",
+  ].join("\n");
+
+  const patched = patchPiGoalAutoResume(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_GOAL_AUTO_RESUME/);
+  // Auto-resume branch injected on continuation_limit.
+  assert.match(patched, /cause === \"continuation_limit\"/);
+  assert.match(patched, /autoResumeOnContinuationLimit/);
+  assert.match(patched, /goal\.automaticModelTurns = 0/);
+  assert.match(patched, /dispatchContinuationIfSettled\(ctx\)/);
+  assert.match(patched, /requestContinuation\(goal\)/);
+  // Original pause body still present after the branch.
+  assert.match(patched, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, \"paused\"\)/);
+  // Idempotent.
+  assert.equal(patchPiGoalAutoResume(patched), patched);
+  // Unknown block shape is left untouched rather than crashing.
+  const reshaped = source.replace("if (goal?.status !== \"active\") return false;", "if (goal?.status !== \"active\") return;");
+  assert.equal(patchPiGoalAutoResume(reshaped), reshaped);
 });
 
 test("filters invalid Windows env keys before npm install", () => {
