@@ -17,15 +17,14 @@ test("checks available Pi extensions on Android", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.81.1",
     "pi-bar@file:plugin/pi-bar",
-    "pi-clear@file:plugin/pi-clear",
     "pi-debug@file:plugin/pi-debug",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "pi-plan@file:plugin/pi-plan",
+    "pi-shortcuts@file:plugin/pi-shortcuts",
     "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 7);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -33,15 +32,14 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.81.1",
     "pi-bar@file:plugin/pi-bar",
-    "pi-clear@file:plugin/pi-clear",
     "pi-debug@file:plugin/pi-debug",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "pi-plan@file:plugin/pi-plan",
+    "pi-shortcuts@file:plugin/pi-shortcuts",
     "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 7);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -49,15 +47,14 @@ test("Windows loads the same extension set as other platforms", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.81.1",
     "pi-bar@file:plugin/pi-bar",
-    "pi-clear@file:plugin/pi-clear",
     "pi-debug@file:plugin/pi-debug",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "pi-plan@file:plugin/pi-plan",
+    "pi-shortcuts@file:plugin/pi-shortcuts",
     "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 7);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -67,9 +64,9 @@ test("Windows loads the same extension set as other platforms", () => {
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard", "pi-guard"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard", "pi-guard"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-response-guard", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-response-guard", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-response-guard", "pi-guard"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {

@@ -24,9 +24,6 @@ export const bundledPiPackages = [
   // pi-bar now also hosts the sakura cyberdeck startup header (formerly the
   // standalone pi-header plugin), rendered via ctx.ui.setHeader() at session
   // start, plus a dashed-rule CustomEditor. Single-file, zero native deps.
-  // pi-clear: /clear slash command — deletes the current session file and
-  // starts a fresh session. Pure TS, no native deps.
-  { name: "pi-clear@file:plugin/pi-clear", packageName: "pi-clear", extensionPath: "index.ts", android: true },
   // pi-debug: real debugger driver (DAP over stdio) exposing attach / break /
   // continue / step / stack / variables slash commands. Speaks the Debug Adapter
   // Protocol to lldb-dap / dlv / debugpy. Pure TS, zero native deps.
@@ -37,7 +34,10 @@ export const bundledPiPackages = [
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
-  { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
+  // pi-shortcuts: bundled slash shortcuts (merged from pi-plan + pi-clear).
+  // Exposes /plan (plan-first template) and /clear (fresh session).
+  // Single-file, zero native deps.
+  { name: "pi-shortcuts@file:plugin/pi-shortcuts", packageName: "pi-shortcuts", extensionPath: "index.ts", android: true },
   // pi-response-guard: auto-recovers from empty, errored, or interrupted
   // model responses by retrying with a configurable message (rate-limit /
   // 429 / 5xx / timeouts / empty-output stop). Fork of the upstream npm
