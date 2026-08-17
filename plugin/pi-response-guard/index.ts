@@ -189,6 +189,11 @@ export default function (pi: ExtensionAPI): void {
 				"info",
 			);
 		}
+
+		if (autoContinueReason.kind === "length") {
+			await pi.sendUserMessage("/compact");
+		}
+
 		if (guardCtx.isIdle()) {
 			await pi.sendUserMessage(config.retryMessage);
 		} else {
@@ -310,6 +315,10 @@ export default function (pi: ExtensionAPI): void {
 				`[${EXTENSION_NAME}] ${autoContinueReason.notification}. Sending "${config.retryMessage}" (${consecutiveAutoRetries}/${config.maxConsecutiveAutoRetries}).`,
 				"info",
 			);
+		}
+
+		if (autoContinueReason.kind === "length") {
+			await pi.sendUserMessage("/compact");
 		}
 
 		if ((ctx as QueueAwareContext).isIdle()) {
