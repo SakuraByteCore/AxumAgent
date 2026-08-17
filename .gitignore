@@ -7,3 +7,4 @@ npm-debug.log*
 coverage/
 *.mdb
 .web.log
+test/e2e-*/

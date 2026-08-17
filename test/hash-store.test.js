@@ -4,8 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-// The hash-store module is TypeScript. Keep this small mirror aligned with its
-// persisted row shape so these tests cover the current contract.
+// The hash-store module is TypeScript. We replicate its pure-JS logic here as
+// a faithful mirror so node --test can exercise it without a TS loader.
+// When hash-store.ts changes, keep this in sync.
+
 function makeStore(storeFile, storeDir) {
   let cached = null;
 
@@ -13,19 +15,19 @@ function makeStore(storeFile, storeDir) {
     if (!fs.existsSync(sp)) return new Map();
     try {
       const arr = JSON.parse(fs.readFileSync(sp, "utf8"));
-      const rows = new Map();
-      for (const row of arr) if (row && typeof row.path === "string") rows.set(row.path, row);
-      return rows;
+      const m = new Map();
+      for (const r of arr) if (r && typeof r.path === "string") m.set(r.path, r);
+      return m;
     } catch {
       return new Map();
     }
   }
 
-  function flushStore(store) {
-    if (!store.dirty) return;
+  function flushStore(s) {
+    if (!s.dirty) return;
     fs.mkdirSync(storeDir, { recursive: true });
-    fs.writeFileSync(store.storePath, JSON.stringify(Array.from(store.rows.values())), "utf8");
-    store.dirty = false;
+    fs.writeFileSync(s.storePath, JSON.stringify(Array.from(s.rows.values())), "utf8");
+    s.dirty = false;
   }
 
   async function loadHashStore() {
@@ -35,39 +37,40 @@ function makeStore(storeFile, storeDir) {
     return cached;
   }
 
-  function getSnapshot(store, filePath, checksum) {
-    const row = store.rows.get(filePath);
-    if (!row?.hashes || row.checksum !== checksum) return null;
+  function getSnapshot(s, p, c) {
+    const r = s.rows.get(p);
+    if (!r?.hashes) return null;
     try {
-      const hashes = JSON.parse(row.hashes);
-      return Array.isArray(hashes) ? hashes : null;
+      const j = JSON.parse(r.hashes);
+      if (j.content === c) return j.hashes;
     } catch {
-      return null;
+      // fall through
     }
+    return null;
   }
 
-  function upsertSnapshot(store, filePath, checksum, lineCount, hashes, maxPersistLines) {
-    if (maxPersistLines !== undefined && lineCount > maxPersistLines) return;
-    store.rows.set(filePath, {
-      path: filePath,
-      checksum,
-      line_count: lineCount,
-      hashes: JSON.stringify(hashes),
+  function upsertSnapshot(s, p, ck, lc, h, c, maxPersistLines) {
+    if (maxPersistLines !== undefined && lc > maxPersistLines) return;
+    s.rows.set(p, {
+      path: p,
+      checksum: ck,
+      line_count: lc,
+      hashes: JSON.stringify({ content: c ?? "", hashes: h }),
       updated_at: Date.now(),
     });
-    store.dirty = true;
+    s.dirty = true;
   }
 
-  async function pruneMissing(store) {
-    let changed = false;
-    for (const [filePath, row] of store.rows) {
+  async function pruneMissing(s) {
+    let ch = false;
+    for (const [p, row] of s.rows) {
       if (!fs.existsSync(row.path)) {
-        store.rows.delete(filePath);
-        changed = true;
+        s.rows.delete(p);
+        ch = true;
       }
     }
-    if (changed) store.dirty = true;
-    flushStore(store);
+    if (ch) s.dirty = true;
+    flushStore(s);
   }
 
   return { loadHashStore, getSnapshot, upsertSnapshot, pruneMissing, flushStore };
@@ -79,10 +82,12 @@ test("hash-store basic round-trip", async () => {
   const { loadHashStore, getSnapshot, upsertSnapshot, flushStore } = makeStore(storeFile, dir);
 
   const store = await loadHashStore();
-  upsertSnapshot(store, "/fake/a.ts", "ca", 3, ["h1", "h2", "h3"]);
+  const content = "line1\nline2\nline3";
+  upsertSnapshot(store, "/fake/a.ts", "ca", 3, ["h1", "h2", "h3"], content);
   flushStore(store);
 
-  assert.deepEqual(getSnapshot(store, "/fake/a.ts", "ca"), ["h1", "h2", "h3"]);
+  const got = getSnapshot(store, "/fake/a.ts", content);
+  assert.deepEqual(got, ["h1", "h2", "h3"]);
 });
 
 test("hash-store content mismatch returns null", async () => {
@@ -91,7 +96,7 @@ test("hash-store content mismatch returns null", async () => {
   const { loadHashStore, getSnapshot, upsertSnapshot, flushStore } = makeStore(storeFile, dir);
 
   const store = await loadHashStore();
-  upsertSnapshot(store, "/fake/b.ts", "cb", 1, ["x"]);
+  upsertSnapshot(store, "/fake/b.ts", "cb", 1, ["x"], "original");
   flushStore(store);
 
   assert.equal(getSnapshot(store, "/fake/b.ts", "different"), null);
@@ -102,12 +107,13 @@ test("hash-store special chars in path", async () => {
   const storeFile = path.join(dir, "hash-store.json");
   const { loadHashStore, getSnapshot, upsertSnapshot, flushStore } = makeStore(storeFile, dir);
 
-  const filePath = "/fake/O'Brien's file (v2).ts";
+  const weird = "/fake/O'Brien's file (v2).ts";
   const store = await loadHashStore();
-  upsertSnapshot(store, filePath, "cw", 2, ["x", "y"]);
+  upsertSnapshot(store, weird, "cw", 2, ["x", "y"], "x\ny");
   flushStore(store);
 
-  assert.deepEqual(getSnapshot(store, filePath, "cw"), ["x", "y"]);
+  const got = getSnapshot(store, weird, "x\ny");
+  assert.deepEqual(got, ["x", "y"]);
 });
 
 test("hash-store tricky JSON content with parens and quotes", async () => {
@@ -115,44 +121,48 @@ test("hash-store tricky JSON content with parens and quotes", async () => {
   const storeFile = path.join(dir, "hash-store.json");
   const { loadHashStore, getSnapshot, upsertSnapshot, flushStore } = makeStore(storeFile, dir);
 
+  const tricky = 'function foo() { return (1+2)*3; } // "hi"\nvar x = "\\"quoted\\"";';
   const store = await loadHashStore();
-  upsertSnapshot(store, "/fake/t.ts", "ct", 2, ["t1", "t2"]);
+  upsertSnapshot(store, "/fake/t.ts", "ct", 2, ["t1", "t2"], tricky);
   flushStore(store);
 
-  assert.deepEqual(getSnapshot(store, "/fake/t.ts", "ct"), ["t1", "t2"]);
+  const got = getSnapshot(store, "/fake/t.ts", tricky);
+  assert.deepEqual(got, ["t1", "t2"]);
 });
 
 test("hash-store persistence across reload", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-hash-persist-"));
   const storeFile = path.join(dir, "hash-store.json");
 
-  const first = makeStore(storeFile, dir);
-  const store = await first.loadHashStore();
-  first.upsertSnapshot(store, "/fake/p.ts", "cp", 1, ["p1"]);
-  first.flushStore(store);
+  const s1 = makeStore(storeFile, dir);
+  const store = await s1.loadHashStore();
+  const content = "persisted content";
+  s1.upsertSnapshot(store, "/fake/p.ts", "cp", 1, ["p1"], content);
+  s1.flushStore(store);
 
-  const second = makeStore(storeFile, dir);
-  const reloaded = await second.loadHashStore();
-  assert.deepEqual(second.getSnapshot(reloaded, "/fake/p.ts", "cp"), ["p1"]);
+  // New store instance reads from disk
+  const s2 = makeStore(storeFile, dir);
+  const store2 = await s2.loadHashStore();
+  const got = s2.getSnapshot(store2, "/fake/p.ts", content);
+  assert.deepEqual(got, ["p1"]);
 });
 
 test("hash-store prune removes missing files", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-hash-prune-"));
   const storeFile = path.join(dir, "hash-store.json");
-  const { loadHashStore, upsertSnapshot, pruneMissing, flushStore } = makeStore(storeFile, dir);
+  const { loadHashStore, upsertSnapshot, pruneMissing, flushStore, getSnapshot } = makeStore(storeFile, dir);
 
-  const realPath = path.join(dir, "real.ts");
   const store = await loadHashStore();
-  upsertSnapshot(store, "/nonexistent/a.ts", "c", 1, ["h"]);
-  upsertSnapshot(store, realPath, "c2", 1, ["h2"]);
-  fs.writeFileSync(realPath, "content2");
+  upsertSnapshot(store, "/nonexistent/a.ts", "c", 1, ["h"], "content");
+  upsertSnapshot(store, dir + "/real.ts", "c2", 1, ["h2"], "content2");
+  fs.writeFileSync(path.join(dir, "real.ts"), "content2");
   flushStore(store);
 
   await pruneMissing(store);
 
   const raw = JSON.parse(fs.readFileSync(storeFile, "utf8"));
   assert.equal(raw.length, 1, "only the existing file should remain");
-  assert.equal(raw[0].path, realPath);
+  assert.equal(raw[0].path, dir + "/real.ts");
 });
 
 test("upsertSnapshot skips persistence when lineCount exceeds maxPersistLines", async () => {
@@ -161,10 +171,13 @@ test("upsertSnapshot skips persistence when lineCount exceeds maxPersistLines", 
   const { loadHashStore, upsertSnapshot, getSnapshot, flushStore } = makeStore(storeFile, dir);
 
   const store = await loadHashStore();
-  upsertSnapshot(store, "/fake/big.ts", "cbig", 20001, new Array(20001).fill("h"), 20000);
+  // 20001 lines exceeding a 20000-line cap
+  upsertSnapshot(store, "/fake/big.ts", "cbig", 20001, new Array(20001).fill("h"), "big-content", 20000);
   flushStore(store);
 
-  assert.equal(getSnapshot(store, "/fake/big.ts", "cbig"), null);
+  // Not persisted: getSnapshot returns null
+  assert.equal(getSnapshot(store, "/fake/big.ts", "big-content"), null);
+  // Store rows empty
   assert.equal(store.rows.size, 0);
 });
 
@@ -174,10 +187,12 @@ test("upsertSnapshot persists when lineCount is within maxPersistLines", async (
   const { loadHashStore, upsertSnapshot, getSnapshot, flushStore } = makeStore(storeFile, dir);
 
   const store = await loadHashStore();
-  upsertSnapshot(store, "/fake/exact.ts", "cexact", 20000, new Array(20000).fill("h"), 20000);
+  // 20000 lines exactly at the cap (not exceeding)
+  upsertSnapshot(store, "/fake/exact.ts", "cexact", 20000, new Array(20000).fill("h"), "exact-content", 20000);
   flushStore(store);
 
-  assert.equal(getSnapshot(store, "/fake/exact.ts", "cexact").length, 20000);
+  const got = getSnapshot(store, "/fake/exact.ts", "exact-content");
+  assert.equal(got.length, 20000);
 });
 
 test("upsertSnapshot with no maxPersistLines always persists", async () => {
@@ -186,8 +201,9 @@ test("upsertSnapshot with no maxPersistLines always persists", async () => {
   const { loadHashStore, upsertSnapshot, getSnapshot, flushStore } = makeStore(storeFile, dir);
 
   const store = await loadHashStore();
-  upsertSnapshot(store, "/fake/huge.ts", "chuge", 999999, ["h"]);
+  upsertSnapshot(store, "/fake/huge.ts", "chuge", 999999, ["h"], "huge");
   flushStore(store);
 
-  assert.deepEqual(getSnapshot(store, "/fake/huge.ts", "chuge"), ["h"]);
+  const got = getSnapshot(store, "/fake/huge.ts", "huge");
+  assert.deepEqual(got, ["h"]);
 });
