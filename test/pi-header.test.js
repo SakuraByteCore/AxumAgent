@@ -188,7 +188,7 @@ test("pi-header wraps the Extensions card body onto multiple lines", () => {
     "-e", "/x/node_modules/pi-extra-two/index.ts",
   ];
 
-  const lines = renderHeaderLines(120, 80, argv);
+  const lines = renderHeaderLines(60, 80, argv);
   const extTopIndex = lines.findIndex((line) => line.includes("Extensions"));
   const extBottomIndex = lines.findIndex((line, i) => i > extTopIndex && line.includes("╰"));
   const bodyLines = lines.slice(extTopIndex + 1, extBottomIndex);

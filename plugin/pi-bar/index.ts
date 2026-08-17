@@ -332,9 +332,16 @@ function renderCard(label: string, entries: string[], width: number): string[] {
   if (entries.length === 0) entries = ["—"];
   const rail = "│";
   const inner = Math.max(0, width - headerVisibleWidth(rail) * 2);
-  const bodyLines = wrapEntries(entries, inner).map((line) =>
-    boxedLine(gradient(line, [199, 184, 245], [252, 201, 185], true), width, rail),
-  );
+  const bodyLines = wrapEntries(entries, inner).map((line) => {
+    const colored = gradient(line, [199, 184, 245], [252, 201, 185], true);
+    const body = truncateLine(colored, inner);
+    const bw = headerVisibleWidth(body);
+    const padR = Math.max(0, inner - bw);
+    const padL = 1;
+    const edgeColor = sampleStops(0);
+    const railBg = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m${rail}\x1b[39m`;
+    return `${railBg}${' '.repeat(padL)}${body}${' '.repeat(Math.max(0, padR - padL))}${railBg}`;
+  });
   return [
     frameGradient(fitBorderLabel(label, width)),
     ...bodyLines,
@@ -400,7 +407,7 @@ function renderHeader(width: number, skills: string[] = [], extensions: string[]
   const fixedTopPadding = 1;
 
   const cards: string[] = [];
-  const cardWidth = Math.min(width, 64);
+  const cardWidth = Math.min(width, 80);
   const cardPad = " ".repeat(Math.max(0, Math.floor((width - cardWidth) / 2)));
   if (hasCards) {
     const mk = (lines: string[]): string[] => lines.map((l) => `${cardPad}${l}`);
