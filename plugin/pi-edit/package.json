@@ -1,7 +1,7 @@
 {
   "name": "pi-edit",
   "version": "0.1.0",
-  "description": "Pure-JS hashline read/replace extension for pi-coding-agent (Android-friendly, no native deps)",
+  "description": "Pure-JS hashline read/replace extension plus codex-style apply_patch patch tool for pi-coding-agent (Android-friendly, no native deps)",
   "type": "module",
   "main": "index.ts",
   "files": ["index.ts", "src", "prompts", "LICENSE"],

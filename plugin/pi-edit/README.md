@@ -1,6 +1,6 @@
 # pi-edit (AxumAgent bundled fork)
 
-Pure-JS hash-anchored read/replace extension for the Pi coding agent.
+Pure-JS hash-anchored read/replace extension plus codex-style apply_patch patch tool for the Pi coding agent.
 
 Pure-JS extension using only Node.js built-in `node:crypto` and a JSON file-backed hash store. No native dependencies — runs on every platform including Android/Termux and Node 18+.
 
@@ -25,6 +25,18 @@ Text files are returned as `HASH\u2502content` lines (3-char base64 hash, separa
 ### replace
 
 Replaces lines referenced by `hash_range_inclusive` (two 3-char hashes from read) with `content_lines` (literal replacement lines). Bulk mode batches multiple edits in one `changes` array.
+
+### apply_patch
+
+Applies a codex-style patch to files using `*** Begin Patch` / `*** End Patch` markers.
+
+Supported hunks:
+- `*** Add File: <path>` followed by `+<content>` lines
+- `*** Delete File: <path>`
+- `*** Update File: <path>` with `@@ <context>` chunks, `+`/`-`/` ` line prefixes, and optional `*** Move to: <path>` for renames
+- `*** End of File` appends at EOF when anchor is not found mid-file
+
+Context matching uses `@@ <context>` followed by old lines to locate the edit region.
 
 ### Boundary dedup
 
