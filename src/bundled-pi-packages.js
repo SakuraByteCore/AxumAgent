@@ -52,5 +52,5 @@ export const bundledPiPackages = [
 // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
 // pi-workflow: interactive workflow guide + execution router (skills + extension).
 // bundle size 39.4 MB unpacked; zero native deps.
-{ name: "@agwab/pi-workflow@0.12.0", packageName: "@agwab/pi-workflow", extensionPath: "src/extension.ts", android: true },
+{ name: "@agwab/pi-workflow@0.12.0", packageName: "@agwab/pi-workflow", extensionPath: "src/extension.ts", skills: ["skills/workflow-guide", "skills/execution-router"], android: true },
 ];

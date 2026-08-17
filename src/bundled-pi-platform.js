@@ -44,6 +44,15 @@ export function supportedBundledPiExtensions(options) {
     });
 }
 
+export function supportedBundledPiSkills(options) {
+  return supportedBundledPiPackageEntries(options)
+    .filter((pkg) => Array.isArray(pkg.skills) ? pkg.skills.length > 0 : Boolean(pkg.skills))
+    .flatMap((pkg) => {
+      const list = Array.isArray(pkg.skills) ? pkg.skills : [pkg.skills];
+      return list.map((skillPath) => ({ packageName: pkg.packageName, skillPath }));
+    });
+}
+
 export function expectedBundledExtensionCount(options) {
   return supportedBundledPiExtensions(options).length;
 }

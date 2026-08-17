@@ -1,9 +1,10 @@
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expectedBundledExtensionCount, localPluginNames, supportedBundledPiPackages } from "./bundled-pi-platform.js";
+import { expectedBundledExtensionCount, localPluginNames, supportedBundledPiPackages, supportedBundledPiSkills } from "./bundled-pi-platform.js";
 import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
@@ -164,6 +165,7 @@ function bundledReady(options) {
 export function ensureBundledPi(options) {
   const cacheRoot = getBundledPiCacheRoot(options);
   ensurePluginSource(cacheRoot, options);
+  ensureBundledSkills(cacheRoot, options);
   if (bundledReady(options)) {
     applyBundledPiPatches(options);
     return;
@@ -184,4 +186,20 @@ export function ensureBundledPi(options) {
   if ((result.status ?? 1) !== 0) throw new Error(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
   applyBundledPiPatches(options);
+}
+
+function ensureBundledSkills(cacheRoot, options) {
+  const home = os.homedir();
+  const skillsRoot = path.join(home, ".agents", "skills");
+  for (const { packageName, skillPath } of supportedBundledPiSkills(options)) {
+    const srcDir = path.join(cacheRoot, "node_modules", ...packageName.split("/"), skillPath);
+    if (!fs.existsSync(srcDir)) continue;
+    const skillName = path.basename(skillPath);
+    const destDir = path.join(skillsRoot, skillName);
+    fs.mkdirSync(path.dirname(destDir), { recursive: true });
+    if (fs.existsSync(destDir)) {
+      fs.rmSync(destDir, { recursive: true, force: true });
+    }
+    fs.cpSync(srcDir, destDir, { recursive: true, dereference: true });
+  }
 }
