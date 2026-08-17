@@ -3,7 +3,7 @@ import test from "node:test";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expectedBundledExtensionCount, isAndroidLike, localPluginNames, supportedBundledPiPackages } from "../src/bundled-pi-platform.js";
+import { expectedBundledExtensionCount, isAndroidLike, localPluginNames, supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
 
 test("detects Termux/Android environments", () => {
   assert.equal(isAndroidLike({ platform: "android", env: {} }), true);
@@ -79,4 +79,24 @@ test("every local plugin name has a matching plugin/ subdir", () => {
     const dir = path.join(repoRoot, "plugin", name);
     assert.equal(fs.existsSync(dir), true, `missing plugin source dir: ${name}`);
   }
+  });
+
+test("supportedBundledPiSkills exposes bundled package skills", () => {
+  assert.deepEqual(
+    supportedBundledPiSkills({ platform: "android", env: {} }),
+    [
+      { packageName: "@agwab/pi-workflow", skillPath: "skills/workflow-guide" },
+      { packageName: "@agwab/pi-workflow", skillPath: "skills/execution-router" },
+    ]
+  );
+  assert.equal(supportedBundledPiSkills({ platform: "linux", env: {} }).length, 2);
+  assert.equal(supportedBundledPiSkills({ platform: "win32", env: {} }).length, 2);
 });
+
+test("supportedBundledPiSkills filters packages without skills", () => {
+  assert.equal(
+    supportedBundledPiSkills({ platform: "android", env: {} }).filter((s) => s.packageName === "pi-bar").length,
+    0
+  );
+});
+

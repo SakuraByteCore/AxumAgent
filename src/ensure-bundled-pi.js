@@ -188,7 +188,7 @@ export function ensureBundledPi(options) {
   applyBundledPiPatches(options);
 }
 
-function ensureBundledSkills(cacheRoot, options) {
+export function ensureBundledSkills(cacheRoot, options) {
   const home = os.homedir();
   const skillsRoot = path.join(home, ".agents", "skills");
   for (const { packageName, skillPath } of supportedBundledPiSkills(options)) {

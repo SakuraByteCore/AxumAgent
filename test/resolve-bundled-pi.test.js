@@ -4,7 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
-import { ensureBundledPi, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
+import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
+import { supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
 import { patchPiGoalAutoResume, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
@@ -500,4 +501,38 @@ writePkg("@agwab/pi-workflow", { "src/extension.ts": "" });
 
   assert.equal(fs.existsSync(marker), true);
   assert.equal(fs.existsSync(path.join(cache, "node_modules", "@earendil-works", "pi-ai", "dist", "index.js")), true);
+});
+
+test("ensureBundledSkills syncs bundled skills to agent skills root", async () => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-skills-sync-"));
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "axum-home-"));
+  for (const { packageName, skillPath } of supportedBundledPiSkills({ platform: "linux" })) {
+    const fileName = path.basename(skillPath);
+    const skillDir = path.join(cache, "node_modules", ...packageName.split("/"), skillPath);
+    fs.mkdirSync(skillDir, { recursive: true });
+    fs.writeFileSync(path.join(skillDir, "SKILL.md"), `SKILL:${packageName}:${fileName}`);
+  }
+  const originalHomedir = os.homedir;
+  os.homedir = () => fakeHome;
+  try {
+    ensureBundledSkills(cache, { platform: "linux", env: {} });
+    assert.equal(
+      fs.existsSync(path.join(fakeHome, ".agents", "skills", "workflow-guide", "SKILL.md")),
+      true
+    );
+    assert.equal(
+      fs.readFileSync(path.join(fakeHome, ".agents", "skills", "workflow-guide", "SKILL.md"), "utf8"),
+      "SKILL:@agwab/pi-workflow:workflow-guide"
+    );
+    assert.equal(
+      fs.existsSync(path.join(fakeHome, ".agents", "skills", "execution-router", "SKILL.md")),
+      true
+    );
+    assert.equal(
+      fs.readFileSync(path.join(fakeHome, ".agents", "skills", "execution-router", "SKILL.md"), "utf8"),
+      "SKILL:@agwab/pi-workflow:execution-router"
+    );
+  } finally {
+    os.homedir = originalHomedir;
+  }
 });
