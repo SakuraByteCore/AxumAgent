@@ -1313,8 +1313,8 @@ export default function (pi: ExtensionAPI): void {
 		for (let i = from; i < entries.length; i++) {
 			const e = entries[i]!;
 			if (e.type !== "message") continue;
-			msgCount += 1;
 			const m = (e as { message: { role?: string; usage?: { output: number } } }).message;
+			if (m.role === "user") msgCount += 1;
 			if (m.role !== "assistant" || !m.usage) continue;
 			to += m.usage.output;
 		}
