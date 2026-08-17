@@ -344,3 +344,27 @@ export function saveLanguagePreference(language, file = getSettingsPath()) {
   writeJsonFile(file, config);
   return { file, language };
 }
+
+const DEFAULT_TUI_MODE = "fullscreen";
+
+export function getTuiMode(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  const mode = config.tuiMode;
+  return typeof mode === "string" ? mode : DEFAULT_TUI_MODE;
+}
+
+export function saveTuiMode(mode, file = getSettingsPath()) {
+  if (typeof mode !== "string") throw new Error("tuiMode must be a string");
+  const config = readJsonFile(file);
+  config.tuiMode = mode;
+  writeJsonFile(file, config);
+  return { file, mode };
+}
+
+export function ensureTuiModeDefault(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  if (!config.tuiMode) {
+    config.tuiMode = DEFAULT_TUI_MODE;
+    writeJsonFile(file, config);
+  }
+}

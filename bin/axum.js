@@ -151,7 +151,7 @@ function buildPiEnv() {
 }
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/resolve-bundled-pi.js"),
     import("../src/provider-config.js"),
@@ -159,6 +159,7 @@ async function runPi(passthrough) {
   ]);
 
   ensureBundledPi();
+  ensureTuiModeDefault();
   const piCli = resolvePiCli();
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
   const extensionArgs = safe ? [] : resolveBundledExtensions().flatMap((file) => ["-e", file]);
