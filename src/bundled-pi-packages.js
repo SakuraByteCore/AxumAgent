@@ -44,9 +44,10 @@ export const bundledPiPackages = [
   // pi-response-guard package to drop its mariozechner peer dependency.
   // Pure TS, zero native deps.
   { name: "pi-response-guard@file:plugin/pi-response-guard", packageName: "pi-response-guard", extensionPath: "index.ts", android: true },
-  // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
-  // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
-  // fails to load (__clear_cache symbol missing). Rather than maintain a
-  // platform-specific fallback, drop pi-fff entirely so behavior is consistent
-  // across all platforms. Pi has built-in find/grep tools that cover the gap.
+// pi-guard: read-only advisory watcher that posts inline guidance notes during
+// primary sessions. Filters noise, dedupes repeats, and rate-limits advice
+// delivery. Pure JS, zero native deps.
+{ name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.js", android: true },
+// pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
+// native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
 ];

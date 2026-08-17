@@ -8,3 +8,6 @@ coverage/
 *.mdb
 .web.log
 test/e2e-*/
+.artifacts/
+regression-*.log
+test-e2e-regression.mjs

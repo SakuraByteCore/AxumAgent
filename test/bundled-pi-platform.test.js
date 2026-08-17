@@ -23,8 +23,9 @@ test("checks available Pi extensions on Android", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-plan@file:plugin/pi-plan",
     "pi-response-guard@file:plugin/pi-response-guard",
+    "pi-guard@file:plugin/pi-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 7);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -38,8 +39,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-plan@file:plugin/pi-plan",
     "pi-response-guard@file:plugin/pi-response-guard",
+    "pi-guard@file:plugin/pi-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 7);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 8);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -53,8 +55,9 @@ test("Windows loads the same extension set as other platforms", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-plan@file:plugin/pi-plan",
     "pi-response-guard@file:plugin/pi-response-guard",
+    "pi-guard@file:plugin/pi-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 7);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -64,9 +67,9 @@ test("Windows loads the same extension set as other platforms", () => {
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-clear", "pi-debug", "pi-edit", "pi-plan", "pi-response-guard", "pi-guard"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {
