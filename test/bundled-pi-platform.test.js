@@ -12,7 +12,7 @@ test("detects Termux/Android environments", () => {
   assert.equal(isAndroidLike({ platform: "linux", env: {} }), false);
 });
 
-test("loads pi-goal and pi-subagents on Android", () => {
+test("checks available Pi extensions on Android", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.81.1",
@@ -21,11 +21,10 @@ test("loads pi-goal and pi-subagents on Android", () => {
     "pi-debug@file:plugin/pi-debug",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "@gotgenes/pi-subagents@19.2.2",
     "pi-plan@file:plugin/pi-plan",
     "pi-response-guard@file:plugin/pi-response-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 7);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -37,11 +36,10 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-debug@file:plugin/pi-debug",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "@gotgenes/pi-subagents@19.2.2",
     "pi-plan@file:plugin/pi-plan",
     "pi-response-guard@file:plugin/pi-response-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 7);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -53,11 +51,10 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-debug@file:plugin/pi-debug",
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
-    "@gotgenes/pi-subagents@19.2.2",
     "pi-plan@file:plugin/pi-plan",
     "pi-response-guard@file:plugin/pi-response-guard",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 7);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

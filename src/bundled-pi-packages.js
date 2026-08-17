@@ -37,8 +37,6 @@ export const bundledPiPackages = [
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
-  // pi-subagents: spawn and manage sub-agents for parallel task delegation. Pure TS, no native deps.
-  { name: "@gotgenes/pi-subagents@19.2.2", packageName: "@gotgenes/pi-subagents", extensionPath: "src/index.ts", android: true },
   { name: "pi-plan@file:plugin/pi-plan", packageName: "pi-plan", extensionPath: "index.ts", android: true },
   // pi-response-guard: auto-recovers from empty, errored, or interrupted
   // model responses by retrying with a configurable message (rate-limit /
