@@ -308,21 +308,21 @@ function detectExtensions(argv: readonly string[]): string[] {
 function wrapEntries(entries: string[], inner: number): string[] {
   if (inner <= 0) return [entries.join(", ")];
   const lines: string[] = [];
-  let cur = "";
-  for (const entry of entries) {
-    if (cur.length === 0) {
-      cur = entry;
-      continue;
+  const colGap = 1;
+  const colWidth = Math.floor((inner - colGap) / 2);
+  const buildLine = (left: string, right?: string): string => {
+    const leftPadded = left + " ".repeat(Math.max(0, colWidth - headerVisibleWidth(left)));
+    const rightSource = right ?? "";
+    const line = leftPadded + " " + rightSource;
+    if (headerVisibleWidth(line) > inner) {
+      const maxRight = Math.max(0, inner - colWidth - colGap);
+      return leftPadded + " " + truncateLine(rightSource, maxRight);
     }
-    const candidate = `${cur}, ${entry}`;
-    if (headerVisibleWidth(candidate) <= inner) {
-      cur = candidate;
-    } else {
-      lines.push(cur);
-      cur = entry;
-    }
+    return line;
+  };
+  for (let i = 0; i < entries.length; i += 2) {
+    lines.push(buildLine(entries[i], entries[i + 1]));
   }
-  if (cur.length > 0) lines.push(cur);
   return lines.length > 0 ? lines : [""];
 }
 
