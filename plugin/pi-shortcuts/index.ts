@@ -12,23 +12,52 @@ const COMPACT_THRESHOLD = 80;
 const COMPACT_COOLDOWN_MS = 30_000;
 let lastCompactAt = 0;
 let pendingCompact: Promise<void> | null = null;
+let compactDeferred = false;
 
 async function maybeCompact(_event: unknown, ctx: ExtensionContext): Promise<void> {
 	const u = ctx.getContextUsage();
-	if (!u || u.tokens == null || u.contextWindow == null) return;
+	if (!u || u.tokens == null || u.contextWindow == null) {
+		return;
+	}
 	const pct = Math.round((u.tokens / u.contextWindow) * 100);
-	if (pct < COMPACT_THRESHOLD) return;
+	if (pct < COMPACT_THRESHOLD) {
+		compactDeferred = false;
+		return;
+	}
 	const now = Date.now();
 	if (now - lastCompactAt < COMPACT_COOLDOWN_MS) return;
 	if (pendingCompact) return;
+	if (compactDeferred) compactDeferred = false;
 
 	lastCompactAt = now;
+	const task = (async () => {
+		try {
+			await pi.sendUserMessage("/compact");
+			await new Promise((r) => setTimeout(r, 400));
+			await pi.sendUserMessage("继续");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			ctx.ui.notify(`Auto-compact failed: ${message}`, "warning");
+		}
+	})();
+	pendingCompact = task;
 	try {
-		await pi.sendUserMessage("/compact");
-		await pi.sendUserMessage("继续");
+		await task;
 	} finally {
 		pendingCompact = null;
 	}
+}
+
+async function tryDeferredCompact(ctx: ExtensionContext): Promise<void> {
+	if (!compactDeferred) return;
+	const u = ctx.getContextUsage();
+	if (!u || u.tokens == null || u.contextWindow == null) return;
+	const pct = Math.round((u.tokens / u.contextWindow) * 100);
+	if (pct < COMPACT_THRESHOLD) {
+		compactDeferred = false;
+		return;
+	}
+	await maybeCompact("agent_settled", ctx);
 }
 
 // ── /clear ─────────────────────────────────────────────────────────────────
@@ -108,6 +137,17 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("message_update", async (event, ctx) => {
+		const u = ctx.getContextUsage();
+		if (!u || u.tokens == null || u.contextWindow == null) {
+			if (!compactDeferred) {
+				compactDeferred = true;
+			}
+			return;
+		}
 		await maybeCompact(event, ctx);
+	});
+
+	pi.on("agent_settled", async (event, ctx) => {
+		await tryDeferredCompact(ctx);
 	});
 }
