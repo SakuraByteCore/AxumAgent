@@ -70,7 +70,7 @@ Start a background subagent from the prompt:
 Open the bundled pi-plugins skill guide for plugin management workflows:
 
 ```text
-/pi-plugins
+/plugin-create-mode
 ```
 
 
@@ -91,7 +91,7 @@ The distribution ships these packages, all in one install:
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
-- `pi-shortcuts` (merged pi-plan + pi-clear + /subagent + /pi-plugins)
+- `pi-shortcuts` (merged pi-plan + pi-clear + /subagent + /plugin-create-mode)
 - `@narumitw/pi-goal`
 - `pi-response-guard`
 - `pi-guard`

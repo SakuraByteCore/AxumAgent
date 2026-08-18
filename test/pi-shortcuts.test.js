@@ -120,7 +120,7 @@ test("pi-plugins command opens the skill guide", async () => {
   const pi = createPi();
   const { ctx, notifications } = createContext();
 
-  await pi.commands.get("pi-plugins").handler("", ctx);
+  await pi.commands.get("plugin-create-mode").handler("", ctx);
 
   assert.equal(notifications.length, 2);
   assert.equal(notifications[0].message, "=== pi-plugins Skill Guide ===");

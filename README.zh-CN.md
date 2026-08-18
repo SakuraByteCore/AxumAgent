@@ -35,7 +35,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - `@earendil-works/pi-coding-agent`
 - `pi-bar`（AxumAgent 打包分支）
 - `pi-header`（AxumAgent 打包分支）
-- `pi-shortcuts`（合并自 pi-plan + pi-clear + /subagent + /pi-plugins）
+- `pi-shortcuts`（合并自 pi-plan + pi-clear + /subagent + /plugin-create-mode）
 - `@narumitw/pi-goal`
 - `pi-response-guard`
 - `pi-guard`

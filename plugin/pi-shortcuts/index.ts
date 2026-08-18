@@ -236,10 +236,11 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 
-	// ── /pi-plugins: open the bundled pi-plugins skill guide.
 
-	pi.registerCommand("pi-plugins", {
-		description: "Open the bundled pi-plugins skill guide for plugin management workflows",
+	// ── /plugin-create-mode: open the bundled pi-plugins skill guide (plugin creation mode).
+
+	pi.registerCommand("plugin-create-mode", {
+		description: "Open the bundled pi-plugins skill guide (plugin creation mode)",
 		getArgumentCompletions: () => null,
 		async handler(_args: string, ctx) {
 			const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", "pi-plugins");
