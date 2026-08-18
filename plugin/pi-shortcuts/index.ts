@@ -90,7 +90,7 @@ let pendingCompact: Promise<void> | null = null;
 let compactDeferred = false;
 let compactRequested = false;
 
-async function maybeCompact(_event: unknown, ctx: ExtensionContext): Promise<void> {
+async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionContext): Promise<void> {
 	const u = ctx.getContextUsage();
 	if (!u || u.tokens == null || u.contextWindow == null) {
 		return;
@@ -125,7 +125,7 @@ async function maybeCompact(_event: unknown, ctx: ExtensionContext): Promise<voi
 }
 
 
-async function sendCompactContinue(_ctx: ExtensionContext): Promise<void> {
+async function sendCompactContinue(pi: ExtensionAPI, _ctx: ExtensionContext): Promise<void> {
 	if (!compactRequested) return;
 	try {
 		await new Promise((r) => setTimeout(r, COMPACT_CONTINUE_DELAY_MS));
@@ -137,7 +137,7 @@ async function sendCompactContinue(_ctx: ExtensionContext): Promise<void> {
 		compactRequested = false;
 	}
 }
-async function tryDeferredCompact(ctx: ExtensionContext): Promise<void> {
+async function tryDeferredCompact(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactDeferred) return;
 	const u = ctx.getContextUsage();
 	if (!u || u.tokens == null || u.contextWindow == null) return;
@@ -146,8 +146,8 @@ async function tryDeferredCompact(ctx: ExtensionContext): Promise<void> {
 		compactDeferred = false;
 		return;
 	}
-	await maybeCompact("agent_settled", ctx);
-	await sendCompactContinue(ctx);
+	await maybeCompact(pi, "agent_settled", ctx);
+	await sendCompactContinue(pi, ctx);
 }
 
 // ── /clear ─────────────────────────────────────────────────────────────────
@@ -259,11 +259,11 @@ export default function (pi: ExtensionAPI): void {
 	// ── Auto-Compact Listeners ──────────────────────────────────────────────
 
 	pi.on("agent_start", async (event, ctx) => {
-		await maybeCompact(event, ctx);
+		await maybeCompact(pi, event, ctx);
 	});
 
 	pi.on("turn_start", async (event, ctx) => {
-		await maybeCompact(event, ctx);
+		await maybeCompact(pi, event, ctx);
 	});
 
 	pi.on("message_update", async (event, ctx) => {
@@ -274,11 +274,11 @@ export default function (pi: ExtensionAPI): void {
 			}
 			return;
 		}
-		await maybeCompact(event, ctx);
+		await maybeCompact(pi, event, ctx);
 	});
 
 	pi.on("agent_settled", async (event, ctx) => {
-		await tryDeferredCompact(ctx);
-		await sendCompactContinue(ctx);
+		await tryDeferredCompact(pi, ctx);
+		await sendCompactContinue(pi, ctx);
 	});
 }
