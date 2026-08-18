@@ -176,14 +176,34 @@ export function ensureBundledPi(options) {
   const npm = resolveNpmInstallCommand(options);
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");
-  const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
-    cwd: cacheRoot,
-    stdio: "inherit",
-    env: npmInstallEnv(options),
-    shell: npm.shell,
-  });
-  if (result.error) throw new Error(`failed to install bundled Pi dependencies: ${result.error.message}`);
-  if ((result.status ?? 1) !== 0) throw new Error(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
+  const runNpm = (retry) => {
+    const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
+      cwd: cacheRoot,
+      stdio: "inherit",
+      env: npmInstallEnv(options),
+      shell: npm.shell,
+    });
+    if (result.error) {
+      const msg = result.error.message;
+      if (retry && (msg.includes("ENOTEMPTY") || msg.includes("EPERM") || msg.includes("EBUSY"))) {
+        console.error("retrying bundled Pi install after cleanup...");
+        try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
+        return runNpm(false);
+      }
+      throw new Error(`failed to install bundled Pi dependencies: ${msg}`);
+    }
+    if ((result.status ?? 1) !== 0) {
+      const status = result.status;
+      if (retry && (status === -1 || String(status).includes("ENOTEMPTY"))) {
+        console.error("retrying bundled Pi install after cleanup...");
+        try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
+        return runNpm(false);
+      }
+      throw new Error(`failed to install bundled Pi dependencies: npm exited ${status}`);
+    }
+    return result;
+  };
+  runNpm(true);
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
   applyBundledPiPatches(options);
 }
