@@ -79,9 +79,11 @@ function spawnSubagent(pi: ExtensionAPI, type: string, prompt: string): Promise<
 
 const COMPACT_THRESHOLD = 80;
 const COMPACT_COOLDOWN_MS = 30_000;
+const COMPACT_CONTINUE_DELAY_MS = 2000;
 let lastCompactAt = 0;
 let pendingCompact: Promise<void> | null = null;
 let compactDeferred = false;
+let compactRequested = false;
 
 async function maybeCompact(_event: unknown, ctx: ExtensionContext): Promise<void> {
 	const u = ctx.getContextUsage();
@@ -101,12 +103,12 @@ async function maybeCompact(_event: unknown, ctx: ExtensionContext): Promise<voi
 	lastCompactAt = now;
 	const task = (async () => {
 		try {
+			compactRequested = true;
 			await pi.sendUserMessage("/compact");
-			await new Promise((r) => setTimeout(r, 400));
-			await pi.sendUserMessage("继续");
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			ctx.ui.notify(`Auto-compact failed: ${message}`, "warning");
+			compactRequested = false;
 		}
 	})();
 	pendingCompact = task;
@@ -117,6 +119,19 @@ async function maybeCompact(_event: unknown, ctx: ExtensionContext): Promise<voi
 	}
 }
 
+
+async function sendCompactContinue(_ctx: ExtensionContext): Promise<void> {
+	if (!compactRequested) return;
+	try {
+		await new Promise((r) => setTimeout(r, COMPACT_CONTINUE_DELAY_MS));
+		await pi.sendUserMessage("继续");
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		_ctx.ui.notify(`Auto-compact continue failed: ${message}`, "warning");
+	} finally {
+		compactRequested = false;
+	}
+}
 async function tryDeferredCompact(ctx: ExtensionContext): Promise<void> {
 	if (!compactDeferred) return;
 	const u = ctx.getContextUsage();
@@ -127,6 +142,7 @@ async function tryDeferredCompact(ctx: ExtensionContext): Promise<void> {
 		return;
 	}
 	await maybeCompact("agent_settled", ctx);
+	await sendCompactContinue(ctx);
 }
 
 // ── /clear ─────────────────────────────────────────────────────────────────
@@ -237,5 +253,6 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_settled", async (event, ctx) => {
 		await tryDeferredCompact(ctx);
+		await sendCompactContinue(ctx);
 	});
 }
