@@ -21,11 +21,10 @@ test("checks available Pi extensions on Android", () => {
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
     "pi-shortcuts@file:plugin/pi-shortcuts",
-    "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
     "@tintinweb/pi-subagents@0.16.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 7);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -37,11 +36,10 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
     "pi-shortcuts@file:plugin/pi-shortcuts",
-    "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
     "@tintinweb/pi-subagents@0.16.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 7);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -53,11 +51,10 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-edit@file:plugin/pi-edit",
     "@narumitw/pi-goal@0.31.0",
     "pi-shortcuts@file:plugin/pi-shortcuts",
-    "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
     "@tintinweb/pi-subagents@0.16.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 7);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -67,9 +64,9 @@ test("Windows loads the same extension set as other platforms", () => {
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-response-guard", "pi-guard"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-response-guard", "pi-guard"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-response-guard", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-guard"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-debug", "pi-edit", "pi-shortcuts", "pi-guard"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {

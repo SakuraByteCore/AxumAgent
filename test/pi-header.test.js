@@ -186,7 +186,6 @@ test("pi-header labels node_modules extensions by package name, not entry dir", 
 test("pi-header wraps the Extensions card body onto multiple lines", () => {
   const argv = [
     "-e", "/x/node_modules/pi-bar/index.ts",
-    "-e", "/x/node_modules/pi-response-guard/index.ts",
         "-e", "/x/plugin/pi-header/index.ts",
     "-e", "/x/node_modules/pi-extra-one/index.ts",
     "-e", "/x/node_modules/pi-extra-two/index.ts",

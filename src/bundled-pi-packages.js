@@ -38,12 +38,7 @@ export const bundledPiPackages = [
   // Exposes /plan (plan-first template), /clear (fresh session), /subagent (spawn background agent), and /plugin-create-mode (open skill guide).
   // Single-file, zero native deps.
   { name: "pi-shortcuts@file:plugin/pi-shortcuts", packageName: "pi-shortcuts", extensionPath: "index.ts", android: true },
-  // pi-response-guard: auto-recovers from empty, errored, or interrupted
-  // model responses by retrying with a configurable message (rate-limit /
-  // 429 / 5xx / timeouts / empty-output stop). Fork of the upstream npm
-  // pi-response-guard package to drop its mariozechner peer dependency.
-  // Pure TS, zero native deps.
-  { name: "pi-response-guard@file:plugin/pi-response-guard", packageName: "pi-response-guard", extensionPath: "index.ts", android: true },
+
 // pi-guard: read-only advisory watcher that posts inline guidance notes during
 // primary sessions. Filters noise, dedupes repeats, and rate-limits advice
 // delivery. Pure JS, zero native deps.
