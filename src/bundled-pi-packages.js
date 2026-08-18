@@ -34,8 +34,8 @@ export const bundledPiPackages = [
   { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
-  // pi-shortcuts: bundled slash shortcuts (merged from pi-plan + pi-clear).
-  // Exposes /plan (plan-first template) and /clear (fresh session).
+  // pi-shortcuts: bundled slash shortcuts (merged from pi-plan + pi-clear + pi-subagent + pi-plugins).
+  // Exposes /plan (plan-first template), /clear (fresh session), /subagent (spawn background agent), and /pi-plugins (open skill guide).
   // Single-file, zero native deps.
   { name: "pi-shortcuts@file:plugin/pi-shortcuts", packageName: "pi-shortcuts", extensionPath: "index.ts", android: true },
   // pi-response-guard: auto-recovers from empty, errored, or interrupted

@@ -1,7 +1,9 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { randomUUID } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
-import { extname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { resolve, dirname, join, extname } from "node:path";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -229,6 +231,26 @@ export default function (pi: ExtensionAPI): void {
 			} catch (e: any) {
 				const message = e instanceof Error ? e.message : String(e);
 				ctx.ui.notify(`Failed to start subagent: ${message}`, "error");
+			}
+		},
+	});
+
+
+	// ── /pi-plugins: open the bundled pi-plugins skill guide.
+
+	pi.registerCommand("pi-plugins", {
+		description: "Open the bundled pi-plugins skill guide for plugin management workflows",
+		getArgumentCompletions: () => null,
+		async handler(_args: string, ctx) {
+			const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", "pi-plugins");
+			const skillFile = join(skillDir, "SKILL.md");
+			try {
+				const fc = await readFile(skillFile, "utf-8");
+				ctx.ui.notify("=== pi-plugins Skill Guide ===", "info");
+				ctx.ui.notify(fc, "info");
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`Failed to load pi-plugins skill: ${message}`, "error");
 			}
 		},
 	});

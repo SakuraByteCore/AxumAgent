@@ -67,7 +67,12 @@ Start a background subagent from the prompt:
 /subagent Explore find all files that handle authentication
 ```
 
-If a bundled extension breaks startup, you can launch in safe mode, which loads none of the bundled extensions:
+Open the bundled pi-plugins skill guide for plugin management workflows:
+
+```text
+/pi-plugins
+```
+
 
 ```bash
 axum code --safe
@@ -86,7 +91,7 @@ The distribution ships these packages, all in one install:
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
-- `pi-shortcuts` (merged pi-plan + pi-clear + /subagent)
+- `pi-shortcuts` (merged pi-plan + pi-clear + /subagent + /pi-plugins)
 - `@narumitw/pi-goal`
 - `pi-response-guard`
 - `pi-guard`

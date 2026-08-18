@@ -115,3 +115,15 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
   assert.equal(pi.messages[0].options.deliverAs, "followUp");
 });
+
+test("pi-plugins command opens the skill guide", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+
+  await pi.commands.get("pi-plugins").handler("", ctx);
+
+  assert.equal(notifications.length, 2);
+  assert.equal(notifications[0].message, "=== pi-plugins Skill Guide ===");
+  assert.equal(notifications[0].level, "info");
+  assert.ok(notifications[1].message.includes("Scoped use"), "skill content should mention Scoped use");
+});
