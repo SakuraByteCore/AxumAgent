@@ -24,9 +24,8 @@ test("checks available Pi extensions on Android", () => {
     "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
     "@tintinweb/pi-subagents@0.16.1",
-    "@agwab/pi-workflow@0.12.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -41,9 +40,8 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
     "@tintinweb/pi-subagents@0.16.1",
-    "@agwab/pi-workflow@0.12.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 8);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -58,9 +56,8 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-response-guard@file:plugin/pi-response-guard",
     "pi-guard@file:plugin/pi-guard",
     "@tintinweb/pi-subagents@0.16.1",
-    "@agwab/pi-workflow@0.12.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -87,13 +84,10 @@ test("every local plugin name has a matching plugin/ subdir", () => {
 test("supportedBundledPiSkills exposes bundled package skills", () => {
   assert.deepEqual(
     supportedBundledPiSkills({ platform: "android", env: {} }),
-    [
-      { packageName: "@agwab/pi-workflow", skillPath: "skills/workflow-guide" },
-      { packageName: "@agwab/pi-workflow", skillPath: "skills/execution-router" },
-    ]
+    []
   );
-  assert.equal(supportedBundledPiSkills({ platform: "linux", env: {} }).length, 2);
-  assert.equal(supportedBundledPiSkills({ platform: "win32", env: {} }).length, 2);
+  assert.equal(supportedBundledPiSkills({ platform: "linux", env: {} }).length, 0);
+  assert.equal(supportedBundledPiSkills({ platform: "win32", env: {} }).length, 0);
 });
 
 test("supportedBundledPiSkills filters packages without skills", () => {

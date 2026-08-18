@@ -17,21 +17,14 @@ type SpawnReply =
 	| { success: true; data?: { id?: string } }
 	| { success: false; error?: string };
 
-function parseSubagentArgs(args: string): { type: string; prompt: string } | undefined {
-	const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
-	if (!match) return undefined;
-	const prompt = match[2].trim();
-	if (!prompt) return undefined;
-	return { type: match[1], prompt };
-}
 
-function subagentDescription(prompt: string, type: string): string {
+function subagentDescription(prompt: string): string {
 	const words = prompt.trim().split(/\s+/).filter(Boolean);
 	const text = words.length > 1 ? words.slice(0, 5).join(" ") : prompt.trim();
-	return (text || type).slice(0, 48);
+	return text.slice(0, 48);
 }
 
-function spawnSubagent(pi: ExtensionAPI, type: string, prompt: string): Promise<string> {
+function spawnSubagent(pi: ExtensionAPI, prompt: string): Promise<string> {
 	const events = (pi as unknown as { events?: EventBus }).events;
 	if (!events) throw new Error("event bus is unavailable");
 	const requestId = randomUUID();
@@ -63,15 +56,25 @@ function spawnSubagent(pi: ExtensionAPI, type: string, prompt: string): Promise<
 		timer = setTimeout(() => {
 			finish(() => reject(new Error("subagents extension is not ready")));
 		}, SUBAGENT_RPC_TIMEOUT_MS);
-		events.emit("subagents:rpc:spawn", {
-			requestId,
-			type,
-			prompt,
-			options: {
-				description: subagentDescription(prompt, type),
-				isBackground: true,
-			},
-		});
+		const model = pi.getModel();
+		const provider = model ? ({
+		  provider: model.provider,
+		  modelId: model.id,
+		  api: model.api,
+		  baseUrl: model.baseUrl,
+		} as const) : undefined;
+
+		const payload: Record<string, unknown> = {
+		  requestId,
+		  type: "",
+		  prompt,
+		  options: {
+		    description: subagentDescription(prompt),
+		    isBackground: true,
+		  },
+		};
+		if (provider) payload.provider = provider;
+		events.emit("subagents:rpc:spawn", payload);
 	});
 }
 
@@ -212,19 +215,19 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.registerCommand("subagent", {
-		description: "Start a background subagent: /subagent <type> <prompt>",
+		description: "Start a background subagent: /subagent <prompt>",
 		getArgumentCompletions: () => null,
 		async handler(args: string, ctx) {
-			const parsed = parseSubagentArgs(args);
-			if (!parsed) {
-				ctx.ui.notify("Please provide a type and prompt: /subagent <type> <prompt>", "warning");
+			const prompt = args.trim();
+			if (!prompt) {
+				ctx.ui.notify("Please provide a prompt: /subagent <prompt>", "warning");
 				return;
 			}
 			try {
-				const id = await spawnSubagent(pi, parsed.type, parsed.prompt);
+				const id = await spawnSubagent(pi, prompt);
 				ctx.ui.notify(`Started subagent ${id}. Manage it with /agents.`, "info");
-			} catch (err) {
-				const message = err instanceof Error ? err.message : String(err);
+			} catch (e: any) {
+				const message = e instanceof Error ? e.message : String(e);
 				ctx.ui.notify(`Failed to start subagent: ${message}`, "error");
 			}
 		},

@@ -33,6 +33,7 @@ function createPi() {
     registerCommand(name, command) {
       commands.set(name, command);
     },
+    getModel() { return undefined; },
     on() {},
     sendUserMessage(message, options) {
       messages.push({ message, options });
@@ -63,25 +64,45 @@ test("subagent command spawns a background agent through RPC", async () => {
 
   assert.equal(pi.emitted.length, 1);
   assert.equal(pi.emitted[0].event, "subagents:rpc:spawn");
-  assert.equal(pi.emitted[0].data.type, "Explore");
-  assert.equal(pi.emitted[0].data.prompt, "find auth files");
+	assert.equal(pi.emitted[0].data.type, "");
+	assert.equal(pi.emitted[0].data.prompt, "Explore find auth files");
   assert.equal(pi.emitted[0].data.options.isBackground, true);
-  assert.equal(pi.emitted[0].data.options.description, "find auth files");
+  assert.equal(pi.emitted[0].data.options.description, "Explore find auth files");
   assert.deepEqual(notifications, [
     { message: "Started subagent agent-1. Manage it with /agents.", level: "info" },
   ]);
 });
 
-test("subagent command requires type and prompt", async () => {
+test("subagent command requires prompt", async () => {
+	const pi = createPi();
+	const { ctx, notifications } = createContext();
+	await pi.commands.get("subagent").handler("", ctx);
+	assert.equal(pi.emitted.length, 0);
+	assert.deepEqual(notifications, [
+		{ message: "Please provide a prompt: /subagent <prompt>", level: "warning" },
+	]);
+});
+
+test("subagent inherits provider config from pi.getModel() when model is set", async () => {
   const pi = createPi();
+  pi.getModel = () => ({
+    provider: "openai",
+    id: "gpt-4o",
+    api: "openai",
+    baseUrl: "https://api.openai.com/v1",
+    apiKey: "sk-test",
+  });
   const { ctx, notifications } = createContext();
-
-  await pi.commands.get("subagent").handler("Explore", ctx);
-
-  assert.equal(pi.emitted.length, 0);
-  assert.deepEqual(notifications, [
-    { message: "Please provide a type and prompt: /subagent <type> <prompt>", level: "warning" },
-  ]);
+  await pi.commands.get("subagent").handler("test prompt", ctx);
+  assert.equal(pi.emitted.length, 1);
+  assert.equal(pi.emitted[0].event, "subagents:rpc:spawn");
+  assert.deepStrictEqual(pi.emitted[0].data.provider, {
+    provider: "openai",
+    modelId: "gpt-4o",
+    api: "openai",
+    baseUrl: "https://api.openai.com/v1",
+  });
+  assert.equal(pi.emitted[0].data.prompt, "test prompt");
 });
 
 test("plan command still sends the plan-first prompt", async () => {
