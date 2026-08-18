@@ -1,14 +1,14 @@
 {
   "name": "pi-shortcuts",
   "version": "0.1.0",
-  "description": "Bundled slash shortcuts for pi-coding-agent — /plan and /clear merged into one small plugin, single-file, zero native deps",
+  "description": "Bundled slash shortcuts for pi-coding-agent — /plan, /clear, and /subagent merged into one small plugin, single-file, zero native deps",
   "type": "module",
   "main": "index.ts",
   "files": ["index.ts", "LICENSE"],
   "pi": {
     "extensions": ["./index.ts"]
   },
-  "keywords": ["pi-package", "pi", "coding-agent", "extension", "pi-shortcuts", "plan", "clear", "android", "termux"],
+  "keywords": ["pi-package", "pi", "coding-agent", "extension", "pi-shortcuts", "plan", "clear", "subagent", "android", "termux"],
   "license": "MIT",
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.74.0"

@@ -35,10 +35,11 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent 同梱フォーク)
 - `pi-header` (AxumAgent 同梱フォーク)
-- `pi-shortcuts` (pi-plan + pi-clear を統合)
+- `pi-shortcuts` (pi-plan + pi-clear を統合 + /subagent)
 - `@narumitw/pi-goal`
 - `pi-response-guard`
 - `pi-guard`
+- `@tintinweb/pi-subagents`
 - `@agwab/pi-workflow`
 
 ## 要件
@@ -74,6 +75,11 @@ axum web
 axum code
 ```
 
+プロンプトからバックグラウンド subagent を起動します:
+
+```text
+/subagent Explore find all files that handle authentication
+```
 
 拡張が壊れて起動できない場合は、bundled extensions を一切読み込まないセーフモードで起動できます:
 
@@ -153,7 +159,7 @@ axum doctor
 
 `doctor` は bundled Pi cache と entrypoint を確認します。
 
-拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-bar` / `pi-header` / `pi-shortcuts` / `pi-goal` / `pi-response-guard` / `pi-guard` / `pi-workflow` を読み込みません。
+拡張の問題で通常起動できない場合は `axum code --safe` を使うと、Pi 本体だけを `-ne` で起動し、`pi-bar` / `pi-header` / `pi-shortcuts` / `pi-goal` / `pi-response-guard` / `pi-guard` / `@tintinweb/pi-subagents` / `pi-workflow` を読み込みません。
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザーキャッシュに保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。
 

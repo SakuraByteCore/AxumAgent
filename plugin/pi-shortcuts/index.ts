@@ -1,10 +1,79 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { randomUUID } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { extname } from "node:path";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
 const PLAN_FIRST_TEMPLATE = `Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+const SUBAGENT_RPC_TIMEOUT_MS = 3000;
+
+type EventBus = {
+	on(event: string, handler: (data: unknown) => void): () => void;
+	emit(event: string, data: unknown): void;
+};
+
+type SpawnReply =
+	| { success: true; data?: { id?: string } }
+	| { success: false; error?: string };
+
+function parseSubagentArgs(args: string): { type: string; prompt: string } | undefined {
+	const match = args.trim().match(/^(\S+)\s+([\s\S]+)$/);
+	if (!match) return undefined;
+	const prompt = match[2].trim();
+	if (!prompt) return undefined;
+	return { type: match[1], prompt };
+}
+
+function subagentDescription(prompt: string, type: string): string {
+	const words = prompt.trim().split(/\s+/).filter(Boolean);
+	const text = words.length > 1 ? words.slice(0, 5).join(" ") : prompt.trim();
+	return (text || type).slice(0, 48);
+}
+
+function spawnSubagent(pi: ExtensionAPI, type: string, prompt: string): Promise<string> {
+	const events = (pi as unknown as { events?: EventBus }).events;
+	if (!events) throw new Error("event bus is unavailable");
+	const requestId = randomUUID();
+	return new Promise((resolve, reject) => {
+		let settled = false;
+		let timer: ReturnType<typeof setTimeout>;
+		let unsubscribe = () => {};
+		const finish = (fn: () => void) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(timer);
+			unsubscribe();
+			fn();
+		};
+		unsubscribe = events.on(`subagents:rpc:spawn:reply:${requestId}`, (raw) => {
+			const reply = raw as SpawnReply;
+			finish(() => {
+				if (!reply || typeof reply !== "object") {
+					reject(new Error("invalid subagent reply"));
+					return;
+				}
+				if (!reply.success) {
+					reject(new Error(reply.error || "subagent spawn failed"));
+					return;
+				}
+				resolve(reply.data?.id || requestId);
+			});
+		});
+		timer = setTimeout(() => {
+			finish(() => reject(new Error("subagents extension is not ready")));
+		}, SUBAGENT_RPC_TIMEOUT_MS);
+		events.emit("subagents:rpc:spawn", {
+			requestId,
+			type,
+			prompt,
+			options: {
+				description: subagentDescription(prompt, type),
+				isBackground: true,
+			},
+		});
+	});
+}
 
 // ── Auto-Compact ────────────────────────────────────────────────────────────
 
@@ -123,6 +192,25 @@ export default function (pi: ExtensionAPI): void {
 				`[Instructions] ${PLAN_FIRST_TEMPLATE}`,
 			].join("\n");
 			pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+		},
+	});
+
+	pi.registerCommand("subagent", {
+		description: "Start a background subagent: /subagent <type> <prompt>",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			const parsed = parseSubagentArgs(args);
+			if (!parsed) {
+				ctx.ui.notify("Please provide a type and prompt: /subagent <type> <prompt>", "warning");
+				return;
+			}
+			try {
+				const id = await spawnSubagent(pi, parsed.type, parsed.prompt);
+				ctx.ui.notify(`Started subagent ${id}. Manage it with /agents.`, "info");
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`Failed to start subagent: ${message}`, "error");
+			}
 		},
 	});
 
