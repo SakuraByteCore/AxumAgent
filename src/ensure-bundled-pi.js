@@ -9,7 +9,75 @@ import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
 
-function getPluginSourceDir(name) {
+function exportStubJavaScriptObject(obj) {
+  const lines = Object.entries(obj).map(([k, v]) => {
+    const valueStr = typeof v === "function" ? "(" + v + ")"
+      : typeof v === "string" ? "'" + '"' + v + '"' + "'"
+      : String(v);
+    return "  " + k + ": " + valueStr;
+  }).join("\n");
+  return "export default {\n" + lines + "\n};\n";
+}
+
+const ANSI_STYLES = {
+  reset:         (t) => "\x1b[0m" + t,
+  bold:          (t) => "\x1b[1m" + t,
+  dim:           (t) => "\x1b[2m" + t,
+  italic:        (t) => "\x1b[3m" + t,
+  underline:     (t) => "\x1b[4m" + t,
+  inverse:       (t) => "\x1b[7m" + t,
+  strikethrough: (t) => "\x1b[9m" + t,
+  hidden:        (t) => "\x1b[8m" + t,
+  visible:       (t) => "\x1b[28m" + t,
+  black:         (t) => "\x1b[30m" + t,
+  red:           (t) => "\x1b[31m" + t,
+  green:         (t) => "\x1b[32m" + t,
+  yellow:        (t) => "\x1b[33m" + t,
+  blue:          (t) => "\x1b[34m" + t,
+  magenta:       (t) => "\x1b[35m" + t,
+  cyan:          (t) => "\x1b[36m" + t,
+  white:         (t) => "\x1b[37m" + t,
+  gray:          (t) => "\x1b[90m" + t,
+  bgBlack:       (t) => "\x1b[40m" + t,
+  bgRed:         (t) => "\x1b[41m" + t,
+  bgGreen:       (t) => "\x1b[42m" + t,
+  bgYellow:      (t) => "\x1b[43m" + t,
+  bgBlue:        (t) => "\x1b[44m" + t,
+  bgMagenta:     (t) => "\x1b[45m" + t,
+  bgCyan:        (t) => "\x1b[46m" + t,
+  bgWhite:       (t) => "\x1b[47m" + t,
+};
+
+function requireStubJavaScriptObject(obj) {
+  const lines = Object.entries(obj).map(([k, v]) => {
+    const valueStr = typeof v === "function" ? "(" + v + ")"
+      : typeof v === "string" ? "'" + '"' + v + '"' + "'"
+      : String(v);
+    return "  " + k + ": " + valueStr;
+  }).join("\n");
+  return "module.exports = {\n" + lines + "\n};\n";
+}
+
+function ensureBundledPiVendoredDep(options, name, versions) {
+  const cacheRoot = getBundledPiCacheRoot(options);
+  const candidate = path.join(cacheRoot, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", name);
+  const indexJs = path.join(candidate, "index.js");
+  if (fs.existsSync(candidate) && fs.existsSync(indexJs)) return;
+
+  fs.mkdirSync(path.dirname(indexJs), { recursive: true });
+
+  let declaredType = "commonjs";
+  const existingPkgJson = path.join(cacheRoot, "node_modules", name, "package.json");
+  if (fs.existsSync(existingPkgJson)) {
+    try {
+      declaredType = JSON.parse(fs.readFileSync(existingPkgJson, "utf8")).type || declaredType;
+    } catch { /* ignore */ }
+  }
+
+  const pkg = { name, version: versions[0], type: declaredType, main: "index.js", module: "index.js" };
+  fs.writeFileSync(path.join(candidate, "package.json"), JSON.stringify(pkg, null, 2));
+  fs.writeFileSync(indexJs, requireStubJavaScriptObject(ANSI_STYLES));
+}function getPluginSourceDir(name) {
   const thisFile = fileURLToPath(import.meta.url);
   const pkgRoot = path.resolve(path.dirname(thisFile), "..");
   return path.join(pkgRoot, "plugin", name);
@@ -206,6 +274,7 @@ export function ensureBundledPi(options) {
   runNpm(true);
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
   applyBundledPiPatches(options);
+  ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
 }
 
 export function ensureBundledSkills(cacheRoot, options) {
