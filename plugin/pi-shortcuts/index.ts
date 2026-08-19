@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { getSubagentsEnabled } from "../../src/provider-config.js";
 import { randomUUID } from "node:crypto";
 import { existsSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -665,24 +666,26 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
-	pi.registerCommand("subagent", {
-		description: "Start a background subagent: /subagent <prompt>",
-		getArgumentCompletions: () => null,
-		async handler(args: string, ctx) {
-			const prompt = args.trim();
-			if (!prompt) {
-				ctx.ui.notify("Please provide a prompt: /subagent <prompt>", "warning");
-				return;
-			}
-			try {
-				const id = await spawnSubagent(pi, prompt);
-				ctx.ui.notify(`Started subagent ${id}. Manage it with /agents.`, "info");
-			} catch (e: any) {
-				const message = e instanceof Error ? e.message : String(e);
-				ctx.ui.notify(`Failed to start subagent: ${message}`, "error");
-			}
-		},
-	});
+	if (getSubagentsEnabled()) {
+		pi.registerCommand("subagent", {
+			description: "Start a background subagent: /subagent <prompt>",
+			getArgumentCompletions: () => null,
+			async handler(args: string, ctx) {
+				const prompt = args.trim();
+				if (!prompt) {
+					ctx.ui.notify("Please provide a prompt: /subagent <prompt>", "warning");
+					return;
+				}
+				try {
+					const id = await spawnSubagent(pi, prompt);
+					ctx.ui.notify(`Started subagent ${id}. Manage it with /agents.`, "info");
+				} catch (e: any) {
+					const message = e instanceof Error ? e.message : String(e);
+					ctx.ui.notify(`Failed to start subagent: ${message}`, "error");
+				}
+			},
+		});
+	}
 
 
 
