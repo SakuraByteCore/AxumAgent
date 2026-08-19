@@ -113,7 +113,7 @@ test("plan command still sends the plan-first prompt", async () => {
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
-  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
 });
 
 test("pi-plugins command opens the skill guide", async () => {

@@ -110,7 +110,7 @@ async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionCon
 	const task = (async () => {
 		try {
 			compactRequested = true;
-			await pi.sendUserMessage("/compact");
+			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			ctx.ui.notify(`Auto-compact failed: ${message}`, "warning");
@@ -130,7 +130,7 @@ async function sendCompactContinue(pi: ExtensionAPI, _ctx: ExtensionContext): Pr
 	if (!compactRequested) return;
 	try {
 		await new Promise((r) => setTimeout(r, COMPACT_CONTINUE_DELAY_MS));
-		await pi.sendUserMessage("继续");
+		await pi.sendUserMessage("继续", { streamingBehavior: "steer" });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		_ctx.ui.notify(`Auto-compact continue failed: ${message}`, "warning");
@@ -661,7 +661,7 @@ export default function (pi: ExtensionAPI): void {
 				"",
 				`[Instructions] ${PLAN_FIRST_TEMPLATE}`,
 			].join("\n");
-			pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+			pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
 		},
 	});
 
@@ -787,13 +787,13 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		if (autoContinueReason.kind === "length") {
-			await pi.sendUserMessage("/compact");
+			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
 		}
 
 		if (guardCtx.isIdle()) {
 			await pi.sendUserMessage(config.retryMessage);
 		} else {
-			await pi.sendUserMessage(config.retryMessage, { deliverAs: "followUp" });
+			await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
 		}
 	}
 
@@ -910,13 +910,13 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		if (autoContinueReason.kind === "length") {
-			await pi.sendUserMessage("/compact");
+			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
 		}
 
 		if ((ctx as QueueAwareContext).isIdle()) {
 			await pi.sendUserMessage(config.retryMessage);
 		} else {
-			await pi.sendUserMessage(config.retryMessage, { deliverAs: "followUp" });
+			await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
 		}
 	});
 }
