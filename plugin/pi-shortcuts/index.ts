@@ -805,11 +805,7 @@ export default function (pi: ExtensionAPI): void {
 			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
 		}
 
-		if (guardCtx.isIdle()) {
-			await pi.sendUserMessage(config.retryMessage);
-		} else {
-			await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
-		}
+		await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
 	}
 
 	pi.on("agent_end", async (event, ctx) => {
@@ -928,10 +924,6 @@ export default function (pi: ExtensionAPI): void {
 			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
 		}
 
-		if ((ctx as QueueAwareContext).isIdle()) {
-			await pi.sendUserMessage(config.retryMessage);
-		} else {
-			await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
-		}
+		await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
 	});
 }
