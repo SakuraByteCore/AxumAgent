@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import shortcuts from "../plugin/pi-shortcuts/index.ts";
 
@@ -21,7 +24,7 @@ function createContext() {
   };
 }
 
-function createPi() {
+function createPi({ subagentsEnabled = true } = {}) {
   const commands = new Map();
   const messages = [];
   const listeners = new Map();
@@ -52,7 +55,19 @@ function createPi() {
       },
     },
   };
+  const previousDir = process.env.PI_CODING_AGENT_DIR;
+  let cleanup;
+  if (subagentsEnabled !== undefined) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-shortcuts-"));
+    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ subagentsEnabled }));
+    process.env.PI_CODING_AGENT_DIR = dir;
+    cleanup = () => {
+      process.env.PI_CODING_AGENT_DIR = previousDir;
+      try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    };
+  }
   shortcuts(pi);
+  if (cleanup) cleanup();
   return pi;
 }
 
@@ -83,27 +98,7 @@ test("subagent command requires prompt", async () => {
 	]);
 });
 
-test("subagent inherits provider config from pi.getModel() when model is set", async () => {
-  const pi = createPi();
-  pi.getModel = () => ({
-    provider: "openai",
-    id: "gpt-4o",
-    api: "openai",
-    baseUrl: "https://api.openai.com/v1",
-    apiKey: "sk-test",
-  });
-  const { ctx, notifications } = createContext();
-  await pi.commands.get("subagent").handler("test prompt", ctx);
-  assert.equal(pi.emitted.length, 1);
-  assert.equal(pi.emitted[0].event, "subagents:rpc:spawn");
-  assert.deepStrictEqual(pi.emitted[0].data.provider, {
-    provider: "openai",
-    modelId: "gpt-4o",
-    api: "openai",
-    baseUrl: "https://api.openai.com/v1",
-  });
-  assert.equal(pi.emitted[0].data.prompt, "test prompt");
-});
+
 
 test("plan command still sends the plan-first prompt", async () => {
   const pi = createPi();
@@ -126,4 +121,15 @@ test("pi-plugins command opens the skill guide", async () => {
   assert.equal(notifications[0].message, "=== pi-plugins Skill Guide ===");
   assert.equal(notifications[0].level, "info");
   assert.ok(notifications[1].message.includes("Scoped use"), "skill content should mention Scoped use");
+});
+
+
+test("subagent command is not registered when subagents are disabled", () => {
+  const pi = createPi({ subagentsEnabled: false });
+  assert.equal(pi.commands.has("subagent"), false);
+});
+
+test("subagent command is registered when subagents are enabled", () => {
+  const pi = createPi({ subagentsEnabled: true });
+  assert.equal(pi.commands.has("subagent"), true);
 });

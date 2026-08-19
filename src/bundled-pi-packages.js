@@ -28,10 +28,7 @@ export const bundledPiPackages = [
   // continue / step / stack / variables slash commands. Speaks the Debug Adapter
   // Protocol to lldb-dap / dlv / debugpy. Pure TS, zero native deps.
   { name: "pi-debug@file:plugin/pi-debug", packageName: "pi-debug", extensionPath: "index.ts", android: true },
-  // pi-edit: AxumAgent bundled fork. The upstream npm package
-  // depends on better-sqlite3 (native C++) which fails on Android/Termux. This
-  // local file: copy replaces all native deps with node:crypto + pure-JS file backend.
-  { name: "pi-edit@file:plugin/pi-edit", packageName: "pi-edit", extensionPath: "index.ts", android: true },
+
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-shortcuts: bundled slash shortcuts (merged from pi-plan + pi-clear + pi-subagent + pi-plugins).

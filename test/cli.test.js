@@ -85,7 +85,6 @@ class StdinBuffer {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
-  writePackage(cache, "pi-edit", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.js": "" });
   writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });
@@ -98,7 +97,7 @@ class StdinBuffer {
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 7;
+  const expectedExtensionCount = 6;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
@@ -136,9 +135,8 @@ class StdinBuffer {
   });
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
-  writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
-  writePackage(cache, "pi-edit", { "index.ts": "" });
+  writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.js": "" });
   writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
   fs.mkdirSync(agentDir, { recursive: true });

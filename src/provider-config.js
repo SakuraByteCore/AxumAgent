@@ -368,3 +368,15 @@ export function ensureTuiModeDefault(file = getSettingsPath()) {
     writeJsonFile(file, config);
   }
 }
+
+export function getSubagentsEnabled(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  return config.subagentsEnabled === true;
+}
+
+export function saveSubagentsEnabled(enabled, file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  config.subagentsEnabled = Boolean(enabled);
+  writeJsonFile(file, config);
+  return { file, enabled: config.subagentsEnabled };
+}
