@@ -1,7 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { getSubagentsEnabled } from "../../src/provider-config.js";
 import { randomUUID } from "node:crypto";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, unlinkSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname, join, extname } from "node:path";
@@ -10,6 +9,19 @@ import { homedir } from "node:os";
 // ── Templates ──────────────────────────────────────────────────────────────
 
 const PLAN_FIRST_TEMPLATE = `Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+function readSubagentsEnabled(): boolean {
+  try {
+    let settingsPath: string;
+    const dir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
+    settingsPath = join(dir, "settings.json");
+    const raw = readFileSync(settingsPath, "utf-8");
+    const config = JSON.parse(raw);
+    return config.subagentsEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
 const SUBAGENT_RPC_TIMEOUT_MS = 3000;
 
 type EventBus = {
@@ -666,7 +678,7 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
-	if (getSubagentsEnabled()) {
+	if (readSubagentsEnabled()) {
 		pi.registerCommand("subagent", {
 			description: "Start a background subagent: /subagent <prompt>",
 			getArgumentCompletions: () => null,
