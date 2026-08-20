@@ -74,6 +74,24 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
 });
 
+test("plan command uses Chinese expectation for CJK input", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("plan").handler("实现登录功能", ctx);
+
+  assert.match(pi.messages[0].message, /\[Expectation\] 请用大白话（口语化中文）描述当前需求的预期结果。/);
+});
+
+test("plan command uses Japanese expectation for kana input", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("plan").handler("ログイン機能を実装", ctx);
+
+  assert.match(pi.messages[0].message, /\[Expectation\] 現在の要件の期待される結果を、噛み砕いた表現で説明してください。/);
+});
+
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
   const pi = createPi();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-guard-settled-"));
