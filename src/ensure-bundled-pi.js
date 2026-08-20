@@ -9,13 +9,15 @@ import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
 
+function stubJavaScriptValue(value) {
+  if (typeof value === "function") return "(" + value + ")";
+  return JSON.stringify(value);
+}
+
 function exportStubJavaScriptObject(obj) {
   const lines = Object.entries(obj).map(([k, v]) => {
-    const valueStr = typeof v === "function" ? "(" + v + ")"
-      : typeof v === "string" ? "'" + '"' + v + '"' + "'"
-      : String(v);
-    return "  " + k + ": " + valueStr;
-  }).join("\n");
+    return "  " + JSON.stringify(k) + ": " + stubJavaScriptValue(v);
+  }).join(",\n");
   return "export default {\n" + lines + "\n};\n";
 }
 
@@ -50,11 +52,8 @@ const ANSI_STYLES = {
 
 function requireStubJavaScriptObject(obj) {
   const lines = Object.entries(obj).map(([k, v]) => {
-    const valueStr = typeof v === "function" ? "(" + v + ")"
-      : typeof v === "string" ? "'" + '"' + v + '"' + "'"
-      : String(v);
-    return "  " + k + ": " + valueStr;
-  }).join("\n");
+    return "  " + JSON.stringify(k) + ": " + stubJavaScriptValue(v);
+  }).join(",\n");
   return "module.exports = {\n" + lines + "\n};\n";
 }
 
@@ -62,22 +61,25 @@ function ensureBundledPiVendoredDep(options, name, versions) {
   const cacheRoot = getBundledPiCacheRoot(options);
   const candidate = path.join(cacheRoot, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", name);
   const indexJs = path.join(candidate, "index.js");
-  if (fs.existsSync(candidate) && fs.existsSync(indexJs)) return;
+  const stub = requireStubJavaScriptObject(ANSI_STYLES);
+  if (fs.existsSync(candidate) && fs.existsSync(indexJs)) {
+    try {
+      const pkgJson = path.join(candidate, "package.json");
+      const pkg = JSON.parse(fs.readFileSync(pkgJson, "utf8"));
+      new Function(stub);
+      new Function(fs.readFileSync(indexJs, "utf8"));
+      if ((pkg.type || "commonjs") === "commonjs") return;
+    } catch { /* rewrite malformed older stubs */ }
+  }
 
   fs.mkdirSync(path.dirname(indexJs), { recursive: true });
 
-  let declaredType = "commonjs";
-  const existingPkgJson = path.join(cacheRoot, "node_modules", name, "package.json");
-  if (fs.existsSync(existingPkgJson)) {
-    try {
-      declaredType = JSON.parse(fs.readFileSync(existingPkgJson, "utf8")).type || declaredType;
-    } catch { /* ignore */ }
-  }
-
-  const pkg = { name, version: versions[0], type: declaredType, main: "index.js", module: "index.js" };
+  const pkg = { name, version: versions[0], type: "commonjs", main: "index.js", module: "index.js" };
   fs.writeFileSync(path.join(candidate, "package.json"), JSON.stringify(pkg, null, 2));
-  fs.writeFileSync(indexJs, requireStubJavaScriptObject(ANSI_STYLES));
-}function getPluginSourceDir(name) {
+  fs.writeFileSync(indexJs, stub);
+}
+
+function getPluginSourceDir(name) {
   const thisFile = fileURLToPath(import.meta.url);
   const pkgRoot = path.resolve(path.dirname(thisFile), "..");
   return path.join(pkgRoot, "plugin", name);
@@ -236,6 +238,7 @@ export function ensureBundledPi(options) {
   ensureBundledSkills(cacheRoot, options);
   if (bundledReady(options)) {
     applyBundledPiPatches(options);
+    ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
     return;
   }
 

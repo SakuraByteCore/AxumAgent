@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
@@ -147,6 +148,54 @@ pkg("@tintinweb/pi-subagents", { "src/index.ts": "" });
   assert.equal(fs.existsSync(`${pluginDir}.fingerprint`), true);
   assert.equal(after, before);
 });
+
+test("ensureBundledPi rewrites malformed bundled chalk stubs on ready caches", () => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-chalk-"));
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
+  const stdinBuffer = `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str = Buffer.isBuffer(data) ? data.toString() : data;
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}
+`;
+
+  writePackage(cache, "@earendil-works/pi-coding-agent", {
+    "dist/cli.js": "",
+    "node_modules/chalk/index.js": "module.exports = {\n  reset: ((t) => t)\n  bold: ((t) => t)\n};\n",
+    "node_modules/chalk/package.json": JSON.stringify({ name: "chalk", version: "5.5.1", type: "module", main: "index.js" }),
+  });
+  writePackage(cache, "@earendil-works/pi-ai", { "dist/index.js": "" });
+  writePackage(cache, "@earendil-works/pi-agent-core", { "dist/index.js": "" });
+  writePackage(cache, "@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
+  writePackage(cache, "pi-bar", { "index.ts": "" });
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  writePackage(cache, "pi-shortcuts", { "index.ts": "" });
+  writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-guard", { "index.js": "" });
+  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
+
+  ensureBundledPi(options);
+
+  const chalkRoot = path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "chalk");
+  const chalkIndex = path.join(chalkRoot, "index.js");
+  const chalkPkg = JSON.parse(fs.readFileSync(path.join(chalkRoot, "package.json"), "utf8"));
+  const chalkSource = fs.readFileSync(chalkIndex, "utf8");
+  const require = createRequire(import.meta.url);
+  const chalk = require(chalkIndex);
+
+  assert.equal(chalkPkg.type, "commonjs");
+  assert.doesNotThrow(() => new Function(chalkSource));
+  assert.match(chalkSource, /reset[\s\S]*,\n[\s\S]*bold/);
+  assert.equal(chalk.bold("x"), "\x1b[1mx");
+});
+
 test("cache root is stable and short outside npm package install directory", () => {
   const env = { XDG_CACHE_HOME: "/tmp/axum-cache-home" };
   const root = getBundledPiCacheRoot({ env, platform: "linux", arch: "x64" });
@@ -508,5 +557,4 @@ test("ensureBundledSkills syncs bundled skills to agent skills root", async () =
     os.homedir = originalHomedir;
   }
 });
-
 
