@@ -156,11 +156,15 @@ test("stress.backpressure: busy queue blocks redundent retry", { timeout: 60000 
 // ── Stress 3: max retries cap ───────────────────────────────
 test("stress.maxRetry: maxConsecutiveAutoRetries cap enforced", { timeout: 60000 }, async function() {
   var pi = await createPi(true);
+  var messageEndHandler = pi.listeners.get("message_end");
   var settleHandler = pi.listeners.get("agent_settled");
-  throwIfFail("maxRetry.handlerExists", !!settleHandler, "agent_settled not found");
+  throwIfFail("maxRetry.handlerExists", !!messageEndHandler && !!settleHandler, "retry handlers not found");
 
   for (var i = 0; i < 30; i++) {
-    await settleHandler({ willRetry: false, messages: [makeAssistantMessage()] }, pi);
+    await messageEndHandler({
+      message: makeAssistantMessage({ stopReason: "stop", content: [{ type: "thinking", text: "reasoning" }] }),
+    }, pi);
+    await settleHandler({}, pi);
   }
   var retries = pi.messages.filter(function(m) { return !m.message.startsWith("/compact"); });
   throwIfFail("maxRetry.capRespected", retries.length <= 10,
@@ -338,6 +342,9 @@ test("stress.errorPatterns: 15 distinct error patterns all recovered", { timeout
   if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
   fs.writeFileSync(configPath, JSON.stringify({ enabled: true, retryMessage: "continue", maxConsecutiveAutoRetries: errorMessages.length, autoContinueOnThinkingOnlyStop: true }, null, 2));
 
+  var settleHandler = pi.listeners.get("agent_settled");
+  throwIfFail("errorPatterns.settleHandlerExists", !!settleHandler, "agent_settled not found");
+
   for (var i = 0; i < errorMessages.length; i++) {
     var evt = {
       message: makeAssistantMessage({
@@ -347,6 +354,7 @@ test("stress.errorPatterns: 15 distinct error patterns all recovered", { timeout
       }),
     };
     await h(evt, pi);
+    await settleHandler({}, pi);
   }
 
   var autoRetries = pi.messages.filter(function(m) {

@@ -613,6 +613,7 @@ async function loadConfig(ctx: QueueAwareContext, lastConfigError: { value?: str
 export default function (pi: ExtensionAPI): void {
 	let consecutiveAutoRetries = 0;
 	let pendingAutoRetryMessage: string | undefined;
+	let deferredAutoContinueReason: AutoContinueReason | undefined;
 	let previousMessageRole: string | undefined;
 	let lastUserMessageWasAutoRetry = false;
 	let lastAssistantMessage: { role: string; stopReason?: string; content?: unknown; errorMessage?: string; usage?: { input?: number; output?: number } } | undefined;
@@ -782,17 +783,35 @@ export default function (pi: ExtensionAPI): void {
 		const guardCtx = ctx as QueueAwareContext;
 		const config = await loadConfig(guardCtx, lastConfigError);
 
-		const autoContinueReason = shouldTerminalAutoContinue(config, {
+		if (guardCtx.hasPendingMessages()) return;
+
+		const autoContinueReason = deferredAutoContinueReason ?? shouldTerminalAutoContinue(config, {
 			lastMessage: lastAssistantMessage,
 			alreadyHandled: lastAssistantAlreadyHandled,
-			hasPendingMessages: guardCtx.hasPendingMessages(),
+			hasPendingMessages: false,
 			consecutiveAutoRetries,
 			previousMessageRole,
 		});
 		if (!autoContinueReason) return;
 
+		if (consecutiveAutoRetries >= config.maxConsecutiveAutoRetries) {
+			deferredAutoContinueReason = undefined;
+			lastAssistantAlreadyHandled = true;
+			lastAssistantMessage = undefined;
+			previousMessageRole = undefined;
+			if (config.notifyOnAutoContinue) {
+				safeNotify(
+					guardCtx,
+					`[${EXTENSION_NAME}] Reached retry limit (${config.maxConsecutiveAutoRetries}). Skipping "${config.retryMessage}".`,
+					"warning",
+				);
+			}
+			return;
+		}
+
 		consecutiveAutoRetries += 1;
 		pendingAutoRetryMessage = config.retryMessage;
+		deferredAutoContinueReason = undefined;
 		lastAssistantAlreadyHandled = true;
 		lastAssistantMessage = undefined;
 		previousMessageRole = undefined;
@@ -824,7 +843,9 @@ export default function (pi: ExtensionAPI): void {
 			lastAssistantMessage = m;
 			lastAssistantAlreadyHandled = false;
 		}
-		await maybeAutoContinueTerminal(ctx);
+		// Do not send the retry from agent_end: Pi can still be processing even
+		// after willRetry=false, and sendUserMessage may reject with
+		// "Agent is already processing". agent_settled is the safe injection point.
 	});
 
 	pi.on("message_end", async (event, ctx) => {
@@ -856,6 +877,7 @@ export default function (pi: ExtensionAPI): void {
 			}
 			consecutiveAutoRetries = 0;
 			pendingAutoRetryMessage = undefined;
+			deferredAutoContinueReason = undefined;
 			// A fresh interactive user message supersedes any pending terminal
 			// fallback for a prior run: reset the captured terminal state so a
 			// stale agent_end/agent_settled can't fire a redundant retry.
@@ -872,6 +894,7 @@ export default function (pi: ExtensionAPI): void {
 		if (!retryableStopReasons.has(event.message.stopReason)) {
 			consecutiveAutoRetries = 0;
 			pendingAutoRetryMessage = undefined;
+			deferredAutoContinueReason = undefined;
 			return;
 		}
 
@@ -880,6 +903,7 @@ export default function (pi: ExtensionAPI): void {
 		if (!config.enabled) {
 			consecutiveAutoRetries = 0;
 			pendingAutoRetryMessage = undefined;
+			deferredAutoContinueReason = undefined;
 			return;
 		}
 
@@ -891,43 +915,15 @@ export default function (pi: ExtensionAPI): void {
 		if (!autoContinueReason) {
 			consecutiveAutoRetries = 0;
 			pendingAutoRetryMessage = undefined;
+			deferredAutoContinueReason = undefined;
 			return;
 		}
 
-		// ── Don't interrupt pending messages ──
-		if ((ctx as QueueAwareContext).hasPendingMessages()) return;
-
-		// ── Check retry limit ──
-		if (consecutiveAutoRetries >= config.maxConsecutiveAutoRetries) {
-			if (config.notifyOnAutoContinue) {
-				safeNotify(
-					ctx as QueueAwareContext,
-					`[${EXTENSION_NAME}] Reached retry limit (${config.maxConsecutiveAutoRetries}). Skipping "${config.retryMessage}".`,
-					"warning",
-				);
-			}
-			return;
-		}
-
-		// ── Send retry ──
-		consecutiveAutoRetries += 1;
-		pendingAutoRetryMessage = config.retryMessage;
-		lastAssistantAlreadyHandled = true;
-		lastAssistantMessage = undefined;
-		previousMessageRole = undefined;
-
-		if (config.notifyOnAutoContinue) {
-			safeNotify(
-				ctx as QueueAwareContext,
-				`[${EXTENSION_NAME}] ${autoContinueReason.notification}. Sending "${config.retryMessage}" (${consecutiveAutoRetries}/${config.maxConsecutiveAutoRetries}).`,
-				"info",
-			);
-		}
-
-		if (autoContinueReason.kind === "length") {
-			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
-		}
-
-		await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
+		// ── Defer injection until agent_settled ──
+		// message_end/agent_end can fire while the runtime is still processing.
+		// Queueing the follow-up from agent_settled avoids racing the runtime and
+		// prevents "Agent is already processing" from stopping the task.
+		deferredAutoContinueReason = autoContinueReason;
+		return;
 	});
 }
