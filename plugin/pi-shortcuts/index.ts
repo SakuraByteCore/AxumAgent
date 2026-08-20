@@ -1,6 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, unlinkSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 
