@@ -8,6 +8,8 @@ import { homedir } from "node:os";
 
 const PLAN_FIRST_TEMPLATE = `Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
 
+const PLAN_EXPECTATION_TEMPLATE = `Use plain English style to describe the expected outcome of the current requirement.`;
+
 // ── Auto-Compact ────────────────────────────────────────────────────────────
 
 const COMPACT_THRESHOLD = 80;
@@ -590,6 +592,8 @@ export default function (pi: ExtensionAPI): void {
 			}
 			const prompt = [
 				`[Requirement] ${requirement}`,
+				"",
+				`[Expectation] ${PLAN_EXPECTATION_TEMPLATE}`,
 				"",
 				`[Instructions] ${PLAN_FIRST_TEMPLATE}`,
 			].join("\n");

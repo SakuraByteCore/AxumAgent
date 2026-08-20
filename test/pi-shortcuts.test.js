@@ -69,6 +69,8 @@ test("plan command still sends the plan-first prompt", async () => {
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
+  assert.match(pi.messages[0].message, /\[Expectation\]/);
+  assert.match(pi.messages[0].message, /plain English style/i);
   assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
 });
 
