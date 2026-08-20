@@ -1,6 +1,4 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { randomUUID } from "node:crypto";
-import { existsSync, unlinkSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname, join, extname } from "node:path";
@@ -9,90 +7,6 @@ import { homedir } from "node:os";
 // ── Templates ──────────────────────────────────────────────────────────────
 
 const PLAN_FIRST_TEMPLATE = `Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
-function readSubagentsEnabled(): boolean {
-  try {
-    let settingsPath: string;
-    const dir = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent");
-    settingsPath = join(dir, "settings.json");
-    const raw = readFileSync(settingsPath, "utf-8");
-    const config = JSON.parse(raw);
-    return config.subagentsEnabled === true;
-  } catch {
-    return false;
-  }
-}
-
-const SUBAGENT_RPC_TIMEOUT_MS = 3000;
-
-type EventBus = {
-	on(event: string, handler: (data: unknown) => void): () => void;
-	emit(event: string, data: unknown): void;
-};
-
-type SpawnReply =
-	| { success: true; data?: { id?: string } }
-	| { success: false; error?: string };
-
-
-function subagentDescription(prompt: string): string {
-	const words = prompt.trim().split(/\s+/).filter(Boolean);
-	const text = words.length > 1 ? words.slice(0, 5).join(" ") : prompt.trim();
-	return text.slice(0, 48);
-}
-
-function spawnSubagent(pi: ExtensionAPI, prompt: string): Promise<string> {
-	const events = (pi as unknown as { events?: EventBus }).events;
-	if (!events) throw new Error("event bus is unavailable");
-	const requestId = randomUUID();
-	return new Promise((resolve, reject) => {
-		let settled = false;
-		let timer: ReturnType<typeof setTimeout>;
-		let unsubscribe = () => {};
-		const finish = (fn: () => void) => {
-			if (settled) return;
-			settled = true;
-			clearTimeout(timer);
-			unsubscribe();
-			fn();
-		};
-		unsubscribe = events.on(`subagents:rpc:spawn:reply:${requestId}`, (raw) => {
-			const reply = raw as SpawnReply;
-			finish(() => {
-				if (!reply || typeof reply !== "object") {
-					reject(new Error("invalid subagent reply"));
-					return;
-				}
-				if (!reply.success) {
-					reject(new Error(reply.error || "subagent spawn failed"));
-					return;
-				}
-				resolve(reply.data?.id || requestId);
-			});
-		});
-		timer = setTimeout(() => {
-			finish(() => reject(new Error("subagents extension is not ready")));
-		}, SUBAGENT_RPC_TIMEOUT_MS);
-		const model = pi.getModel();
-		const provider = model ? ({
-		  provider: model.provider,
-		  modelId: model.id,
-		  api: model.api,
-		  baseUrl: model.baseUrl,
-		} as const) : undefined;
-
-		const payload: Record<string, unknown> = {
-		  requestId,
-		  type: "",
-		  prompt,
-		  options: {
-		    description: subagentDescription(prompt),
-		    isBackground: true,
-		  },
-		};
-		if (provider) payload.provider = provider;
-		events.emit("subagents:rpc:spawn", payload);
-	});
-}
 
 // ── Auto-Compact ────────────────────────────────────────────────────────────
 
@@ -683,27 +597,6 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
-	if (readSubagentsEnabled()) {
-		pi.registerCommand("subagent", {
-			description: "Start a background subagent: /subagent <prompt>",
-			getArgumentCompletions: () => null,
-			async handler(args: string, ctx) {
-				const prompt = args.trim();
-				if (!prompt) {
-					ctx.ui.notify("Please provide a prompt: /subagent <prompt>", "warning");
-					return;
-				}
-				try {
-					const id = await spawnSubagent(pi, prompt);
-					ctx.ui.notify(`Started subagent ${id}. Manage it with /agents.`, "info");
-				} catch (e: any) {
-					const message = e instanceof Error ? e.message : String(e);
-					ctx.ui.notify(`Failed to start subagent: ${message}`, "error");
-				}
-			},
-		});
-	}
-
 
 
 	// ── /plugin-create-mode: open the bundled pi-plugins skill guide (plugin creation mode).
@@ -844,7 +737,7 @@ export default function (pi: ExtensionAPI): void {
 			lastAssistantAlreadyHandled = false;
 		}
 		// Do not send the retry from agent_end: Pi can still be processing even
-		// after willRetry=false, and sendUserMessage may reject with
+		// after willRetry=false, and sendUserMessage/streamingBehavior may reject with
 		// "Agent is already processing". agent_settled is the safe injection point.
 	});
 

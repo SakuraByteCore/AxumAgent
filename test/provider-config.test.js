@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getSubagentsEnabled, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, saveSubagentsEnabled, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -197,20 +197,4 @@ test("saveSteeringMode rejects unsupported mode", () => {
   assert.throws(() => saveSteeringMode("followUp", file), /Unsupported steering mode/);
   assert.throws(() => saveSteeringMode(undefined, file), /Unsupported steering mode/);
 });
-
-test("subagents setting is disabled by default", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagents-default-"));
-  const file = path.join(dir, "settings.json");
-  assert.equal(getSubagentsEnabled(file), false);
-});
-
-test("subagents setting can be enabled and persisted", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagents-persist-"));
-  const file = path.join(dir, "settings.json");
-  saveSubagentsEnabled(true, file);
-  assert.equal(getSubagentsEnabled(file), true);
-  saveSubagentsEnabled(false, file);
-  assert.equal(getSubagentsEnabled(file), false);
-});
-
 

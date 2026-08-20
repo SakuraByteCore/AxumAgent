@@ -21,9 +21,8 @@ test("checks available Pi extensions on Android", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-shortcuts@file:plugin/pi-shortcuts",
     "pi-guard@file:plugin/pi-guard",
-    "@tintinweb/pi-subagents@0.16.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 6);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -35,9 +34,8 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-shortcuts@file:plugin/pi-shortcuts",
     "pi-guard@file:plugin/pi-guard",
-    "@tintinweb/pi-subagents@0.16.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 6);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 5);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -49,9 +47,8 @@ test("Windows loads the same extension set as other platforms", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-shortcuts@file:plugin/pi-shortcuts",
     "pi-guard@file:plugin/pi-guard",
-    "@tintinweb/pi-subagents@0.16.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 6);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 5);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

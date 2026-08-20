@@ -31,14 +31,13 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.js": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 6);
-  assert.equal(existingBundledExtensions(options).length, 6);
+  assert.equal(extensions.length, 5);
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 test("checks available Pi extensions on Android", () => {
@@ -50,17 +49,15 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.js": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 6);
+  assert.equal(extensions.length, 5);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-shortcuts", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-guard", "index.js"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "@tintinweb", "pi-subagents", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 6);
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 test("Windows loads same extension set as other platforms", () => {
@@ -72,17 +69,15 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.js": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 6);
+  assert.equal(extensions.length, 5);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-shortcuts", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-guard", "index.js"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "@tintinweb", "pi-subagents", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 6);
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 
@@ -133,7 +128,6 @@ pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("pi-shortcuts", { "index.ts": "" });
   pkg("pi-debug", { "index.ts": "" });
 pkg("pi-guard", { "index.js": "" });
-pkg("@tintinweb/pi-subagents", { "src/index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
 
@@ -179,7 +173,6 @@ class StdinBuffer {
   writePackage(cache, "pi-shortcuts", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-guard", { "index.js": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
 
   ensureBundledPi(options);
 
@@ -457,7 +450,6 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('pi-shortcuts', { 'index.ts': '' });
   pkg('pi-debug', { 'index.ts': '' });
 pkg('pi-guard', { 'index.js': '' });
-pkg('@tintinweb/pi-subagents', { 'src/index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
@@ -465,7 +457,7 @@ pkg('@tintinweb/pi-subagents', { 'src/index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 6);
+  assert.equal(existingBundledExtensions(options).length, 5);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
@@ -496,7 +488,6 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-shortcuts", { "index.ts": "" });
   writePkg(cache, "pi-debug", { "index.ts": "" });
   writePkg(cache, "pi-guard", { "index.js": "" });
-  writePkg(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
 
   fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -527,7 +518,6 @@ writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
   writePkg("pi-shortcuts", { "index.ts": "" });
   writePkg("pi-debug", { "index.ts": "" });
 writePkg("pi-guard", { "index.js": "" });
-writePkg("@tintinweb/pi-subagents", { "src/index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   ensureBundledPi({ env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm });

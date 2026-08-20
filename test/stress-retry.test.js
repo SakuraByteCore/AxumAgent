@@ -34,7 +34,7 @@ function makeAssistantMessage(opts) {
   };
 }
 
-async function createPi(subagentsEnabled) {
+async function createPi() {
   const commands = new Map();
   const messages = [];
   const emitted = [];
@@ -98,17 +98,13 @@ async function createPi(subagentsEnabled) {
   };
 
   var previousDir = process.env.PI_CODING_AGENT_DIR;
-  var cleanupEnv;
-  if (subagentsEnabled !== undefined) {
-    var dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-stress-"));
-    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ subagentsEnabled: subagentsEnabled }));
-    process.env.PI_CODING_AGENT_DIR = dir;
-    cleanupEnv = function() {
-      process.env.PI_CODING_AGENT_DIR = previousDir;
-      try { fs.rmSync(dir, { recursive: true, force: true }); } catch (ex) {}
-      try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (ex2) {}
-    };
-  }
+  var dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-stress-"));
+  var cleanupEnv = function() {
+    process.env.PI_CODING_AGENT_DIR = previousDir;
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch (ex) {}
+    try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (ex2) {}
+  };
+  process.env.PI_CODING_AGENT_DIR = dir;
   var mod = await import("../plugin/pi-shortcuts/index.ts");
   mod.default(pi);
   if (cleanupEnv) cleanupEnv();
@@ -117,7 +113,7 @@ async function createPi(subagentsEnabled) {
 
 // ── Stress 1: Retry storm ──────────────────────────────────
 test("stress.retryStorm: rapid consecutive auto-retries with followUps", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var iters = 200;
   for (var i = 0; i < iters; i++) {
     await pi.sendUserMessage("stress-msg-" + i, { streamingBehavior: "followUp" });
@@ -135,7 +131,7 @@ test("stress.retryStorm: rapid consecutive auto-retries with followUps", { timeo
 
 // ── Stress 2: hasPendingMessages backpressure ──────────────
 test("stress.backpressure: busy queue blocks redundent retry", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   pi.pendingMessages.push({ id: -1, message: "q1", options: {} }, { id: -2, message: "q2", options: {} });
   var isIdle = false;
 
@@ -155,7 +151,7 @@ test("stress.backpressure: busy queue blocks redundent retry", { timeout: 60000 
 
 // ── Stress 3: max retries cap ───────────────────────────────
 test("stress.maxRetry: maxConsecutiveAutoRetries cap enforced", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var messageEndHandler = pi.listeners.get("message_end");
   var settleHandler = pi.listeners.get("agent_settled");
   throwIfFail("maxRetry.handlerExists", !!messageEndHandler && !!settleHandler, "retry handlers not found");
@@ -173,7 +169,7 @@ test("stress.maxRetry: maxConsecutiveAutoRetries cap enforced", { timeout: 60000
 
 // ── Stress 4: event storm re-entrancy ───────────────────────
 test("stress.eventStorm: interleaved handlers under load", { timeout: 120000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var settleHandler = pi.listeners.get("agent_settled");
   var agentEndHandler = pi.listeners.get("agent_end");
   var messageEndHandler = pi.listeners.get("message_end");
@@ -215,7 +211,7 @@ test("stress.eventStorm: interleaved handlers under load", { timeout: 120000 }, 
 
 // ── Stress 5: large content payload ─────────────────────────
 test("stress.largeContent: 500k thinking payload does not OOM", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var bigThinking = "R".repeat(500000);
   var msg = makeAssistantMessage({
     stopReason: "stop",
@@ -238,7 +234,7 @@ test("stress.config: mid-retry config change is picked up", { timeout: 60000 }, 
   process.env.PI_CODING_AGENT_DIR = tmpDir;
   var cleanupTmp;
   try {
-    var pi = await createPi(true);
+    var pi = await createPi();
     async function loadConfig() {
       var raw = await fs.promises.readFile(configPath, "utf-8");
       return JSON.parse(raw);
@@ -262,7 +258,7 @@ test("stress.config: mid-retry config change is picked up", { timeout: 60000 }, 
 
 // ── Stress 7: 1000 message_end rapid-fire memory ────────────
 test("stress.memory: 1000 message_end rapid-fire heap growth < 50MB", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var h = pi.listeners.get("message_end");
   var msg = makeAssistantMessage({ stopReason: "stop", content: [{ type: "thinking", text: "t" }] });
 
@@ -278,7 +274,7 @@ test("stress.memory: 1000 message_end rapid-fire heap growth < 50MB", { timeout:
 
 // ── Stress 8: /compact + followUp interleaving ──────────────
 test("stress.compactInterleave: /compact + followUp no deadlock", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var clearHandler = pi.commands.get("clear");
   if (!clearHandler) return;
 
@@ -298,7 +294,7 @@ test("stress.compactInterleave: /compact + followUp no deadlock", { timeout: 600
 
 // ── Stress 9: /subagent + retry concurrent ───────────────────
 test("stress.subagentRetry: /subagent and retry paths concurrent", { timeout: 120000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var subHandler = pi.commands.get("subagent");
   if (!subHandler) {
     console.log("[subagent] /subagent command not registered, skipping");
@@ -326,7 +322,7 @@ test("stress.subagentRetry: /subagent and retry paths concurrent", { timeout: 12
 
 // ── Stress 10: error pattern boundary ───────────────────────
 test("stress.errorPatterns: 15 distinct error patterns all recovered", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var h = pi.listeners.get("message_end");
 
   var errorMessages = [
@@ -367,7 +363,7 @@ test("stress.errorPatterns: 15 distinct error patterns all recovered", { timeout
 
 // ── Stress 11: idle↔busy rapid oscillation ──────────────────
 test("stress.idleOscillation: 10-wave burst all messages use followUp", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   for (var wave = 0; wave < 10; wave++) {
     for (var i = 0; i < 30; i++) {
       await pi.sendUserMessage("w" + wave + "-m" + i, { streamingBehavior: "followUp" });
@@ -384,7 +380,7 @@ test("stress.idleOscillation: 10-wave burst all messages use followUp", { timeou
 
 // ── Stress 12: /plan command under load ─────────────────────
 test("stress.planLoad: /plan 100 times all use followUp", { timeout: 60000 }, async function() {
-  var pi = await createPi(true);
+  var pi = await createPi();
   var planHandler = pi.commands.get("plan");
   if (!planHandler) return;
 
@@ -426,7 +422,7 @@ test("stress.codeAudit: all sendUserMessage calls pass streamingBehavior", { tim
       encoding: "utf8", timeout: 10000,
     });
   } catch (ex) { result = ex.stdout || ""; }
-  var lines = result.trim().split("\n").filter(function(l) { return l.length > 0; });
+  var lines = result.trim().split("\n").filter(function(l) { return l.length > 0 && !l.trim().startsWith("//"); });
   // All lines containing sendUserMessage should either be the declaration itself or have streamingBehavior
   var badLines = lines.filter(function(l) {
     // ignore the line that defines sendUserMessage in our spy mock
