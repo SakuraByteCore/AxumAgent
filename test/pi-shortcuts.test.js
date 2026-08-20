@@ -32,12 +32,16 @@ function createPi({ subagentsEnabled = true } = {}) {
   const pi = {
     commands,
     messages,
+    listeners,
     emitted,
     registerCommand(name, command) {
       commands.set(name, command);
     },
     getModel() { return undefined; },
-    on() {},
+    on(event, handler) {
+      listeners.set(event, handler);
+      return () => listeners.delete(event);
+    },
     sendUserMessage(message, options) {
       messages.push({ message, options });
     },
@@ -109,6 +113,52 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
   assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+});
+
+test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
+  const pi = createPi();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-guard-settled-"));
+  const notifications = [];
+  const ctx = {
+    cwd: tmpDir,
+    hasUI: true,
+    ui: {
+      notify(message, level) {
+        notifications.push({ message, level });
+      },
+    },
+    hasPendingMessages() {
+      return false;
+    },
+    isIdle() {
+      return true;
+    },
+    getContextUsage() {
+      return { tokens: 0, contextWindow: 100 };
+    },
+  };
+
+  try {
+    await pi.listeners.get("message_end")({
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "thinking", text: "private reasoning only" }],
+        usage: { input: 10, output: 1 },
+      },
+    }, ctx);
+
+    assert.equal(pi.messages.length, 0, "message_end must not inject while runtime may still be processing");
+
+    await pi.listeners.get("agent_settled")({}, ctx);
+
+    assert.equal(pi.messages.length, 1);
+    assert.equal(pi.messages[0].message, "continue");
+    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    assert.match(notifications[0].message, /thinking content/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
 });
 
 test("pi-plugins command opens the skill guide", async () => {
