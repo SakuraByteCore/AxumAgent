@@ -796,6 +796,9 @@ export default function (pi: ExtensionAPI): void {
 
 		if (consecutiveAutoRetries >= config.maxConsecutiveAutoRetries) {
 			deferredAutoContinueReason = undefined;
+			lastAssistantAlreadyHandled = true;
+			lastAssistantMessage = undefined;
+			previousMessageRole = undefined;
 			if (config.notifyOnAutoContinue) {
 				safeNotify(
 					guardCtx,

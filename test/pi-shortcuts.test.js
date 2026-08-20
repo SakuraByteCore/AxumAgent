@@ -161,6 +161,57 @@ test("pi-response-guard defers thinking-only auto-continue until agent_settled",
   }
 });
 
+test("pi-response-guard clears deferred retry after max retry limit", async () => {
+  const pi = createPi();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-guard-max-"));
+  fs.writeFileSync(path.join(tmpDir, ".pi-response-guard.json"), JSON.stringify({
+    enabled: true,
+    retryMessage: "continue",
+    maxConsecutiveAutoRetries: 0,
+    notifyOnAutoContinue: true,
+    autoContinueOnThinkingOnlyStop: true,
+  }));
+  const notifications = [];
+  const ctx = {
+    cwd: tmpDir,
+    hasUI: true,
+    ui: {
+      notify(message, level) {
+        notifications.push({ message, level });
+      },
+    },
+    hasPendingMessages() {
+      return false;
+    },
+    isIdle() {
+      return true;
+    },
+    getContextUsage() {
+      return { tokens: 0, contextWindow: 100 };
+    },
+  };
+
+  try {
+    await pi.listeners.get("message_end")({
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "thinking", text: "private reasoning only" }],
+        usage: { input: 10, output: 1 },
+      },
+    }, ctx);
+
+    await pi.listeners.get("agent_settled")({}, ctx);
+    await pi.listeners.get("agent_settled")({}, ctx);
+
+    assert.equal(pi.messages.length, 0);
+    assert.equal(notifications.length, 1);
+    assert.match(notifications[0].message, /Reached retry limit/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("pi-plugins command opens the skill guide", async () => {
   const pi = createPi();
   const { ctx, notifications } = createContext();
