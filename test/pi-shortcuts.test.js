@@ -201,5 +201,53 @@ test("pi-plugins command opens the skill guide", async () => {
   assert.ok(notifications[1].message.includes("Scoped use"), "skill content should mention Scoped use");
 });
 
+test("reload command reads SYSTEM.md and sends combined prompt", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-reload-"));
+  const systemDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(systemDir, { recursive: true });
+  fs.writeFileSync(path.join(systemDir, "SYSTEM.md"), "You are a helper.\n", "utf8");
+  const originalHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    await pi.commands.get("rules").handler("say hello", ctx);
+
+    assert.equal(pi.messages.length, 1);
+    assert.ok(pi.messages[0].message.includes("[System Rules]"), "should include system rules header");
+    assert.ok(pi.messages[0].message.includes("You are a helper."), "should include SYSTEM.md content");
+    assert.ok(pi.messages[0].message.includes("[Requirement] say hello"), "should include requirement");
+    assert.ok(pi.messages[0].message.includes("请严格遵照以上系统规则完成当前需求。"), "should include instruction");
+    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  } finally {
+    process.env.HOME = originalHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("reload command notifies when SYSTEM.md is missing", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-reload-missing-"));
+  const systemDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(systemDir, { recursive: true });
+  const originalHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    await pi.commands.get("rules").handler("do something", ctx);
+
+    assert.equal(pi.messages.length, 0, "should not send message when file missing");
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "error");
+    assert.ok(notifications[0].message.includes("Failed to read"), "should mention failure");
+    assert.ok(notifications[0].message.includes("SYSTEM.md"), "should mention file");
+  } finally {
+    process.env.HOME = originalHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
 
 

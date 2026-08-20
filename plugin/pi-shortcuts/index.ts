@@ -610,6 +610,32 @@ export default function (pi: ExtensionAPI): void {
 
 
 
+	// ── /reload ──────────────────────────────────────────────────────────────
+
+	pi.registerCommand("rules", {
+		description: "Apply ~/.pi/agent/SYSTEM.md rules to current request",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			let rulesContent = "";
+			try {
+				const systemPath = join(homedir(), ".pi", "agent", "SYSTEM.md");
+				rulesContent = await readFile(systemPath, "utf8");
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				ctx.ui.notify(`[reload] Failed to read ~/.pi/agent/SYSTEM.md: ${message}`, "error");
+				return;
+			}
+			const requirement = args.trim();
+			const parts = [];
+			if (rulesContent) {
+				parts.push("[System Rules]", rulesContent, "");
+			}
+			parts.push(`[Requirement] ${requirement}`, "", "请严格遵照以上系统规则完成当前需求。");
+			const prompt = parts.join("\n");
+			pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+		},
+	});
+
 	// ── /plugin-create-mode: open the bundled pi-plugins skill guide (plugin creation mode).
 
 	pi.registerCommand("plugin-create-mode", {
