@@ -582,8 +582,12 @@ async function resolveConfigPath(cwd: string): Promise<string> {
 }
 
 function safeNotify(ctx: QueueAwareContext, message: string, level: NotifyLevel): void {
-	if (!ctx.hasUI) return;
-	ctx.ui.notify(message, level);
+	try {
+		if (!ctx?.hasUI) return;
+		ctx.ui.notify(message, level);
+	} catch {
+		// Defensive: silently drop notification if UI is unavailable or ctx is partial.
+	}
 }
 
 async function loadConfig(ctx: QueueAwareContext, lastConfigError: { value?: string }): Promise<AutoContinueConfig> {
