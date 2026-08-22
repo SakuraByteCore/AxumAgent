@@ -61,6 +61,8 @@ Launch the agent:
 axum code
 ```
 
+> Tip: in a repository checkout, run `node bin/axum.js code` (or the installed `code` command) to skip the `npm run` wrapper and shave ~0.2s off every startup.
+
 Start a background subagent from the prompt:
 
 ```text

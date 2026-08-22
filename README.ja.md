@@ -71,6 +71,8 @@ axum web
 axum code
 ```
 
+> ヒント: リポジトリのチェックアウト内では、`npm run` のラッパーを経由せずに `node bin/axum.js code`（またはグローバルの `code` コマンド）を実行すると、起動時間を約 0.2 秒短縮できます。
+
 プロンプトからバックグラウンド subagent を起動します:
 
 ```text

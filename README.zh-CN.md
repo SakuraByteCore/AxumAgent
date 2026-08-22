@@ -71,6 +71,8 @@ axum web
 axum code
 ```
 
+> 提示：在仓库检出目录里，直接运行 `node bin/axum.js code`（或全局安装的 `code` 命令）可以跳过 `npm run` 包装层，每次启动约省 0.2 秒。
+
 在提示符中快速启动后台 subagent:
 
 ```text
