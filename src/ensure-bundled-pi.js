@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { expectedBundledExtensionCount, localPluginNames, supportedBundledPiPackages, supportedBundledPiSkills } from "./bundled-pi-platform.js";
 import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
+import { compileBundledExtensions } from "./compile-bundled-extensions.js";
 import { existingBundledExtensions, resolvePiCli } from "./resolve-bundled-pi.js";
 
 function stubJavaScriptValue(value) {
@@ -232,13 +233,37 @@ function bundledReady(options) {
   }
 }
 
+export function pruneStaleCompileCaches(cacheRoot) {
+  const prefix = "v8-compile-cache-";
+  const current = `${prefix}${process.version}`;
+  let entries;
+  try {
+    entries = fs.readdirSync(cacheRoot);
+  } catch {
+    return [];
+  }
+  const removed = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(prefix) || entry === current) continue;
+    try {
+      fs.rmSync(path.join(cacheRoot, entry), { recursive: true, force: true });
+      removed.push(entry);
+    } catch {}
+  }
+  return removed;
+}
+
 export function ensureBundledPi(options) {
   const cacheRoot = getBundledPiCacheRoot(options);
+  pruneStaleCompileCaches(cacheRoot);
   ensurePluginSource(cacheRoot, options);
   ensureBundledSkills(cacheRoot, options);
   if (bundledReady(options)) {
     applyBundledPiPatches(options);
     ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
+    try {
+      compileBundledExtensions(options);
+    } catch { /* extensions stay on runtime jiti transpile */ }
     return;
   }
 
@@ -278,6 +303,9 @@ export function ensureBundledPi(options) {
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
   applyBundledPiPatches(options);
   ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
+  try {
+    compileBundledExtensions(options);
+  } catch { /* extensions stay on runtime jiti transpile */ }
 }
 
 export function ensureBundledSkills(cacheRoot, options) {

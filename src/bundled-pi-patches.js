@@ -14,6 +14,8 @@ const PI_GOAL_AUTO_RESUME_PATCH_MARKER = "AXUM_PI_GOAL_AUTO_RESUME";
 const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
 const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
+const PI_HLJS_LAZY_MARKER = "AXUM_HLJS_LAZY";
+const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -243,6 +245,60 @@ function patchPiGoalAutoResume(content) {
   return content.replace(needle, branch);
 }
 
+function patchPiHljsLazy(content) {
+  if (content.includes(PI_HLJS_LAZY_MARKER)) return content;
+
+  const importNeedle = 'import hljs from "highlight.js/lib/index.js";\n';
+  if (!content.includes(importNeedle)) return content;
+
+  const replacement = [
+    "// " + PI_HLJS_LAZY_MARKER + ": defer highlight.js loading until first syntax highlight.",
+    "import { createRequire } from \"node:module\";",
+    "const axumRequire = createRequire(import.meta.url);",
+    "let axumHljsInstance;",
+    "function getHljs() {",
+    "    if (!axumHljsInstance) axumHljsInstance = axumRequire(\"highlight.js/lib/index.js\");",
+    "    return axumHljsInstance;",
+    "}",
+  ].join("\n");
+
+  let patched = content.replace(importNeedle, replacement + "\n");
+  patched = patched.replaceAll("? hljs.highlight(code, {", "? getHljs().highlight(code, {")
+    .replaceAll(": hljs.highlightAuto(code, options.languageSubset).value;", ": getHljs().highlightAuto(code, options.languageSubset).value;")
+    .replaceAll("return hljs.getLanguage(name) !== undefined;", "return getHljs().getLanguage(name) !== undefined;");
+  return patched;
+}
+
+function patchPiJitiLazyLoader(content) {
+  if (content.includes(PI_JITI_LAZY_LOADER_MARKER)) return content;
+
+  const staticImportNeedle = 'import { createJiti } from "jiti/static";\n';
+  if (!content.includes(staticImportNeedle)) return content;
+
+  const createJitiNeedle = "    const jiti = createJiti(import.meta.url, {\n";
+  if (!content.includes(createJitiNeedle)) return content;
+
+  const nativeFastPath = [
+    "    // " + PI_JITI_LAZY_LOADER_MARKER + ": plain-JS entries skip jiti entirely; defer jiti/babel until a TS entry needs it.",
+    "    if (!extensionPath.endsWith(\".ts\")) {",
+    "        const nativeModule = await import(\"node:url\").then((u) => u.pathToFileURL(extensionPath)).then((u) => import(u.href));",
+    "        const nativeFactory = nativeModule?.default;",
+    "        if (typeof nativeFactory === \"function\") {",
+    "            if (isCurrentCacheToken(cacheToken)) extensionCache.set(extensionPath, nativeFactory);",
+    "            return nativeFactory;",
+    "        }",
+    "        return undefined;",
+    "    }",
+    "    // " + PI_JITI_LAZY_LOADER_MARKER + ": defer jiti/babel loading until a TS extension needs it.",
+    "    const { createJiti } = await import(\"jiti/static\");",
+    "",
+  ].join("\n");
+
+  return content
+    .replace(staticImportNeedle, "")
+    .replace(createJitiNeedle, nativeFastPath + createJitiNeedle);
+}
+
 function patchPiVersionNotificationSuppress(content) {
   if (content.includes(PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER)) return content;
 
@@ -442,6 +498,24 @@ export function applyBundledPiPatches(options) {
     results.push({ patched: false, file: piGoalRuntimePath });
   }
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
+  const piSyntaxHighlightPath = path.join(piRoot, "dist", "utils", "syntax-highlight.js");
+  if (fs.existsSync(piSyntaxHighlightPath)) {
+    const hljsOriginal = fs.readFileSync(piSyntaxHighlightPath, "utf8");
+    const hljsPatched = patchPiHljsLazy(hljsOriginal);
+    if (hljsPatched !== hljsOriginal) {
+      fs.writeFileSync(piSyntaxHighlightPath, hljsPatched);
+    }
+    results.push({ patched: hljsPatched !== hljsOriginal, file: piSyntaxHighlightPath });
+  }
+  const piExtensionLoaderPath = path.join(piRoot, "dist", "core", "extensions", "loader.js");
+  if (fs.existsSync(piExtensionLoaderPath)) {
+    const loaderOriginal = fs.readFileSync(piExtensionLoaderPath, "utf8");
+    const loaderPatched = patchPiJitiLazyLoader(loaderOriginal);
+    if (loaderPatched !== loaderOriginal) {
+      fs.writeFileSync(piExtensionLoaderPath, loaderPatched);
+    }
+    results.push({ patched: loaderPatched !== loaderOriginal, file: piExtensionLoaderPath });
+  }
   if (fs.existsSync(piInteractiveModePath)) {
     const piInteractiveOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
     let piInteractivePatched = patchPiVersionNotificationSuppress(piInteractiveOriginal);
@@ -458,4 +532,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

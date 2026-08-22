@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import path from "node:path";
+
 function usage() {
   return `Axum Agent
 
@@ -146,13 +148,17 @@ function splitAxumCodeArgs(passthrough) {
   return { safe, piArgs: passthrough.filter((arg) => arg !== "--safe") };
 }
 
-function buildPiEnv() {
-  return { ...process.env, AXUM_BUNDLED_PI: "1" };
+function buildPiEnv(compileCacheDir) {
+  const env = { ...process.env, AXUM_BUNDLED_PI: "1" };
+  if (compileCacheDir && !env.NODE_COMPILE_CACHE) env.NODE_COMPILE_CACHE = compileCacheDir;
+  if (!env.JITI_TRY_NATIVE) env.JITI_TRY_NATIVE = "1";
+  return env;
 }
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
+    import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
     import("../src/provider-config.js"),
     import("node:child_process"),
@@ -177,7 +183,8 @@ async function runPi(passthrough) {
   // Axum's bundled extension set. In safe mode, keep -ne but intentionally skip
   // every bundled -e entry so a broken extension cannot block startup.
   const args = [piCli, "-ne", ...extensionArgs, ...defaultArgs, ...piArgs];
-  const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv() });
+  const compileCacheDir = path.join(getBundledPiCacheRoot(), `v8-compile-cache-${process.version}`);
+  const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv(compileCacheDir) });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
     process.exit(code ?? 1);

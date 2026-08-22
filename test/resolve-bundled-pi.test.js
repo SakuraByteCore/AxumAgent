@@ -5,9 +5,9 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
-import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
+import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiGoalAutoResume, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiGoalAutoResume, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -538,3 +538,52 @@ test("ensureBundledSkills syncs bundled skills to agent skills root", async () =
   }
 });
 
+
+test("patches bundled Pi syntax highlight to lazy-load highlight.js", () => {
+  const source = 'import hljs from "highlight.js/lib/index.js";\nexport function highlight(code, options = {}) {\n    const html = options.language\n        ? hljs.highlight(code, {\n            language: options.language,\n        })\n        : hljs.highlightAuto(code, options.languageSubset).value;\n    return html;\n}\nexport function supportsLanguage(name) {\n    return hljs.getLanguage(name) !== undefined;\n}\n';
+  const patched = patchPiHljsLazy(source);
+  assert.match(patched, /AXUM_HLJS_LAZY/);
+  assert.match(patched, /createRequire\(import\.meta\.url\)/);
+  assert.match(patched, /getHljs\(\)\.highlight\(code, \{/);
+  assert.match(patched, /getHljs\(\)\.highlightAuto\(code, options\.languageSubset\)/);
+  assert.match(patched, /getHljs\(\)\.getLanguage\(name\)/);
+  assert.doesNotMatch(patched, /^import hljs from/m);
+  assert.equal(patchPiHljsLazy(patched), patched);
+});
+
+test("patches bundled Pi extension loader for native JS entries and lazy jiti", () => {
+  const source = [
+    'import * as fs from "node:fs";',
+    'import { createJiti } from "jiti/static";',
+    "async function loadExtensionModule(extensionPath, cacheToken) {",
+    "    const jiti = createJiti(import.meta.url, {",
+    "        moduleCache: false,",
+    "    });",
+    '    const module = await jiti.import(extensionPath, { default: true });',
+    "}",
+  ].join("\n") + "\n";
+  const patched = patchPiJitiLazyLoader(source);
+  assert.match(patched, /AXUM_JITI_LAZY_LOADER/g);
+  assert.match(patched, /extensionPath\.endsWith\("\.ts"\)/);
+  assert.match(patched, /pathToFileURL\(extensionPath\)/);
+  assert.doesNotMatch(patched, /^import \{ createJiti \} from "jiti\/static";/m);
+  assert.match(patched, /const \{ createJiti \} = await import\("jiti\/static"\);/);
+  assert.equal(patchPiJitiLazyLoader(patched), patched);
+});
+
+test("prunes stale v8-compile-cache directories for other Node versions", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "axum-v8-cache-"));
+  const stale = path.join(tmp, `v8-compile-cache-v20.0.0`);
+  const current = path.join(tmp, `v8-compile-cache-${process.version}`);
+  const untouched = path.join(tmp, "pi-70a28339cc67");
+  fs.mkdirSync(stale, { recursive: true });
+  fs.mkdirSync(current, { recursive: true });
+  fs.mkdirSync(untouched, { recursive: true });
+
+  const removed = pruneStaleCompileCaches(tmp);
+
+  assert.deepEqual(removed, [`v8-compile-cache-v20.0.0`]);
+  assert.equal(fs.existsSync(stale), false);
+  assert.equal(fs.existsSync(current), true);
+  assert.equal(fs.existsSync(untouched), true);
+});

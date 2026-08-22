@@ -149,6 +149,131 @@ class StdinBuffer {
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
 
+function writePiEnvProbeCache(cache, envFile) {
+  writePackage(cache, "@earendil-works/pi-coding-agent", {
+    "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ compileCache: process.env.NODE_COMPILE_CACHE ?? null }));`,
+    "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\n",
+  });
+  writeRuntimePackages(cache);
+  writePackage(cache, "@earendil-works/pi-tui", {
+    "dist/index.js": "",
+    "dist/stdin-buffer.js": `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}
+`,
+  });
+  writePackage(cache, "pi-bar", { "index.ts": "" });
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-companion", { "index.ts": "" });
+}
+
+function writeAgentSettings(agentDir) {
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
+}
+
+test("axum code injects versioned NODE_COMPILE_CACHE under the bundled cache root", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-v8cache-"));
+  const agentDir = path.join(dir, "agent");
+  const cache = path.join(dir, "cache");
+  const envFile = path.join(dir, "env.json");
+  writePiEnvProbeCache(cache, envFile);
+  writeAgentSettings(agentDir);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const probe = JSON.parse(fs.readFileSync(envFile, "utf8"));
+  assert.equal(probe.compileCache, path.join(cache, `v8-compile-cache-${process.version}`));
+});
+
+test("axum code preserves a pre-existing NODE_COMPILE_CACHE", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-v8cache-keep-"));
+  const agentDir = path.join(dir, "agent");
+  const cache = path.join(dir, "cache");
+  const envFile = path.join(dir, "env.json");
+  writePiEnvProbeCache(cache, envFile);
+  writeAgentSettings(agentDir);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir, NODE_COMPILE_CACHE: "/custom/compile-cache" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const probe = JSON.parse(fs.readFileSync(envFile, "utf8"));
+  assert.equal(probe.compileCache, "/custom/compile-cache");
+});
+
+test("axum code prefers compiled extension JS over TS sources", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-compiled-"));
+  const agentDir = path.join(dir, "agent");
+  const cache = path.join(dir, "cache");
+  const argvFile = path.join(dir, "argv.json");
+  writePackage(cache, "@earendil-works/pi-coding-agent", {
+    "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
+    "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\n",
+  });
+  writeRuntimePackages(cache);
+  writePackage(cache, "@earendil-works/pi-tui", {
+    "dist/index.js": "",
+    "dist/stdin-buffer.js": `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}
+`,
+  });
+  writePackage(cache, "pi-bar", {
+    "index.ts": "",
+    "index.js": "export default () => {};\n",
+  });
+  fs.writeFileSync(path.join(cache, "node_modules", "pi-bar", ".axum-compile.json"), JSON.stringify({ version: 1, files: { "index.ts": "hash" } }));
+  writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
+  writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-companion", { "index.ts": "" });
+  writeAgentSettings(agentDir);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  const compiledIndex = argv.indexOf(path.join(cache, "node_modules", "pi-bar", "index.js"));
+  assert.notEqual(compiledIndex, -1);
+  assert.equal(argv[compiledIndex - 1], "-e");
+  assert.equal(argv.filter((arg) => arg === "-e").length, 4);
+});
+
 test("axum web does not fall through to bundled Pi install", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-cli-"));
   const child = spawn(process.execPath, ["bin/axum.js", "web", "--port", "18180"], {
