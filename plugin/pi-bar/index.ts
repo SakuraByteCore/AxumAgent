@@ -38,6 +38,7 @@ import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
@@ -135,7 +136,21 @@ function truncateLine(text: string, width: number): string {
   const chars = [...text];
   let used = 0;
   let out = "";
-  for (const ch of chars) {
+  for (let i = 0; i < chars.length; i++) {
+    const ch = chars[i];
+    if (ch === "\x1b") {
+      let seq = ch;
+      while (i + 1 < chars.length && chars[i + 1] !== "m") {
+        i++;
+        seq += chars[i];
+      }
+      if (i + 1 < chars.length) {
+        i++;
+        seq += "m";
+      }
+      out += seq;
+      continue;
+    }
     const cw = headerVisibleWidth(ch);
     if (used + cw > width) break;
     out += ch;
@@ -168,59 +183,43 @@ function bottomBorder(width: number): string {
   return `╰${"─".repeat(Math.max(0, width - 2))}╯`;
 }
 
-/** Center `content`, pad inner with spaces, keep symmetrical sakura rails. */
-function boxedLine(content: string, width: number, rail: string): string {
-  if (width <= 0) return "";
-  const railW = headerVisibleWidth(rail);
-  if (railW * 2 > width) return truncateLine(rail, width);
-  const inner = Math.max(0, width - railW * 2);
-  const body = truncateLine(content, inner);
-  const bw = headerVisibleWidth(body);
-  const padR = Math.max(0, inner - bw);
-  const padL = Math.floor(padR / 2);
-  const padG = padR - padL;
-  const edgeColor = sampleStops(0);
-  const railBg = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m${rail}\x1b[39m`;
-  return `${railBg}${" ".repeat(padL)}${body}${" ".repeat(padG)}${railBg}`;
-}
-
 const ANIME_ART = [
-  "▒████▒░░░░░   ▒██░░░░ ░   ░▓█░░░░░░░░░░░░▒▒▓▓████████████████████████████████████▓▒▒▒░░░░░░░░░░░░▓██▓▓",
-  "▓▓▓▓█▓▓███████░░░▒▓███████▒░░▓██▒░░░░░░░░░░▓▓▒░░░░░░░░░░░▓███▒░░░░░░░░░░░░▓███▒░░░░░▒▓██████████▓▓▓▓█ ",
-  "▓▓▓▓█▒░█░░░░░░░░░░░░░█▓░░░░░░░░░▒▓▓█▓▓▓▓▓▒░░░▒▓▓▓██▓▓▓▒▒░░░░▒▓█▓▓▓██▓▓▓▓▓▒▒▒░░░▒▒▒▒░░░▒▓▒░░░░▒██████  ",
-  "▓▓▓▓▓░▓▒░░░░░░░░░█░░░█▓░░░░░░░░░░▓▒█░░░░░░░░░░░░░▒▓░░░░░░░░░░░░░▒█▓░░░░░░░▒▒░░░░░░░░░░░▓▒░░░░▒██████  ",
-  "▓▓▓█▓░▓░░░░░░░░░░█░░░█▓░░░░░░░░░░▓░█▒░░░░░░░░░░░░▒▓░░░░░░░░░░░░░░░░░▓▓▒▒░░▒░░░░░░░░░░░░▒█░░░░░▓█████  ",
-  "▓▓▓█▓▒▓░░░░░░░░░░█░░▒█▓░░░░░░░░░░▓░▓▒░░░░░░░░░░░░▓▒░░░░░░░░░░░░░░░░░░░░▒▓▓░▒░░░░░░░░░░░░▓▒░░░░▒█████  ",
-  "██▓█▒▓▒░░░░░░░░░▒█░░▓▒▓░░░░░░░░░░▓░▓▓░░░░░░░░░░░░▓▒░░░░░░░░░░░░░░░░░░░░░░░▒█▒░░░░░░░░░░░▓█░░░░▒█████  ",
-  "████░▓▒░░░░░░░░░▒█▓░▓▒▓░░░░░░░░░░▓░▒▓░░░░▒▒▒▒▒▒▒▒█░░░░░░░░░░░░░░░░▓██▒░░░░░▓▓░░░░░░░░░░░░█▒░░░▒█████  ",
-  "████▒▓▒░░░░░░░░░▓▒▓░▓▒▓▓▓▓▓▓▓▓▓▓▓▒░░▒▒▒▒▒▒▒░░░░░░░░░░░░░░▓▓██████████▓░░░░░▒▓░░░░░░░░░░░░▒▓░░░▒█████  ",
-  "████▒▓▒░░░░░░░░░▓░▓▒▓▒░▓█████████▓░░░░░░░░░░░░░░░░░░░░▒███▓▒░░░▒▒▒▒▓████▓░░░▓░░░░░░░░░░░░░█▒░░▒█████  ",
-  "████▓▓░░░░░░░░░░▓░░▓▒▓▒█████████████▒░░░░░░░░░░░░░░░░██▒░ ░▒██▓▒▓▒▓██▒▒███▒░▓░░░░░░░░░░░░░▒▓░░▒█████  ",
-  "█████▒░░░░░░░░░░▓░░░▓███▓░░░▒▓█▓▓▓██▓░░░░░░░░░░░░░░░░░░░░░░█▓▒▓▒▒▒░░░░▒█▒░▓██▓░░░░░░░░░░░░░░▓▒░▒▓████ ",
-  "███▓█▒░░░░░░░░░▒▓░░▒██▒░░░░█▓▒▓▓▒░░░▓▓░░░░░░░░░░░░░░░░░░░█▓▒▓▒▒░░░░░░░▒█▓░░█▒░░░░░░░░░░░░░░▒█░░▓████  ",
-  "████▓▒░░░░░░░░░▒▒░░██░░░░░█▓▒▒▒▒░░░ ░▓▒░░░░░░░░░░░░░░░░░█▓▒░░░░░░░░░░░░▒█▒░█▒░░░▒░░░░░░░░▒▒░▒▓░▓████  ",
-  "████▓░░░░░░░░░░▒▒░█▓░ ░░░▓▓▒▒░░░░░░░░▒█░░░░░░░░░░░░░░░░░█░░░░░░░░░░░░░░░▒▓▒▓░░░▒▒░░░░░░░░░▓▒░▓▓░████  ",
-  "████▒░░░░░░░░░░▒▒░█░░ ░░░█▒░░░░░░░░░░░▒▓░░░░░░░░░░░░░░░░█░░░░░░░░░░░░░░░▒▓█▒░░▒▒░░░░░░░░░▓█░▒▓▒████   ",
-  "████░░░░░░░░░░░▒▒░░░░   ░█░░░░░░░░░░░░░█░░░░░░░░░░░░░░░░▓▓░░░░░░░░░░░░░░▒█▓░░▒█░░░░░░░░░░░▒█▓░▒█▒███  ",
-  "███▓░▓▒░░░░░░░░▒▓░░░░░░ ░█▒░░░░░░░░░░░▒▒░░░░░░░░░░░░░░░░░█▒░░░░░░░░░░░░░▓▓░░▓▓█▒░░░░░░▒░░░░▒██▓░▓▒███ ",
-  "███▒░▓▒░░░░░░░░▒▓▒░░░    ░▓░░░░░░░░░░░▓░░░░░░░░░░░░░░░░░░░▓▓░░░░░░░░░░░█▓░▓▓░░█░░░░░░▓░░░░▒▓▓▓░▓█▒██  ",
-  "███░▒█▒░░░░░░░░▒▓▓░░░░░  ░▒▒░░░░░░░░░▒░░░░░░░░░░░░░░░░░░░░░░█▓░░░░░░▒███▓▓░░░▒█░░░░░░▓░░░░▒███▒▒█▒██  ",
-  "███░▓█▒░░░░░░░░░▓▒▒░░░░░░░░▒█▒░░░░░░▒░░░░░░░░░░░░░░░░░░░░░░░░░░▒▓▒░░░▒█▓▒░░░░▒▓█░░░░░▒▒░░░░▒▓░▓▓▒█░▓█ ",
-  "██▓░██▒░░░░▒░░░░▓▓░▒░░░░░░░░░░▒▓▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▓▓▒░░░░░▒▒░░░░█▒░▒▓▓█░▒█  ",
-  "██▓░█▓▓░░░░▒░░░░░█░▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█▓▓▓░░░░░▒▒░░░░█▓░░▒▓█▓░░▓  ",
-  "██▓░▓▒█░░░░▒▒░░░░▒▓░▒▒░░░░░░░░▒▓▓▓█▒░░░░░░░░░▒▒▒░░░░░░░░░░░░░░░░░░░░░░░▒▓█▒▒█▒░░░░▒▒░░░▒█▓░░░▓██░░░▒  ",
-  "███░█▒▓▓░░░░▒░░░░░▓▓▒▒█▒░░░░░▒▓░░░░▒█▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▓█▓▒▒▒█▒░░░▒▒▒░░░▓▓▒░░░░▓▓▒░░░░  ",
-  "███▒█▒░▓▓░░░▒▒░░░░░▓▓▒▒▓█▒░░░░▓░░░░░░▓░░░░░░░░░░░░░░░░░░░░░░░░░░░▒██▒▒▒▒▒▓█░░░▒▓▒░░░▒▓█▒░░░░░▒▓▓▒░░░░ ",
-  "████▓▒░░░▒▓░░░▒▓▒░░░░▓▓▒▒▒▒▓█▒▒▓░░░░░░▓▓▒▓▓▓▓▓▓▒▒▒▓▓█▓░░░░░░▒▒▓▓▓▒▒▒▒▒▒▒▒▓▓▓▓▓▓▓▓▓▓█▒░░░▒▒▒▒░░░░▒▓░░░ ",
-  "████▓█▒░░▒█▓░░░▒▒▒░░░▒█▓▒▒▒▒▒▒▓▓░░░░░░░░░░░░░░░░░░░░▓█▓█▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓░░░░░▒▒░░░░░░▒▓░░  ",
-  "███▓░░░░░░░░▓█▒░░░▒▓████▓▒▒▒▒▒▓▓░░░░░░░░░░░░░░░░░░░▓███████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█░░░░░░░░░░░░░░▓░░   ",
-  "███░░░░░▒░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒░░░░░░░░░░░░▒▒████████████▓░▓▓▒▒█▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒░░░░░░░░░░▒█▓▒░  ",
-  "██▓░░░░░▒░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▓░░░░░░░░░░░░░░░░▓███████████▒▒░░░▒█▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓▒░░░░░░▒▓░░▒▒   ",
-  "██▒░░░░▒▒░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒░░░░░░░░░░░░░░░▓▒█████████▓░▒░░░█░▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓░░▒▒░▒▒░░▓▓░▒  ",
-  "█▓░░░░░▒░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█░░░░░░░░░░░░░▒▒█▒▒████▓░░░░░▒░░░▓▒░▓█▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█░░░░░▒▒░░░░░▓▒   ",
-  "█░░░░░▒░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓█░░░░░░░░░░░░░░█▒░█████▒░░ ░░░░░█░░░░▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▓█░░░░░░░░░░░░░█  ",
-  "░░░░░▒▒░░░░░░░░▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██▒░░░░░░░░░░░█▒░░█████▓░░░▒░░▒▒█░░░░░░▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒█▓░░░░░░░░░░░▒█ ",
-  "░░░░░▒░░░░░░░░▒▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▓░░░▓█▓▒▒▒▒▒▓███░░ ░█████░░░▒░░░▓░░ ░░░ ▓█▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓▒▒░░░░░░░▒█▒  "
+  "                                ██████████████████░                          ",
+  "                            ██████████████████░░░░░░███                      ",
+  "                         ████████████████████░░░░░░░░░▒██                    ",
+  "                      ▓██████████████████████░░░░░░░░░░░████                 ",
+  "                     █▓░░░░░░░░░░░░░▒████████░░░░░░░░░░░░░████               ",
+  "                   ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████              ",
+  "        █████████████████████████████▒░░░░░░░░░░░░░░░░░░░░░░████▒            ",
+  "  ░█████████████████████████████████████████▒░░░░░░░░░░░░░░░░█████    ░░░░   ",
+  " ███████████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒███████████████████▒░░░░░░░░░░░░░█░░░░░░░░░░░░ ",
+  "██████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒████████████████░░░░░░░░░░░░░░░░░░░░░░ ",
+  "█████████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█████████████▒░░░░░░░░░░░░░░░░░░ ",
+  " ████████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓███████████░░░░░░░░░░░░░   ",
+  "   ████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█████████▒░░░░░░░░░    ",
+  "     ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒████████░░░░░░░    ",
+  "    ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░▒▒▒▒▒▒▒▒▒▒▒▒▒░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██████░░░░     ",
+  "   ▒▒▒░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░▒▒░▒▒▒▒▒▒▒▒▒▒░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█████▓      ",
+  "  ▒▒▒ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░▒▒░▒▒▒▒▒▒▒▒▒▒░░░░▒▒░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒████     ",
+  "  ▒▒  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░▒░▒▒▒▒▒▒▒▒▒░░░░░░▒▒░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█████   ",
+  "  ▒   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░▒░▒▒▒▒▒▒▒▒▒░░░░░░░▒░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█████  ",
+  "      ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░██░░░░░▒▒▒▒▒▒▒▒░░▓███░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒██████ ",
+  "      ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░████░░░░░░░░░▒░░░░████░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒████████",
+  "  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░▒░░░████░░░░░░░░░░░░░░████░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒███████",
+  "      ▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░▓███░░░░░░░░░░░░░░████░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒█████ ",
+  "    ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░███░░░░░░░░░░░░░░░██▒░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒    ",
+  "   ▒▒▒░▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ ▒▒▒░  ",
+  "  ▒▒▒ ▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒       ",
+  "   ▒▒  ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░░░░░░░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒       ",
+  "    ▒░ ░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▓░░░░░▓▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒        ",
+  "          ▒▒▒▒   ▒▒▒▒  ▒▒▒▒▒▒▒▒▒█▓▓░░▓▓▓▓▓▓▓▓▒▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒           ",
+  "           ▒      ▒▒▒   ▒▒▒▒░▒█▓▓▓▒▓▓▓▓▓▓▓▓▓▓████▒▒▒▒░░█▒▒▒▒▒  ▒▒            ",
+  "                         ▒░░█▓▓░░░░▓▓▓▓▓▓▓▓███▒░░░▒░█░░░▒▒████               ",
+  "                           █░░░░░░░░████████░░░░░░░░░░░░░░░███               ",
+  "                          ░░░░░░░░██████████░░░░░░░░░░░░████                 ",
+  "                         ░░░░░░░░░███████████░░▓█████████                    ",
+  "                                  ███████████████                            ",
+  "                                    ███████                                  ",
 ] as const;
 
 
@@ -299,117 +298,109 @@ function detectExtensions(argv: readonly string[]): string[] {
   return names;
 }
 
-/**
- * Greedy line wrap for a list of entries so a long card body does not get
- * truncated: each line stays within `inner` visible cells, joining entries
- * with `", ". A single entry wider than `inner` is left intact (it will be
- * clipped by `boxedLine` rather than lost).
- */
-function wrapEntries(entries: string[], inner: number): string[] {
-  if (inner <= 0) return [entries.join(", ")];
-  const lines: string[] = [];
-  const colGap = 1;
-  const colWidth = Math.floor((inner - colGap) / 2);
-  const buildLine = (left: string, right?: string): string => {
-    const leftPadded = left + " ".repeat(Math.max(0, colWidth - headerVisibleWidth(left)));
-    const rightSource = right ?? "";
-    const line = leftPadded + " " + rightSource;
-    if (headerVisibleWidth(line) > inner) {
-      const maxRight = Math.max(0, inner - colWidth - colGap);
-      return leftPadded + " " + truncateLine(rightSource, maxRight);
+const HEADER_ART_TARGET = 34;
+const HEADER_BOX_MAX = 60;
+const WELCOME_GLYPHS: readonly string[] = ["\u273b", "\u273d", "\u2736", "\u2733"];
+const DEFAULT_WELCOME_GLYPH = "\u273b";
+let welcomeGlyph: string | undefined;
+let cachedAxumVersion: string | undefined;
+let axumVersionProbed = false;
+
+function axumVersion(): string | undefined {
+  if (axumVersionProbed) return cachedAxumVersion;
+  axumVersionProbed = true;
+  let dir = dirname(fileURLToPath(import.meta.url));
+  for (;;) {
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        name?: string;
+        version?: string;
+      };
+      if (pkg.name === "axum" && typeof pkg.version === "string") {
+        cachedAxumVersion = pkg.version;
+        break;
+      }
+    } catch {
+      void 0;
     }
-    return line;
-  };
-  for (let i = 0; i < entries.length; i += 2) {
-    lines.push(buildLine(entries[i], entries[i + 1]));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
-  return lines.length > 0 ? lines : [""];
+  return cachedAxumVersion;
 }
 
-/** A single sakura-framed card with one titled section per non-empty entry
- *  group (Skills / Extensions), centred, with the cyberdeck palette. */
-function renderLoadedCard(skills: string[], extensions: string[], width: number): string[] {
-  if (width < 8) return [];
-  const rail = "│";
-  const inner = Math.max(0, width - headerVisibleWidth(rail) * 2);
+function scaleArt(target: number): string[] {
+  if (target <= 0) return [];
+  const artWidth = ANIME_ART.length > 0 ? [...ANIME_ART[0]].length : 0;
+  const visible = Math.min(artWidth, target);
+  return ANIME_ART.map((line) => {
+    const src = [...line];
+    if (src.length <= visible) return line;
+    let scaled = "";
+    for (let x = 0; x < visible; x++) {
+      const glyph = src[Math.min(Math.round((x * src.length) / visible), src.length - 1)];
+      scaled += glyph ?? " ";
+    }
+    return scaled;
+  });
+}
+
+function framedLine(content: string, inner: number): string {
+  if (inner < 2) return "";
   const edgeColor = sampleStops(0);
-  const railBg = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m${rail}\x1b[39m`;
-  const bodyLine = (colored: string): string => {
-    const body = truncateLine(colored, inner);
-    const bw = headerVisibleWidth(body);
-    const padR = Math.max(0, inner - bw);
-    const padL = 1;
-    return `${railBg}${' '.repeat(padL)}${body}${' '.repeat(Math.max(0, padR - padL))}${railBg}`;
-  };
-  const section = (title: string, entries: string[]): string[] => {
-    if (entries.length === 0) return [];
-    return [
-      bodyLine(gradient(title, [242, 167, 198], [199, 184, 245], true)),
-      ...wrapEntries(entries, inner).map((line) => bodyLine(gradient(line, [199, 184, 245], [252, 201, 185], true))),
-    ];
-  };
-  const dim = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m`;
-  const divider = `${dim}${"╌".repeat(Math.max(0, inner - 2))}\x1b[39m`;
-  return [
-    frameGradient(fitBorderLabel("Loaded", width)),
-    ...section("Skills", skills),
-    ...(skills.length > 0 && extensions.length > 0
-      ? [bodyLine(""), bodyLine(divider), bodyLine("")]
-      : []),
-    ...section("Extensions", extensions),
-    frameGradient(bottomBorder(width)),
-    "",
-  ];
+  const railBg = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m\u2502\x1b[39m`;
+  const body = truncateLine(content, inner - 1);
+  const padR = Math.max(0, inner - 1 - headerVisibleWidth(body));
+  return `${railBg} ${body}${" ".repeat(padR)}${railBg}`;
 }
 
-function renderHeader(width: number, skills: string[] = [], extensions: string[] = []): string[] {
+function centerInBox(colored: string, plainWidth: number, inner: number): string {
+  const w = Math.min(plainWidth, inner);
+  const padL = Math.max(0, Math.floor((inner - w) / 2));
+  const padR = Math.max(0, inner - padL - w);
+  return `${" ".repeat(padL)}${truncateLine(colored, w)}${" ".repeat(padR)}`;
+}
+
+function renderHeader(width: number, skills: string[] = [], extensions: string[] = [], cwd?: string): string[] {
   if (width <= 0) return [];
 
   const sakura: RGB = [242, 167, 198];
   const sky: RGB = [159, 211, 242];
+  const dim: RGB = [199, 184, 245];
 
-  const sourceArt = ANIME_ART;
-  const artWidth = sourceArt.length > 0 ? [...sourceArt[0]].length : 0;
-  const fitsNatively = width >= artWidth;
-  const visibleArtWidth = fitsNatively ? artWidth : Math.min(artWidth, width);
-  const artPad = " ".repeat(Math.max(0, Math.floor((width - visibleArtWidth) / 2) - 2));
+  const boxWidth = Math.max(10, Math.min(width, HEADER_BOX_MAX + 2));
+  const inner = Math.max(0, boxWidth - 2);
+  const artTarget = Math.min(HEADER_ART_TARGET, Math.max(0, inner - 2));
 
-  const art = sourceArt.map((line) => {
-    const src = [...line];
-    let row: string;
-    if (fitsNatively) {
-      row = src.slice(0, visibleArtWidth).join("");
-    } else {
-      // nearest-column sampling keeps every silhouette column represented;
-      // the cyberdeck art mixes █▓▒░ for shading, so preserve the sample's
-      // exact glyph rather than collapsing it to a single block.
-      let scaled = "";
-      const span = src.length;
-      for (let x = 0; x < visibleArtWidth; x++) {
-        const sx = Math.round((x * span) / visibleArtWidth);
-        const glyph = src[Math.min(sx, span - 1)];
-        scaled += glyph === " " ? " " : glyph;
-      }
-      row = scaled;
-    }
-    return `${artPad}${gradient(row, sakura, sky)}`;
-  });
-  const hasCards = skills.length > 0 || extensions.length > 0;
-  const fixedTopPadding = 1;
+  const artRows = scaleArt(artTarget);
+  const artWidth = artRows.length > 0 ? [...artRows[0]].length : 0;
 
-  const cards: string[] = [];
-  const cardWidth = Math.min(width, 80);
-  const cardPad = " ".repeat(Math.max(0, Math.floor((width - cardWidth) / 2)));
-  if (hasCards) {
-    const mk = (lines: string[]): string[] => lines.map((l) => `${cardPad}${l}`);
-    cards.push(...mk(renderLoadedCard(skills, extensions, cardWidth)));
+  let displayCwd: string | undefined;
+  if (cwd) {
+    const home = homedir();
+    displayCwd = home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
   }
 
-  return [
-    ...Array(fixedTopPadding).fill(""),
-    ...art,
+  const version = axumVersion();
+  const welcome = `${welcomeGlyph ?? DEFAULT_WELCOME_GLYPH} Welcome to AxumAgent${version ? ` · v${version}` : ""}`;
+
+  const infoLines: string[] = [
+    rgb(sakura, welcome, true),
     "",
-    ...cards,
+    rgb(dim, "/help for help · ? for shortcuts"),
+  ];
+  if (displayCwd) infoLines.push(rgb(dim, `cwd: ${displayCwd}`));
+  if (skills.length > 0) infoLines.push(rgb(dim, `skills: ${skills.join(", ")}`));
+  if (extensions.length > 0) infoLines.push(rgb(dim, `extensions: ${extensions.join(", ")}`));
+
+  return [
+    "",
+    frameGradient(fitBorderLabel("Axum", boxWidth)),
+    ...artRows.map((row) => framedLine(centerInBox(gradient(row, sakura, sky), artWidth, inner - 2), inner)),
+    framedLine("", inner),
+    ...infoLines.map((line) => framedLine(line, inner)),
+    frameGradient(bottomBorder(boxWidth)),
   ];
 }
 
@@ -1137,6 +1128,8 @@ export default function (pi: ExtensionAPI): void {
 		// Probe on every start so freshly installed skills / extensions surface.
 		skillsCache = detectSkills(ctx.cwd);
 		extensionsCache = detectExtensions(process.argv);
+		const headerCwd = ctx.cwd;
+		welcomeGlyph = WELCOME_GLYPHS[Math.floor(Math.random() * WELCOME_GLYPHS.length)] ?? DEFAULT_WELCOME_GLYPH;
 		ctx.ui.setHeader(() => {
 			let cachedWidth: number | undefined;
 			let cachedLines: string[] = [];
@@ -1144,7 +1137,7 @@ export default function (pi: ExtensionAPI): void {
 				render: (width: number): string[] => {
 					if (width !== cachedWidth) {
 						cachedWidth = width;
-						cachedLines = renderHeader(width, skillsCache, extensionsCache);
+						cachedLines = renderHeader(width, skillsCache, extensionsCache, headerCwd);
 					}
 					return cachedLines;
 				},

@@ -105,28 +105,29 @@ test("pi-header keeps the trimmed ASCII source", () => {
   const artRows = getSourceArtRows();
 
   assert.equal(artRows.length, 36);
-  assert.ok(artRows.every((line) => [...line].length === 102));
-  assert.equal(artRows[0].startsWith("▒████▒"), true);
+  assert.ok(artRows.every((line) => [...line].length === 77));
+  assert.equal(artRows[0].trim().startsWith("██████████████████░"), true);
   assert.doesNotMatch(headerSource, /░░░░░░░░▒▒▒▒▓████/);
 });
 
-test("pi-header renders ASCII art without the 50 percent scale pass", () => {
+test("pi-header renders the scaled ASCII art inside the sakura frame", () => {
   const artRows = getSourceArtRows();
   const renderedArt = renderHeaderLines(120).filter((line) => /[█▓▒░]/.test(line));
 
   assert.doesNotMatch(headerSource, /ART_SCALE|resizeAsciiArt|SCALED_ANIME_ART/);
   assert.equal(renderedArt.length, artRows.length);
-  assert.equal(renderedArt[0].trimStart(), artRows[0]);
+  assert.ok(renderedArt.every((line) => [...line].length <= 62));
+  assert.ok(renderedArt.every((line) => line.startsWith("│") && line.endsWith("│")));
 });
 
-test("pi-header still downsamples only for narrow terminals", () => {
+test("pi-header downsamples the art to a compact target on every width", () => {
   const renderedArt = renderHeaderLines(40).filter((line) => /[█▓▒░]/.test(line));
 
   assert.equal(renderedArt.length, 36);
   assert.ok(renderedArt.every((line) => [...line].length <= 40));
 });
 
-test("pi-header centers the Extensions card and uses fixed top padding", () => {
+test("pi-header frames the claude-code style welcome block", () => {
  const argv = [
  "-e", "C:/x/pi-bar/index.ts",
  "-e", "C:/x/pi-header/index.ts",
@@ -137,28 +138,26 @@ test("pi-header centers the Extensions card and uses fixed top padding", () => {
  const lines = renderHeaderLines(width, 80, argv);
  const firstArtIndex = lines.findIndex((line) => /[█▓▒░]/.test(line));
  const lastArtIndex = lines.findLastIndex((line) => /[█▓▒░]/.test(line));
- const extensionsTopIndex = lines.findIndex((line) => line.includes("Extensions"));
- const extensionsBottomIndex = lines.findLastIndex((line) => line.includes("╰"));
- const extensionsTop = lines[extensionsTopIndex];
+ const topIndex = lines.findIndex((line) => line.includes("╭─ Axum ─"));
+ const bottomIndex = lines.findIndex((line) => line.includes("╰"));
+ const welcomeIndex = lines.findIndex((line) => line.includes("Welcome to AxumAgent"));
 
  assert.notEqual(firstArtIndex, -1);
  assert.notEqual(lastArtIndex, -1);
- assert.notEqual(extensionsTopIndex, -1);
- assert.notEqual(extensionsBottomIndex, -1);
- assert.ok(extensionsTop);
-  const bodyLines = lines.slice(extensionsTopIndex + 1, extensionsBottomIndex);
-  assert.ok(bodyLines.length >= 1);
-  assert.equal(bodyLines.some((l) => l.includes("pi-bar")), true);
-  assert.equal(bodyLines.some((l) => l.includes("pi-header")), true);
-  assert.equal(bodyLines.some((l) => l.includes("src")), true);
-
- const cardWidth = [...extensionsTop.trimStart()].length;
- assert.equal(extensionsTop.search(/\S/), Math.floor((width - cardWidth) / 2));
- assert.equal(firstArtIndex, 1, "fixed top padding");
- const firstCardIndex = lines.findIndex((line) => line.includes("╭"));
- assert.notEqual(firstCardIndex, -1, "first card rendered");
- assert.equal(firstCardIndex - lastArtIndex - 1, 1, "gap below art into first card");
- assert.equal(lines.length - extensionsBottomIndex, 2, "blank line after last card");
+ assert.notEqual(topIndex, -1);
+ assert.notEqual(bottomIndex, -1);
+ assert.notEqual(welcomeIndex, -1);
+ assert.match(lines[welcomeIndex], /Welcome to AxumAgent · v\d+\.\d+\.\d+/);
+ assert.equal(firstArtIndex, 2, "art directly inside the frame");
+ assert.equal(topIndex, 1, "frame starts after one blank line");
+ assert.equal(firstArtIndex - topIndex, 1, "art directly inside the frame");
+ assert.ok(lines.some((l) => l.includes("cwd: ")));
+ assert.ok(lines.some((l) => l.includes("skills: ")));
+ const extLine = lines.find((l) => l.includes("extensions: "));
+ assert.ok(extLine, "extensions info line present");
+ assert.ok(extLine.includes("pi-bar"));
+ assert.ok(extLine.includes("pi-header"));
+ assert.ok(extLine.includes("src"));
  }
 });
 
@@ -169,16 +168,16 @@ test("pi-header labels node_modules extensions by package name, not entry dir", 
   ];
 
   const lines = renderHeaderLines(120, 80, argv);
-  const cardLine = lines.find((line) => line.includes("Extensions"));
-  const nextLine = lines[lines.indexOf(cardLine) + 1];
+  const extLine = lines.find((line) => line.includes("extensions: "));
 
-  assert.ok(nextLine.includes("pi-bar"));
-  assert.ok(nextLine.includes("pi-header"));
-  assert.equal(nextLine.includes("dist"), false);
-  assert.equal(nextLine.includes("@narumitw"), false);
+  assert.ok(extLine);
+  assert.ok(extLine.includes("pi-bar"));
+  assert.ok(extLine.includes("pi-header"));
+  assert.equal(extLine.includes("dist"), false);
+  assert.equal(extLine.includes("@narumitw"), false);
 });
 
-test("pi-header wraps the Extensions card body onto multiple lines", () => {
+test("pi-header truncates long info lines to stay inside the frame", () => {
   const argv = [
     "-e", "/x/node_modules/pi-bar/index.ts",
         "-e", "/x/plugin/pi-header/index.ts",
@@ -187,11 +186,12 @@ test("pi-header wraps the Extensions card body onto multiple lines", () => {
   ];
 
   const lines = renderHeaderLines(60, 80, argv);
-  const extTopIndex = lines.findIndex((line) => line.includes("Extensions"));
-  const extBottomIndex = lines.findIndex((line, i) => i > extTopIndex && line.includes("╰"));
-  const bodyLines = lines.slice(extTopIndex + 1, extBottomIndex);
+  const boxWidth = Math.min(...lines.filter(Boolean).map((line) => [...line].length));
+  const maxInner = Math.max(...lines.map((line) => [...line].length));
 
-  assert.ok(bodyLines.length >= 2);
-  assert.equal(bodyLines.some((l) => l.includes("pi-extra-one")), true);
-  assert.equal(bodyLines.some((l) => l.includes("pi-extra-two")), true);
+  assert.equal(maxInner, 60);
+  const extLine = lines.find((line) => line.includes("extensions: "));
+  assert.ok(extLine);
+  assert.ok([...extLine].length <= boxWidth);
+  assert.ok(extLine.trimEnd().endsWith("│"));
 });
