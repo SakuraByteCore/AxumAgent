@@ -18,16 +18,17 @@ function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, co
 		"",
 		"[Process]",
 		"1. Maintain a fix_plan.md in the repository root: a bullet list of remaining work sorted by priority. If it does not exist, create it from the goal before doing anything else.",
-		"2. Pick exactly ONE item from fix_plan.md — the most important unfinished one — and implement only that item in this loop.",
+		"2. Repeatedly pick the most important unfinished item from fix_plan.md and work through items continuously within this single run: complete one item fully, then immediately move on to the next unfinished item without waiting for user input.",
 		"3. Before making changes, search the codebase first (do not assume something is not implemented).",
 		"4. Implement fully: no placeholders, no stubs, no minimal mock implementations.",
-		"5. After implementing, run the tests for the unit of code you improved and make them pass.",
-		"6. Update fix_plan.md: mark the completed item as done and append any newly discovered work.",
+		"5. After implementing an item, run the tests for that unit of code and make them pass before moving to the next item.",
+		"6. Update fix_plan.md after each finished item: mark it as done and append any newly discovered work.",
+		"7. Stop only when fix_plan.md has no unfinished items left, every remaining item is blocked (record why in fix_plan.md), or you are about to hit this run's context/time limits. Finish with a short summary of what was completed.",
 	];
 	if (commitRequested) {
-		lines.push("7. When tests pass, stage everything with \"git add -A\" and create a git commit with a descriptive English message.");
+		lines.push("8. When tests pass, stage everything with \"git add -A\" and create a git commit with a descriptive English message.");
 	} else {
-		lines.push("7. Do not run any git commands (no add, commit, push, or tag).");
+		lines.push("8. Do not run any git commands (no add, commit, push, or tag).");
 	}
 	return lines.join("\n");
 }
@@ -788,6 +789,17 @@ export default function (pi: ExtensionAPI): void {
 	}
 	let ralphState: RalphState | undefined;
 
+	const RALPH_CONTINUE_RETRY_MS = 1_000;
+	const RALPH_CONTINUE_RETRY_MAX_ATTEMPTS = 30;
+	let ralphContinueTimer: ReturnType<typeof setTimeout> | undefined;
+
+	function clearRalphContinueRetry(): void {
+		if (ralphContinueTimer !== undefined) {
+			clearTimeout(ralphContinueTimer);
+			ralphContinueTimer = undefined;
+		}
+	}
+
 	pi.registerCommand("clear", {
 		description: "Delete the current conversation session and start a fresh one",
 		getArgumentCompletions: () => null,
@@ -856,7 +868,7 @@ export default function (pi: ExtensionAPI): void {
 	// ── /ralph ──────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ralph", {
-		description: "Ralph loop: run a goal in repeated autonomous loops, one task per loop: /ralph <prompt> | /ralph stop",
+		description: "Ralph loop: run a goal in repeated autonomous loops, one task per loop: /ralph <prompt> | /ralph stop | /ralph delete",
 		getArgumentCompletions: () => null,
 		async handler(args: string, ctx) {
 			const trimmed = args.trim();
@@ -869,11 +881,27 @@ export default function (pi: ExtensionAPI): void {
 				const max = ralphState.maxLoops;
 				const goal = ralphState.prompt;
 				ralphState = undefined;
+				clearRalphContinueRetry();
 				ctx.ui.notify(`Ralph stopped after ${done}/${max} loops (goal: ${goal}).`, "info");
 				return;
 			}
+			if (trimmed.toLowerCase() === "delete") {
+				const planFile = join(process.cwd(), "fix_plan.md");
+				if (!existsSync(planFile)) {
+					ctx.ui.notify("Nothing to delete: fix_plan.md not found in the current directory.", "warning");
+					return;
+				}
+				try {
+					unlinkSync(planFile);
+					ctx.ui.notify("Deleted Ralph artifact: fix_plan.md.", "info");
+				} catch (err) {
+					const message = err instanceof Error ? err.message : String(err);
+					ctx.ui.notify(`Failed to delete fix_plan.md: ${message}`, "error");
+				}
+				return;
+			}
 			if (!trimmed) {
-				ctx.ui.notify("Please provide a goal: /ralph <prompt> (or /ralph stop)", "warning");
+				ctx.ui.notify("Please provide a goal: /ralph <prompt> (or /ralph stop, /ralph delete)", "warning");
 				return;
 			}
 			if (ralphState) {
@@ -980,14 +1008,32 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", async () => {
 		await ensureBundledConfigFile();
 		ralphState = undefined;
+		clearRalphContinueRetry();
 	});
 
 	// ── Ralph loop continuation ──────────────────────────────────────
+	function scheduleRalphContinueRetry(ctx: QueueAwareContext, attemptsLeft: number = RALPH_CONTINUE_RETRY_MAX_ATTEMPTS): void {
+		clearRalphContinueRetry();
+		ralphContinueTimer = setTimeout(() => {
+			ralphContinueTimer = undefined;
+			if (!ralphState) return;
+			if (ctx.hasPendingMessages()) {
+				if (attemptsLeft > 1) scheduleRalphContinueRetry(ctx, attemptsLeft - 1);
+				return;
+			}
+			void maybeRalphContinue(ctx);
+		}, RALPH_CONTINUE_RETRY_MS);
+	}
+
 	async function maybeRalphContinue(ctx: unknown): Promise<void> {
 		const state = ralphState;
 		if (!state) return;
+		clearRalphContinueRetry();
 		const guardCtx = ctx as QueueAwareContext;
-		if (typeof guardCtx.hasPendingMessages === "function" && guardCtx.hasPendingMessages()) return;
+		if (typeof guardCtx.hasPendingMessages === "function" && guardCtx.hasPendingMessages()) {
+			scheduleRalphContinueRetry(guardCtx);
+			return;
+		}
 		const nextLoop = state.loopsDone + 1;
 		if (nextLoop > state.maxLoops) {
 			ralphState = undefined;

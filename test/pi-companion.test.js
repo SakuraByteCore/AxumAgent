@@ -27,6 +27,16 @@ function createContext() {
   };
 }
 
+async function waitFor(predicate, timeoutMs = 2000, stepMs = 5) {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("waitFor timed out");
+    }
+    await new Promise((resolve) => setTimeout(resolve, stepMs));
+  }
+}
+
 async function emit(pi, event, ...args) {
   const handlers = pi.listeners.get(event) ?? [];
   let last;
@@ -319,6 +329,49 @@ test("ralph stop prevents further loops", async () => {
   assert.equal(pi.messages.length, 1, "no follow-up loop after stop");
 });
 
+test("ralph delete removes fix_plan.md from the current directory", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ralph-delete-"));
+  const planFile = path.join(tmpDir, "fix_plan.md");
+  fs.writeFileSync(planFile, "# fix_plan\n", "utf8");
+  const originalCwd = process.cwd();
+  process.chdir(tmpDir);
+
+  try {
+    await pi.commands.get("ralph").handler("delete", ctx);
+
+    assert.equal(fs.existsSync(planFile), false, "fix_plan.md should be deleted");
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "info");
+    assert.match(notifications[0].message, /Deleted Ralph artifact/);
+    assert.equal(pi.messages.length, 0, "delete should not start a loop");
+  } finally {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("ralph delete warns when fix_plan.md is missing", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ralph-delete-missing-"));
+  const originalCwd = process.cwd();
+  process.chdir(tmpDir);
+
+  try {
+    await pi.commands.get("ralph").handler("delete", ctx);
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].level, "warning");
+    assert.match(notifications[0].message, /Nothing to delete/);
+    assert.equal(pi.messages.length, 0);
+  } finally {
+    process.chdir(originalCwd);
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("ralph includes commit step only when prompt mentions commit", async () => {
   const pi = createPi();
   const { ctx } = createContext();
@@ -450,8 +503,7 @@ test("auto-compact proof arriving after agent_settled still resumes", async () =
   const { ctx, compactCalls } = createCompactContext();
 
   const startRun = emit(pi, "agent_start", {}, ctx);
-  await new Promise((resolve) => setTimeout(resolve, 5));
-  assert.equal(compactCalls.length, 1);
+  await waitFor(() => compactCalls.length === 1);
   assert.equal(pi.messages.length, 0, "no resume before proof");
 
   await emit(pi, "agent_settled", {}, ctx);
@@ -459,7 +511,7 @@ test("auto-compact proof arriving after agent_settled still resumes", async () =
 
   compactCalls[0].onComplete({ summary: "late ledger" });
   await startRun;
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await waitFor(() => pi.messages.length === 1);
 
   assert.equal(pi.messages.length, 1, "proof consumed even after agent_settled");
   assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
@@ -478,7 +530,7 @@ test("auto-compact stays below threshold and respects cooldown", async () => {
 
   const hot = createCompactContext();
   const first = emit(pi, "turn_start", {}, hot.ctx);
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await waitFor(() => hot.compactCalls.length === 1);
   assert.equal(hot.compactCalls.length, 1, "over threshold triggers compaction");
   await emit(pi, "turn_start", {}, hot.ctx);
   assert.equal(hot.compactCalls.length, 1, "cooldown/pending blocks immediate re-compaction");
@@ -504,7 +556,7 @@ test("length stop compacts with ledger via native compaction, retries after proo
   }, ctx);
 
   const settled = emit(pi, "agent_settled", {}, ctx);
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await waitFor(() => compactCalls.length === 1);
 
   assert.equal(compactCalls.length, 1, "length stop triggers native ledger compaction");
   assert.match(compactCalls[0].customInstructions, /continuation handoff ledger/i);
@@ -512,6 +564,7 @@ test("length stop compacts with ledger via native compaction, retries after proo
 
   compactCalls[0].onComplete({ summary: "ledger" });
   await settled;
+  await waitFor(() => pi.messages.length === 1);
 
   assert.equal(pi.messages.length, 1, "retry follows only after compaction proof");
   assert.equal(pi.messages[0].message, "continue");
@@ -527,7 +580,7 @@ test("auto-compact resume waits for queued user messages", async () => {
   ctx.hasPendingMessages = () => pendingMessages;
 
   const startRun = emit(pi, "agent_start", {}, ctx);
-  await new Promise((resolve) => setTimeout(resolve, 5));
+  await waitFor(() => compactCalls.length === 1);
   assert.equal(compactCalls.length, 1);
 
   await emit(pi, "agent_settled", {}, ctx);
@@ -541,8 +594,76 @@ test("auto-compact resume waits for queued user messages", async () => {
 
   pendingMessages = false;
   await emit(pi, "agent_settled", {}, ctx);
+  await waitFor(() => pi.messages.length === 1);
   assert.equal(pi.messages.length, 1, "resume drains once queue is empty");
   assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
 
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("ralph prompt instructs continuous multi-item execution", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("ralph").handler("fix everything", ctx);
+
+  const prompt = pi.messages[0].message;
+  assert.match(prompt, /work through items continuously within this single run/);
+  assert.match(prompt, /immediately move on to the next unfinished item without waiting for user input/);
+  assert.match(prompt, /Stop only when fix_plan\.md has no unfinished items left/);
+  assert.doesNotMatch(prompt, /Pick exactly ONE item/);
+  assert.match(prompt, /8\. Do not run any git commands/);
+});
+
+test("ralph defers continuation while messages are pending and resumes when idle", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pi = createPi();
+  let pending = true;
+  const notifications = [];
+  const ctx = {
+    cwd: process.cwd(),
+    hasUI: true,
+    ui: {
+      notify(message, level) {
+        notifications.push({ message, level });
+      },
+    },
+    hasPendingMessages() { return pending; },
+    isIdle() { return true; },
+    getContextUsage() { return { tokens: 0, contextWindow: 100 }; },
+  };
+
+  await pi.commands.get("ralph").handler("keep going", ctx);
+  assert.equal(pi.messages.length, 1);
+
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 1);
+
+  pending = false;
+  t.mock.timers.tick(2000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pi.messages.length, 2);
+  assert.match(pi.messages[1].message, /\[Ralph Loop 2\/10\]/);
+});
+
+test("ralph deferred continuation stops retrying after the attempt limit", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pi = createPi();
+  let pending = true;
+  const ctx = {
+    cwd: process.cwd(),
+    hasUI: true,
+    ui: { notify() {} },
+    hasPendingMessages() { return pending; },
+    isIdle() { return true; },
+    getContextUsage() { return { tokens: 0, contextWindow: 100 }; },
+  };
+
+  await pi.commands.get("ralph").handler("never resumes", ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 1);
+
+  t.mock.timers.tick(60_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(pi.messages.length, 1);
 });
