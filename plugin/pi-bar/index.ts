@@ -503,7 +503,7 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "thinking", "tokens-down", "context-tokens", "context-usage"],
+	left: ["git-branch", "thinking", "tps", "context-tokens", "context-usage"],
 	right: ["messages", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
@@ -598,7 +598,7 @@ type Rgb = readonly [number, number, number];
 const PALETTE: Record<string, Rgb> = {
 	"git-branch":     [104, 56, 49],  // deep brick red (8°, L30)
 	thinking:         [120, 89, 54],  // burnt umber (32°, L34)
-	"tokens-down":    [134, 117, 60], // antique bronze (46°, L38)
+	"tps":            [134, 117, 60], // antique bronze (46°, L38)
 	"context-tokens": [146, 146, 69], // olive (60°, L42)
 	"context-usage":  [155, 166, 78], // chartreuse (68°, L48)
 	messages:         [49, 94, 94],   // dark teal (180°, L28)
@@ -832,7 +832,7 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	// Goal-driven pruning: hide low-priority segments in order until fit.
 	// Priority (low first): tokens-down < thinking < context-tokens < messages.
 	// model is never hidden; pruning runs before shrink pass.
-	const SACRIFICE_IDS = ["tokens-down", "thinking", "context-tokens", "messages"] as const;
+	const SACRIFICE_IDS = ["tps", "thinking", "context-tokens", "messages"] as const;
 
 	function trainNeed(l: RSeg[], r: RSeg[]): number {
 		const tw = l.reduce((a, s) => a + s.width, 0) + r.reduce((a, s) => a + s.width, 0);
@@ -1038,12 +1038,6 @@ function fmtTokens(n: number): string {
 	return `${Math.round(n / 1_000_000)}M`;
 }
 
-function displayPath(cwd: string, home: string): string {
-	if (home && cwd.startsWith(home)) return `~${cwd.slice(home.length)}`;
-	const windowsRoot = cwd.match(/^([A-Za-z]:)[\\/](?:.*[\\/])?([^\\/]+)$/);
-	return windowsRoot ? `${windowsRoot[1]}\\~\\${windowsRoot[2]}` : cwd;
-}
-
 function gitBranch(cwd: string): string | undefined {
 	try {
 		const head = readFileSync(join(cwd, ".git", "HEAD"), "utf-8").trim();
@@ -1233,11 +1227,10 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function emitGit(ctx: ExtensionContext): void {
-		const path = displayPath(ctx.cwd, homedir());
 		// Precedence: svn > git > empty.
 		// svn outranks git: a working copy checked out under a git repo shows "svn".
 		if (isSvn(ctx.cwd)) {
-			pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
+			pi.events.emit("pi-bar:update", { id: "git-branch", text: "svn", color: "mdHeading" });
 			return;
 		}
 		const b = gitBranch(ctx.cwd);
@@ -1245,7 +1238,7 @@ export default function (pi: ExtensionAPI): void {
 			pi.events.emit("pi-bar:update", { id: "git-branch", text: undefined });
 			return;
 		}
-		pi.events.emit("pi-bar:update", { id: "git-branch", text: path, color: "mdHeading" });
+		pi.events.emit("pi-bar:update", { id: "git-branch", text: b, color: "mdHeading" });
 	}
 
 
@@ -1306,7 +1299,32 @@ export default function (pi: ExtensionAPI): void {
 		}
 		tokenCache = { idx: entries.length, to, msgCount };
 		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
-		pi.events.emit("pi-bar:update", { id: "tokens-down", text: `\u2193${fmtTokens(to)}`, color: "text" });
+	}
+
+	// Live output speed: sampled from streaming deltas during a turn and shown
+	// as an approximate tokens-per-second figure (chars/4 heuristic); idle
+	// shows 0 t/s. Sampling is windowed and throttled so the per-delta event
+	// storm never reaches the widget refresh path more than a few times/s.
+	const TPS_SAMPLE_MS = 250;
+	let tpsSamples: { chars: number; start: number } | undefined;
+
+	function emitTps(ctx: ExtensionContext, value: number): void {
+		pi.events.emit("pi-bar:update", { id: "tps", text: `${Math.round(value)} t/s`, color: "text" });
+	}
+
+	function emitTpsIdle(ctx: ExtensionContext): void {
+		tpsSamples = undefined;
+		emitTps(ctx, 0);
+	}
+
+	function emitTpsDelta(ctx: ExtensionContext, delta: string): void {
+		const now = Date.now();
+		if (!tpsSamples) tpsSamples = { chars: 0, start: now };
+		tpsSamples.chars += delta.length / 4;
+		if (now - tpsSamples.start < TPS_SAMPLE_MS) return;
+		const seconds = (now - tpsSamples.start) / 1000;
+		emitTps(ctx, seconds > 0 ? tpsSamples.chars / seconds : 0);
+		tpsSamples = { chars: 0, start: now };
 	}
 
 
@@ -1332,9 +1350,7 @@ export default function (pi: ExtensionAPI): void {
 	const m = ctx.model;
 	if (!m) return;
 	const raw = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
-	const MAX_MODEL_WIDTH = visibleWidth("nemotron-3-ultra ");
-	const name = truncateToWidth(raw, MAX_MODEL_WIDTH, "");
-	pi.events.emit("pi-bar:update", { id: "model", text: name, color: "thinkingHigh" });
+	pi.events.emit("pi-bar:update", { id: "model", text: raw, color: "thinkingHigh" });
 }
 
 	// --- Render refresh (coalesced) ---
@@ -1384,6 +1400,7 @@ export default function (pi: ExtensionAPI): void {
 		emitContext(ctx);
 		emitModel(ctx);
 		emitThinking(ctx);
+		emitTpsIdle(ctx);
 		refresh();
 	});
 
@@ -1397,6 +1414,7 @@ export default function (pi: ExtensionAPI): void {
 		currentCtx = undefined;
 		segs.clear();
 		lastGitCwd = undefined;
+		tpsSamples = undefined;
 		tokenCache = undefined;
 	});
 
@@ -1420,14 +1438,20 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_settled", async (_event, ctx) => {
 		emitContext(ctx);
+		emitTpsIdle(ctx);
 		stopWorkingTimer();
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator();
 		}
 	});
 
-	pi.on("message_update", async (_event, ctx) => {
+	pi.on("message_update", async (event, ctx) => {
 		emitContext(ctx);
+		const ev = (event as { assistantMessageEvent?: { type?: string; delta?: unknown } }).assistantMessageEvent;
+		if (ev && typeof ev.delta === "string"
+			&& (ev.type === "text_delta" || ev.type === "thinking_delta" || ev.type === "toolcall_delta")) {
+			emitTpsDelta(ctx, ev.delta);
+		}
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {

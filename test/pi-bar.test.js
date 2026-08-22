@@ -27,7 +27,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
   assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
-  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tokens-down", "context-tokens", "context-usage"\]/);
+  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tps", "context-tokens", "context-usage"\]/);
   assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
   assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
@@ -70,14 +70,11 @@ test("working indicator shows Reimu frames via host API, with a 1s elapsed timer
   assert.match(statuslineSource, /let workingTimerId: ReturnType<typeof setInterval> \| undefined/);
 });
 
-test("git-branch shows the display path via emitGit", () => {
-  assert.match(statuslineSource, /function displayPath\(cwd: string, home: string\): string \{/);
-  // Windows paths keep the drive and leaf directory while collapsing parents.
-  assert.ok(statuslineSource.includes("const windowsRoot = cwd.match(/^([A-Za-z]:)[\\\\/](?:.*[\\\\/])?([^\\\\/]+)$/);"));
-  assert.ok(statuslineSource.includes("return windowsRoot ? `${windowsRoot[1]}\\\\~\\\\${windowsRoot[2]}` : cwd;"));
-  // git-branch holds the display path only (both svn and git paths).
-  assert.match(statuslineSource, /const path = displayPath\(ctx\.cwd, homedir\(\)\);/);
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/);
+test("git-branch shows the branch name via emitGit", () => {
+  assert.doesNotMatch(statuslineSource, /displayPath/);
+  // git-branch holds the branch name; svn working copies show the "svn" label.
+  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: b, color: "mdHeading" \}\)/);
+  assert.match(statuslineSource, /\{ id: "git-branch", text: "svn", color: "mdHeading" \}/);
 });
 
 test("isSvn walks up from cwd looking for a .svn directory", () => {
@@ -94,8 +91,9 @@ test("emitGit precedence is svn > git > empty", () => {
   const body = statuslineSource.match(/function emitGit[\s\S]*?\n\t}/)?.[0] ?? "";
   // svn checked first and short-circuits before gitBranch.
   assert.match(body, /if \(isSvn\(ctx\.cwd\)\) \{[\s\S]*?return;/);
-  // svn keeps the path on line 1, git keeps the path on line 1 too.
-  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: path, color: "mdHeading" \}\)/g);
+  // svn shows the "svn" label, git shows the branch name.
+  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: "svn", color: "mdHeading" \}\)/);
+  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: b, color: "mdHeading" \}\)/);
   // empty placeholder: both segments cleared (text: undefined) when neither vcs applies; git-dirty was removed entirely.
   assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: undefined \}\)/);
   assert.doesNotMatch(body, /emitGitDirty/);
@@ -128,12 +126,25 @@ test("messages count is a separate right-side pill, separated from context-usage
 test("model segment strips provider prefix from model id", () => {
  assert.match(statuslineSource, /m\.id\.slice\(m\.id\.lastIndexOf\("\/"\) \+ 1\)/);
  assert.match(statuslineSource, /m\.id\.lastIndexOf\("\/"\)/);
- assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: name, color: "thinkingHigh" \}\)/);
+ assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
  assert.doesNotMatch(statuslineSource, /\\u00b7/);
 });
-test("model name truncates directly when exceeding nemotron-3-ultra width", () => {
- assert.match(statuslineSource, /const MAX_MODEL_WIDTH = visibleWidth\(".*"\)/);
- assert.match(statuslineSource, /const name = truncateToWidth\(raw, MAX_MODEL_WIDTH, ""\)/);
+test("model segment shows the full unprefixed model id without truncation", () => {
+ assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
+ assert.doesNotMatch(statuslineSource, /MAX_MODEL_WIDTH/);
+});
+test("tps segment replaces tokens-down with a live tokens-per-second pill", () => {
+  // tokens-down is fully retired: no update emissions and no palette entry.
+  assert.doesNotMatch(statuslineSource, /id: "tokens-down"/);
+  // Idle state shows an explicit 0 t/s (session start and agent settle).
+  assert.match(statuslineSource, /function emitTpsIdle\(ctx: ExtensionContext\): void \{[\s\S]*?emitTps\(ctx, 0\);/);
+  assert.match(statuslineSource, /pi\.on\("agent_settled"[\s\S]*?emitTpsIdle\(ctx\);/);
+  assert.match(statuslineSource, /emitThinking\(ctx\);[\s\S]*?emitTpsIdle\(ctx\);/);
+  // Live value is sampled from streaming deltas with a throttle window.
+  assert.match(statuslineSource, /const TPS_SAMPLE_MS = 250;/);
+  assert.match(statuslineSource, /text_delta" \|\| ev\.type === "thinking_delta" \|\| ev\.type === "toolcall_delta"/);
+  assert.match(statuslineSource, /emitTpsDelta\(ctx, ev\.delta\);/);
+  assert.match(statuslineSource, /\{ id: "tps", text: `\$\{Math\.round\(value\)\} t\/s`/);
 });
 test("usage-core, last-tool and git-dirty dead segments purged", () => {
   for (const dead of [
@@ -176,8 +187,8 @@ test("emitThinking shows the current reasoning strength at all times", () => {
 
 test("right-train drops low-priority segments in order when model risks clipping", () => {
  // Goal-driven pruning hides segments from lowest to highest priority until fit.
- // Order: tokens-down < thinking < context-tokens < messages. model is spared.
- assert.match(statuslineSource, /const SACRIFICE_IDS = \[.*tokens-down.*thinking.*context-tokens.*messages/);
+ // Order: tps < thinking < context-tokens < messages. model is spared.
+ assert.match(statuslineSource, /const SACRIFICE_IDS = \[.*tps.*thinking.*context-tokens.*messages/);
  assert.match(statuslineSource, /function trainNeed\(l: RSeg\[\], r: RSeg\[\]\): number/);
  assert.match(statuslineSource, /for \(const id of SACRIFICE_IDS\)/);
  assert.match(statuslineSource, /left\.splice\(li, 1\)/);
