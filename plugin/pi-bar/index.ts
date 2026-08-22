@@ -362,6 +362,25 @@ function centerInBox(colored: string, plainWidth: number, inner: number): string
   return `${" ".repeat(padL)}${truncateLine(colored, w)}${" ".repeat(padR)}`;
 }
 
+function wrapLabeledList(label: string, items: string[], width: number): string[] {
+  const head = `${label}: `;
+  if (items.length === 0 || width <= head.length) return [];
+  const indent = " ".repeat(head.length);
+  const lines: string[] = [];
+  let current: string | null = null;
+  for (const item of items) {
+    const candidate = current === null ? `${head}${item}` : `${current}, ${item}`;
+    if (current !== null && headerVisibleWidth(candidate) > width) {
+      lines.push(current);
+      current = `${indent}${item}`;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current !== null) lines.push(current);
+  return lines;
+}
+
 function renderHeader(width: number, skills: string[] = [], extensions: string[] = [], cwd?: string): string[] {
   if (width <= 0) return [];
 
@@ -388,11 +407,12 @@ function renderHeader(width: number, skills: string[] = [], extensions: string[]
   const infoLines: string[] = [
     rgb(sakura, welcome, true),
     "",
-    rgb(dim, "/help for help · ? for shortcuts"),
   ];
-  if (displayCwd) infoLines.push(rgb(dim, `cwd: ${displayCwd}`));
-  if (skills.length > 0) infoLines.push(rgb(dim, `skills: ${skills.join(", ")}`));
-  if (extensions.length > 0) infoLines.push(rgb(dim, `extensions: ${extensions.join(", ")}`));
+  const infoLabelWidth = Math.max("cwd".length, "skills".length, "extensions".length);
+  if (displayCwd) infoLines.push(rgb(dim, `${"cwd".padEnd(infoLabelWidth)}: ${displayCwd}`));
+  const listWidth = Math.max(1, inner - 1);
+  for (const line of wrapLabeledList("skills".padEnd(infoLabelWidth), skills, listWidth)) infoLines.push(rgb(dim, line));
+  for (const line of wrapLabeledList("extensions".padEnd(infoLabelWidth), extensions, listWidth)) infoLines.push(rgb(dim, line));
 
   return [
     "",

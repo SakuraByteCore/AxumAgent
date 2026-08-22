@@ -151,8 +151,8 @@ test("pi-header frames the claude-code style welcome block", () => {
  assert.equal(firstArtIndex, 2, "art directly inside the frame");
  assert.equal(topIndex, 1, "frame starts after one blank line");
  assert.equal(firstArtIndex - topIndex, 1, "art directly inside the frame");
- assert.ok(lines.some((l) => l.includes("cwd: ")));
- assert.ok(lines.some((l) => l.includes("skills: ")));
+ assert.ok(lines.some((l) => l.replace(/^│/, "").trimStart().startsWith("cwd")));
+ assert.ok(lines.some((l) => l.replace(/^│/, "").trimStart().startsWith("skills")));
  const extLine = lines.find((l) => l.includes("extensions: "));
  assert.ok(extLine, "extensions info line present");
  assert.ok(extLine.includes("pi-bar"));
@@ -177,7 +177,7 @@ test("pi-header labels node_modules extensions by package name, not entry dir", 
   assert.equal(extLine.includes("@narumitw"), false);
 });
 
-test("pi-header truncates long info lines to stay inside the frame", () => {
+test("pi-header wraps long skills and extensions lists inside the frame", () => {
   const argv = [
     "-e", "/x/node_modules/pi-bar/index.ts",
         "-e", "/x/plugin/pi-header/index.ts",
@@ -185,13 +185,23 @@ test("pi-header truncates long info lines to stay inside the frame", () => {
     "-e", "/x/node_modules/pi-extra-two/index.ts",
   ];
 
-  const lines = renderHeaderLines(60, 80, argv);
+  const lines = renderHeaderLines(50, 80, argv);
   const boxWidth = Math.min(...lines.filter(Boolean).map((line) => [...line].length));
   const maxInner = Math.max(...lines.map((line) => [...line].length));
 
-  assert.equal(maxInner, 60);
-  const extLine = lines.find((line) => line.includes("extensions: "));
-  assert.ok(extLine);
-  assert.ok([...extLine].length <= boxWidth);
-  assert.ok(extLine.trimEnd().endsWith("│"));
+  assert.equal(maxInner, 50);
+  assert.ok(lines.every((line) => [...line].length <= boxWidth), "no info line exceeds the frame");
+  for (const name of ["pi-bar", "pi-header", "pi-extra-one", "pi-extra-two"]) {
+    assert.ok(lines.some((l) => l.includes(name)), `${name} survives wrapping`);
+  }
+  const infoText = (line) => line.replace(/^│/, "").trimStart();
+  const extLines = lines.filter((l) => infoText(l).startsWith("extensions: "));
+  assert.ok(extLines.length >= 1);
+  const labelCols = ["cwd", "skills", "extensions"].map((label) => {
+    const line = lines.find((l) => infoText(l).startsWith(`${label}`) && infoText(l).includes(": "));
+    assert.ok(line, `label ${label} present`);
+    return line.indexOf(":");
+  });
+  assert.equal(new Set(labelCols).size, 1, "cwd/skills/extensions colons share one column");
+  assert.doesNotMatch(lines.join("\n"), /\u2026/);
 });
