@@ -135,20 +135,16 @@ test("pi-header centers the Extensions card and uses fixed top padding", () => {
 
  for (const width of [80, 120]) {
  const lines = renderHeaderLines(width, 80, argv);
- const topRuleIndex = lines.findIndex((line) => line.includes("AXUM"));
  const firstArtIndex = lines.findIndex((line) => /[█▓▒░]/.test(line));
  const lastArtIndex = lines.findLastIndex((line) => /[█▓▒░]/.test(line));
  const extensionsTopIndex = lines.findIndex((line) => line.includes("Extensions"));
  const extensionsBottomIndex = lines.findLastIndex((line) => line.includes("╰"));
- const bottomRuleIndex = lines.findLastIndex((line) => line.includes("AXUM"));
  const extensionsTop = lines[extensionsTopIndex];
 
- assert.notEqual(topRuleIndex, -1);
  assert.notEqual(firstArtIndex, -1);
  assert.notEqual(lastArtIndex, -1);
  assert.notEqual(extensionsTopIndex, -1);
  assert.notEqual(extensionsBottomIndex, -1);
- assert.notEqual(bottomRuleIndex, -1);
  assert.ok(extensionsTop);
   const bodyLines = lines.slice(extensionsTopIndex + 1, extensionsBottomIndex);
   assert.ok(bodyLines.length >= 1);
@@ -158,12 +154,11 @@ test("pi-header centers the Extensions card and uses fixed top padding", () => {
 
  const cardWidth = [...extensionsTop.trimStart()].length;
  assert.equal(extensionsTop.search(/\S/), Math.floor((width - cardWidth) / 2));
- assert.equal(topRuleIndex, 1, "fixed top padding");
- assert.equal(firstArtIndex - topRuleIndex - 1, 1, "gap above art");
+ assert.equal(firstArtIndex, 1, "fixed top padding");
  const firstCardIndex = lines.findIndex((line) => line.includes("╭"));
  assert.notEqual(firstCardIndex, -1, "first card rendered");
  assert.equal(firstCardIndex - lastArtIndex - 1, 1, "gap below art into first card");
- assert.equal(bottomRuleIndex - extensionsBottomIndex - 1, 1, "gap below last card");
+ assert.equal(lines.length - extensionsBottomIndex, 2, "blank line after last card");
  }
 });
 

@@ -326,55 +326,46 @@ function wrapEntries(entries: string[], inner: number): string[] {
   return lines.length > 0 ? lines : [""];
 }
 
-/** A sakura-framed card listing entries, centred, with the cyberdeck palette. */
-function renderCard(label: string, entries: string[], width: number): string[] {
+/** A single sakura-framed card with one titled section per non-empty entry
+ *  group (Skills / Extensions), centred, with the cyberdeck palette. */
+function renderLoadedCard(skills: string[], extensions: string[], width: number): string[] {
   if (width < 8) return [];
-  if (entries.length === 0) entries = ["—"];
   const rail = "│";
   const inner = Math.max(0, width - headerVisibleWidth(rail) * 2);
-  const bodyLines = wrapEntries(entries, inner).map((line) => {
-    const colored = gradient(line, [199, 184, 245], [252, 201, 185], true);
+  const edgeColor = sampleStops(0);
+  const railBg = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m${rail}\x1b[39m`;
+  const bodyLine = (colored: string): string => {
     const body = truncateLine(colored, inner);
     const bw = headerVisibleWidth(body);
     const padR = Math.max(0, inner - bw);
     const padL = 1;
-    const edgeColor = sampleStops(0);
-    const railBg = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m${rail}\x1b[39m`;
     return `${railBg}${' '.repeat(padL)}${body}${' '.repeat(Math.max(0, padR - padL))}${railBg}`;
-  });
+  };
+  const section = (title: string, entries: string[]): string[] => {
+    if (entries.length === 0) return [];
+    return [
+      bodyLine(gradient(title, [242, 167, 198], [199, 184, 245], true)),
+      ...wrapEntries(entries, inner).map((line) => bodyLine(gradient(line, [199, 184, 245], [252, 201, 185], true))),
+    ];
+  };
+  const dim = `\x1b[38;2;${edgeColor[0]};${edgeColor[1]};${edgeColor[2]}m`;
+  const divider = `${dim}${"╌".repeat(Math.max(0, inner - 2))}\x1b[39m`;
   return [
-    frameGradient(fitBorderLabel(label, width)),
-    ...bodyLines,
+    frameGradient(fitBorderLabel("Loaded", width)),
+    ...section("Skills", skills),
+    ...(skills.length > 0 && extensions.length > 0
+      ? [bodyLine(""), bodyLine(divider), bodyLine("")]
+      : []),
+    ...section("Extensions", extensions),
     frameGradient(bottomBorder(width)),
     "",
   ];
-}
-
-/** Render the project title on a single full-width rule line:
- *  left `-` reach the left edge, right `-` reach the right edge,
- *  `AXUM` sits centered between the two rule segments.
- *  Uses the sakura→sky rule gradient for the dashes and the
- *  lavender→peach gradient for the title text, matching the cyberdeck palette. */
-function dashTitleLine(width: number, edgeA: RGB, edgeB: RGB, textA: RGB, textB: RGB): string {
-  if (width <= 0) return "";
-  const title = " AXUM ";
-  const titleLen = Math.min([...title].length, width);
-  const visibleTitle = [...title].slice(0, titleLen).join("");
-  if (titleLen >= width) return gradient(visibleTitle, textA, textB, true);
-  const gap = width - titleLen;
-  const leftLen = Math.floor(gap / 2);
-  const rightLen = gap - leftLen;
-  const left = "-".repeat(leftLen);
-  const right = "-".repeat(rightLen);
-  return gradient(left, edgeA, edgeB) + gradient(visibleTitle, textA, textB, true) + gradient(right, edgeB, edgeA);
 }
 
 function renderHeader(width: number, skills: string[] = [], extensions: string[] = []): string[] {
   if (width <= 0) return [];
 
   const sakura: RGB = [242, 167, 198];
-  const peach: RGB = [252, 201, 185];
-  const lavender: RGB = [199, 184, 245];
   const sky: RGB = [159, 211, 242];
 
   const sourceArt = ANIME_ART;
@@ -411,19 +402,14 @@ function renderHeader(width: number, skills: string[] = [], extensions: string[]
   const cardPad = " ".repeat(Math.max(0, Math.floor((width - cardWidth) / 2)));
   if (hasCards) {
     const mk = (lines: string[]): string[] => lines.map((l) => `${cardPad}${l}`);
-    if (skills.length) cards.push(...mk(renderCard("Skills", skills, cardWidth)));
-    if (extensions.length) cards.push(...mk(renderCard("Extensions", extensions, cardWidth)));
+    cards.push(...mk(renderLoadedCard(skills, extensions, cardWidth)));
   }
 
   return [
     ...Array(fixedTopPadding).fill(""),
-    `${dashTitleLine(width, sakura, sky, lavender, peach)}`,
-    "",
     ...art,
     "",
     ...cards,
-    `${dashTitleLine(width, sakura, sky, lavender, peach)}`,
-    "",
   ];
 }
 
