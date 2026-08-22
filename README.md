@@ -91,9 +91,8 @@ The distribution ships these packages, all in one install:
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent bundled fork)
 - `pi-header` (AxumAgent bundled fork)
-- `pi-shortcuts` (merged pi-plan + pi-clear + /plugin-create-mode)
+- `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
 - `@narumitw/pi-goal`
-- `pi-guard`
 
 ## Configure an OpenAI-compatible Provider
 

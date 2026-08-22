@@ -31,15 +31,10 @@ export const bundledPiPackages = [
 
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
-  // pi-shortcuts: bundled slash shortcuts (merged from pi-plan + pi-clear + pi-plugins).
-  // Exposes /plan (plan-first template), /clear (fresh session), and /plugin-create-mode (open skill guide).
-  // Single-file, zero native deps.
-  { name: "pi-shortcuts@file:plugin/pi-shortcuts", packageName: "pi-shortcuts", extensionPath: "index.ts", android: true },
-
-// pi-guard: read-only advisory watcher that posts inline guidance notes during
-// primary sessions. Filters noise, dedupes repeats, and rate-limits advice
-// delivery. Pure JS, zero native deps.
-{ name: "pi-guard@file:plugin/pi-guard", packageName: "pi-guard", extensionPath: "index.js", android: true },
+  // pi-companion: bundled companion extension (merged from pi-shortcuts + pi-guard).
+  // Slash shortcuts (/plan /clear /ralph /rules /plugin-create-mode), response
+  // guard auto-continue, and the read-only advisory watcher. Single-file, zero native deps.
+  { name: "pi-companion@file:plugin/pi-companion", packageName: "pi-companion", extensionPath: "index.ts", android: true },
 // pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
 // native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
 ];

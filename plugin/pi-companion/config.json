@@ -7,6 +7,7 @@
   "autoContinueOnThinkingOnlyStop": true,
   "autoContinueOnSilentStopAfterTool": true,
   "autoContinueOnEmptyResponse": true,
+  "ralphMaxLoops": 10,
   "errorPatterns": [
     "rate limit",
     "usage limit",

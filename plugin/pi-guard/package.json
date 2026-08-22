@@ -1,6 +1,0 @@
-{
-  "name": "pi-guard",
-  "type": "module",
-  "pi": { "extensions": ["./index.js"] },
-  "peerDependencies": { "@earendil-works/pi-coding-agent": ">=0.74.0" }
-}

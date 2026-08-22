@@ -43,7 +43,7 @@ async function createPi() {
   let isIdle = true;
   // Create a temp cwd with bundled config so resolveConfigPath works
   var tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-stress-cwd-"));
-  var bundledConfigPath = path.join(__dirname, "..", "plugin", "pi-shortcuts", "config.json");
+  var bundledConfigPath = path.join(__dirname, "..", "plugin", "pi-companion", "config.json");
   fs.mkdirSync(path.join(tmpDir, ".pi", "agent", "extensions", "pi-response-guard"), { recursive: true });
   try {
     fs.copyFileSync(bundledConfigPath, path.join(tmpDir, ".pi", "agent", "extensions", "pi-response-guard", "config.json"));
@@ -105,7 +105,7 @@ async function createPi() {
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (ex2) {}
   };
   process.env.PI_CODING_AGENT_DIR = dir;
-  var mod = await import("../plugin/pi-shortcuts/index.ts");
+  var mod = await import("../plugin/pi-companion/index.ts");
   mod.default(pi);
   if (cleanupEnv) cleanupEnv();
   return pi;
@@ -418,7 +418,7 @@ test("stress.codeAudit: no deliverAs remnants anywhere in source", { timeout: 15
 test("stress.codeAudit: all sendUserMessage calls pass streamingBehavior", { timeout: 15000 }, function() {
   var result;
   try {
-    result = execSync('grep -rn "sendUserMessage" /data/data/com.termux/files/home/AxumAgent/plugin/pi-shortcuts/index.ts', {
+    result = execSync('grep -rn "sendUserMessage" /data/data/com.termux/files/home/AxumAgent/plugin/pi-companion/index.ts', {
       encoding: "utf8", timeout: 10000,
     });
   } catch (ex) { result = ex.stdout || ""; }

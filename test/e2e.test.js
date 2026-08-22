@@ -29,9 +29,9 @@ test("e2e: axum code --safe --help exits 0 without first-run install output", { 
   assert.doesNotMatch(result.stdout, /installing bundled Pi/);
 });
 
-// ── 3. pi-shortcuts /plan triggers sendUserMessage ──────────────────────────
+// ── 3. pi-companion /plan triggers sendUserMessage ──────────────────────────
 
-test("e2e: pi-shortcuts /plan command sends a plan prompt via sendUserMessage", async () => {
+test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", async () => {
   const sentMessages = [];
   const ctx = {
     ui: {
@@ -76,7 +76,7 @@ test("e2e: pi-shortcuts /plan command sends a plan prompt via sendUserMessage", 
     commands: new Map(),
   };
 
-  // Inline the /plan handler exactly as registered by pi-shortcuts so the
+  // Inline the /plan handler exactly as registered by pi-companion so the
   // verification does not depend on loading TypeScript source.
   const PLAN_FIRST_TEMPLATE =
     "Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.";

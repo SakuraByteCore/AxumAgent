@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import shortcuts from "../plugin/pi-shortcuts/index.ts";
+import shortcuts from "../plugin/pi-companion/index.ts";
 
 function createContext() {
   const notifications = [];
@@ -20,6 +20,9 @@ function createContext() {
       },
       newSession() { return { cancelled: false }; },
       getContextUsage() { return { tokens: 0, contextWindow: 100 }; },
+      hasPendingMessages() { return false; },
+      isIdle() { return true; },
+      cwd: process.cwd(),
     },
   };
 }
@@ -94,7 +97,7 @@ test("plan command uses Japanese expectation for kana input", async () => {
 
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
   const pi = createPi();
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-guard-settled-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-settled-"));
   const notifications = [];
   const ctx = {
     cwd: tmpDir,
@@ -140,7 +143,7 @@ test("pi-response-guard defers thinking-only auto-continue until agent_settled",
 
 test("pi-response-guard clears deferred retry after max retry limit", async () => {
   const pi = createPi();
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-guard-max-"));
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-max-"));
   fs.writeFileSync(path.join(tmpDir, ".pi-response-guard.json"), JSON.stringify({
     enabled: true,
     retryMessage: "continue",
@@ -249,5 +252,113 @@ test("reload command notifies when SYSTEM.md is missing", async () => {
   }
 });
 
+test("ralph command requires a prompt", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
 
+  await pi.commands.get("ralph").handler("", ctx);
 
+  assert.equal(pi.messages.length, 0);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].level, "warning");
+  assert.match(notifications[0].message, /\/ralph <prompt>/);
+});
+
+test("ralph starts loop and advances one loop per agent_settled", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("ralph").handler("fix all failing tests", ctx);
+
+  assert.equal(pi.messages.length, 1);
+  assert.match(pi.messages[0].message, /\[Ralph Loop 1\/10\]/);
+  assert.match(pi.messages[0].message, /\[Goal\] fix all failing tests/);
+  assert.match(pi.messages[0].message, /fix_plan\.md/);
+  assert.match(pi.messages[0].message, /Do not run any git commands/);
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+
+  await pi.listeners.get("agent_settled")({}, ctx);
+  await pi.listeners.get("agent_settled")({}, ctx);
+
+  assert.equal(pi.messages.length, 3);
+  assert.match(pi.messages[1].message, /\[Ralph Loop 2\/10\]/);
+  assert.match(pi.messages[2].message, /\[Ralph Loop 3\/10\]/);
+});
+
+test("ralph stop prevents further loops", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+
+  await pi.commands.get("ralph").handler("fix all failing tests", ctx);
+  await pi.commands.get("ralph").handler("stop", ctx);
+
+  assert.equal(notifications.at(-1).level, "info");
+  assert.match(notifications.at(-1).message, /Ralph stopped after 1\/10 loops/);
+
+  await pi.listeners.get("agent_settled")({}, ctx);
+
+  assert.equal(pi.messages.length, 1, "no follow-up loop after stop");
+});
+
+test("ralph includes commit step only when prompt mentions commit", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("ralph").handler("\u4fee\u590d\u6240\u6709\u6d4b\u8bd5\u5e76 commit", ctx);
+
+  assert.equal(pi.messages.length, 1);
+  assert.match(pi.messages[0].message, /git add -A/);
+  assert.match(pi.messages[0].message, /git commit/);
+});
+
+test("ralph refuses to start while already running", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+
+  await pi.commands.get("ralph").handler("first goal", ctx);
+  await pi.commands.get("ralph").handler("second goal", ctx);
+
+  assert.equal(pi.messages.length, 1);
+  assert.equal(notifications.at(-1).level, "warning");
+  assert.match(notifications.at(-1).message, /already running/);
+});
+
+test("ralph stops after reaching the configured loop limit", async () => {
+  const pi = createPi();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-ralph-limit-"));
+  fs.writeFileSync(path.join(tmpDir, ".pi-response-guard.json"), JSON.stringify({
+    enabled: true,
+    ralphMaxLoops: 2,
+  }));
+  const notifications = [];
+  const ctx = {
+    cwd: tmpDir,
+    hasUI: true,
+    ui: {
+      notify(message, level) {
+        notifications.push({ message, level });
+      },
+    },
+    hasPendingMessages() { return false; },
+    isIdle() { return true; },
+    getContextUsage() { return { tokens: 0, contextWindow: 100 }; },
+  };
+
+  try {
+    await pi.commands.get("ralph").handler("ship it", ctx);
+
+    assert.match(pi.messages[0].message, /\[Ralph Loop 1\/2\]/);
+
+    await pi.listeners.get("agent_settled")({}, ctx);
+
+    assert.equal(pi.messages.length, 2);
+    assert.match(pi.messages[1].message, /\[Ralph Loop 2\/2\]/);
+
+    await pi.listeners.get("agent_settled")({}, ctx);
+
+    assert.equal(pi.messages.length, 2, "no loop beyond the limit");
+    assert.match(notifications.at(-1).message, /reached loop limit \(2\)/);
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

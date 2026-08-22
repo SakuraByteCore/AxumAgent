@@ -8,6 +8,29 @@ import { homedir } from "node:os";
 // ── Templates ──────────────────────────────────────────────────────────────
 
 const PLAN_FIRST_TEMPLATE = `Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+
+const RALPH_COMMIT_PATTERN = /\bcommit\b|提交/i;
+
+function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, commitRequested: boolean): string {
+	const lines = [
+		`[Ralph Loop ${loop}/${maxLoops}]`,
+		`[Goal] ${prompt}`,
+		"",
+		"[Process]",
+		"1. Maintain a fix_plan.md in the repository root: a bullet list of remaining work sorted by priority. If it does not exist, create it from the goal before doing anything else.",
+		"2. Pick exactly ONE item from fix_plan.md — the most important unfinished one — and implement only that item in this loop.",
+		"3. Before making changes, search the codebase first (do not assume something is not implemented).",
+		"4. Implement fully: no placeholders, no stubs, no minimal mock implementations.",
+		"5. After implementing, run the tests for the unit of code you improved and make them pass.",
+		"6. Update fix_plan.md: mark the completed item as done and append any newly discovered work.",
+	];
+	if (commitRequested) {
+		lines.push("7. When tests pass, stage everything with \"git add -A\" and create a git commit with a descriptive English message.");
+	} else {
+		lines.push("7. Do not run any git commands (no add, commit, push, or tag).");
+	}
+	return lines.join("\n");
+}
 function pickExpectation(requirement: string): string {
 	const hasJa = /[\u3040-\u309f\u30a0-\u30ff]/.test(requirement);
 	if (hasJa) return `現在の要件の期待される結果を、噛み砕いた表現で説明してください。`;
@@ -105,6 +128,7 @@ interface AutoContinueConfig {
 	autoContinueOnThinkingOnlyStop: boolean;
 	autoContinueOnSilentStopAfterTool: boolean;
 	autoContinueOnEmptyResponse: boolean;
+	ralphMaxLoops: number;
 	errorPatterns: string[];
 }
 
@@ -117,6 +141,7 @@ const DEFAULT_CONFIG: AutoContinueConfig = {
 	autoContinueOnThinkingOnlyStop: true,
 	autoContinueOnSilentStopAfterTool: true,
 	autoContinueOnEmptyResponse: true,
+	ralphMaxLoops: 10,
 	errorPatterns: [
 		"rate limit",
 		"usage limit",
@@ -247,6 +272,11 @@ function normalizeConfig(raw: unknown): AutoContinueConfig {
 
 	const config = raw;
 
+	const ralphMaxLoops =
+		typeof config.ralphMaxLoops === "number" && Number.isFinite(config.ralphMaxLoops)
+			? Math.max(1, Math.floor(config.ralphMaxLoops))
+			: DEFAULT_CONFIG.ralphMaxLoops;
+
 	const errorPatterns = Array.isArray(config.errorPatterns)
 		? (config.errorPatterns as unknown[])
 				.filter((p): p is string => typeof p === "string")
@@ -288,6 +318,7 @@ function normalizeConfig(raw: unknown): AutoContinueConfig {
 			typeof config.autoContinueOnEmptyResponse === "boolean"
 				? config.autoContinueOnEmptyResponse
 				: DEFAULT_CONFIG.autoContinueOnEmptyResponse,
+		ralphMaxLoops,
 		errorPatterns: errorPatterns.length > 0 ? errorPatterns : DEFAULT_CONFIG.errorPatterns,
 	};
 }
@@ -413,6 +444,172 @@ function getAutoContinueReason(
 	return undefined;
 }
 
+// ── pi-companion:advisor — advisory watcher ────────────────────────────────
+// Read-only watcher (merged from pi-guard). Posts inline guidance notes via
+// pi.events.emit("pi-companion:advice", note, severity); filters noise,
+// dedupes repeats, and rate-limits advice delivery.
+
+const ADVISORY_EVENT = "pi-companion:advice";
+const ADVISOR_HISTORY_CAPACITY = 4096;
+
+function normalizeAdvisorNote(note: unknown): string {
+	if (typeof note !== "string") return "";
+	return note
+		.toLowerCase()
+		.normalize("NFKC")
+		.replace(/[^\p{L}\p{N}]+/gu, " ")
+		.trim();
+}
+
+const SUPPRESSED_NORMALIZED_PHRASES: ReadonlySet<string> = new Set([
+	"stop",
+	"stop here",
+	"stop now",
+	"halt",
+	"abort",
+	"done",
+	"task done",
+	"task complete",
+	"complete",
+	"finished",
+	"ok",
+	"okay",
+	"ok done",
+	"no issue",
+	"no issues",
+	"no issue continue",
+	"no concerns",
+	"no concern",
+	"nothing to add",
+	"nothing to flag",
+	"nothing to report",
+	"no notes",
+	"no further input",
+	"no further input needed",
+	"no further input required",
+	"no further watcher input",
+	"no further watcher input needed",
+	"no further advice",
+	"no further advice needed",
+	"lgtm",
+	"looks good",
+	"all good",
+	"agent is on track",
+	"agent on track",
+	"on track",
+	"continue",
+	"carry on",
+]);
+
+class EmissionGuard {
+	private readonly capacity: number;
+	private readonly seen = new Set<string>();
+	private seenOrder: string[] = [];
+	private consumedThisUpdate = false;
+
+	constructor(opts: { capacity?: number } = {}) {
+		this.capacity = opts.capacity ?? ADVISOR_HISTORY_CAPACITY;
+	}
+
+	reset(): void {
+		this.seen.clear();
+		this.seenOrder = [];
+		this.consumedThisUpdate = false;
+	}
+
+	beginUpdate(): void {
+		this.consumedThisUpdate = false;
+	}
+
+	accept(note: string): boolean {
+		const key = normalizeAdvisorNote(note);
+		if (!key) return false;
+		if (SUPPRESSED_NORMALIZED_PHRASES.has(key)) return false;
+		if (this.seen.has(key)) return false;
+		if (this.consumedThisUpdate) return false;
+		this.consumedThisUpdate = true;
+		this.seen.add(key);
+		this.seenOrder.push(key);
+		if (this.seenOrder.length > this.capacity) {
+			const stale = this.seenOrder.shift();
+			if (stale !== undefined) this.seen.delete(stale);
+		}
+		return true;
+	}
+}
+
+interface AdvisorAdvice {
+	note: string;
+	severity: string;
+}
+
+interface AdvisorToolCallEvent {
+	input?: unknown;
+}
+
+interface AdvisorToolResultEvent {
+	isError?: boolean;
+	details?: unknown;
+}
+
+function inspectToolCall(event: AdvisorToolCallEvent): AdvisorAdvice | undefined {
+	const input = (event.input ?? {}) as string | { command?: unknown };
+	const command = typeof input === "string" ? input : input.command;
+	if (typeof command !== "string") return undefined;
+
+	if (/\brm\s+-rf\s+\//.test(command)) {
+		return {
+			note: "`rm -rf /...` looks dangerous. Double-check the path.",
+			severity: "concern",
+		};
+	}
+
+	if (/\bchmod\s+-R\s+777\b/.test(command)) {
+		return {
+			note: "Consider narrower permissions than 777.",
+			severity: "nit",
+		};
+	}
+
+	if (
+		/\b(fuser|kill)\s+-9\b/.test(command) ||
+		/\bdd\b/.test(command) ||
+		/\bmkfs\b/.test(command)
+	) {
+		return {
+			note: "Mass-mutation command detected. Dry-run first if possible.",
+			severity: "concern",
+		};
+	}
+
+	if (/\bgit\s+push\s+--force\b/.test(command) && !/--force-with-lease/.test(command)) {
+		return {
+			note: "Prefer `git push --force-with-lease` over `--force`.",
+			severity: "nit",
+		};
+	}
+
+	return undefined;
+}
+
+function inspectToolResult(event: AdvisorToolResultEvent): AdvisorAdvice | undefined {
+	if (!event.isError) return undefined;
+	const details = event.details;
+	if (details && typeof details === "object" && (details as { signal?: unknown }).signal === "SIGKILL") {
+		return {
+			note: "Process killed (SIGKILL). Check OOM or infinite loop.",
+			severity: "blocker",
+		};
+	}
+	if (details && typeof details === "object" && (details as { code?: unknown }).code === "ENOSPC") {
+		return {
+			note: "Disk full (ENOSPC). Free space before retrying.",
+			severity: "blocker",
+		};
+	}
+	return undefined;
+}
+
 /**
  * pi-response-guard — index.ts
  *
@@ -474,6 +671,7 @@ async function ensureBundledConfigFile(): Promise<void> {
 			autoContinueOnThinkingOnlyStop: true,
 			autoContinueOnSilentStopAfterTool: true,
 			autoContinueOnEmptyResponse: true,
+			ralphMaxLoops: 10,
 			errorPatterns: [
 				"rate limit", "usage limit", "rate_limit", "too many requests",
 				"429", "429 too many", "insufficient_quota", "rate limit exceeded",
@@ -543,6 +741,14 @@ export default function (pi: ExtensionAPI): void {
 	let lastAssistantAlreadyHandled = false;
 	const lastConfigError: { value?: string } = {};
 
+	interface RalphState {
+		prompt: string;
+		commitRequested: boolean;
+		loopsDone: number;
+		maxLoops: number;
+	}
+	let ralphState: RalphState | undefined;
+
 	pi.registerCommand("clear", {
 		description: "Delete the current conversation session and start a fresh one",
 		getArgumentCompletions: () => null,
@@ -605,6 +811,42 @@ export default function (pi: ExtensionAPI): void {
 				`[Instructions] ${PLAN_FIRST_TEMPLATE}`,
 			].join("\n");
 			pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+		},
+	});
+
+	// ── /ralph ──────────────────────────────────────────────────────────────
+
+	pi.registerCommand("ralph", {
+		description: "Ralph loop: run a goal in repeated autonomous loops, one task per loop: /ralph <prompt> | /ralph stop",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			const trimmed = args.trim();
+			if (trimmed.toLowerCase() === "stop") {
+				if (!ralphState) {
+					ctx.ui.notify("Ralph is not running.", "warning");
+					return;
+				}
+				const done = ralphState.loopsDone;
+				const max = ralphState.maxLoops;
+				const goal = ralphState.prompt;
+				ralphState = undefined;
+				ctx.ui.notify(`Ralph stopped after ${done}/${max} loops (goal: ${goal}).`, "info");
+				return;
+			}
+			if (!trimmed) {
+				ctx.ui.notify("Please provide a goal: /ralph <prompt> (or /ralph stop)", "warning");
+				return;
+			}
+			if (ralphState) {
+				ctx.ui.notify("Ralph is already running. Use /ralph stop first.", "warning");
+				return;
+			}
+			const config = await loadConfig(ctx as QueueAwareContext, lastConfigError);
+			const maxLoops = Math.max(1, config.ralphMaxLoops);
+			const commitRequested = RALPH_COMMIT_PATTERN.test(trimmed);
+			ralphState = { prompt: trimmed, commitRequested, loopsDone: 1, maxLoops };
+			ctx.ui.notify(`Ralph started: loop 1/${maxLoops}${commitRequested ? ", commits enabled" : ""}.`, "info");
+			pi.sendUserMessage(buildRalphLoopPrompt(trimmed, 1, maxLoops, commitRequested), { streamingBehavior: "followUp" });
 		},
 	});
 
@@ -694,11 +936,35 @@ export default function (pi: ExtensionAPI): void {
 		await tryDeferredCompact(pi, ctx);
 		await sendCompactContinue(pi, ctx);
 		await maybeAutoContinueTerminal(ctx);
+		await maybeRalphContinue(ctx);
 	});
 
 	pi.on("session_start", async () => {
 		await ensureBundledConfigFile();
+		ralphState = undefined;
 	});
+
+	// ── Ralph loop continuation ──────────────────────────────────────
+	async function maybeRalphContinue(ctx: unknown): Promise<void> {
+		const state = ralphState;
+		if (!state) return;
+		const guardCtx = ctx as QueueAwareContext;
+		if (typeof guardCtx.hasPendingMessages === "function" && guardCtx.hasPendingMessages()) return;
+		const nextLoop = state.loopsDone + 1;
+		if (nextLoop > state.maxLoops) {
+			ralphState = undefined;
+			safeNotify(guardCtx, `Ralph finished: reached loop limit (${state.maxLoops}) for goal: ${state.prompt}`, "info");
+			return;
+		}
+		state.loopsDone = nextLoop;
+		try {
+			await pi.sendUserMessage(buildRalphLoopPrompt(state.prompt, nextLoop, state.maxLoops, state.commitRequested), { streamingBehavior: "followUp" });
+		} catch (err) {
+			ralphState = undefined;
+			const message = err instanceof Error ? err.message : String(err);
+			safeNotify(guardCtx, `Ralph stopped: failed to start loop ${nextLoop}: ${message}`, "error");
+		}
+	}
 
 	// ── Terminal fallback ────────────────────────────────────────────
 	// In non-goal auto-run tasks the agent's internal retry loop
@@ -855,5 +1121,34 @@ export default function (pi: ExtensionAPI): void {
 		// prevents "Agent is already processing" from stopping the task.
 		deferredAutoContinueReason = autoContinueReason;
 		return;
+	});
+
+	// ── Advisory watcher (merged from pi-guard) ────────────────────────────
+	const advisor = new EmissionGuard();
+
+	pi.on("turn_start", async () => {
+		advisor.beginUpdate();
+	});
+
+	pi.on("turn_end", async () => {
+		advisor.beginUpdate();
+	});
+
+	pi.on("tool_call", async (event) => {
+		const advice = inspectToolCall(event as AdvisorToolCallEvent);
+		if (!advice) return;
+		if (!advisor.accept(advice.note)) return;
+		pi.events.emit(ADVISORY_EVENT, advice.note, advice.severity);
+	});
+
+	pi.on("tool_result", async (event) => {
+		const advice = inspectToolResult(event as AdvisorToolResultEvent);
+		if (!advice) return;
+		if (!advisor.accept(advice.note)) return;
+		pi.events.emit(ADVISORY_EVENT, advice.note, advice.severity);
+	});
+
+	pi.on("session_shutdown", async () => {
+		advisor.reset();
 	});
 }
