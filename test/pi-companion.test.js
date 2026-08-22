@@ -27,6 +27,15 @@ function createContext() {
   };
 }
 
+async function emit(pi, event, ...args) {
+  const handlers = pi.listeners.get(event) ?? [];
+  let last;
+  for (const handler of handlers) {
+    last = await handler(...args);
+  }
+  return last;
+}
+
 function createPi() {
   const commands = new Map();
   const messages = [];
@@ -42,16 +51,26 @@ function createPi() {
     },
     getModel() { return undefined; },
     on(event, handler) {
-      listeners.set(event, handler);
-      return () => listeners.delete(event);
+      if (!listeners.has(event)) listeners.set(event, []);
+      listeners.get(event).push(handler);
+      return () => {
+        const list = listeners.get(event);
+        const i = list.indexOf(handler);
+        if (i >= 0) list.splice(i, 1);
+      };
     },
     sendUserMessage(message, options) {
       messages.push({ message, options });
     },
     events: {
       on(event, handler) {
-        listeners.set(event, handler);
-        return () => listeners.delete(event);
+        if (!listeners.has(event)) listeners.set(event, []);
+        listeners.get(event).push(handler);
+        return () => {
+          const list = listeners.get(event);
+          const i = list.indexOf(handler);
+          if (i >= 0) list.splice(i, 1);
+        };
       },
       emit(event, data) {
         emitted.push({ event, data });
@@ -119,7 +138,7 @@ test("pi-response-guard defers thinking-only auto-continue until agent_settled",
   };
 
   try {
-    await pi.listeners.get("message_end")({
+    await emit(pi, "message_end", {
       message: {
         role: "assistant",
         stopReason: "stop",
@@ -130,7 +149,7 @@ test("pi-response-guard defers thinking-only auto-continue until agent_settled",
 
     assert.equal(pi.messages.length, 0, "message_end must not inject while runtime may still be processing");
 
-    await pi.listeners.get("agent_settled")({}, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
 
     assert.equal(pi.messages.length, 1);
     assert.equal(pi.messages[0].message, "continue");
@@ -172,7 +191,7 @@ test("pi-response-guard clears deferred retry after max retry limit", async () =
   };
 
   try {
-    await pi.listeners.get("message_end")({
+    await emit(pi, "message_end", {
       message: {
         role: "assistant",
         stopReason: "stop",
@@ -181,8 +200,8 @@ test("pi-response-guard clears deferred retry after max retry limit", async () =
       },
     }, ctx);
 
-    await pi.listeners.get("agent_settled")({}, ctx);
-    await pi.listeners.get("agent_settled")({}, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
 
     assert.equal(pi.messages.length, 0);
     assert.equal(notifications.length, 1);
@@ -277,8 +296,8 @@ test("ralph starts loop and advances one loop per agent_settled", async () => {
   assert.match(pi.messages[0].message, /Do not run any git commands/);
   assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
 
-  await pi.listeners.get("agent_settled")({}, ctx);
-  await pi.listeners.get("agent_settled")({}, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
 
   assert.equal(pi.messages.length, 3);
   assert.match(pi.messages[1].message, /\[Ralph Loop 2\/10\]/);
@@ -295,7 +314,7 @@ test("ralph stop prevents further loops", async () => {
   assert.equal(notifications.at(-1).level, "info");
   assert.match(notifications.at(-1).message, /Ralph stopped after 1\/10 loops/);
 
-  await pi.listeners.get("agent_settled")({}, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
 
   assert.equal(pi.messages.length, 1, "no follow-up loop after stop");
 });
@@ -349,16 +368,181 @@ test("ralph stops after reaching the configured loop limit", async () => {
 
     assert.match(pi.messages[0].message, /\[Ralph Loop 1\/2\]/);
 
-    await pi.listeners.get("agent_settled")({}, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
 
     assert.equal(pi.messages.length, 2);
     assert.match(pi.messages[1].message, /\[Ralph Loop 2\/2\]/);
 
-    await pi.listeners.get("agent_settled")({}, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
 
     assert.equal(pi.messages.length, 2, "no loop beyond the limit");
     assert.match(notifications.at(-1).message, /reached loop limit \(2\)/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
+});
+
+process.env.PI_COMPANION_COMPACT_COOLDOWN_MS = "0";
+
+function createCompactContext(overrides = {}) {
+  const notifications = [];
+  const compactCalls = [];
+  const ctx = {
+    notifications,
+    cwd: fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-compact-")),
+    hasUI: true,
+    ui: {
+      notify(message, level) {
+        notifications.push({ message, level });
+      },
+    },
+    hasPendingMessages() { return false; },
+    isIdle() { return true; },
+    getContextUsage() { return { tokens: 85, contextWindow: 100 }; },
+    compact(options) {
+      compactCalls.push(options);
+      if (overrides.compactBehavior) {
+        overrides.compactBehavior(options);
+      }
+    },
+  };
+  return { ctx, notifications, compactCalls };
+}
+
+test("auto-compact uses native compaction and resumes only after proof", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext({
+    compactBehavior(options) {
+      options.onComplete({ summary: "continuation ledger" });
+    },
+  });
+
+  await emit(pi, "agent_start", {}, ctx);
+
+  assert.equal(compactCalls.length, 1);
+  assert.match(compactCalls[0].customInstructions, /continuation handoff ledger/i);
+  assert.equal(pi.messages.length, 1, "no /compact user message injection");
+  assert.doesNotMatch(pi.messages[0].message, /^\/compact/);
+  assert.match(pi.messages[0].message, /continuation handoff summary/i);
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("auto-compact failure notifies without resuming", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createCompactContext({
+    compactBehavior(options) {
+      options.onError(new Error("boom"));
+    },
+  });
+
+  await emit(pi, "agent_start", {}, ctx);
+
+  assert.equal(pi.messages.length, 0, "failed compaction must not resume");
+  assert.match(notifications[0].message, /Auto-compact failed: boom/);
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("auto-compact proof arriving after agent_settled still resumes", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext();
+
+  const startRun = emit(pi, "agent_start", {}, ctx);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(compactCalls.length, 1);
+  assert.equal(pi.messages.length, 0, "no resume before proof");
+
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 0, "settled before proof must not resume yet");
+
+  compactCalls[0].onComplete({ summary: "late ledger" });
+  await startRun;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(pi.messages.length, 1, "proof consumed even after agent_settled");
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("auto-compact stays below threshold and respects cooldown", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 50, contextWindow: 100 });
+
+  await emit(pi, "turn_start", {}, ctx);
+  assert.equal(compactCalls.length, 0, "below threshold must not compact");
+  assert.equal(pi.messages.length, 0);
+
+  const hot = createCompactContext();
+  const first = emit(pi, "turn_start", {}, hot.ctx);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(hot.compactCalls.length, 1, "over threshold triggers compaction");
+  await emit(pi, "turn_start", {}, hot.ctx);
+  assert.equal(hot.compactCalls.length, 1, "cooldown/pending blocks immediate re-compaction");
+  hot.compactCalls[0].onComplete({ summary: "ledger" });
+  await first;
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  fs.rmSync(hot.ctx.cwd, { recursive: true, force: true });
+});
+
+test("length stop compacts with ledger via native compaction, retries after proof", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: {
+      role: "assistant",
+      stopReason: "length",
+      content: [{ type: "text", text: "truncated output" }],
+      usage: { input: 10, output: 1 },
+    },
+  }, ctx);
+
+  const settled = emit(pi, "agent_settled", {}, ctx);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  assert.equal(compactCalls.length, 1, "length stop triggers native ledger compaction");
+  assert.match(compactCalls[0].customInstructions, /continuation handoff ledger/i);
+  assert.equal(pi.messages.length, 0, "no /compact injection and no retry before proof");
+
+  compactCalls[0].onComplete({ summary: "ledger" });
+  await settled;
+
+  assert.equal(pi.messages.length, 1, "retry follows only after compaction proof");
+  assert.equal(pi.messages[0].message, "continue");
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("auto-compact resume waits for queued user messages", async () => {
+  const pi = createPi();
+  let pendingMessages = false;
+  const { ctx, compactCalls } = createCompactContext();
+  ctx.hasPendingMessages = () => pendingMessages;
+
+  const startRun = emit(pi, "agent_start", {}, ctx);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(compactCalls.length, 1);
+
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 0);
+
+  pendingMessages = true;
+  compactCalls[0].onComplete({ summary: "ledger" });
+  await startRun;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(pi.messages.length, 0, "user-queued messages take priority over auto-resume");
+
+  pendingMessages = false;
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 1, "resume drains once queue is empty");
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });

@@ -44,70 +44,109 @@ function pickExpectation(requirement: string): string {
 
 const COMPACT_THRESHOLD = 80;
 const COMPACT_COOLDOWN_MS = 30_000;
-const COMPACT_CONTINUE_DELAY_MS = 2000;
+const COMPACT_PROOF_TIMEOUT_MS = 300_000;
+function compactCooldownMs(): number {
+	const raw = Number(process.env.PI_COMPANION_COMPACT_COOLDOWN_MS);
+	return Number.isFinite(raw) && raw >= 0 ? raw : COMPACT_COOLDOWN_MS;
+}
+const COMPACT_LEDGER_INSTRUCTIONS = [
+	"Write the summary as a continuation handoff ledger for resuming this task later.",
+	"Use exactly these sections:",
+	"Active task: the user goal still in progress.",
+	"Still true: constraints, decisions and requirements that remain in effect.",
+	"Recently changed: files edited, commands run and their outcomes.",
+	"Next step: the single most important unfinished action to resume with.",
+	"Fresh evidence: the latest test results, logs or outputs that are current.",
+	"Do not repeat: completed work that must not be redone.",
+	"Be concise and factual; omit sections with nothing to report.",
+].join("\n");
+const COMPACT_CONTINUE_PROMPT = "Continue the active task using the continuation handoff summary above. Resume from the next step and do not repeat completed work.";
 let lastCompactAt = 0;
-let pendingCompact: Promise<void> | null = null;
+let pendingCompact: Promise<boolean> | null = null;
 let compactDeferred = false;
-let compactRequested = false;
+let compactResumePending = false;
 
-async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionContext): Promise<void> {
+function compactUsagePercent(ctx: ExtensionContext): number | null {
 	const u = ctx.getContextUsage();
-	if (!u || u.tokens == null || u.contextWindow == null) {
-		return;
-	}
-	const pct = Math.round((u.tokens / u.contextWindow) * 100);
+	if (!u || u.tokens == null || u.contextWindow == null) return null;
+	return Math.round((u.tokens / u.contextWindow) * 100);
+}
+
+function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOnProof: boolean): Promise<boolean> {
+	if (pendingCompact) return Promise.resolve(false);
+	lastCompactAt = Date.now();
+	compactDeferred = false;
+	const task = (async () => {
+		await new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error("compaction proof timeout")), COMPACT_PROOF_TIMEOUT_MS);
+			ctx.compact({
+				customInstructions: COMPACT_LEDGER_INSTRUCTIONS,
+				onComplete: (result) => {
+					clearTimeout(timer);
+					if (!result || typeof result.summary !== "string" || result.summary.trim().length === 0) {
+						reject(new Error("compaction produced no summary"));
+						return;
+					}
+					resolve();
+				},
+				onError: (err) => {
+					clearTimeout(timer);
+					reject(err instanceof Error ? err : new Error(String(err)));
+				},
+			});
+		});
+		if (resumeOnProof) {
+			compactResumePending = true;
+			await drainCompactResume(pi, ctx);
+		}
+		return true;
+	})().catch((err) => {
+		const message = err instanceof Error ? err.message : String(err);
+		safeNotify(ctx as QueueAwareContext, `Auto-compact failed: ${message}`, "warning");
+		return false;
+	});
+	pendingCompact = task;
+	void task.then(() => {
+		if (pendingCompact === task) pendingCompact = null;
+	}, () => {
+		if (pendingCompact === task) pendingCompact = null;
+	});
+	return task;
+}
+
+async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionContext): Promise<boolean> {
+	const pct = compactUsagePercent(ctx);
+	if (pct == null) return false;
 	if (pct < COMPACT_THRESHOLD) {
 		compactDeferred = false;
-		return;
+		return false;
 	}
-	const now = Date.now();
-	if (now - lastCompactAt < COMPACT_COOLDOWN_MS) return;
-	if (pendingCompact) return;
-	if (compactDeferred) compactDeferred = false;
-
-	lastCompactAt = now;
-	const task = (async () => {
-		try {
-			compactRequested = true;
-			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			ctx.ui.notify(`Auto-compact failed: ${message}`, "warning");
-			compactRequested = false;
-		}
-	})();
-	pendingCompact = task;
-	try {
-		await task;
-	} finally {
-		pendingCompact = null;
-	}
+	if (Date.now() - lastCompactAt < compactCooldownMs()) return false;
+	return startLedgerCompaction(pi, ctx, true);
 }
 
 
-async function sendCompactContinue(pi: ExtensionAPI, _ctx: ExtensionContext): Promise<void> {
-	if (!compactRequested) return;
+async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
+	if (!compactResumePending) return;
+	if (!ctx.isIdle()) return;
+	if (ctx.hasPendingMessages()) return;
+	compactResumePending = false;
 	try {
-		await new Promise((r) => setTimeout(r, COMPACT_CONTINUE_DELAY_MS));
-		await pi.sendUserMessage("继续", { streamingBehavior: "steer" });
+		await pi.sendUserMessage(COMPACT_CONTINUE_PROMPT, { streamingBehavior: "followUp" });
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		_ctx.ui.notify(`Auto-compact continue failed: ${message}`, "warning");
-	} finally {
-		compactRequested = false;
+		safeNotify(ctx as QueueAwareContext, `Auto-compact continue failed: ${message}`, "warning");
 	}
 }
 async function tryDeferredCompact(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactDeferred) return;
-	const u = ctx.getContextUsage();
-	if (!u || u.tokens == null || u.contextWindow == null) return;
-	const pct = Math.round((u.tokens / u.contextWindow) * 100);
+	const pct = compactUsagePercent(ctx);
+	if (pct == null) return;
 	if (pct < COMPACT_THRESHOLD) {
 		compactDeferred = false;
 		return;
 	}
-	await maybeCompact(pi, "agent_settled", ctx);
-	await sendCompactContinue(pi, ctx);
+	void maybeCompact(pi, "agent_settled", ctx);
 }
 
 /**
@@ -913,28 +952,27 @@ export default function (pi: ExtensionAPI): void {
 
 	// ── Auto-Compact Listeners ──────────────────────────────────────────────
 
-	pi.on("agent_start", async (event, ctx) => {
-		await maybeCompact(pi, event, ctx);
+	pi.on("agent_start", (event, ctx) => {
+		void maybeCompact(pi, event, ctx);
 	});
 
-	pi.on("turn_start", async (event, ctx) => {
-		await maybeCompact(pi, event, ctx);
+	pi.on("turn_start", (event, ctx) => {
+		void maybeCompact(pi, event, ctx);
 	});
 
-	pi.on("message_update", async (event, ctx) => {
+	pi.on("message_update", async (_event, ctx) => {
 		const u = ctx.getContextUsage();
 		if (!u || u.tokens == null || u.contextWindow == null) {
 			if (!compactDeferred) {
 				compactDeferred = true;
 			}
-			return;
 		}
-		await maybeCompact(pi, event, ctx);
 	});
 
 	pi.on("agent_settled", async (event, ctx) => {
 		await tryDeferredCompact(pi, ctx);
-		await sendCompactContinue(pi, ctx);
+		if (!compactResumePending) void maybeCompact(pi, event, ctx);
+		await drainCompactResume(pi, ctx);
 		await maybeAutoContinueTerminal(ctx);
 		await maybeRalphContinue(ctx);
 	});
@@ -1021,7 +1059,7 @@ export default function (pi: ExtensionAPI): void {
 		}
 
 		if (autoContinueReason.kind === "length") {
-			await pi.sendUserMessage("/compact", { streamingBehavior: "steer" });
+			await startLedgerCompaction(pi, guardCtx as unknown as ExtensionContext, false);
 		}
 
 		await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
