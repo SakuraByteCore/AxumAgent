@@ -5,6 +5,27 @@ import { stripTypeScriptTypes } from "node:module";
 import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
 import { supportedBundledPiExtensions } from "./bundled-pi-platform.js";
 
+/**
+ * Rewrite relative TypeScript import specifiers to JavaScript.
+ * Node.js's stripTypeScriptTypes only removes type annotations but keeps .ts extensions
+ * in import paths, which fails for files under node_modules.
+ */
+function rewriteTsImports(source) {
+  // Match import/export specifiers with relative paths ending in .ts
+  // Handles: import ... from './x.ts', import type ... from './x.ts',
+  // export ... from './x.ts', export * from './x.ts', import('./x.ts')
+  const regex = /(?:from\s+|import\s*\(\s*)['"](\.\.?\/[^"']*?)\.ts['"]/g;
+  return source.replace(regex, (match) => {
+    const quote = match.slice(-1);
+    return match.slice(0, -4) + ".js" + quote;
+  });
+}
+
+function stripAndRewrite(source) {
+  const stripped = stripTypeScriptTypes(source, { mode: "strip" });
+  return rewriteTsImports(stripped);
+}
+
 const COMPILE_MANIFEST_NAME = ".axum-compile.json";
 const COMPILE_MANIFEST_VERSION = 1;
 
@@ -88,7 +109,7 @@ export function compileExtensionPackage({ packageRoot, transform, log = () => {}
     try {
       output = transform
         ? transform(source)
-        : stripTypeScriptTypes(source, { mode: "strip" });
+        : stripAndRewrite(source);
     } catch {
       collisions.push(rel);
       continue;
