@@ -37,6 +37,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-header` (AxumAgent 同梱フォーク)
 - `pi-companion` (pi-shortcuts + pi-guard を統合: ショートカット + レスポンスガード + アドバイザリウォッチャー)
 - `@narumitw/pi-goal`
+- `pi-hashline-edit-pro`
 
 ## 要件
 
@@ -156,6 +157,8 @@ axum doctor
 ```
 
 `doctor` は bundled Pi cache と entrypoint を確認します。
+
+セーフモード (`axum code --safe`) は、`pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` を読み込まずに Pi 本体のみを起動します。
 
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザーキャッシュに保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。

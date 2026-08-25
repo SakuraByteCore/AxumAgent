@@ -56,6 +56,7 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   if (includeWindowsBroken) {
     writePackage(cache, "pi-web-access", { "index.ts": "" });
     writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -125,7 +126,7 @@ test("axum code disables ambient extensions before loading bundled extensions", 
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 4;
+  const expectedExtensionCount = 5;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });

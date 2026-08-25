@@ -47,4 +47,7 @@ export const bundledPiPackages = [
   // relative imports in the published source, so keep it off win32 until upstream
   // ships a loadable JS bundle.
   { name: "@ff-labs/pi-fff@0.10.5", packageName: "@ff-labs/pi-fff", extensionPath: "src/index.ts", android: false, unsupportedPlatforms: ["win32"] },
+  // pi-hashline-edit-pro: hash-anchored read/replace/insert/grep tools. Stable 3-char
+  // per-line hashes reject stale/ambiguous anchors. Pure TS, zero native deps.
+  { name: "pi-hashline-edit-pro@2.7.0", packageName: "pi-hashline-edit-pro", extensionPath: "index.ts", android: true },
 ];

@@ -95,6 +95,7 @@ The distribution ships these packages, all in one install:
 - `pi-header` (AxumAgent bundled fork)
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
 - `@narumitw/pi-goal`
+- `pi-hashline-edit-pro`
 
 ## Configure an OpenAI-compatible Provider
 
@@ -161,6 +162,8 @@ axum doctor
 ```
 
 `doctor` checks the bundled Pi cache and entrypoint.
+
+Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro`.
 
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.

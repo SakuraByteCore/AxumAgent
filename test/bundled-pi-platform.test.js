@@ -21,8 +21,9 @@ test("checks available Pi extensions on Android", () => {
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
     "pi-web-access@0.24.2",
+    "pi-hashline-edit-pro@2.7.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 6);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -35,8 +36,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-companion@file:plugin/pi-companion",
     "pi-web-access@0.24.2",
     "@ff-labs/pi-fff@0.10.5",
+    "pi-hashline-edit-pro@2.7.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 6);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 7);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -47,8 +49,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
+    "pi-hashline-edit-pro@2.7.0",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 5);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
