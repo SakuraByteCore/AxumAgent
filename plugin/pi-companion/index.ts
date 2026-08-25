@@ -32,14 +32,6 @@ function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, co
 	}
 	return lines.join("\n");
 }
-function pickExpectation(requirement: string): string {
-	const hasJa = /[\u3040-\u309f\u30a0-\u30ff]/.test(requirement);
-	if (hasJa) return `現在の要件の期待される結果を、噛み砕いた表現で説明してください。`;
-	const hasCJK = /[\u4e00-\u9fff]/.test(requirement);
-	if (hasCJK) return `请用大白话（口语化中文）描述当前需求的预期结果。`;
-	return `Use plain English style to describe the expected outcome of the current requirement.`;
-}
-
 
 // ── Auto-Compact ────────────────────────────────────────────────────────────
 
@@ -857,7 +849,7 @@ export default function (pi: ExtensionAPI): void {
 			const prompt = [
 				`[Requirement] ${requirement}`,
 				"",
-				`[Expectation] ${pickExpectation(requirement)}`,
+				`[Expectation] Generate implementation requirements.`,
 				"",
 				`[Instructions] ${PLAN_FIRST_TEMPLATE}`,
 			].join("\n");
