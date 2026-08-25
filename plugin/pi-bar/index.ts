@@ -280,9 +280,7 @@ function getBundledCommands(): string[] {
     "/curator",
     "/google-account",
     "/search",
-    "/fff-mode",
-    "/fff-health",
-    "/fff-rescan",
+    "/fff",
   ];
 }
 

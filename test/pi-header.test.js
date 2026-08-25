@@ -160,6 +160,7 @@ test("pi-header frames the claude-code style welcome block", () => {
  assert.ok(allCmdText.includes("/ralph"));
  assert.ok(allCmdText.includes("/rules"));
  assert.ok(allCmdText.includes("/plugin-create-mode"));
+ assert.ok(allCmdText.includes("/fff"));
  }
 });
 
@@ -179,6 +180,7 @@ test("pi-header shows bundled commands instead of extensions", () => {
   assert.ok(allCmdText.includes("/ralph"));
   assert.ok(allCmdText.includes("/rules"));
   assert.ok(allCmdText.includes("/plugin-create-mode"));
+  assert.ok(allCmdText.includes("/fff"));
 });
 
 test("pi-header wraps long commands list inside the frame", () => {
@@ -190,7 +192,7 @@ test("pi-header wraps long commands list inside the frame", () => {
 
   assert.equal(maxInner, 50);
   assert.ok(lines.every((line) => [...line].length <= boxWidth), "no info line exceeds the frame");
-  const commands = ["/pi-debug", "/goal", "/clear", "/plan", "/ralph", "/rules", "/plugin-create-mode"];
+  const commands = ["/pi-debug", "/goal", "/clear", "/plan", "/ralph", "/rules", "/plugin-create-mode", "/fff"];
   for (const cmd of commands) {
     assert.ok(lines.some((l) => l.includes(cmd)), `${cmd} survives wrapping`);
   }
