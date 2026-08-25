@@ -4,7 +4,7 @@
   "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan, /clear, /ralph, /rules, /plugin-create-mode), auto-continue response guard, and read-only advisory watcher in one single-file extension, zero native deps",
   "type": "module",
   "main": "index.ts",
-  "files": ["index.ts", "LICENSE"],
+  "files": ["index.ts", "LICENSE", "config.json"],
   "pi": {
     "extensions": ["./index.ts"]
   },
