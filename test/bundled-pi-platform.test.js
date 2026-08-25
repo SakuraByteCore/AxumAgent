@@ -39,7 +39,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 6);
 });
 
-test("Windows loads the same extension set as other platforms", () => {
+test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.81.1",
@@ -47,10 +47,8 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
-    "pi-web-access@0.24.2",
-    "@ff-labs/pi-fff@0.10.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 6);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

@@ -71,12 +71,13 @@ async function printDoctor() {
     import("node:fs"),
   ]);
 
-  ensureBundledPi();
-  const piCli = resolvePiCli();
-  const extensions = resolveBundledExtensions();
+  const options = { env: process.env };
+  ensureBundledPi(options);
+  const piCli = resolvePiCli(options);
+  const extensions = resolveBundledExtensions(options);
   const missing = [piCli, ...extensions].filter((file) => !existsSync(file));
   console.log("Axum bundled Pi doctor");
-  console.log(`cache: ${getBundledPiCacheRoot()}`);
+  console.log(`cache: ${getBundledPiCacheRoot(options)}`);
   console.log(`pi cli: ${piCli}`);
   for (const extension of extensions) console.log(`extension: ${extension}`);
   if (missing.length) {
@@ -164,11 +165,12 @@ async function runPi(passthrough) {
     import("node:child_process"),
   ]);
 
-  ensureBundledPi();
+  const bundledPiOptions = { env: process.env };
+  ensureBundledPi(bundledPiOptions);
   ensureTuiModeDefault();
-  const piCli = resolvePiCli();
+  const piCli = resolvePiCli(bundledPiOptions);
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
-  const extensionArgs = safe ? [] : resolveBundledExtensions().flatMap((file) => ["-e", file]);
+  const extensionArgs = safe ? [] : resolveBundledExtensions(bundledPiOptions).flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
   const hasProviderArg = hasArg(piArgs, "--provider") || hasArg(piArgs, "--model");
   if (defaults && !hasProviderArg) {
@@ -183,7 +185,7 @@ async function runPi(passthrough) {
   // Axum's bundled extension set. In safe mode, keep -ne but intentionally skip
   // every bundled -e entry so a broken extension cannot block startup.
   const args = [piCli, "-ne", ...extensionArgs, ...defaultArgs, ...piArgs];
-  const compileCacheDir = path.join(getBundledPiCacheRoot(), `v8-compile-cache-${process.version}`);
+  const compileCacheDir = path.join(getBundledPiCacheRoot(bundledPiOptions), `v8-compile-cache-${process.version}`);
   const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv(compileCacheDir) });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);

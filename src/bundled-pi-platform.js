@@ -4,12 +4,20 @@ export function isAndroidLike({ platform = process.platform, env = process.env }
   return platform === "android" || Boolean(env.TERMUX_VERSION || env.PREFIX?.includes("/com.termux/"));
 }
 
+function resolvedPlatform(options = {}) {
+  return options.platform || options.env?.AXUM_BUNDLED_PI_TEST_PLATFORM || process.platform;
+}
+
 function supportsPackage(pkg, options = {}) {
-  const platform = options.platform || process.platform;
+  const platform = resolvedPlatform(options);
   const android = isAndroidLike(options);
   if (android) return pkg.android !== false;
   if (pkg.unsupportedPlatforms?.includes(platform)) return false;
   return true;
+}
+
+export function currentBundledPiPlatform(options) {
+  return resolvedPlatform(options);
 }
 
 // The bundled package list lives in ./bundled-pi-packages.js so plugin

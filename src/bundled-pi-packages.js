@@ -37,9 +37,14 @@ export const bundledPiPackages = [
   { name: "pi-companion@file:plugin/pi-companion", packageName: "pi-companion", extensionPath: "index.ts", android: true },
   // pi-web-access: web search, extraction, and curation tools. Provides /websearch,
   // /curator, /google-account, /search slash commands. Pure TS, zero native deps.
-  { name: "pi-web-access@0.24.2", packageName: "pi-web-access", extensionPath: "index.ts", android: true },
+  // Windows cannot runtime-strip TS sources under node_modules, so keep it off
+  // there until the package ships precompiled JS.
+  { name: "pi-web-access@0.24.2", packageName: "pi-web-access", extensionPath: "index.ts", android: true, unsupportedPlatforms: ["win32"] },
   // pi-fff: FFF-powered file search (ffgrep/fffind) with frecency ranking.
   // Depends on @ff-labs/fff-node which uses ffi-rs (Rust native via libfff_c.so).
   // Native binary crashes on Android/Termux (LMDB segfault) — excluded from Android.
-  { name: "@ff-labs/pi-fff@0.10.5", packageName: "@ff-labs/pi-fff", extensionPath: "src/index.ts", android: false },
+  // Windows runtime compile also breaks on TS parameter properties / extensionless
+  // relative imports in the published source, so keep it off win32 until upstream
+  // ships a loadable JS bundle.
+  { name: "@ff-labs/pi-fff@0.10.5", packageName: "@ff-labs/pi-fff", extensionPath: "src/index.ts", android: false, unsupportedPlatforms: ["win32"] },
 ];

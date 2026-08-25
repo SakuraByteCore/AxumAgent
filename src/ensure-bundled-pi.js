@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { expectedBundledExtensionCount, localPluginNames, supportedBundledPiPackages, supportedBundledPiSkills } from "./bundled-pi-platform.js";
+import { currentBundledPiPlatform, expectedBundledExtensionCount, localPluginNames, supportedBundledPiPackages, supportedBundledPiSkills } from "./bundled-pi-platform.js";
 import { getBundledPiCacheRoot } from "./bundled-pi-cache.js";
 import { applyBundledPiPatches } from "./bundled-pi-patches.js";
 import { compileBundledExtensions } from "./compile-bundled-extensions.js";
@@ -166,7 +166,7 @@ function isNodeScript(command) {
 }
 
 export function resolveNpmInstallCommand(options = {}) {
-  const platform = options.platform || process.platform;
+  const platform = currentBundledPiPlatform(options);
   const nodePath = options.nodePath || process.execPath;
   const explicitNpm = options.npmCommand || process.env.AXUM_BUNDLED_PI_NPM;
   if (explicitNpm) {

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
-import { supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
+import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
 import { patchPiGoalAutoResume, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
@@ -61,7 +61,7 @@ test("checks available Pi extensions on Android", () => {
   assert.equal(existingBundledExtensions(options).length, 5);
 });
 
-test("Windows loads same extension set as other platforms", () => {
+test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-win-cache-"));
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
@@ -73,14 +73,12 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 6);
+  assert.equal(extensions.length, 4);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
-  assert.equal(extensions[4], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "@ff-labs", "pi-fff", "src", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 6);
+  assert.equal(existingBundledExtensions(options).length, 4);
 });
 
 
@@ -487,6 +485,8 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePkg(cache, "pi-debug", { "index.ts": "" });
   writePkg(cache, "pi-companion", { "index.ts": "" });
+  writePkg(cache, "pi-web-access", { "index.ts": "" });
+  writePkg(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -514,8 +514,10 @@ writePkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 writePkg("pi-bar", { "index.ts": "" });
 writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
-  writePkg("pi-debug", { "index.ts": "" });
+writePkg("pi-debug", { "index.ts": "" });
 writePkg("pi-companion", { "index.ts": "" });
+writePkg("pi-web-access", { "index.ts": "" });
+writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   ensureBundledPi({ env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm });
@@ -546,6 +548,12 @@ test("ensureBundledSkills syncs bundled skills to agent skills root", async () =
   }
 });
 
+
+test("windows-published TS packages stay excluded when runtime compile would miss dependencies", () => {
+  const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
+  assert.equal(packages.includes("pi-web-access@0.24.2"), false);
+  assert.equal(packages.includes("@ff-labs/pi-fff@0.10.5"), false);
+});
 
 test("patches bundled Pi syntax highlight to lazy-load highlight.js", () => {
   const source = 'import hljs from "highlight.js/lib/index.js";\nexport function highlight(code, options = {}) {\n    const html = options.language\n        ? hljs.highlight(code, {\n            language: options.language,\n        })\n        : hljs.highlightAuto(code, options.languageSubset).value;\n    return html;\n}\nexport function supportsLanguage(name) {\n    return hljs.getLanguage(name) !== undefined;\n}\n';
