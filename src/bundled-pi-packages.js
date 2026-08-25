@@ -35,6 +35,11 @@ export const bundledPiPackages = [
   // Slash shortcuts (/plan /clear /ralph /rules /plugin-create-mode), response
   // guard auto-continue, and the read-only advisory watcher. Single-file, zero native deps.
   { name: "pi-companion@file:plugin/pi-companion", packageName: "pi-companion", extensionPath: "index.ts", android: true },
-// pi-fff depends on a Rust native library (libfff_c.so) via ffi-rs. The
-// native binary crashes on Android/Termux (LMDB segfault) and ffi-rs itself
+  // pi-web-access: web search, extraction, and curation tools. Provides /websearch,
+  // /curator, /google-account, /search slash commands. Pure TS, zero native deps.
+  { name: "pi-web-access@0.24.2", packageName: "pi-web-access", extensionPath: "index.ts", android: true },
+  // pi-fff: FFF-powered file search (ffgrep/fffind) with frecency ranking.
+  // Depends on @ff-labs/fff-node which uses ffi-rs (Rust native via libfff_c.so).
+  // Native binary crashes on Android/Termux (LMDB segfault) — excluded from Android.
+  { name: "@ff-labs/pi-fff@0.10.5", packageName: "@ff-labs/pi-fff", extensionPath: "src/index.ts", android: false },
 ];

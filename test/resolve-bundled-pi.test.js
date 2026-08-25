@@ -30,13 +30,15 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-web-access", { "index.ts": "" });
+  writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 4);
-  assert.equal(existingBundledExtensions(options).length, 4);
+  assert.equal(extensions.length, 6);
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 test("checks available Pi extensions on Android", () => {
@@ -47,14 +49,16 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-web-access", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 4);
+  assert.equal(extensions.length, 5);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 4);
+  assert.equal(extensions[4], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 5);
 });
 
 test("Windows loads same extension set as other platforms", () => {
@@ -65,14 +69,18 @@ test("Windows loads same extension set as other platforms", () => {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-web-access", { "index.ts": "" });
+  writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 4);
+  assert.equal(extensions.length, 6);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 4);
+  assert.equal(extensions[4], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
+  assert.equal(extensions[5], path.join(cache, "node_modules", "@ff-labs", "pi-fff", "src", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 

@@ -264,38 +264,26 @@ function detectSkills(cwd: string | undefined): string[] {
 }
 
 /**
- * Detect active Pi extensions from the launching argv: every `-e <path>`
- * becomes a card labelled by its package name. Installed npm packages sit
- * under `node_modules/<pkg>/...` (or `node_modules/@scope/pkg/...`), so the
- * package segment — not the entry directory — is the stable label: otherwise
- * third-party entries such as `src/index.ts` or `dist/index.js` would show up
- * as "src" / "dist". Path specs without a `node_modules` segment (local `file:`
- * plugins, ad-hoc `-e` loads) fall back to `basename(dirname(path))`.
+ * Return the representative slash commands provided by bundled extensions.
+ * Only the primary/entry command per extension is shown for brevity.
  */
-function extensionLabel(p: string): string {
-  const idx = p.lastIndexOf("node_modules");
-  if (idx >= 0) {
-    const tail = p.slice(idx + "node_modules".length).replace(/^[\\/]+/, "");
-    const segs = tail.split(/[\\/]+/).filter(Boolean);
-    if (segs.length >= 2 && segs[0].startsWith("@")) return segs[1];
-    if (segs.length >= 1) return segs[0];
-  }
-  return basename(dirname(p));
-}
-
-function detectExtensions(argv: readonly string[]): string[] {
-  const names: string[] = [];
-  for (let i = 0; i + 1 < argv.length; i++) {
-    if (argv[i] === "-e") {
-      try {
-        names.push(extensionLabel(argv[i + 1]));
-      } catch {
-        names.push(argv[i + 1]);
-      }
-      i++;
-    }
-  }
-  return names;
+function getBundledCommands(): string[] {
+  return [
+    "/pi-debug",
+    "/goal",
+    "/clear",
+    "/plan",
+    "/ralph",
+    "/rules",
+    "/plugin-create-mode",
+    "/websearch",
+    "/curator",
+    "/google-account",
+    "/search",
+    "/fff-mode",
+    "/fff-health",
+    "/fff-rescan",
+  ];
 }
 
 const HEADER_ART_TARGET = 34;
@@ -381,7 +369,7 @@ function wrapLabeledList(label: string, items: string[], width: number): string[
   return lines;
 }
 
-function renderHeader(width: number, skills: string[] = [], extensions: string[] = [], cwd?: string): string[] {
+function renderHeader(width: number, skills: string[] = [], commands: string[] = [], cwd?: string): string[] {
   if (width <= 0) return [];
 
   const sakura: RGB = [242, 167, 198];
@@ -408,11 +396,11 @@ function renderHeader(width: number, skills: string[] = [], extensions: string[]
     rgb(sakura, welcome, true),
     "",
   ];
-  const infoLabelWidth = Math.max("cwd".length, "skills".length, "extensions".length);
+  const infoLabelWidth = Math.max("cwd".length, "skills".length, "commands".length);
   if (displayCwd) infoLines.push(rgb(dim, `${"cwd".padEnd(infoLabelWidth)}: ${displayCwd}`));
   const listWidth = Math.max(1, inner - 1);
   for (const line of wrapLabeledList("skills".padEnd(infoLabelWidth), skills, listWidth)) infoLines.push(rgb(dim, line));
-  for (const line of wrapLabeledList("extensions".padEnd(infoLabelWidth), extensions, listWidth)) infoLines.push(rgb(dim, line));
+  for (const line of wrapLabeledList("commands".padEnd(infoLabelWidth), commands, listWidth)) infoLines.push(rgb(dim, line));
 
   return [
     "",
@@ -1136,12 +1124,12 @@ export default function (pi: ExtensionAPI): void {
 	// render factory. The host caches the rendered header lines by width until
 	// invalidate() fires, so probing here (not in render) keeps it cheap.
 	let skillsCache: string[] = [];
-	let extensionsCache: string[] = [];
+	let commandsCache: string[] = [];
 	function installHeader(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
-		// Probe on every start so freshly installed skills / extensions surface.
+		// Probe on every start so freshly installed skills surface.
 		skillsCache = detectSkills(ctx.cwd);
-		extensionsCache = detectExtensions(process.argv);
+		commandsCache = getBundledCommands();
 		const headerCwd = ctx.cwd;
 		welcomeGlyph = WELCOME_GLYPHS[Math.floor(Math.random() * WELCOME_GLYPHS.length)] ?? DEFAULT_WELCOME_GLYPH;
 		ctx.ui.setHeader(() => {
@@ -1151,7 +1139,7 @@ export default function (pi: ExtensionAPI): void {
 				render: (width: number): string[] => {
 					if (width !== cachedWidth) {
 						cachedWidth = width;
-						cachedLines = renderHeader(width, skillsCache, extensionsCache, headerCwd);
+						cachedLines = renderHeader(width, skillsCache, commandsCache, headerCwd);
 					}
 					return cachedLines;
 				},

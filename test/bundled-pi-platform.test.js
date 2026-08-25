@@ -20,8 +20,9 @@ test("checks available Pi extensions on Android", () => {
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
+    "pi-web-access@0.24.2",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 5);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -32,8 +33,10 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
+    "pi-web-access@0.24.2",
+    "@ff-labs/pi-fff@0.10.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 6);
 });
 
 test("Windows loads the same extension set as other platforms", () => {
@@ -44,8 +47,10 @@ test("Windows loads the same extension set as other platforms", () => {
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
+    "pi-web-access@0.24.2",
+    "@ff-labs/pi-fff@0.10.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 4);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 6);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
