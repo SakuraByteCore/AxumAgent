@@ -11,6 +11,7 @@ Usage:
   axum doctor
   axum versions
   axum update [version]
+  axum install
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
@@ -20,6 +21,8 @@ Commands:
   versions      List published Axum versions and the currently installed one
   update        Reinstall Axum; without a version argument it pulls the main
                 branch tarball, with a version it pulls that git tag instead
+  install       Force install/reinstall bundled Pi and all extensions
+                (triggers full npm install + TypeScript compilation)
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
   - pi-bar
@@ -53,6 +56,7 @@ function resolveArgs(argv) {
   if (argv[0] === "doctor") return { mode: "doctor" };
   if (argv[0] === "versions") return { mode: "versions" };
   if (argv[0] === "update") return { mode: "update", version: argv[1] };
+  if (argv[0] === "install") return { mode: "install" };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
   return { mode: "help" };
 }
@@ -86,6 +90,48 @@ async function printDoctor() {
     return 1;
   }
   console.log("ok");
+  return 0;
+}
+
+async function runInstall() {
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions, existingBundledExtensions }, { compileBundledExtensions }, { existsSync, rmSync, mkdirSync }] = await Promise.all([
+    import("../src/ensure-bundled-pi.js"),
+    import("../src/bundled-pi-cache.js"),
+    import("../src/resolve-bundled-pi.js"),
+    import("../src/compile-bundled-extensions.js"),
+    import("node:fs"),
+  ]);
+
+  const options = { env: process.env };
+  const cacheRoot = getBundledPiCacheRoot(options);
+
+  console.log("Axum: forcing bundled Pi install + compilation...");
+  // Force clean reinstall by removing node_modules
+  rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true });
+  // Also prune stale compile caches
+  const prefix = "v8-compile-cache-";
+  try {
+    for (const entry of fs.readdirSync(cacheRoot)) {
+      if (entry.startsWith(prefix)) {
+        rmSync(path.join(cacheRoot, entry), { recursive: true, force: true });
+      }
+    }
+  } catch {}
+
+  ensureBundledPi(options);
+
+  const piCli = resolvePiCli(options);
+  const extensions = resolveBundledExtensions(options);
+  const missing = [piCli, ...extensions].filter((file) => !existsSync(file));
+  if (missing.length) {
+    console.error("install completed but some files are missing:");
+    for (const file of missing) console.error(`- ${file}`);
+    return 1;
+  }
+  console.log("ok");
+  console.log(`cache: ${cacheRoot}`);
+  console.log(`pi cli: ${piCli}`);
+  console.log(`extensions: ${extensions.length}`);
   return 0;
 }
 
@@ -204,6 +250,7 @@ async function main() {
     return 0;
   }
   if (action.mode === "doctor") return printDoctor();
+  if (action.mode === "install") return runInstall();
   if (action.mode === "versions") {
     await runVersions();
     return 0;
