@@ -1134,14 +1134,24 @@ pi.on("session_start", async () => {
 		lastAssistantMessage = undefined;
 		previousMessageRole = undefined;
 
-		if (config.notifyOnAutoContinue) {
-			safeNotify(
-				guardCtx,
-				`[${EXTENSION_NAME}] ${autoContinueReason.notification}. Sending "${config.retryMessage}" (${consecutiveAutoRetries}/${config.maxConsecutiveAutoRetries}).`,
-				"info",
-			);
-		}
 
+		if (config.notifyOnAutoContinue) {
+			// Extract error text for filtering specific errors from notifications
+			const lastMsg = lastAssistantMessage;
+			const errorText = lastMsg
+				? [lastMsg.errorMessage, extractTextBlocks(lastMsg.content)]
+					.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+					.join("\n")
+				: "";
+			const isOverloadedError = /service temporarily overloaded/i.test(errorText);
+			if (!isOverloadedError) {
+				safeNotify(
+					guardCtx,
+					`[${EXTENSION_NAME}] ${autoContinueReason.notification}. Sending "${config.retryMessage}" (${consecutiveAutoRetries}/${config.maxConsecutiveAutoRetries}).`,
+					"info",
+				);
+			}
+		}
 		if (autoContinueReason.kind === "length") {
 			await startLedgerCompaction(pi, guardCtx as unknown as ExtensionContext, false);
 		}
