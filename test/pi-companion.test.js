@@ -102,7 +102,8 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
   assert.match(pi.messages[0].message, /\[Expectation\] Use plain English style to describe the expected outcome of the current requirement/);
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
+  assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
 
 test("plan command uses Chinese expectation for CJK input", async () => {

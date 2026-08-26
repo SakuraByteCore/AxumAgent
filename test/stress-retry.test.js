@@ -379,7 +379,7 @@ test("stress.idleOscillation: 10-wave burst all messages use followUp", { timeou
 });
 
 // ── Stress 12: /plan command under load ─────────────────────
-test("stress.planLoad: /plan 100 times all use followUp", { timeout: 60000 }, async function() {
+test("stress.planLoad: /plan 100 times uses followUp after first", { timeout: 60000 }, async function() {
   var pi = await createPi();
   var planHandler = pi.commands.get("plan");
   if (!planHandler) return;
@@ -397,8 +397,13 @@ test("stress.planLoad: /plan 100 times all use followUp", { timeout: 60000 }, as
   var followUps = pi.messages.filter(function(m) {
     return m.options && m.options.streamingBehavior === "followUp";
   });
-  throwIfFail("planLoad.followUpCount", followUps.length === 100,
-    "expected 100 plan followUps, got " + followUps.length);
+  var news = pi.messages.filter(function(m) {
+    return m.options && m.options.streamingBehavior === "new";
+  });
+  throwIfFail("planLoad.followUpCount", followUps.length === 99,
+    "expected 99 plan followUps after first, got " + followUps.length);
+  throwIfFail("planLoad.newCount", news.length === 1,
+    "expected 1 plan new (first), got " + news.length);
 });
 
 // ── Stress 13: verify no deliverAs remnants in codebase ───────

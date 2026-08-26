@@ -7,14 +7,26 @@ import { homedir } from "node:os";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
-const PLAN_FIRST_TEMPLATE = `Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+// Pre-compiled regexes for language detection (avoid per-call RegExp allocation)
+const HAS_JA = /[぀-ゟ゠-ヿ]/;
+const HAS_CJK = /[一-鿿]/;
 
+// Pre-built plan prompt skeleton — only the requirement & expectation vary at runtime
+const PLAN_PROMPT_PREFIX = `[Requirement] `;
+const PLAN_PROMPT_MIDDLE = `
+
+[Expectation] `;
+const PLAN_PROMPT_SUFFIX = `
+
+[Instructions] Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+
+// Session-first-plan flag & perf marks
+let firstPlanSent = false;
+const PERF_MARK_PREFIX = `pi-companion:plan`;
 
 function pickExpectation(requirement: string): string {
-  const hasJa = /[\u3040-\u309f\u30a0-\u30ff]/.test(requirement);
-  if (hasJa) return `現在の要件の期待される結果を、噛み砕いた表現で説明してください。`;
-  const hasCJK = /[\u4e00-\u9fff]/.test(requirement);
-  if (hasCJK) return `请用大白话（口语化中文）描述当前需求的预期结果。`;
+  if (HAS_JA.test(requirement)) return `現在の要件の期待される結果を、噛み砕いた表現で説明してください。`;
+  if (HAS_CJK.test(requirement)) return `请用大白话（口语化中文）描述当前需求的预期结果。`;
   return `Use plain English style to describe the expected outcome of the current requirement.`;
 }
 
@@ -844,27 +856,51 @@ export default function (pi: ExtensionAPI): void {
 		},
 	});
 
-	// ── /plan ──────────────────────────────────────────────────────────────
+// ── /plan ──────────────────────────────────────────────────────────────
 
-	pi.registerCommand("plan", {
-		description: "Plan first: research the requirement, re-confirm the approach, and discuss before writing code: /plan <requirement>",
-		getArgumentCompletions: () => null,
-		async handler(args: string, ctx) {
-			const requirement = args.trim();
-			if (!requirement) {
-				ctx.ui.notify("Please provide a requirement: /plan <requirement>", "warning");
-				return;
-			}
-			const prompt = [
-				`[Requirement] ${requirement}`,
-				"",
-				`[Expectation] ${pickExpectation(requirement)}`,
-				"",
-				`[Instructions] ${PLAN_FIRST_TEMPLATE}`,
-			].join("\n");
-			pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
-		},
-	});
+pi.registerCommand("plan", {
+  description: "Plan first: research the requirement, re-confirm the approach, and discuss before writing code: /plan <requirement>",
+  getArgumentCompletions: () => null,
+  async handler(args: string, ctx) {
+    const t0 = performance.now();
+    const requirement = args.trim();
+    if (!requirement) {
+      ctx.ui.notify("Please provide a requirement: /plan <requirement>", "warning");
+      return;
+    }
+
+    // Perf mark: handler entry → prompt built
+    performance.mark(`${PERF_MARK_PREFIX}:handler-entry`);
+
+    // Build prompt using pre-compiled template parts (single allocation, zero join)
+    const expectation = pickExpectation(requirement);
+    const prompt = PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + expectation + PLAN_PROMPT_SUFFIX;
+
+    performance.mark(`${PERF_MARK_PREFIX}:prompt-built`);
+    performance.measure(`${PERF_MARK_PREFIX}:build`, `${PERF_MARK_PREFIX}:handler-entry`, `${PERF_MARK_PREFIX}:prompt-built`);
+
+    // Instant UI feedback — user sees confirmation BEFORE network/agent latency
+    ctx.ui.notify("Plan sent, waiting for Agent…", "info");
+
+    // First plan in this session: use "new" streamingBehavior to bypass followUp scheduling overhead
+    const isFirst = !firstPlanSent;
+    if (isFirst) firstPlanSent = true;
+    const streamingBehavior = isFirst ? "new" : "followUp";
+
+    performance.mark(`${PERF_MARK_PREFIX}:send-start`);
+    await pi.sendUserMessage(prompt, { streamingBehavior });
+    performance.mark(`${PERF_MARK_PREFIX}:send-end`);
+    performance.measure(`${PERF_MARK_PREFIX}:send`, `${PERF_MARK_PREFIX}:send-start`, `${PERF_MARK_PREFIX}:send-end`);
+
+    // Log timing summary (dev-only, no user noise)
+    const buildMs = performance.getEntriesByName(`${PERF_MARK_PREFIX}:build`)[0]?.duration ?? 0;
+    const sendMs = performance.getEntriesByName(`${PERF_MARK_PREFIX}:send`)[0]?.duration ?? 0;
+    const totalMs = performance.now() - t0;
+    if (process.env.NODE_ENV !== "production" || process.env.DEBUG) {
+      console.debug(`[pi-companion] /plan timing: build=${buildMs.toFixed(2)}ms send=${sendMs.toFixed(2)}ms total=${totalMs.toFixed(2)}ms first=${isFirst}`);
+    }
+  },
+});
 
 	// ── /ralph ──────────────────────────────────────────────────────────────
 
@@ -1006,11 +1042,12 @@ export default function (pi: ExtensionAPI): void {
 		await maybeRalphContinue(ctx);
 	});
 
-	pi.on("session_start", async () => {
-		await ensureBundledConfigFile();
-		ralphState = undefined;
-		clearRalphContinueRetry();
-	});
+pi.on("session_start", async () => {
+  await ensureBundledConfigFile();
+  ralphState = undefined;
+  clearRalphContinueRetry();
+  firstPlanSent = false; // reset per-session first-plan optimization flag
+});
 
 	// ── Ralph loop continuation ──────────────────────────────────────
 	function scheduleRalphContinueRetry(ctx: QueueAwareContext, attemptsLeft: number = RALPH_CONTINUE_RETRY_MAX_ATTEMPTS): void {
