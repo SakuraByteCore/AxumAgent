@@ -50,4 +50,7 @@ export const bundledPiPackages = [
   // pi-hashline-edit-pro: hash-anchored read/replace/insert/grep tools. Stable 3-char
   // per-line hashes reject stale/ambiguous anchors. Pure TS, zero native deps.
   { name: "pi-hashline-edit-pro@2.7.0", packageName: "pi-hashline-edit-pro", extensionPath: "index.ts", android: true },
+  // pi-subagents: Claude Code-style single-agent delegation and parallel multi-agent
+  // workflows via an Agent tool. Custom profiles from ~/.pi/agent/subagents/. Pure TS, zero native deps.
+  { name: "@kky42/pi-subagents@1.0.7", packageName: "@kky42/pi-subagents", extensionPath: "index.ts", android: true },
 ];

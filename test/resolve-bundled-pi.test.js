@@ -32,14 +32,15 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
+  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 7);
-  assert.equal(existingBundledExtensions(options).length, 7);
+  assert.equal(extensions.length, 8);
+  assert.equal(existingBundledExtensions(options).length, 8);
 });
 
 test("checks available Pi extensions on Android", () => {
@@ -52,16 +53,18 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
+  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 6);
+  assert.equal(extensions.length, 7);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
   assert.equal(extensions[5], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 6);
+  assert.equal(extensions[6], path.join(cache, "node_modules", "@kky42", "pi-subagents", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 7);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -74,16 +77,18 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
+  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 5);
+  assert.equal(extensions.length, 6);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "pi-debug", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(extensions[5], path.join(cache, "node_modules", "@kky42", "pi-subagents", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 6);
 });
 
 
@@ -134,6 +139,7 @@ pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("pi-debug", { "index.ts": "" });
 pkg("pi-companion", { "index.ts": "" });
 pkg("pi-hashline-edit-pro", { "index.ts": "" });
+pkg("@kky42/pi-subagents", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
 
@@ -179,6 +185,7 @@ class StdinBuffer {
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
+  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
 
   ensureBundledPi(options);
 
@@ -456,6 +463,7 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('pi-debug', { 'index.ts': '' });
 pkg('pi-companion', { 'index.ts': '' });
 pkg('pi-hashline-edit-pro', { 'index.ts': '' });
+pkg('@kky42/pi-subagents', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
@@ -463,7 +471,7 @@ pkg('pi-hashline-edit-pro', { 'index.ts': '' });
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
   assert.equal(fs.existsSync(resolvePiCli(options)), true);
-  assert.equal(existingBundledExtensions(options).length, 5);
+  assert.equal(existingBundledExtensions(options).length, 6);
   const patchedStdinBuffer = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-tui", "dist", "stdin-buffer.js"), "utf8");
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
@@ -495,6 +503,7 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-companion", { "index.ts": "" });
   writePkg(cache, "pi-web-access", { "index.ts": "" });
   writePkg(cache, "pi-hashline-edit-pro", { "index.ts": "" });
+  writePkg(cache, "@kky42/pi-subagents", { "index.ts": "" });
   writePkg(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
 
   fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
@@ -527,6 +536,7 @@ writePkg("pi-debug", { "index.ts": "" });
 writePkg("pi-companion", { "index.ts": "" });
 writePkg("pi-web-access", { "index.ts": "" });
 writePkg("pi-hashline-edit-pro", { "index.ts": "" });
+writePkg("@kky42/pi-subagents", { "index.ts": "" });
 writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
