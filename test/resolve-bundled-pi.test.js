@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiGoalAutoResume, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiGoalAutoResume, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -355,6 +355,43 @@ test("upgrades old pi-goal auto-resume patch to cover no-progress pauses", () =>
   assert.match(upgraded, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, "paused"\)/);
   assert.equal(patchPiGoalAutoResume(upgraded), upgraded);
 });
+test("patches pi-subagents prompts for proactive delegation defaults", () => {
+  const source = [
+    "import type { SubagentProfile } from \"./types.ts\";",
+    "",
+    "export const AGENT_PROMPT_SNIPPET =",
+    "  \"Launch a fresh subagent when the task matches an available agent, can run independently, or would read across several files.\";",
+    "",
+    "export const AGENT_PROMPT_GUIDELINES = [",
+    "  \"Reach for Agent when the task matches an available agent, when you have independent work to run in parallel, or when answering would mean reading across several files.\",",
+    "];",
+    "",
+    "export function buildCoordinatorPrompt(profiles: Map<string, SubagentProfile>): string {",
+    "  return `# Subagent Delegation\n\nAvailable agents:\n\nUse Agent when a specialized agent matches the task, the work can run independently, or delegating would keep large search/read output out of the main context.\n\nGuidelines:\n- Do not use subagents excessively; direct lookup is better when the target file, symbol, or value is already known.\n`;",
+    "}",
+  ].join("\n");
+
+  const patched = patchPiSubagentsProactiveDelegation(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_SUBAGENTS_PROACTIVE/);
+  // Tool snippet now states delegation as the default working mode.
+  assert.match(patched, /Default to launching a subagent/);
+  assert.match(patched, /delegate without waiting for the user to ask/);
+  // First guideline states proactive delegation explicitly.
+  assert.match(patched, /Proactively use Agent when the task matches/);
+  assert.match(patched, /instead of waiting for the user to explicitly request/);
+  // Coordinator prompt opening states proactive delegation as default mode.
+  assert.match(patched, /Proactively delegate to a specialized agent/);
+  assert.match(patched, /delegate on your own judgment without waiting/);
+  // Upstream anti-over-delegation guardrail preserved.
+  assert.match(patched, /Do not use subagents excessively/);
+  // Idempotent.
+  assert.equal(patchPiSubagentsProactiveDelegation(patched), patched);
+  // Unknown block shape is left untouched rather than crashing.
+  const reshaped = source.replace("matches the task, the work can run independently", "matches the task");
+  assert.equal(patchPiSubagentsProactiveDelegation(reshaped), reshaped);
+});
+
 
 test("filters invalid Windows env keys before npm install", () => {
   const env = npmInstallEnv({

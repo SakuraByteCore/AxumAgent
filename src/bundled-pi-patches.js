@@ -16,6 +16,7 @@ const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSI
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 const PI_HLJS_LAZY_MARKER = "AXUM_HLJS_LAZY";
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
+const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -435,6 +436,56 @@ function patchPiStartupChangelogCollapse(content) {
   return content.replace(needle, replacement);
 }
 
+/**
+ * Strengthen pi-subagents' delegation guidance so passive (autonomous) triggering
+ * works out of the box for new users. Upstream wording is advisory ("reach for
+ * Agent when...", "do not use subagents excessively"), which loses against
+ * custom SYSTEM.md prompts that emphasize direct execution, so the model waits
+ * for the user to explicitly ask for delegation. Rewrite the three prompt
+ * surfaces (tool snippet, first guideline, coordinator prompt opening) to make
+ * proactive delegation the default operating mode while keeping every upstream
+ * anti-over-delegation guardrail intact so lookups the model can answer
+ * instantly still stay in the main conversation.
+ */
+function patchPiSubagentsProactiveDelegation(content) {
+  if (content.includes(PI_SUBAGENTS_PROACTIVE_MARKER)) return content;
+
+  const snippetNeedle = 'export const AGENT_PROMPT_SNIPPET =\n  "Launch a fresh subagent when the task matches an available agent, can run independently, or would read across several files.";';
+  const snippetReplacement = [
+    "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive-delegation default (Axum).",
+    "export const AGENT_PROMPT_SNIPPET =",
+    "  \"Default to launching a subagent when the task matches an available agent, runs independently, or needs reading across several files; delegate without waiting for the user to ask.\";",
+  ].join("\n");
+
+  const guidelineNeedle = '"Reach for Agent when the task matches an available agent, when you have independent work to run in parallel, or when answering would mean reading across several files.",';
+  const guidelineReplacement = [
+    "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive-delegation default (Axum).",
+    "  \"Proactively use Agent when the task matches an available agent, you have independent work to run in parallel, or answering means reading across several files. Delegate proactively as the default working mode instead of waiting for the user to explicitly request a subagent.\",",
+  ].join("\n");
+
+  const coordinatorNeedle = 'Use Agent when a specialized agent matches the task, the work can run independently, or delegating would keep large search/read output out of the main context.';
+  const coordinatorReplacement = [
+    "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive-delegation default (Axum).",
+    "Proactively delegate to a specialized agent when one matches the task, the work can run independently, or delegating would keep large search/read output out of the main context. This is the default working mode: delegate on your own judgment without waiting for the user to explicitly request a subagent.",
+  ].join("\n");
+
+  let patched = content;
+  for (const [needle, replacement] of [
+    [snippetNeedle, snippetReplacement],
+    [guidelineNeedle, guidelineReplacement],
+    [coordinatorNeedle, coordinatorReplacement],
+  ]) {
+    if (!patched.includes(needle)) {
+      // Upstream pi-subagents may rephrase its prompt strings in a future
+      // release. Wording strength is a UX preference, not correctness, so
+      // skip this patch instead of hard-failing startup on shape change.
+      return content;
+    }
+    patched = patched.replace(needle, replacement);
+  }
+  return patched;
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -497,6 +548,20 @@ export function applyBundledPiPatches(options) {
   } else {
     results.push({ patched: false, file: piGoalRuntimePath });
   }
+  const piSubagentsPromptsPath = path.join(
+    resolveBundledPackageRoot("@kky42/pi-subagents", options),
+    "src", "prompts.ts",
+  );
+  if (fs.existsSync(piSubagentsPromptsPath)) {
+    const subagentsOriginal = fs.readFileSync(piSubagentsPromptsPath, "utf8");
+    const subagentsPatched = patchPiSubagentsProactiveDelegation(subagentsOriginal);
+    if (subagentsPatched !== subagentsOriginal) {
+      fs.writeFileSync(piSubagentsPromptsPath, subagentsPatched);
+    }
+    results.push({ patched: subagentsPatched !== subagentsOriginal, file: piSubagentsPromptsPath });
+  } else {
+    results.push({ patched: false, file: piSubagentsPromptsPath });
+  }
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   const piSyntaxHighlightPath = path.join(piRoot, "dist", "utils", "syntax-highlight.js");
   if (fs.existsSync(piSyntaxHighlightPath)) {
@@ -532,4 +597,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
