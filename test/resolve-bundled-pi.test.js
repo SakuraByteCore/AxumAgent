@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -390,6 +390,74 @@ test("patches pi-subagents prompts for proactive delegation defaults", () => {
   // Unknown block shape is left untouched rather than crashing.
   const reshaped = source.replace("matches the task, the work can run independently", "matches the task");
   assert.equal(patchPiSubagentsProactiveDelegation(reshaped), reshaped);
+});
+
+test("patches pi-subagents prompts for parallel fan-out defaults", () => {
+  const source = [
+    "export const AGENT_PROMPT_GUIDELINES = [",
+    "  \"If the user asks for parallel work, launch multiple Agent calls in the same assistant response.\",",
+    "];",
+    "",
+    "export function buildCoordinatorPrompt(profiles) {",
+    "  return `# Subagent Delegation\\n\\nGuidelines:\\n- If the user asks for parallel work, launch independent Agent calls in the same assistant response.\\n`;",
+    "}",
+  ].join("\n");
+
+  const patched = patchPiSubagentsParallelPromptDefaults(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_SUBAGENTS_PARALLEL/);
+  // Guideline now states parallel fan-out as the default working mode.
+  assert.match(patched, /Delegate independent subtasks concurrently by default/);
+  assert.match(patched, /tasks array to run a parallel batch/);
+  assert.match(patched, /never requires the user to ask for it/);
+  // Delegation is re-evaluated on every turn, not only the first.
+  assert.match(patched, /Re-evaluate delegation on every turn, not only the first/);
+  // Coordinator bullet rewritten as well and keeps the per-turn re-evaluation.
+  assert.match(patched, /one Agent call with its tasks array to run a parallel batch/);
+  assert.match(patched, /Re-evaluate delegation on every turn: after each subagent result returns/);
+  // Idempotent.
+  assert.equal(patchPiSubagentsParallelPromptDefaults(patched), patched);
+  // Unknown wording is left untouched rather than crashing.
+  const reshaped = source.replace("the user asks for parallel work", "parallel work is wanted");
+  assert.equal(patchPiSubagentsParallelPromptDefaults(reshaped), reshaped);
+});
+
+test("patches pi-subagents Agent tool with a parallel batch executor", () => {
+  const source = [
+    "const agentToolParameters = Type.Object({",
+    "  description: Type.String({",
+    "  }),",
+    "});",
+    "",
+    "function createAgentTool(",
+    "  state: DelegationState,",
+    ") {",
+    "    async execute(toolCallId, params, signal, onUpdate, ctx) {",
+    "      const effectiveState: DelegationState = {",
+    "    }",
+    "}",
+  ].join("\n");
+
+  const patched = patchPiSubagentsParallelBatch(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_SUBAGENTS_PARALLEL/);
+  // Tool schema gains the optional batch tasks array.
+  assert.match(patched, /const agentTaskParameters = Type\.Object\(\{/);
+  assert.match(patched, /tasks: Type\.Optional\(/);
+  assert.match(patched, /Type\.Array\(agentTaskParameters/);
+  // Batch executor fans out concurrently under the same width budget.
+  assert.match(patched, /async function runSubagentBatch\(/);
+  assert.match(patched, /await Promise\.all\(/);
+  assert.match(patched, /exceeds available width/);
+  // execute() routes batch requests before the single-task path.
+  const batchBranchIndex = patched.indexOf("return await runSubagentBatch(toolCallId, batchTasks, state, options, signal, onUpdate, ctx);");
+  const singlePathIndex = patched.indexOf("      const effectiveState: DelegationState = {", batchBranchIndex);
+  assert.ok(batchBranchIndex > -1 && singlePathIndex > batchBranchIndex);
+  // Idempotent.
+  assert.equal(patchPiSubagentsParallelBatch(patched), patched);
+  // Unknown tool shape is left untouched rather than crashing.
+  const reshaped = source.replace("const agentToolParameters = Type.Object({", "const toolSchema = Type.Object({");
+  assert.equal(patchPiSubagentsParallelBatch(reshaped), reshaped);
 });
 
 

@@ -16,6 +16,7 @@ const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSI
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
+const PI_SUBAGENTS_PARALLEL_MARKER = "AXUM_PI_SUBAGENTS_PARALLEL";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -452,6 +453,215 @@ function patchPiSubagentsProactiveDelegation(content) {
   return patched;
 }
 
+/**
+ * Make parallel delegation the default mode instead of something gated on an
+ * explicit user request. Upstream gates fan-out behind "If the user asks for
+ * parallel work", so the model serializes independent subagent tasks one call
+ * at a time, and the guidance also stops nudging delegation after the first
+ * turn. Rewrite both occurrences (tool guideline + coordinator prompt bullet)
+ * to state that concurrent fan-out is the default for independent subtasks
+ * (multiple Agent calls or one Agent call with a tasks array) and that
+ * delegation is re-evaluated on every turn after each subagent result returns.
+ */
+function patchPiSubagentsParallelPromptDefaults(content) {
+  if (content.includes(PI_SUBAGENTS_PARALLEL_MARKER)) return content;
+
+  const guidelineNeedle = '  "If the user asks for parallel work, launch multiple Agent calls in the same assistant response.",';
+  const guidelineReplacement = [
+    "  // " + PI_SUBAGENTS_PARALLEL_MARKER + ": parallel fan-out is the default for independent subtasks (Axum).",
+    '  "Delegate independent subtasks concurrently by default: emit multiple Agent calls in the same assistant response, or a single Agent call with its tasks array to run a parallel batch. Parallel fan-out never requires the user to ask for it.",',
+    '  "Re-evaluate delegation on every turn, not only the first: after each subagent result returns, delegate again whenever the remaining work matches an agent, runs independently, or spans several files.",',
+  ].join("\n");
+
+  const coordinatorNeedle = "- If the user asks for parallel work, launch independent Agent calls in the same assistant response.";
+  const coordinatorReplacement = [
+    "- Delegate independent subtasks concurrently by default: emit multiple Agent calls in the same assistant response, or one Agent call with its tasks array to run a parallel batch. Do not wait for the user to ask for parallelism.",
+    "- Re-evaluate delegation on every turn: after each subagent result returns, delegate again whenever the remaining work matches an agent, runs independently, or spans several files.",
+  ].join("\n");
+
+  let patched = content;
+  for (const [needle, replacement] of [
+    [guidelineNeedle, guidelineReplacement],
+    [coordinatorNeedle, coordinatorReplacement],
+  ]) {
+    if (!patched.includes(needle)) {
+      // Upstream pi-subagents may rephrase its prompt strings in a future
+      // release. Wording strength is a UX preference, not correctness, so
+      // skip this patch instead of hard-failing startup on shape change.
+      return content;
+    }
+    patched = patched.replace(needle, replacement);
+  }
+  return patched;
+}
+
+/**
+ * Give the Agent tool a mechanism-level parallel batch path. Prompt guidance
+ * can only nudge the model toward concurrency; the tool itself previously
+ * accepted exactly one task per call, so a serialized model could never truly
+ * fan out. This patch adds an optional `tasks` array to the Agent tool schema
+ * and a runSubagentBatch executor that dispatches every task concurrently via
+ * Promise.all under the same maxWidth budget, model/profile validation, abort
+ * signal, usage accounting, and progress reporting as single calls. A batch of
+ * N subagents then finishes in the time of the slowest task instead of the
+ * sum of all tasks.
+ */
+function patchPiSubagentsParallelBatch(content) {
+  if (content.includes(PI_SUBAGENTS_PARALLEL_MARKER)) return content;
+
+  const schemaNeedle = 'const agentToolParameters = Type.Object({';
+  const schemaReplacement = [
+    "// " + PI_SUBAGENTS_PARALLEL_MARKER + ": batch fan-out — one Agent call can launch several",
+    "// independent subagents concurrently so a multi-task delegation is bounded by the slowest task.",
+    "const agentTaskParameters = Type.Object({",
+    "  description: Type.String({",
+    "    description: \"A short 3-5 word description of the task, used for UI display and routing context.\",",
+    "  }),",
+    "  prompt: Type.String({",
+    "    description: \"The self-contained task briefing to send to the subagent.\",",
+    "  }),",
+    "  subagent_type: Type.Optional(",
+    "    Type.String({",
+    "      description: \"The subagent profile to use. Defaults to general-purpose.\",",
+    "    }),",
+    "  ),",
+    "});",
+    "",
+    schemaNeedle,
+    "  tasks: Type.Optional(",
+    "    Type.Array(agentTaskParameters, {",
+    "      description: \"Independent tasks to execute concurrently as separate subagents in a single batch. Prefer this whenever several independent subagent tasks exist; the batch runs them in parallel and returns every result together.\",",
+    "    }),",
+    "  ),",
+  ].join("\n");
+
+  const batchFunction = [
+    "// " + PI_SUBAGENTS_PARALLEL_MARKER + ": execute a batch of independent subagent tasks concurrently via",
+    "// Promise.all under the same width budget, validation, abort signal, usage accounting, and",
+    "// progress reporting as single calls, then merge every child report into one tool result.",
+    "async function runSubagentBatch(",
+    "  toolCallId: string,",
+    "  tasks: Array<{ description: string; prompt: string; subagent_type?: string }>,",
+    "  state: DelegationState,",
+    "  options: CreateAgentToolOptions,",
+    "  signal: AbortSignal | undefined,",
+    "  onUpdate: ((result: AgentToolResult) => void) | undefined,",
+    "  ctx: ExtensionContext,",
+    "): Promise<ReturnType<typeof textResult>> {",
+    "  const effectiveState: DelegationState = {",
+    "    ...state,",
+    "    progressEnabled: state.progressEnabled || shouldEnableProgress(ctx),",
+    "  };",
+    "  const profiles = filterProfilesForModelRegistry(getSubagentProfiles(getAgentDir()), ctx.modelRegistry);",
+    "  const availableWidth = state.maxWidth - state.childCount;",
+    "  if (tasks.length > availableWidth) {",
+    "    return textResult(",
+    "      `Batch of ${tasks.length} subagents exceeds available width ${availableWidth} (maxWidth: ${state.maxWidth}). Split the batch into smaller groups.`,",
+    "      {",
+    "        description: `Batch of ${tasks.length} subagents`,",
+    "        subagentType: \"batch\",",
+    "        status: \"rejected\",",
+    "        error: \"Maximum subagent width reached\",",
+    "      },",
+    "    );",
+    "  }",
+    "  const settled = await Promise.all(",
+    "    tasks.map(async (task, index) => {",
+    "      const subagentType = normalizeSubagentType(task.subagent_type);",
+    "      const profile = profiles.get(subagentType);",
+    "      if (!profile) {",
+    "        return textResult(`Unknown subagent_type \"${task.subagent_type}\". Available agents: ${formatProfileNames(profiles)}.`, {",
+    "          description: task.description,",
+    "          subagentType: \"unknown\",",
+    "          status: \"rejected\",",
+    "          error: \"Unknown subagent_type\",",
+    "        });",
+    "      }",
+    "      const model = resolveProfileModel(profile, ctx);",
+    "      if (!model) {",
+    "        const error = profile.model ? `Profile model not found: ${profile.model}` : \"No model is selected\";",
+    "        return textResult(`Cannot launch subagent: ${error}.`, {",
+    "          description: task.description,",
+    "          subagentType,",
+    "          status: \"rejected\",",
+    "          error,",
+    "        });",
+    "      }",
+    "      state.childCount++;",
+    "      try {",
+    "        return await runSubagent(",
+    "          `${toolCallId}#${index + 1}`,",
+    "          task,",
+    "          profile,",
+    "          model,",
+    "          effectiveState,",
+    "          options,",
+    "          signal,",
+    "          ctx,",
+    "          effectiveState.progressEnabled ? onUpdate : undefined,",
+    "        );",
+    "      } finally {",
+    "        state.childCount = Math.max(0, state.childCount - 1);",
+    "      }",
+    "    }),",
+    "  );",
+    "  const failures = settled.filter((result) => result.details.status !== \"completed\").length;",
+    "  const usage: SubagentUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };",
+    "  for (const result of settled) {",
+    "    const childUsage = result.details.usage;",
+    "    if (!childUsage) continue;",
+    "    usage.input += childUsage.input;",
+    "    usage.output += childUsage.output;",
+    "    usage.cacheRead += childUsage.cacheRead;",
+    "    usage.cacheWrite += childUsage.cacheWrite;",
+    "    usage.cost += childUsage.cost;",
+    "  }",
+    "  const sections = settled.map((result, index) => {",
+    "    const text = result.content.map((part) => part.text).join(\"\\n\");",
+    "    return `=== Task ${index + 1} (${tasks[index].subagent_type ?? \"general-purpose\"}): ${tasks[index].description} ===\\n${text}`;",
+    "  });",
+    "  return textResult(",
+    "    `Subagent batch of ${tasks.length} finished: ${tasks.length - failures} completed, ${failures} failed or rejected.\\n\\n${sections.join(\"\\n\\n\")}`,",
+    "    {",
+    "      description: `Batch of ${tasks.length} subagents`,",
+    "      subagentType: \"batch\",",
+    "      status: failures === 0 ? \"completed\" : \"error\",",
+    "      usage,",
+    "      ...(failures > 0 ? { error: `${failures} of ${tasks.length} subagents failed or were rejected` } : {}),",
+    "    },",
+    "  );",
+    "}",
+    "",
+  ].join("\n");
+
+  const createToolNeedle = "function createAgentTool(";
+  const executeNeedle = [
+    "    async execute(toolCallId, params, signal, onUpdate, ctx) {",
+    "      const effectiveState: DelegationState = {",
+  ].join("\n");
+  const executeReplacement = [
+    "    async execute(toolCallId, params, signal, onUpdate, ctx) {",
+    "      // " + PI_SUBAGENTS_PARALLEL_MARKER + ": route batch requests to the concurrent fan-out executor.",
+    "      const batchTasks = Array.isArray(params.tasks) ? params.tasks : [];",
+    "      if (batchTasks.length > 0) {",
+    "        return await runSubagentBatch(toolCallId, batchTasks, state, options, signal, onUpdate, ctx);",
+    "      }",
+    "      const effectiveState: DelegationState = {",
+  ].join("\n");
+
+  if (!content.includes(schemaNeedle) || !content.includes(createToolNeedle) || !content.includes(executeNeedle)) {
+    // Upstream pi-subagents may restructure the tool in a future release. The
+    // batch path is an additive capability, so skip instead of hard-failing
+    // startup when the anchor shape changes.
+    return content;
+  }
+
+  return content
+    .replace(schemaNeedle, schemaReplacement)
+    .replace(createToolNeedle, batchFunction + createToolNeedle)
+    .replace(executeNeedle, executeReplacement);
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -514,19 +724,29 @@ export function applyBundledPiPatches(options) {
   } else {
     results.push({ patched: false, file: piGoalRuntimePath });
   }
-  const piSubagentsPromptsPath = path.join(
-    resolveBundledPackageRoot("@kky42/pi-subagents", options),
-    "src", "prompts.ts",
-  );
+  const piSubagentsRoot = resolveBundledPackageRoot("@kky42/pi-subagents", options);
+  const piSubagentsPromptsPath = path.join(piSubagentsRoot, "src", "prompts.ts");
   if (fs.existsSync(piSubagentsPromptsPath)) {
     const subagentsOriginal = fs.readFileSync(piSubagentsPromptsPath, "utf8");
-    const subagentsPatched = patchPiSubagentsProactiveDelegation(subagentsOriginal);
+    let subagentsPatched = patchPiSubagentsProactiveDelegation(subagentsOriginal);
+    subagentsPatched = patchPiSubagentsParallelPromptDefaults(subagentsPatched);
     if (subagentsPatched !== subagentsOriginal) {
       fs.writeFileSync(piSubagentsPromptsPath, subagentsPatched);
     }
     results.push({ patched: subagentsPatched !== subagentsOriginal, file: piSubagentsPromptsPath });
   } else {
     results.push({ patched: false, file: piSubagentsPromptsPath });
+  }
+  const piSubagentToolPath = path.join(piSubagentsRoot, "src", "pi-subagent.ts");
+  if (fs.existsSync(piSubagentToolPath)) {
+    const subagentToolOriginal = fs.readFileSync(piSubagentToolPath, "utf8");
+    const subagentToolPatched = patchPiSubagentsParallelBatch(subagentToolOriginal);
+    if (subagentToolPatched !== subagentToolOriginal) {
+      fs.writeFileSync(piSubagentToolPath, subagentToolPatched);
+    }
+    results.push({ patched: subagentToolPatched !== subagentToolOriginal, file: piSubagentToolPath });
+  } else {
+    results.push({ patched: false, file: piSubagentToolPath });
   }
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   const piExtensionLoaderPath = path.join(piRoot, "dist", "core", "extensions", "loader.js");
@@ -554,4 +774,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
