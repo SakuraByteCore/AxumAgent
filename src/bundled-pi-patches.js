@@ -1023,18 +1023,28 @@ ${classAnchor}`,
 
 
 function patchPiAiRetryable422(content) {
-  if (content.includes(PI_422_RETRYABLE_MARKER)) return content;
+  const upgradedPattern = "const STRICT_TRANSIENT_STATUS_PATTERN = /^\\s*(?:Error:\\s*)?(?:422|520)[:\\s]/;";
+  if (content.includes(PI_422_RETRYABLE_MARKER)) {
+    if (content.includes(upgradedPattern)) return content;
+    const legacyPattern = "const STRICT_422_PATTERN = /^\\s*(?:Error:\\s*)?422[:\\s]/;";
+    if (!content.includes(legacyPattern)) {
+      throw new Error("unable to upgrade bundled Pi retry.js: legacy 422 pattern not found");
+    }
+    return content
+      .replaceAll(legacyPattern, upgradedPattern)
+      .replaceAll("STRICT_422_PATTERN.test(errorMessage)", "STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage)");
+  }
   const fnAnchor = "export function isRetryableAssistantError(message) {";
   if (!content.includes(fnAnchor)) {
     throw new Error("unable to patch bundled Pi retry.js: isRetryableAssistantError anchor not found");
   }
   let updated = content.replace(
     fnAnchor,
-    `// ${PI_422_RETRYABLE_MARKER}: transient 422s from flaky provider gateways
-// must not terminate the turn immediately; route them through the caller's
-// normal retry budget. Strict shape only: leading "422:" status, never digits
-// embedded in body text.
-const STRICT_422_PATTERN = /^\\s*(?:Error:\\s*)?422[:\\s]/;
+    `// ${PI_422_RETRYABLE_MARKER}: gateway-originated transient statuses (422,
+// 520) must not terminate the turn immediately; route them through the
+// caller's normal retry budget. Strict shape only: a leading status code,
+// never digits embedded in body text.
+const STRICT_TRANSIENT_STATUS_PATTERN = /^\\s*(?:Error:\\s*)?(?:422|520)[:\\s]/;
 ${fnAnchor}`,
   );
   const retAnchor = "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);";
@@ -1043,7 +1053,7 @@ ${fnAnchor}`,
   }
   updated = updated.replace(
     retAnchor,
-    "    if (STRICT_422_PATTERN.test(errorMessage))\n        return true;\n" + retAnchor,
+    "    if (STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage))\n        return true;\n" + retAnchor,
   );
   return updated;
 }

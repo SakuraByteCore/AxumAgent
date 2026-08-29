@@ -862,7 +862,7 @@ test("patches bundled Pi interactive mode to soften 429 display", () => {
   assert.equal(patchPiInteractiveRateLimitDisplay(patched), patched);
 });
 
-test("patches bundled pi-ai retryability to treat strict 422 as retryable", () => {
+test("patches bundled pi-ai retryability to treat strict 422/520 gateway transients as retryable", () => {
   const vulnerable = [
     "export function isRetryableAssistantError(message) {",
     '    if (message.stopReason !== "error" || !message.errorMessage)',
@@ -873,8 +873,8 @@ test("patches bundled pi-ai retryability to treat strict 422 as retryable", () =
   ].join("\n");
   const patched = patchPiAiRetryable422(vulnerable);
   assert.match(patched, /AXUM_PI_422_RETRYABLE/);
-  assert.match(patched, /STRICT_422_PATTERN/);
-  assert.match(patched, /if \(STRICT_422_PATTERN\.test\(errorMessage\)\)/);
+  assert.match(patched, /STRICT_TRANSIENT_STATUS_PATTERN/);
+  assert.match(patched, /if \(STRICT_TRANSIENT_STATUS_PATTERN\.test\(errorMessage\)\)/);
   assert.equal(patchPiAiRetryable422(patched), patched);
   assert.throws(() => patchPiAiRetryable422("nothing here"), /isRetryableAssistantError anchor not found/);
 });
@@ -893,4 +893,21 @@ test("patches bundled Pi interactive mode to dedupe consecutive identical errors
   assert.match(patched, /if \(errorMessage === this\._axumLastShownError\)/);
   assert.equal(patchPiInteractiveErrorDedup(patched), patched);
   assert.throws(() => patchPiInteractiveErrorDedup("class X {}"), /showError anchor not found/);
+});
+
+test("upgrades an existing 422-only patch to the combined 422/520 transient pattern", () => {
+  const legacy = [
+    "// AXUM_PI_422_RETRYABLE: transient 422s from flaky provider gateways",
+    "const STRICT_422_PATTERN = /^\\s*(?:Error:\\s*)?422[:\\s]/;",
+    "export function isRetryableAssistantError(message) {",
+    "    if (STRICT_422_PATTERN.test(errorMessage))",
+    "        return true;",
+    "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);",
+    "}",
+  ].join("\n");
+  const upgraded = patchPiAiRetryable422(legacy);
+  assert.match(upgraded, /STRICT_TRANSIENT_STATUS_PATTERN/);
+  assert.match(upgraded, /422\|520/);
+  assert.ok(!upgraded.includes("STRICT_422_PATTERN"));
+  assert.equal(patchPiAiRetryable422(upgraded), upgraded);
 });
