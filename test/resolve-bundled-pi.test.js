@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -716,3 +716,116 @@ test("prunes stale v8-compile-cache directories for other Node versions", () => 
   assert.equal(fs.existsSync(current), true);
   assert.equal(fs.existsSync(untouched), true);
 });
+
+test("strict 429 pattern matches provider shape and rejects embedded digits", () => {
+  const pattern = new RegExp(PI_RATE_LIMIT_429_PATTERN_SOURCE);
+  assert.equal(pattern.test('Error: 429: {"message":"Too Many Requests","type":"api_error"}'), true);
+  assert.equal(pattern.test("Error: 429: Too Many Requests"), true);
+  assert.equal(pattern.test("  429 too many requests"), true);
+  assert.equal(pattern.test("429"), false);
+  assert.equal(pattern.test("tokens: 4290"), false);
+  assert.equal(pattern.test("used 429 requests this hour"), false);
+  assert.equal(pattern.test("code 42900 returned"), false);
+  assert.equal(pattern.test("Error: 1429: bad gateway"), false);
+});
+
+test("patches bundled pi-ai retry loop with strict-429 exemption and fixed delays", () => {
+  const I = "        ";
+  const J = "            ";
+  const vulnerable = [
+    "class RetrySleepAbortError extends Error {",
+    "}",
+    "export async function retryAssistantCall(produce, policy, signal, callbacks) {",
+    "    const maxAttempts = policy?.enabled ? policy.maxRetries : 0;",
+    "    let attempt = 0;",
+    "    let lastRetry;",
+    I + "// Non-retryable, or budget exhausted: return the final error message.",
+    I + "if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {",
+    J + "if (lastRetry)",
+    J + "    await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);",
+    J + "return response;",
+    I + "}",
+    I + "attempt++;",
+    I + 'lastRetry = { attempt, errorMessage: response.errorMessage || "Unknown error" };',
+    I + "const delayMs = policy.baseDelayMs * 2 ** (attempt - 1);",
+    I + "await callbacks?.onRetryScheduled?.(attempt, maxAttempts, delayMs, lastRetry.errorMessage);",
+    J + "    await callbacks?.onRetryFinished?.(false, attempt, lastRetry.errorMessage);",
+  ].join("\n");
+  const patched = patchPiAiRateLimitRetry(vulnerable);
+  assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
+  assert.match(patched, /const RATE_LIMIT_DELAY_MS = 5000;/);
+  assert.match(patched, /const RATE_LIMIT_MAX_ATTEMPTS = 30;/);
+  assert.match(patched, /let rateLimitAttempt = 0;/);
+  assert.match(patched, /rateLimitAttempt\+\+;/);
+  assert.match(patched, /polic\?y\.baseDelayMs|delayMs = policy\.baseDelayMs;/);
+  assert.equal(patched.includes("policy.baseDelayMs * 2 **"), false);
+  assert.match(patched, /onRetryScheduled\?\.\(lastRetry\.attempt, scheduledMaxAttempts, delayMs, lastRetry\.errorMessage\)/);
+  assert.match(patched, /onRetryFinished\?\.\(false, lastRetry\.attempt, lastRetry\.errorMessage\)/);
+  assert.equal(patchPiAiRateLimitRetry(patched), patched);
+});
+
+test("patches bundled Pi agent session retry with strict-429 exemption", () => {
+  const vulnerable = [
+    "export class AgentSession {",
+    "    _retryAttempt = 0;",
+    "                if (assistantMsg.stopReason !== \"error\" && this._retryAttempt > 0) {",
+    "                    this._emit({",
+    "                        type: \"auto_retry_end\",",
+    "                        success: true,",
+    "                        attempt: this._retryAttempt,",
+    "                    });",
+    "                    this._retryAttempt = 0;",
+    "                }",
+    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "            this._emit({",
+    "                type: \"auto_retry_end\",",
+    "                success: false,",
+    "                attempt: this._retryAttempt,",
+    "                finalError: msg.errorMessage,",
+    "            });",
+    "            this._retryAttempt = 0;",
+    "        }",
+    "        const settings = this.settingsManager.getRetrySettings();",
+    "        if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {",
+    "            return false;",
+    "        }",
+    "        for (let i = event.messages.length - 1; i >= 0; i--) {",
+    "            const message = event.messages[i];",
+    "            if (message.role === \"assistant\") {",
+    "                return this._isRetryableError(message);",
+    "            }",
+    "        }",
+    "        return false;",
+    "        this._retryAttempt++;",
+    "        if (this._retryAttempt > settings.maxRetries) {",
+    "            // Preserve the completed attempt count so post-run handling can emit the final failure.",
+    "            this._retryAttempt--;",
+    "            return false;",
+    "        }",
+    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        this._emit({",
+    "            type: \"auto_retry_start\",",
+    "            attempt: this._retryAttempt,",
+    "            maxAttempts: settings.maxRetries,",
+    "            delayMs,",
+    "            errorMessage: message.errorMessage || \"Unknown error\",",
+    "        });",
+    "            const attempt = this._retryAttempt;",
+    "            this._retryAttempt = 0;",
+  ].join("\n");
+  const patched = patchPiAgentSessionRateLimitRetry(vulnerable);
+  assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
+  assert.match(patched, /_rateLimitRetryAttempt = 0;/);
+  assert.match(patched, /this\._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS/);
+  assert.match(patched, /delayMs = RATE_LIMIT_DELAY_MS;/);
+  assert.match(patched, /delayMs = settings\.baseDelayMs;/);
+  assert.equal(patched.includes("settings.baseDelayMs * 2 **"), false);
+  assert.equal((patched.match(/_rateLimitRetryAttempt = 0;/g) || []).length, 4);
+  assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
+});
+
+test("throws when bundled retry anchors drift from expected shapes", () => {
+  assert.throws(() => patchPiAiRateLimitRetry("export async function retryAssistantCall() {}"), /RetrySleepAbortError anchor not found/);
+  assert.throws(() => patchPiAgentSessionRateLimitRetry("class SomethingElse {}"), /class anchor not found/);
+});
+

@@ -17,6 +17,12 @@ const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPS
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PARALLEL_MARKER = "AXUM_PI_SUBAGENTS_PARALLEL";
+const PI_AI_PACKAGE = "@earendil-works/pi-ai";
+const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
+// Strict 429 shape: only an error message that *starts* with the HTTP status
+// (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
+// throttling; incidental occurrences of the digits 429 must never match.
+const PI_RATE_LIMIT_429_PATTERN_SOURCE = "^\\s*(?:Error:\\s*)?429[:\\s]";
 
 function packageDirName(packageName) {
   if (packageName.startsWith("@")) {
@@ -662,6 +668,268 @@ function patchPiSubagentsParallelBatch(content) {
     .replace(executeNeedle, executeReplacement);
 }
 
+// Helpers injected into bundled Pi sources; shared by the pi-ai retry loop and
+// the AgentSession retry driver so both layers treat strict 429s identically.
+function buildRateLimitRetryHelpers() {
+  return [
+    `// ${PI_RATE_LIMIT_RETRY_EXEMPT_MARKER}: strict 429 rate-limit errors retry on a`,
+    "// fixed cadence with a dedicated counter so provider throttling never",
+    "// consumes the user-configured retry budget.",
+    "const RATE_LIMIT_DELAY_MS = 5000;",
+    "const RATE_LIMIT_MAX_ATTEMPTS = 30;",
+    "function isRateLimit429Error(errorMessage) {",
+    `    return typeof errorMessage === \"string\" && /${PI_RATE_LIMIT_429_PATTERN_SOURCE}/.test(errorMessage);`,
+    "}",
+    "",
+  ].join("\n");
+}
+
+function patchPiAiRateLimitRetry(content) {
+  if (content.includes(PI_RATE_LIMIT_RETRY_EXEMPT_MARKER)) return content;
+
+  const helperAnchor = "class RetrySleepAbortError extends Error {\n";
+  if (!content.includes(helperAnchor)) {
+    throw new Error("unable to patch bundled pi-ai retry loop: RetrySleepAbortError anchor not found");
+  }
+  let patched = content.replace(helperAnchor, buildRateLimitRetryHelpers() + helperAnchor);
+
+  const stateNeedle = "    let attempt = 0;\n    let lastRetry;\n";
+  if (!patched.includes(stateNeedle)) {
+    throw new Error("unable to patch bundled pi-ai retry loop: attempt counter anchor not found");
+  }
+  patched = patched.replace(stateNeedle, stateNeedle + "    let rateLimitAttempt = 0;\n");
+
+  const decisionNeedle = [
+    "        // Non-retryable, or budget exhausted: return the final error message.",
+    "        if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {",
+    "            if (lastRetry)",
+    "                await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);",
+    "            return response;",
+    "        }",
+    "        attempt++;",
+    "        lastRetry = { attempt, errorMessage: response.errorMessage || \"Unknown error\" };",
+    "        const delayMs = policy.baseDelayMs * 2 ** (attempt - 1);",
+    "        await callbacks?.onRetryScheduled?.(attempt, maxAttempts, delayMs, lastRetry.errorMessage);",
+  ].join("\n");
+  if (!patched.includes(decisionNeedle)) {
+    throw new Error("unable to patch bundled pi-ai retry loop: retry decision anchor not found");
+  }
+  const decisionReplacement = [
+    "        // Non-retryable, or budget exhausted: return the final error message.",
+    "        if (!isRetryableAssistantError(response)) {",
+    "            if (lastRetry)",
+    "                await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);",
+    "            return response;",
+    "        }",
+    "        let delayMs;",
+    "        let scheduledMaxAttempts;",
+    "        if (isRateLimit429Error(response.errorMessage)) {",
+    "            if (rateLimitAttempt >= (policy?.enabled ? RATE_LIMIT_MAX_ATTEMPTS : 0)) {",
+    "                if (lastRetry)",
+    "                    await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);",
+    "                return response;",
+    "            }",
+    "            rateLimitAttempt++;",
+    "            lastRetry = { attempt: rateLimitAttempt, errorMessage: response.errorMessage || \"Unknown error\" };",
+    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "            scheduledMaxAttempts = RATE_LIMIT_MAX_ATTEMPTS;",
+    "        }",
+    "        else {",
+    "            if (attempt >= maxAttempts) {",
+    "                if (lastRetry)",
+    "                    await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);",
+    "                return response;",
+    "            }",
+    "            attempt++;",
+    "            lastRetry = { attempt, errorMessage: response.errorMessage || \"Unknown error\" };",
+    "            delayMs = policy.baseDelayMs;",
+    "            scheduledMaxAttempts = maxAttempts;",
+    "        }",
+    "        await callbacks?.onRetryScheduled?.(lastRetry.attempt, scheduledMaxAttempts, delayMs, lastRetry.errorMessage);",
+  ].join("\n");
+  patched = patched.replace(decisionNeedle, decisionReplacement);
+
+  const abortEmitNeedle = "            await callbacks?.onRetryFinished?.(false, attempt, lastRetry.errorMessage);";
+  if (!patched.includes(abortEmitNeedle)) {
+    throw new Error("unable to patch bundled pi-ai retry loop: abort emit anchor not found");
+  }
+  patched = patched.replace(abortEmitNeedle, "            await callbacks?.onRetryFinished?.(false, lastRetry.attempt, lastRetry.errorMessage);");
+
+  return patched;
+}
+
+function patchPiAgentSessionRateLimitRetry(content) {
+  if (content.includes(PI_RATE_LIMIT_RETRY_EXEMPT_MARKER)) return content;
+
+  const classAnchor = "export class AgentSession {"; 
+  if (!content.includes(classAnchor)) {
+    throw new Error("unable to patch bundled Pi agent session retry: class anchor not found");
+  }
+  let patched = content.replace(classAnchor, buildRateLimitRetryHelpers() + classAnchor);
+
+  const fieldNeedle = "    _retryAttempt = 0;\n";
+  if (!patched.includes(fieldNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session retry: retry counter field anchor not found");
+  }
+  patched = patched.replace(fieldNeedle, fieldNeedle + "    _rateLimitRetryAttempt = 0;\n");
+
+  const successResetNeedle = [
+    "                if (assistantMsg.stopReason !== \"error\" && this._retryAttempt > 0) {",
+    "                    this._emit({",
+    "                        type: \"auto_retry_end\",",
+    "                        success: true,",
+    "                        attempt: this._retryAttempt,",
+    "                    });",
+    "                    this._retryAttempt = 0;",
+    "                }",
+  ].join("\n");
+  const successResetReplacement = [
+    "                if (assistantMsg.stopReason !== \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
+    "                    this._emit({",
+    "                        type: \"auto_retry_end\",",
+    "                        success: true,",
+    "                        attempt: this._retryAttempt + this._rateLimitRetryAttempt,",
+    "                    });",
+    "                    this._retryAttempt = 0;",
+    "                    this._rateLimitRetryAttempt = 0;",
+    "                }",
+  ].join("\n");
+  if (!patched.includes(successResetNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session retry: success reset anchor not found");
+  }
+  patched = patched.replace(successResetNeedle, successResetReplacement);
+
+  const failureResetNeedle = [
+    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "            this._emit({",
+    "                type: \"auto_retry_end\",",
+    "                success: false,",
+    "                attempt: this._retryAttempt,",
+    "                finalError: msg.errorMessage,",
+    "            });",
+    "            this._retryAttempt = 0;",
+    "        }",
+  ].join("\n");
+  const failureResetReplacement = [
+    "        if (msg.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
+    "            this._emit({",
+    "                type: \"auto_retry_end\",",
+    "                success: false,",
+    "                attempt: this._retryAttempt + this._rateLimitRetryAttempt,",
+    "                finalError: msg.errorMessage,",
+    "            });",
+    "            this._retryAttempt = 0;",
+    "            this._rateLimitRetryAttempt = 0;",
+    "        }",
+  ].join("\n");
+  if (!patched.includes(failureResetNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session retry: failure reset anchor not found");
+  }
+  patched = patched.replace(failureResetNeedle, failureResetReplacement);
+
+  const willRetryNeedle = [
+    "        const settings = this.settingsManager.getRetrySettings();",
+    "        if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {",
+    "            return false;",
+    "        }",
+    "        for (let i = event.messages.length - 1; i >= 0; i--) {",
+    "            const message = event.messages[i];",
+    "            if (message.role === \"assistant\") {",
+    "                return this._isRetryableError(message);",
+    "            }",
+    "        }",
+    "        return false;",
+  ].join("\n");
+  const willRetryReplacement = [
+    "        const settings = this.settingsManager.getRetrySettings();",
+    "        if (!settings.enabled) {",
+    "            return false;",
+    "        }",
+    "        for (let i = event.messages.length - 1; i >= 0; i--) {",
+    "            const message = event.messages[i];",
+    "            if (message.role === \"assistant\") {",
+    "                if (isRateLimit429Error(message.errorMessage)) {",
+    "                    return this._isRetryableError(message) && this._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS;",
+    "                }",
+    "                if (this._retryAttempt >= settings.maxRetries) {",
+    "                    return false;",
+    "                }",
+    "                return this._isRetryableError(message);",
+    "            }",
+    "        }",
+    "        return false;",
+  ].join("\n");
+  if (!patched.includes(willRetryNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session retry: agent-end retry gate anchor not found");
+  }
+  patched = patched.replace(willRetryNeedle, willRetryReplacement);
+
+  const prepareNeedle = [
+    "        this._retryAttempt++;",
+    "        if (this._retryAttempt > settings.maxRetries) {",
+    "            // Preserve the completed attempt count so post-run handling can emit the final failure.",
+    "            this._retryAttempt--;",
+    "            return false;",
+    "        }",
+    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        this._emit({",
+    "            type: \"auto_retry_start\",",
+    "            attempt: this._retryAttempt,",
+    "            maxAttempts: settings.maxRetries,",
+    "            delayMs,",
+    "            errorMessage: message.errorMessage || \"Unknown error\",",
+    "        });",
+  ].join("\n");
+  const prepareReplacement = [
+    "        let attempt;",
+    "        let delayMs;",
+    "        let maxAttempts;",
+    "        if (isRateLimit429Error(message.errorMessage)) {",
+    "            if (this._rateLimitRetryAttempt >= RATE_LIMIT_MAX_ATTEMPTS) {",
+    "                return false;",
+    "            }",
+    "            this._rateLimitRetryAttempt++;",
+    "            attempt = this._rateLimitRetryAttempt;",
+    "            maxAttempts = RATE_LIMIT_MAX_ATTEMPTS;",
+    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "        }",
+    "        else {",
+    "            this._retryAttempt++;",
+    "            if (this._retryAttempt > settings.maxRetries) {",
+    "                // Preserve the completed attempt count so post-run handling can emit the final failure.",
+    "                this._retryAttempt--;",
+    "                return false;",
+    "            }",
+    "            attempt = this._retryAttempt;",
+    "            maxAttempts = settings.maxRetries;",
+    "            delayMs = settings.baseDelayMs;",
+    "        }",
+    "        this._emit({",
+    "            type: \"auto_retry_start\",",
+    "            attempt,",
+    "            maxAttempts,",
+    "            delayMs,",
+    "            errorMessage: message.errorMessage || \"Unknown error\",",
+    "        });",
+  ].join("\n");
+  if (!patched.includes(prepareNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session retry: prepare-retry anchor not found");
+  }
+  patched = patched.replace(prepareNeedle, prepareReplacement);
+
+  const abortResetNeedle = "            const attempt = this._retryAttempt;\n            this._retryAttempt = 0;";
+  if (!patched.includes(abortResetNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session retry: abort reset anchor not found");
+  }
+  patched = patched.replace(abortResetNeedle, [
+    "            const attempt = this._retryAttempt + this._rateLimitRetryAttempt;",
+    "            this._retryAttempt = 0;",
+    "            this._rateLimitRetryAttempt = 0;",
+  ].join("\n"));
+
+  return patched;
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -686,6 +954,35 @@ export function applyBundledPiPatches(options) {
       fs.writeFileSync(undiciWebidlPath, undiciPatched);
     }
     results.push({ patched: undiciPatched !== undiciOriginal, file: undiciWebidlPath });
+  }
+
+  // Strict-429 rate-limit exemption: patch every retry.js copy reachable from
+  // pi-coding-agent (top-level and its nested dependency), plus the session-level
+  // retry driver, so throttling never surfaces as a raw error or drains budgets.
+  const piAiRetryPaths = [
+    path.join(resolveBundledPackageRoot(PI_AI_PACKAGE, options), "dist", "utils", "retry.js"),
+    path.join(piRoot, "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "retry.js"),
+  ];
+  for (const retryPath of piAiRetryPaths) {
+    if (!fs.existsSync(retryPath)) continue;
+    const retryOriginal = fs.readFileSync(retryPath, "utf8");
+    const retryPatched = patchPiAiRateLimitRetry(retryOriginal);
+    if (retryPatched !== retryOriginal) {
+      fs.writeFileSync(retryPath, retryPatched);
+    }
+    results.push({ patched: retryPatched !== retryOriginal, file: retryPath });
+  }
+
+  const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
+  if (fs.existsSync(agentSessionPath)) {
+    const sessionOriginal = fs.readFileSync(agentSessionPath, "utf8");
+    const sessionPatched = patchPiAgentSessionRateLimitRetry(sessionOriginal);
+    if (sessionPatched !== sessionOriginal) {
+      fs.writeFileSync(agentSessionPath, sessionPatched);
+    }
+    results.push({ patched: sessionPatched !== sessionOriginal, file: agentSessionPath });
+  } else {
+    results.push({ patched: false, file: agentSessionPath });
   }
 
   if (isAndroidLike(options)) {
@@ -774,4 +1071,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
