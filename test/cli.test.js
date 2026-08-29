@@ -161,6 +161,40 @@ test("axum code --safe disables ambient extensions without loading bundled exten
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
 
+test("axum help lists the resume command", () => {
+  const result = run([]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /axum resume \[--safe\]/);
+  assert.match(result.stdout, /equivalent to `axum code --resume`/);
+});
+
+test("axum resume forwards --resume to bundled Pi", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-resume-"));
+  const agentDir = path.join(dir, "agent");
+  const cache = path.join(dir, "cache");
+  const argvFile = path.join(dir, "argv.json");
+  writePackage(cache, "@earendil-works/pi-coding-agent", {
+    "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`,
+    "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\n",
+  });
+  writeRuntimePackages(cache);
+  writePiTuiCache(cache);
+  writeBundledExtensionFixtures(cache);
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
+  writeModelsConfig(agentDir);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "resume", "--help"], {
+    encoding: "utf8",
+    env: writeWin32TestEnv(process.env, { AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir }),
+    timeout: 30000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  // resume maps to `code --resume`, appended after the provider defaults.
+  assert.deepEqual(argv.slice(-8), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--resume", "--help"]);
+});
+
 function writePiEnvProbeCache(cache, envFile) {
   writePackage(cache, "@earendil-works/pi-coding-agent", {
     "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ compileCache: process.env.NODE_COMPILE_CACHE ?? null }));`,

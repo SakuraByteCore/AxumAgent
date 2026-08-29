@@ -7,6 +7,7 @@ function usage() {
 Usage:
   axum
   axum code [--safe] [pi args...]
+  axum resume [--safe] [pi args...]
   axum web [--port <port>]
   axum doctor
   axum versions
@@ -16,6 +17,8 @@ Usage:
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
                 Use --safe to skip all bundled extensions
+  resume        Resume a previous session via Pi's session picker
+                (equivalent to \`axum code --resume\`)
   web           Open the local OpenAI-compatible provider setup page
   doctor        Check bundled Pi and extension files
   versions      List published Axum versions and the currently installed one
@@ -53,6 +56,7 @@ function resolveArgs(argv) {
   if (argv.length === 0) return { mode: "help" };
   if (argv[0] === "web") return { mode: "web", argv: argv.slice(1) };
   if (argv[0] === "code") return { mode: "run", passthrough: argv.slice(1) };
+  if (argv[0] === "resume") return { mode: "run", passthrough: ["--resume", ...argv.slice(1)] };
   if (argv[0] === "doctor") return { mode: "doctor" };
   if (argv[0] === "versions") return { mode: "versions" };
   if (argv[0] === "update") return { mode: "update", version: argv[1] };
