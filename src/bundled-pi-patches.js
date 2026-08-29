@@ -19,6 +19,7 @@ const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PARALLEL_MARKER = "AXUM_PI_SUBAGENTS_PARALLEL";
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
+const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
@@ -930,6 +931,94 @@ function patchPiAgentSessionRateLimitRetry(content) {
   return patched;
 }
 
+
+const RATE_LIMIT_DISPLAY_NOTICE = "模型提供方限流（429），已在后台静默重试；请稍后再继续。";
+
+function patchPiInteractiveRateLimitDisplay(content) {
+  if (content.includes(PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER)) return content;
+  const I12 = " ".repeat(12);
+  const I16 = " ".repeat(16);
+  const I20 = " ".repeat(20);
+  const I24 = " ".repeat(24);
+  const classAnchor = "export class InteractiveMode {";
+  if (!content.includes(classAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: class anchor not found");
+  }
+  let updated = content.replace(
+    classAnchor,
+    `// ${PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER}
+const AXUM_RATE_LIMIT_429_NOTICE = ${JSON.stringify(RATE_LIMIT_DISPLAY_NOTICE)};
+function isAxumRateLimit429Message(message) {
+  return typeof message === "string" && new RegExp(${JSON.stringify(PI_RATE_LIMIT_429_PATTERN_SOURCE)}).test(message);
+}
+${classAnchor}`,
+  );
+  const summarizationAnchor = [
+    I12 + 'case "summarization_retry_scheduled": {',
+    I16 + "this.showError(event.errorMessage);",
+  ].join("\n") ;
+  const summarizationReplacement = [
+    I12 + 'case "summarization_retry_scheduled": {',
+    I16 + "if (!isAxumRateLimit429Message(event.errorMessage)) {",
+    I20 + "this.showError(event.errorMessage);",
+    I16 + "}",
+  ].join("\n");
+  if (!updated.includes(summarizationAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: summarization retry anchor not found");
+  }
+  updated = updated.replace(summarizationAnchor, summarizationReplacement);
+  const retryEndAnchor = [
+    I16 + "if (!event.success) {",
+    I20 + 'this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);',
+    I16 + "}",
+  ].join("\n");
+  const retryEndReplacement = [
+    I16 + "if (!event.success) {",
+    I20 + "if (isAxumRateLimit429Message(event.finalError)) {",
+    I24 + "this.chatContainer.addChild(new Text(AXUM_RATE_LIMIT_429_NOTICE, 1, 0));",
+    I20 + "}",
+    I20 + "else {",
+    I24 + 'this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);',
+    I20 + "}",
+    I16 + "}",
+  ].join("\n");
+  if (!updated.includes(retryEndAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: auto retry end anchor not found");
+  }
+  updated = updated.replace(retryEndAnchor, retryEndReplacement);
+  const compactionAnchor = [
+    I16 + "else if (event.errorMessage) {",
+    I20 + 'if (event.reason === "manual") {',
+    I24 + "this.showError(event.errorMessage);",
+    I20 + "}",
+    I20 + "else {",
+    I24 + "this.chatContainer.addChild(new Spacer(1));",
+    I24 + 'this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));',
+    I20 + "}",
+    I16 + "}",
+  ].join("\n");
+  const compactionReplacement = [
+    I16 + "else if (event.errorMessage) {",
+    I20 + "if (isAxumRateLimit429Message(event.errorMessage)) {",
+    I24 + "this.chatContainer.addChild(new Spacer(1));",
+    I24 + "this.chatContainer.addChild(new Text(AXUM_RATE_LIMIT_429_NOTICE, 1, 0));",
+    I20 + "}",
+    I20 + 'else if (event.reason === "manual") {',
+    I24 + "this.showError(event.errorMessage);",
+    I20 + "}",
+    I20 + "else {",
+    I24 + "this.chatContainer.addChild(new Spacer(1));",
+    I24 + 'this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));',
+    I20 + "}",
+    I16 + "}",
+  ].join("\n");
+  if (!updated.includes(compactionAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: compaction error anchor not found");
+  }
+  updated = updated.replace(compactionAnchor, compactionReplacement);
+  return updated;
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -983,6 +1072,18 @@ export function applyBundledPiPatches(options) {
     results.push({ patched: sessionPatched !== sessionOriginal, file: agentSessionPath });
   } else {
     results.push({ patched: false, file: agentSessionPath });
+  }
+
+  const interactiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
+  if (fs.existsSync(interactiveModePath)) {
+    const interactiveOriginal = fs.readFileSync(interactiveModePath, "utf8");
+    const interactivePatched = patchPiInteractiveRateLimitDisplay(interactiveOriginal);
+    if (interactivePatched !== interactiveOriginal) {
+      fs.writeFileSync(interactiveModePath, interactivePatched);
+    }
+    results.push({ patched: interactivePatched !== interactiveOriginal, file: interactiveModePath });
+  } else {
+    results.push({ patched: false, file: interactiveModePath });
   }
 
   if (isAndroidLike(options)) {
@@ -1071,4 +1172,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

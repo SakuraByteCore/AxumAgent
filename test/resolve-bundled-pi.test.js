@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -829,3 +829,35 @@ test("throws when bundled retry anchors drift from expected shapes", () => {
   assert.throws(() => patchPiAgentSessionRateLimitRetry("class SomethingElse {}"), /class anchor not found/);
 });
 
+test("patches bundled Pi interactive mode to soften 429 display", () => {
+  const I12 = " ".repeat(12);
+  const I16 = " ".repeat(16);
+  const I20 = " ".repeat(20);
+  const I24 = " ".repeat(24);
+  const vulnerable = [
+    "export class InteractiveMode {",
+    I16 + "else if (event.errorMessage) {",
+    I20 + 'if (event.reason === "manual") {',
+    I24 + "this.showError(event.errorMessage);",
+    I20 + "}",
+    I20 + "else {",
+    I24 + "this.chatContainer.addChild(new Spacer(1));",
+    I24 + 'this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));',
+    I20 + "}",
+    I16 + "}",
+    I12 + 'case "auto_retry_end": {',
+    I16 + "if (!event.success) {",
+    I20 + 'this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);',
+    I16 + "}",
+    I16 + "this.ui.requestRender();",
+    I12 + 'case "summarization_retry_scheduled": {',
+    I16 + "this.showError(event.errorMessage);",
+    I16 + "this.showStatusIndicator(new RetryStatusIndicator(this.ui, event.attempt, event.maxAttempts, event.delayMs));",
+  ].join("\n");
+  const patched = patchPiInteractiveRateLimitDisplay(vulnerable);
+  assert.match(patched, /AXUM_PI_429_DISPLAY_SOFTENING/);
+  assert.match(patched, /AXUM_RATE_LIMIT_429_NOTICE/);
+  assert.match(patched, /isAxumRateLimit429Message\(event\.errorMessage\)/);
+  assert.match(patched, /isAxumRateLimit429Message\(event\.finalError\)/);
+  assert.equal(patchPiInteractiveRateLimitDisplay(patched), patched);
+});
