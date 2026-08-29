@@ -21,6 +21,7 @@ const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
+const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
@@ -1047,6 +1048,35 @@ ${fnAnchor}`,
   return updated;
 }
 
+
+function patchPiInteractiveErrorDedup(content) {
+  if (content.includes(PI_ERROR_DEDUP_MARKER)) return content;
+  const methodAnchor = [
+    "    showError(errorMessage) {",
+    "        this.chatContainer.addChild(new Spacer(1));",
+    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.ui.requestRender();",
+    "    }",
+  ].join("\n");
+  if (!content.includes(methodAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: showError anchor not found");
+  }
+  const replacement = [
+    "    // " + PI_ERROR_DEDUP_MARKER + ": consecutive identical errors collapse to",
+    "    // one line so provider error storms stay readable.",
+    "    _axumLastShownError = undefined;",
+    "    showError(errorMessage) {",
+    "        if (errorMessage === this._axumLastShownError)",
+    "            return;",
+    "        this._axumLastShownError = errorMessage;",
+    "        this.chatContainer.addChild(new Spacer(1));",
+    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.ui.requestRender();",
+    "    }",
+  ].join("\n");
+  return content.replace(methodAnchor, replacement);
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -1107,10 +1137,11 @@ export function applyBundledPiPatches(options) {
   if (fs.existsSync(interactiveModePath)) {
     const interactiveOriginal = fs.readFileSync(interactiveModePath, "utf8");
     const interactivePatched = patchPiInteractiveRateLimitDisplay(interactiveOriginal);
-    if (interactivePatched !== interactiveOriginal) {
-      fs.writeFileSync(interactiveModePath, interactivePatched);
+    const interactiveFinal = patchPiInteractiveErrorDedup(interactivePatched);
+    if (interactiveFinal !== interactiveOriginal) {
+      fs.writeFileSync(interactiveModePath, interactiveFinal);
     }
-    results.push({ patched: interactivePatched !== interactiveOriginal, file: interactiveModePath });
+    results.push({ patched: interactiveFinal !== interactiveOriginal, file: interactiveModePath });
   } else {
     results.push({ patched: false, file: interactiveModePath });
   }
@@ -1201,4 +1232,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

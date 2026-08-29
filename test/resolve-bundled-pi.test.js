@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -877,4 +877,20 @@ test("patches bundled pi-ai retryability to treat strict 422 as retryable", () =
   assert.match(patched, /if \(STRICT_422_PATTERN\.test\(errorMessage\)\)/);
   assert.equal(patchPiAiRetryable422(patched), patched);
   assert.throws(() => patchPiAiRetryable422("nothing here"), /isRetryableAssistantError anchor not found/);
+});
+
+test("patches bundled Pi interactive mode to dedupe consecutive identical errors", () => {
+  const vulnerable = [
+    "    showError(errorMessage) {",
+    "        this.chatContainer.addChild(new Spacer(1));",
+    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.ui.requestRender();",
+    "    }",
+  ].join("\n");
+  const patched = patchPiInteractiveErrorDedup(vulnerable);
+  assert.match(patched, /AXUM_PI_ERROR_DEDUP/);
+  assert.match(patched, /_axumLastShownError/);
+  assert.match(patched, /if \(errorMessage === this\._axumLastShownError\)/);
+  assert.equal(patchPiInteractiveErrorDedup(patched), patched);
+  assert.throws(() => patchPiInteractiveErrorDedup("class X {}"), /showError anchor not found/);
 });
