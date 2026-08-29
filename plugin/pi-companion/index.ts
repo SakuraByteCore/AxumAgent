@@ -919,14 +919,11 @@ pi.registerCommand("plan", {
 // ── /implement ─────────────────────────────────────────────────────────
 
 pi.registerCommand("implement", {
-  description: "Implement now: decompose the requirement into a ticket task graph and execute it via the implement-spec workflow: /implement <requirement>",
+  description: "Implement now: run the implement-spec workflow on the given requirement, or on the plan discussed earlier in this session: /implement [requirement]",
   getArgumentCompletions: () => null,
   async handler(args: string, ctx) {
-    const requirement = args.trim();
-    if (!requirement) {
-      ctx.ui.notify("Please provide a requirement: /implement <requirement>", "warning");
-      return;
-    }
+    // Bare /implement means: implement the requirement discussed and agreed earlier in this conversation
+    const requirement = args.trim() || "the requirement discussed and agreed earlier in this conversation";
 
     const prompt = IMPLEMENT_PROMPT_PREFIX + requirement + IMPLEMENT_PROMPT_SUFFIX;
     ctx.ui.notify("Implement request sent, waiting for Agent…", "info");

@@ -150,16 +150,16 @@ test("implement command falls back to followUp streamingBehavior on later sends"
   assert.equal(pi.messages[1].options.streamingBehavior, "followUp");
 });
 
-test("implement command warns and sends nothing on empty input", async () => {
+test("bare implement command targets the requirement discussed earlier in the session", async () => {
   const pi = createPi();
   const { ctx, notifications } = createContext();
 
   await pi.commands.get("implement").handler("   ", ctx);
 
-  assert.equal(pi.messages.length, 0);
-  assert.equal(notifications.length, 1);
-  assert.match(notifications[0].message, /\/implement <requirement>/);
-  assert.equal(notifications[0].level, "warning");
+  assert.equal(pi.messages.length, 1);
+  assert.match(pi.messages[0].message, /\[Requirement\] the requirement discussed and agreed earlier in this conversation/);
+  assert.match(pi.messages[0].message, /implement-spec workflow/);
+  assert.ok(!notifications.some((n) => n.level === "warning"));
 });
 
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
