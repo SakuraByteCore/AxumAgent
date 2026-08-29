@@ -898,6 +898,166 @@ function patchPiAgentSessionRateLimitRetry(content) {
   return patched;
 }
 
+// Transport/connection failures (network drops, DNS, sockets, TLS resets) are
+// transient environment noise: like strict 429s they retry on a fixed cadence
+// with a dedicated counter so a flaky link never wastes the user retry budget.
+const PI_CONNECTION_RETRY_EXEMPT_MARKER = "AXUM_PI_CONNECTION_RETRY_EXEMPT";
+const PI_CONNECTION_ERROR_PATTERN_SOURCE = "connection.?(error|refused|reset|lost)|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
+
+function buildConnectionRetryHelpers() {
+  return [
+    `// ${PI_CONNECTION_RETRY_EXEMPT_MARKER}: transport/connection errors retry on a`,
+    "// fixed cadence with a dedicated counter so transient network failures",
+    "// never consume the user-configured retry budget.",
+    "const CONNECTION_DELAY_MS = 5000;",
+    "const CONNECTION_MAX_ATTEMPTS = 30;",
+    "function isConnectionError(errorMessage) {",
+    `    return typeof errorMessage === \"string\" && /${PI_CONNECTION_ERROR_PATTERN_SOURCE}/i.test(errorMessage);`,
+    "}",
+    "",
+  ].join("\n");
+}
+
+// Extends the strict-429-exempted agent session with a connection-error lane:
+// transient transport failures retry on a fixed cadence with their own
+// counter instead of aborting the turn after the default retry budget.
+function patchPiAgentSessionConnectionRetry(content) {
+  if (content.includes(PI_CONNECTION_RETRY_EXEMPT_MARKER)) return content;
+
+  let patched = patchPiAgentSessionRateLimitRetry(content);
+
+  const classAnchor = "export class AgentSession {";
+  if (!patched.includes(classAnchor)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: class anchor not found");
+  }
+  patched = patched.replace(classAnchor, buildConnectionRetryHelpers() + classAnchor);
+
+  const fieldNeedle = "    _rateLimitRetryAttempt = 0;\n";
+  if (!patched.includes(fieldNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: retry counter field anchor not found");
+  }
+  patched = patched.replace(fieldNeedle, fieldNeedle + "    _connectionRetryAttempt = 0;\n");
+
+  const successResetNeedle = [
+    "                if (assistantMsg.stopReason !== \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
+    "                    this._emit({",
+    "                        type: \"auto_retry_end\",",
+    "                        success: true,",
+    "                        attempt: this._retryAttempt + this._rateLimitRetryAttempt,",
+    "                    });",
+    "                    this._retryAttempt = 0;",
+    "                    this._rateLimitRetryAttempt = 0;",
+    "                }",
+  ].join("\n");
+  const successResetReplacement = [
+    "                if (assistantMsg.stopReason !== \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0 || this._connectionRetryAttempt > 0)) {",
+    "                    this._emit({",
+    "                        type: \"auto_retry_end\",",
+    "                        success: true,",
+    "                        attempt: this._retryAttempt + this._rateLimitRetryAttempt + this._connectionRetryAttempt,",
+    "                    });",
+    "                    this._retryAttempt = 0;",
+    "                    this._rateLimitRetryAttempt = 0;",
+    "                    this._connectionRetryAttempt = 0;",
+    "                }",
+  ].join("\n");
+  if (!patched.includes(successResetNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: success reset anchor not found");
+  }
+  patched = patched.replace(successResetNeedle, successResetReplacement);
+
+  const failureResetNeedle = [
+    "        if (msg.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
+    "            this._emit({",
+    "                type: \"auto_retry_end\",",
+    "                success: false,",
+    "                attempt: this._retryAttempt + this._rateLimitRetryAttempt,",
+    "                finalError: msg.errorMessage,",
+    "            });",
+    "            this._retryAttempt = 0;",
+    "            this._rateLimitRetryAttempt = 0;",
+    "        }",
+  ].join("\n");
+  const failureResetReplacement = [
+    "        if (msg.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0 || this._connectionRetryAttempt > 0)) {",
+    "            this._emit({",
+    "                type: \"auto_retry_end\",",
+    "                success: false,",
+    "                attempt: this._retryAttempt + this._rateLimitRetryAttempt + this._connectionRetryAttempt,",
+    "                finalError: msg.errorMessage,",
+    "            });",
+    "            this._retryAttempt = 0;",
+    "            this._rateLimitRetryAttempt = 0;",
+    "            this._connectionRetryAttempt = 0;",
+    "        }",
+  ].join("\n");
+  if (!patched.includes(failureResetNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: failure reset anchor not found");
+  }
+  patched = patched.replace(failureResetNeedle, failureResetReplacement);
+
+  const willRetryNeedle = [
+    "                if (isRateLimit429Error(message.errorMessage)) {",
+    "                    return this._isRetryableError(message) && this._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS;",
+    "                }",
+    "                if (this._retryAttempt >= settings.maxRetries) {",
+  ].join("\n");
+  const willRetryReplacement = [
+    "                if (isRateLimit429Error(message.errorMessage)) {",
+    "                    return this._isRetryableError(message) && this._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS;",
+    "                }",
+    "                if (isConnectionError(message.errorMessage)) {",
+    "                    return this._isRetryableError(message) && this._connectionRetryAttempt < CONNECTION_MAX_ATTEMPTS;",
+    "                }",
+    "                if (this._retryAttempt >= settings.maxRetries) {",
+  ].join("\n");
+  if (!patched.includes(willRetryNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: agent-end retry gate anchor not found");
+  }
+  patched = patched.replace(willRetryNeedle, willRetryReplacement);
+
+  const prepareNeedle = [
+    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "        }",
+    "        else {",
+  ].join("\n");
+  const prepareReplacement = [
+    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "        }",
+    "        else if (isConnectionError(message.errorMessage)) {",
+    "            if (this._connectionRetryAttempt >= CONNECTION_MAX_ATTEMPTS) {",
+    "                return false;",
+    "            }",
+    "            this._connectionRetryAttempt++;",
+    "            attempt = this._connectionRetryAttempt;",
+    "            maxAttempts = CONNECTION_MAX_ATTEMPTS;",
+    "            delayMs = CONNECTION_DELAY_MS;",
+    "        }",
+    "        else {",
+  ].join("\n");
+  if (!patched.includes(prepareNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: prepare-retry anchor not found");
+  }
+  patched = patched.replace(prepareNeedle, prepareReplacement);
+
+  const abortResetNeedle = [
+    "            const attempt = this._retryAttempt + this._rateLimitRetryAttempt;",
+    "            this._retryAttempt = 0;",
+    "            this._rateLimitRetryAttempt = 0;",
+  ].join("\n");
+  if (!patched.includes(abortResetNeedle)) {
+    throw new Error("unable to patch bundled Pi agent session connection retry: abort reset anchor not found");
+  }
+  patched = patched.replace(abortResetNeedle, [
+    "            const attempt = this._retryAttempt + this._rateLimitRetryAttempt + this._connectionRetryAttempt;",
+    "            this._retryAttempt = 0;",
+    "            this._rateLimitRetryAttempt = 0;",
+    "            this._connectionRetryAttempt = 0;",
+  ].join("\n"));
+
+  return patched;
+}
+
 
 const RATE_LIMIT_DISPLAY_NOTICE = "模型提供方限流（429），已在后台静默重试；请稍后再继续。";
 
@@ -1132,7 +1292,9 @@ export function applyBundledPiPatches(options) {
 
   // Strict-429 rate-limit exemption: patch every retry.js copy reachable from
   // pi-coding-agent (top-level and its nested dependency), plus the session-level
-  // retry driver, so throttling never surfaces as a raw error or drains budgets.
+  // retry driver, so throttling never surfaces as a raw error or drains budgets;
+  // the session driver additionally exempts transient connection failures from
+  // that budget so a flaky link cannot abort the turn after a few retries.
   const piAiRetryPaths = [
     path.join(resolveBundledPackageRoot(PI_AI_PACKAGE, options), "dist", "utils", "retry.js"),
     path.join(piRoot, "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "retry.js"),
@@ -1151,7 +1313,7 @@ export function applyBundledPiPatches(options) {
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
   if (fs.existsSync(agentSessionPath)) {
     const sessionOriginal = fs.readFileSync(agentSessionPath, "utf8");
-    const sessionPatched = patchPiAgentSessionRateLimitRetry(sessionOriginal);
+    const sessionPatched = patchPiAgentSessionConnectionRetry(sessionOriginal);
     if (sessionPatched !== sessionOriginal) {
       fs.writeFileSync(agentSessionPath, sessionPatched);
     }
@@ -1267,4 +1429,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, restorePiSubagentsPrompts };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, restorePiSubagentsPrompts };

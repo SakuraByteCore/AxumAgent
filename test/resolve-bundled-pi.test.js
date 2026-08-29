@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -801,9 +801,87 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
 });
 
+test("connection error pattern matches transport failures and rejects unrelated errors", () => {
+  const pattern = new RegExp(PI_CONNECTION_ERROR_PATTERN_SOURCE, "i");
+  assert.equal(pattern.test("Connection error."), true);
+  assert.equal(pattern.test("fetch failed"), true);
+  assert.equal(pattern.test("connect ECONNRESET 203.0.113.7:443"), true);
+  assert.equal(pattern.test("getaddrinfo ENOTFOUND api.example.com"), true);
+  assert.equal(pattern.test("socket hang up"), true);
+  assert.equal(pattern.test("socket connection was closed unexpectedly"), true);
+  assert.equal(pattern.test("request timed out"), true);
+  assert.equal(pattern.test("stream terminated before completion"), true);
+  assert.equal(pattern.test("Error: 429: Too Many Requests"), false);
+  assert.equal(pattern.test("insufficient_quota"), false);
+  assert.equal(pattern.test("context window exceeded"), false);
+});
+
+test("patches bundled Pi agent session retry with connection-error exemption", () => {
+  const vulnerable = [
+    "export class AgentSession {",
+    "    _retryAttempt = 0;",
+    "                if (assistantMsg.stopReason !== \"error\" && this._retryAttempt > 0) {",
+    "                    this._emit({",
+    "                        type: \"auto_retry_end\",",
+    "                        success: true,",
+    "                        attempt: this._retryAttempt,",
+    "                    });",
+    "                    this._retryAttempt = 0;",
+    "                }",
+    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "            this._emit({",
+    "                type: \"auto_retry_end\",",
+    "                success: false,",
+    "                attempt: this._retryAttempt,",
+    "                finalError: msg.errorMessage,",
+    "            });",
+    "            this._retryAttempt = 0;",
+    "        }",
+    "        const settings = this.settingsManager.getRetrySettings();",
+    "        if (!settings.enabled || this._retryAttempt >= settings.maxRetries) {",
+    "            return false;",
+    "        }",
+    "        for (let i = event.messages.length - 1; i >= 0; i--) {",
+    "            const message = event.messages[i];",
+    "            if (message.role === \"assistant\") {",
+    "                return this._isRetryableError(message);",
+    "            }",
+    "        }",
+    "        return false;",
+    "        this._retryAttempt++;",
+    "        if (this._retryAttempt > settings.maxRetries) {",
+    "            // Preserve the completed attempt count so post-run handling can emit the final failure.",
+    "            this._retryAttempt--;",
+    "            return false;",
+    "        }",
+    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        this._emit({",
+    "            type: \"auto_retry_start\",",
+    "            attempt: this._retryAttempt,",
+    "            maxAttempts: settings.maxRetries,",
+    "            delayMs,",
+    "            errorMessage: message.errorMessage || \"Unknown error\",",
+    "        });",
+    "            const attempt = this._retryAttempt;",
+    "            this._retryAttempt = 0;",
+  ].join("\n");
+  const patched = patchPiAgentSessionConnectionRetry(vulnerable);
+  assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
+  assert.match(patched, /AXUM_PI_CONNECTION_RETRY_EXEMPT/);
+  assert.equal((patched.match(/_connectionRetryAttempt = 0;/g) || []).length, 4);
+  assert.match(patched, /this\._connectionRetryAttempt < CONNECTION_MAX_ATTEMPTS/);
+  assert.match(patched, /delayMs = CONNECTION_DELAY_MS;/);
+  assert.match(patched, /delayMs = RATE_LIMIT_DELAY_MS;/);
+  assert.match(patched, /delayMs = settings\.baseDelayMs;/);
+  assert.equal(patched.includes("settings.baseDelayMs * 2 **"), false);
+  assert.equal((patched.match(/isConnectionError\(message\.errorMessage\)/g) || []).length, 2);
+  assert.equal(patchPiAgentSessionConnectionRetry(patched), patched);
+});
+
 test("throws when bundled retry anchors drift from expected shapes", () => {
   assert.throws(() => patchPiAiRateLimitRetry("export async function retryAssistantCall() {}"), /RetrySleepAbortError anchor not found/);
   assert.throws(() => patchPiAgentSessionRateLimitRetry("class SomethingElse {}"), /class anchor not found/);
+  assert.throws(() => patchPiAgentSessionConnectionRetry("class SomethingElse {}"), /class anchor not found/);
 });
 
 test("patches bundled Pi interactive mode to soften 429 display", () => {
