@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -355,71 +355,48 @@ test("upgrades old pi-goal auto-resume patch to cover no-progress pauses", () =>
   assert.match(upgraded, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, "paused"\)/);
   assert.equal(patchPiGoalAutoResume(upgraded), upgraded);
 });
-test("patches pi-subagents prompts for proactive delegation defaults", () => {
-  const source = [
-    "import type { SubagentProfile } from \"./types.ts\";",
-    "",
+test("restores pi-subagents prompts after retired prompt-injection patches", () => {
+  const injected = [
+    "// AXUM_PI_SUBAGENTS_PROACTIVE: proactive-delegation default (Axum).",
     "export const AGENT_PROMPT_SNIPPET =",
-    "  \"Launch a fresh subagent when the task matches an available agent, can run independently, or would read across several files.\";",
+    "  \"Default to launching a subagent when the task matches an available agent, runs independently, or needs reading across several files; delegate without waiting for the user to ask.\";",
     "",
-    "export const AGENT_PROMPT_GUIDELINES = [",
-    "  \"Reach for Agent when the task matches an available agent, when you have independent work to run in parallel, or when answering would mean reading across several files.\",",
-    "];",
+    "// AXUM_PI_SUBAGENTS_PROACTIVE: proactive-delegation default (Axum).",
+    "  \"Proactively use Agent when the task matches an available agent, you have independent work to run in parallel, or answering means reading across several files. Delegate proactively as the default working mode instead of waiting for the user to explicitly request a subagent.\",",
     "",
-    "export function buildCoordinatorPrompt(profiles: Map<string, SubagentProfile>): string {",
-    "  return `# Subagent Delegation\n\nAvailable agents:\n\nUse Agent when a specialized agent matches the task, the work can run independently, or delegating would keep large search/read output out of the main context.\n\nGuidelines:\n- Do not use subagents excessively; direct lookup is better when the target file, symbol, or value is already known.\n`;",
-    "}",
+    "// AXUM_PI_SUBAGENTS_PROACTIVE: proactive-delegation default (Axum).",
+    "Proactively delegate to a specialized agent when one matches the task, the work can run independently, or delegating would keep large search/read output out of the main context. This is the default working mode: delegate on your own judgment without waiting for the user to explicitly request a subagent.",
+    "",
+    "  // AXUM_PI_SUBAGENTS_PARALLEL: parallel fan-out is the default for independent subtasks (Axum).",
+    "  \"Delegate independent subtasks concurrently by default: emit multiple Agent calls in the same assistant response, or a single Agent call with its tasks array to run a parallel batch. Parallel fan-out never requires the user to ask for it.\",",
+    "  \"Re-evaluate delegation on every turn, not only the first: after each subagent result returns, delegate again whenever the remaining work matches an agent, runs independently, or spans several files.\",",
+    "",
+    "- Delegate independent subtasks concurrently by default: emit multiple Agent calls in the same assistant response, or one Agent call with its tasks array to run a parallel batch. Do not wait for the user to ask for parallelism.",
+    "- Re-evaluate delegation on every turn: after each subagent result returns, delegate again whenever the remaining work matches an agent, runs independently, or spans several files.",
   ].join("\n");
 
-  const patched = patchPiSubagentsProactiveDelegation(source);
-  assert.notEqual(patched, source, "patch should change the source");
-  assert.match(patched, /AXUM_PI_SUBAGENTS_PROACTIVE/);
-  // Tool snippet now states delegation as the default working mode.
-  assert.match(patched, /Default to launching a subagent/);
-  assert.match(patched, /delegate without waiting for the user to ask/);
-  // First guideline states proactive delegation explicitly.
-  assert.match(patched, /Proactively use Agent when the task matches/);
-  assert.match(patched, /instead of waiting for the user to explicitly request/);
-  // Coordinator prompt opening states proactive delegation as default mode.
-  assert.match(patched, /Proactively delegate to a specialized agent/);
-  assert.match(patched, /delegate on your own judgment without waiting/);
-  // Upstream anti-over-delegation guardrail preserved.
-  assert.match(patched, /Do not use subagents excessively/);
-  // Idempotent.
-  assert.equal(patchPiSubagentsProactiveDelegation(patched), patched);
-  // Unknown block shape is left untouched rather than crashing.
-  const reshaped = source.replace("matches the task, the work can run independently", "matches the task");
-  assert.equal(patchPiSubagentsProactiveDelegation(reshaped), reshaped);
-});
+  const restored = restorePiSubagentsPrompts(injected);
 
-test("patches pi-subagents prompts for parallel fan-out defaults", () => {
-  const source = [
-    "export const AGENT_PROMPT_GUIDELINES = [",
-    "  \"If the user asks for parallel work, launch multiple Agent calls in the same assistant response.\",",
-    "];",
-    "",
-    "export function buildCoordinatorPrompt(profiles) {",
-    "  return `# Subagent Delegation\\n\\nGuidelines:\\n- If the user asks for parallel work, launch independent Agent calls in the same assistant response.\\n`;",
-    "}",
-  ].join("\n");
+  // Every injected block is reverted to the verbatim upstream line.
+  assert.ok(restored.includes('export const AGENT_PROMPT_SNIPPET =\n  "Launch a fresh subagent when the task matches an available agent, can run independently, or would read across several files.";'));
+  assert.ok(restored.includes('"Reach for Agent when the task matches an available agent, when you have independent work to run in parallel, or when answering would mean reading across several files.",'));
+  assert.ok(restored.includes("Use Agent when a specialized agent matches the task, the work can run independently, or delegating would keep large search/read output out of the main context."));
+  assert.ok(restored.includes('  "If the user asks for parallel work, launch multiple Agent calls in the same assistant response.",'));
+  assert.ok(restored.includes("- If the user asks for parallel work, launch independent Agent calls in the same assistant response."));
 
-  const patched = patchPiSubagentsParallelPromptDefaults(source);
-  assert.notEqual(patched, source, "patch should change the source");
-  assert.match(patched, /AXUM_PI_SUBAGENTS_PARALLEL/);
-  // Guideline now states parallel fan-out as the default working mode.
-  assert.match(patched, /Delegate independent subtasks concurrently by default/);
-  assert.match(patched, /tasks array to run a parallel batch/);
-  assert.match(patched, /never requires the user to ask for it/);
-  // Delegation is re-evaluated on every turn, not only the first.
-  assert.match(patched, /Re-evaluate delegation on every turn, not only the first/);
-  // Coordinator bullet rewritten as well and keeps the per-turn re-evaluation.
-  assert.match(patched, /one Agent call with its tasks array to run a parallel batch/);
-  assert.match(patched, /Re-evaluate delegation on every turn: after each subagent result returns/);
-  // Idempotent.
-  assert.equal(patchPiSubagentsParallelPromptDefaults(patched), patched);
-  // Unknown wording is left untouched rather than crashing.
-  const reshaped = source.replace("the user asks for parallel work", "parallel work is wanted");
-  assert.equal(patchPiSubagentsParallelPromptDefaults(reshaped), reshaped);
+  // No injection marker or injected wording survives the restore.
+  assert.ok(!restored.includes("AXUM_PI_SUBAGENTS_PROACTIVE"));
+  assert.ok(!restored.includes("AXUM_PI_SUBAGENTS_PARALLEL"));
+  assert.ok(!restored.includes("Default to launching a subagent"));
+  assert.ok(!restored.includes("Delegate proactively as the default working mode"));
+  assert.ok(!restored.includes("Delegate independent subtasks concurrently by default"));
+  assert.ok(!restored.includes("Re-evaluate delegation on every turn"));
+
+  // Clean upstream sources are left untouched.
+  const clean = '  "If the user asks for parallel work, launch multiple Agent calls in the same assistant response.",';
+  assert.equal(restorePiSubagentsPrompts(clean), clean);
+  // Idempotent on already-restored content.
+  assert.equal(restorePiSubagentsPrompts(restored), restored);
 });
 
 test("patches pi-subagents Agent tool with a parallel batch executor", () => {
