@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -910,4 +910,26 @@ test("upgrades an existing 422-only patch to the combined 422/520 transient patt
   assert.match(upgraded, /422\|520/);
   assert.ok(!upgraded.includes("STRICT_422_PATTERN"));
   assert.equal(patchPiAiRetryable422(upgraded), upgraded);
+});
+
+test("patches bundled Pi assistant message to dedupe consecutive identical failures", () => {
+  const vulnerable = [
+    "export class AssistantMessageComponent extends Container {",
+    "    render() {",
+    "        // ...",
+    '                this.contentContainer.addChild(new Spacer(1));',
+    '                this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), this.outputPad, 0));',
+    "        // ...",
+    '                this.contentContainer.addChild(new Spacer(1));',
+    '                this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), this.outputPad, 0));',
+    "    }",
+    "}",
+  ].join("\n");
+  const patched = patchPiAssistantMessageErrorDedup(vulnerable);
+  assert.match(patched, /AXUM_PI_ASSISTANT_ERROR_DEDUP/);
+  assert.match(patched, /axumLastBubbleFailure = undefined/);
+  assert.match(patched, /if \(axumLastBubbleFailure !== `aborted:\$\{abortMessage\}`\)/);
+  assert.match(patched, /if \(axumLastBubbleFailure !== `error:\$\{errorMsg\}`\)/);
+  assert.equal(patchPiAssistantMessageErrorDedup(patched), patched);
+  assert.throws(() => patchPiAssistantMessageErrorDedup("class X {}"), /class anchor not found/);
 });

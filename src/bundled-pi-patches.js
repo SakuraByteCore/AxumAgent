@@ -22,6 +22,7 @@ const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
+const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
@@ -1087,6 +1088,58 @@ function patchPiInteractiveErrorDedup(content) {
   return content.replace(methodAnchor, replacement);
 }
 
+
+function patchPiAssistantMessageErrorDedup(content) {
+  if (content.includes(PI_ASSISTANT_ERROR_DEDUP_MARKER)) return content;
+  const classAnchor = "export class AssistantMessageComponent extends Container {";
+  if (!content.includes(classAnchor)) {
+    throw new Error("unable to patch bundled Pi assistant message: class anchor not found");
+  }
+  let updated = content.replace(
+    classAnchor,
+    `// ${PI_ASSISTANT_ERROR_DEDUP_MARKER}: consecutive identical failure
+// signatures across assistant message instances collapse into one rendered
+// block, so provider error storms stay readable.
+let axumLastBubbleFailure = undefined;
+${classAnchor}`,
+  );
+  const abortedAnchor = [
+    '                this.contentContainer.addChild(new Spacer(1));',
+    '                this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), this.outputPad, 0));',
+  ].join("\n");
+  if (!updated.includes(abortedAnchor)) {
+    throw new Error("unable to patch bundled Pi assistant message: aborted render anchor not found");
+  }
+  updated = updated.replace(
+    abortedAnchor,
+    [
+      '                if (axumLastBubbleFailure !== `aborted:${abortMessage}`) {',
+      '                    axumLastBubbleFailure = `aborted:${abortMessage}`;',
+      '                this.contentContainer.addChild(new Spacer(1));',
+      '                this.contentContainer.addChild(new Text(theme.fg("error", abortMessage), this.outputPad, 0));',
+      '                }',
+    ].join("\n"),
+  );
+  const errorAnchor = [
+    '                this.contentContainer.addChild(new Spacer(1));',
+    '                this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), this.outputPad, 0));',
+  ].join("\n");
+  if (!updated.includes(errorAnchor)) {
+    throw new Error("unable to patch bundled Pi assistant message: error render anchor not found");
+  }
+  updated = updated.replace(
+    errorAnchor,
+    [
+      '                if (axumLastBubbleFailure !== `error:${errorMsg}`) {',
+      '                    axumLastBubbleFailure = `error:${errorMsg}`;',
+      '                this.contentContainer.addChild(new Spacer(1));',
+      '                this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), this.outputPad, 0));',
+      '                }',
+    ].join("\n"),
+  );
+  return updated;
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -1152,6 +1205,15 @@ export function applyBundledPiPatches(options) {
       fs.writeFileSync(interactiveModePath, interactiveFinal);
     }
     results.push({ patched: interactiveFinal !== interactiveOriginal, file: interactiveModePath });
+    const assistantMessagePath = path.join(piRoot, "dist", "modes", "interactive", "components", "assistant-message.js");
+    if (fs.existsSync(assistantMessagePath)) {
+      const assistantOriginal = fs.readFileSync(assistantMessagePath, "utf8");
+      const assistantPatched = patchPiAssistantMessageErrorDedup(assistantOriginal);
+      if (assistantPatched !== assistantOriginal) {
+        fs.writeFileSync(assistantMessagePath, assistantPatched);
+      }
+      results.push({ patched: assistantPatched !== assistantOriginal, file: assistantMessagePath });
+    }
   } else {
     results.push({ patched: false, file: interactiveModePath });
   }
@@ -1242,4 +1304,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
