@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -860,4 +860,21 @@ test("patches bundled Pi interactive mode to soften 429 display", () => {
   assert.match(patched, /isAxumRateLimit429Message\(event\.errorMessage\)/);
   assert.match(patched, /isAxumRateLimit429Message\(event\.finalError\)/);
   assert.equal(patchPiInteractiveRateLimitDisplay(patched), patched);
+});
+
+test("patches bundled pi-ai retryability to treat strict 422 as retryable", () => {
+  const vulnerable = [
+    "export function isRetryableAssistantError(message) {",
+    '    if (message.stopReason !== "error" || !message.errorMessage)',
+    "        return false;",
+    "    const errorMessage = message.errorMessage;",
+    "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);",
+    "}",
+  ].join("\n");
+  const patched = patchPiAiRetryable422(vulnerable);
+  assert.match(patched, /AXUM_PI_422_RETRYABLE/);
+  assert.match(patched, /STRICT_422_PATTERN/);
+  assert.match(patched, /if \(STRICT_422_PATTERN\.test\(errorMessage\)\)/);
+  assert.equal(patchPiAiRetryable422(patched), patched);
+  assert.throws(() => patchPiAiRetryable422("nothing here"), /isRetryableAssistantError anchor not found/);
 });

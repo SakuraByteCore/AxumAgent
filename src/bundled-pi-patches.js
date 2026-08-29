@@ -20,6 +20,7 @@ const PI_SUBAGENTS_PARALLEL_MARKER = "AXUM_PI_SUBAGENTS_PARALLEL";
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
+const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
@@ -1019,6 +1020,33 @@ ${classAnchor}`,
   return updated;
 }
 
+
+function patchPiAiRetryable422(content) {
+  if (content.includes(PI_422_RETRYABLE_MARKER)) return content;
+  const fnAnchor = "export function isRetryableAssistantError(message) {";
+  if (!content.includes(fnAnchor)) {
+    throw new Error("unable to patch bundled Pi retry.js: isRetryableAssistantError anchor not found");
+  }
+  let updated = content.replace(
+    fnAnchor,
+    `// ${PI_422_RETRYABLE_MARKER}: transient 422s from flaky provider gateways
+// must not terminate the turn immediately; route them through the caller's
+// normal retry budget. Strict shape only: leading "422:" status, never digits
+// embedded in body text.
+const STRICT_422_PATTERN = /^\\s*(?:Error:\\s*)?422[:\\s]/;
+${fnAnchor}`,
+  );
+  const retAnchor = "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);";
+  if (!updated.includes(retAnchor)) {
+    throw new Error("unable to patch bundled Pi retry.js: retryable return anchor not found");
+  }
+  updated = updated.replace(
+    retAnchor,
+    "    if (STRICT_422_PATTERN.test(errorMessage))\n        return true;\n" + retAnchor,
+  );
+  return updated;
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -1056,10 +1084,11 @@ export function applyBundledPiPatches(options) {
     if (!fs.existsSync(retryPath)) continue;
     const retryOriginal = fs.readFileSync(retryPath, "utf8");
     const retryPatched = patchPiAiRateLimitRetry(retryOriginal);
-    if (retryPatched !== retryOriginal) {
-      fs.writeFileSync(retryPath, retryPatched);
+    const retryPatchedFinal = patchPiAiRetryable422(retryPatched);
+    if (retryPatchedFinal !== retryOriginal) {
+      fs.writeFileSync(retryPath, retryPatchedFinal);
     }
-    results.push({ patched: retryPatched !== retryOriginal, file: retryPath });
+    results.push({ patched: retryPatchedFinal !== retryOriginal, file: retryPath });
   }
 
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
@@ -1172,4 +1201,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiSubagentsParallelPromptDefaults, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
