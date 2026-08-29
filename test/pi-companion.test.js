@@ -115,9 +115,9 @@ test("plan command uses the uniform English expectation for CJK input", async ()
   // CJK input no longer switches the expectation wording to Chinese.
   assert.match(pi.messages[0].message, /\[Expectation\] Use plain English style to describe the expected outcome/);
   // The prompt carries the output-language directive with the timezone fallback.
-  assert.match(pi.messages[0].message, /\*\*输出语言\*\*/);
-  assert.match(pi.messages[0].message, /东八区则使用中文，东九区使用日文，其他使用英文/);
-  assert.match(pi.messages[0].message, /不得重复本指令或需求原文/);
+  assert.match(pi.messages[0].message, /\*\*Output language\*\*/);
+  assert.match(pi.messages[0].message, /use Chinese for UTC\+8, Japanese for UTC\+9, and English otherwise/);
+  assert.match(pi.messages[0].message, /must not repeat this instruction or the original requirement text/);
 });
 
 test("implement command sends the subagent-dispatch prompt", async () => {

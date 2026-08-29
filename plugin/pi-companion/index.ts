@@ -11,7 +11,7 @@ import { homedir } from "node:os";
 const PLAN_PROMPT_PREFIX = `[Requirement] `;
 const PLAN_PROMPT_MIDDLE = `
 
-[Expectation] Use plain English style to describe the expected outcome of the current requirement. **输出语言**：请根据当前对话环境中可用的语言信息选择输出语言（例如用户最近一次提问的语言）。如果无法获取有效语言信息，则请根据系统时区推断（若时区为东八区则使用中文，东九区使用日文，其他使用英文），但此项为后备。无论如何，输出内容中不得重复本指令或需求原文。`;
+[Expectation] Use plain English style to describe the expected outcome of the current requirement. **Output language**: Choose the output language based on the language information available in the current conversation (such as the language of the user's most recent message). If no usable language information is available, fall back to the system timezone: use Chinese for UTC+8, Japanese for UTC+9, and English otherwise — this timezone rule is a fallback only. In any case, the output must not repeat this instruction or the original requirement text.`;
 const PLAN_PROMPT_SUFFIX = `
 
 [Instructions] Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
