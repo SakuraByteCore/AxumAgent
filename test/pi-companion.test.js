@@ -106,22 +106,18 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
 
-test("plan command uses Chinese expectation for CJK input", async () => {
+test("plan command uses the uniform English expectation for CJK input", async () => {
   const pi = createPi();
   const { ctx } = createContext();
 
   await pi.commands.get("plan").handler("实现登录功能", ctx);
 
-  assert.match(pi.messages[0].message, /\[Expectation\] 请用大白话（口语化中文）描述当前需求的预期结果/);
-});
-
-test("plan command uses Japanese expectation for kana input", async () => {
-  const pi = createPi();
-  const { ctx } = createContext();
-
-  await pi.commands.get("plan").handler("ログイン機能を実装", ctx);
-
-  assert.match(pi.messages[0].message, /\[Expectation\] 現在の要件の期待される結果を、噛み砕いた表現で説明してください/);
+  // CJK input no longer switches the expectation wording to Chinese.
+  assert.match(pi.messages[0].message, /\[Expectation\] Use plain English style to describe the expected outcome/);
+  // The prompt carries the output-language directive with the timezone fallback.
+  assert.match(pi.messages[0].message, /\*\*输出语言\*\*/);
+  assert.match(pi.messages[0].message, /东八区则使用中文，东九区使用日文，其他使用英文/);
+  assert.match(pi.messages[0].message, /不得重复本指令或需求原文/);
 });
 
 test("implement command sends the implement-spec prompt", async () => {

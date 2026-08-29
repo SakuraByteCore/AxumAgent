@@ -7,15 +7,11 @@ import { homedir } from "node:os";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
-// Pre-compiled regexes for language detection (avoid per-call RegExp allocation)
-const HAS_JA = /[぀-ゟ゠-ヿ]/;
-const HAS_CJK = /[一-鿿]/;
-
-// Pre-built plan prompt skeleton — only the requirement & expectation vary at runtime
+// Pre-built plan prompt skeleton — only the requirement varies at runtime
 const PLAN_PROMPT_PREFIX = `[Requirement] `;
 const PLAN_PROMPT_MIDDLE = `
 
-[Expectation] `;
+[Expectation] Use plain English style to describe the expected outcome of the current requirement. **输出语言**：请根据当前对话环境中可用的语言信息选择输出语言（例如用户最近一次提问的语言）。如果无法获取有效语言信息，则请根据系统时区推断（若时区为东八区则使用中文，东九区使用日文，其他使用英文），但此项为后备。无论如何，输出内容中不得重复本指令或需求原文。`;
 const PLAN_PROMPT_SUFFIX = `
 
 [Instructions] Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
@@ -23,12 +19,6 @@ const PLAN_PROMPT_SUFFIX = `
 // Session-first-plan flag & perf marks
 let firstPlanSent = false;
 const PERF_MARK_PREFIX = `pi-companion:plan`;
-
-function pickExpectation(requirement: string): string {
-  if (HAS_JA.test(requirement)) return `現在の要件の期待される結果を、噛み砕いた表現で説明してください。`;
-  if (HAS_CJK.test(requirement)) return `请用大白话（口语化中文）描述当前需求的预期结果。`;
-  return `Use plain English style to describe the expected outcome of the current requirement.`;
-}
 
 // Pre-built implement prompt skeleton — sibling of /plan, encodes the implement-spec workflow
 const IMPLEMENT_PROMPT_PREFIX = `[Requirement] `;
@@ -887,8 +877,7 @@ pi.registerCommand("plan", {
     performance.mark(`${PERF_MARK_PREFIX}:handler-entry`);
 
     // Build prompt using pre-compiled template parts (single allocation, zero join)
-    const expectation = pickExpectation(requirement);
-    const prompt = PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + expectation + PLAN_PROMPT_SUFFIX;
+    const prompt = PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX;
 
     performance.mark(`${PERF_MARK_PREFIX}:prompt-built`);
     performance.measure(`${PERF_MARK_PREFIX}:build`, `${PERF_MARK_PREFIX}:handler-entry`, `${PERF_MARK_PREFIX}:prompt-built`);
