@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiGoalAutoResume, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
+import { patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -610,18 +610,6 @@ test("windows-published TS packages stay excluded when runtime compile would mis
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.equal(packages.includes("pi-web-access@0.24.2"), false);
   assert.equal(packages.includes("@ff-labs/pi-fff@0.10.5"), false);
-});
-
-test("patches bundled Pi syntax highlight to lazy-load highlight.js", () => {
-  const source = 'import hljs from "highlight.js/lib/index.js";\nexport function highlight(code, options = {}) {\n    const html = options.language\n        ? hljs.highlight(code, {\n            language: options.language,\n        })\n        : hljs.highlightAuto(code, options.languageSubset).value;\n    return html;\n}\nexport function supportsLanguage(name) {\n    return hljs.getLanguage(name) !== undefined;\n}\n';
-  const patched = patchPiHljsLazy(source);
-  assert.match(patched, /AXUM_HLJS_LAZY/);
-  assert.match(patched, /createRequire\(import\.meta\.url\)/);
-  assert.match(patched, /getHljs\(\)\.highlight\(code, \{/);
-  assert.match(patched, /getHljs\(\)\.highlightAuto\(code, options\.languageSubset\)/);
-  assert.match(patched, /getHljs\(\)\.getLanguage\(name\)/);
-  assert.doesNotMatch(patched, /^import hljs from/m);
-  assert.equal(patchPiHljsLazy(patched), patched);
 });
 
 test("patches bundled Pi extension loader for native JS entries and lazy jiti", () => {

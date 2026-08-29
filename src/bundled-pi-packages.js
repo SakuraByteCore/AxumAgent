@@ -19,7 +19,7 @@
 //   unsupportedPlatforms  array of platform ids (e.g. "win32") to exclude on.
 
 export const bundledPiPackages = [
-  { name: "@earendil-works/pi-coding-agent@0.81.1", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
+  { name: "@earendil-works/pi-coding-agent@0.84.4", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
   { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
   // pi-bar now also hosts the sakura cyberdeck startup header (formerly the
   // standalone pi-header plugin), rendered via ctx.ui.setHeader() at session

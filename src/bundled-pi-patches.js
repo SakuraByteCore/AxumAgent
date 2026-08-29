@@ -14,7 +14,6 @@ const PI_GOAL_AUTO_RESUME_PATCH_MARKER = "AXUM_PI_GOAL_AUTO_RESUME";
 const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_SUPPRESSED";
 const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
-const PI_HLJS_LAZY_MARKER = "AXUM_HLJS_LAZY";
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 
@@ -76,12 +75,9 @@ function patchTermuxAutoInstall(content) {
   const needle = [
     '    if (platform() === "android") {',
     '        const pkgName = TERMUX_PACKAGES[tool] ?? tool;',
-    '        if (!silent) {',
-    '            console.log(chalk.yellow(`${config.name} not found. Install with: pkg install ${pkgName}`));',
-    '        }',
+    '        onStatus?.({ type: "warning", message: `${config.name} not found. Install with: pkg install ${pkgName}` });',
     '        return undefined;',
     '    }',
-    '',
   ].join("\n");
   if (!content.includes(needle)) {
     // Upstream tools-manager may lack the Android install block (e.g. newer Pi
@@ -94,23 +90,17 @@ function patchTermuxAutoInstall(content) {
     '    if (platform() === "android") { // AXUM_TERMUX_AUTOINSTALL',
     '        const pkgName = TERMUX_PACKAGES[tool] ?? tool;',
     '        try {',
-    '            const { spawnSync } = await import("node:child_process");',
     '            const result = spawnSync("pkg", ["install", "-y", pkgName], { stdio: "inherit" });',
     '            if ((result.status ?? 1) === 0) {',
     '                const resolved = getToolPath(tool);',
     '                if (resolved) return resolved;',
     '            }',
     '        } catch (e) {',
-    '            if (!silent) {',
-    '                console.log(chalk.yellow(`Failed to auto-install ${config.name}: ${e instanceof Error ? e.message : e}`));',
-    '            }',
+    '            onStatus?.({ type: "warning", message: `Failed to auto-install ${config.name}: ${e instanceof Error ? e.message : e}` });',
     '        }',
-    '        if (!silent) {',
-    '            console.log(chalk.yellow(`${config.name} not found. Install with: pkg install ${pkgName}`));',
-    '        }',
+    '        onStatus?.({ type: "warning", message: `${config.name} not found. Install with: pkg install ${pkgName}` });',
     '        return undefined;',
     '    }',
-    '',
   ].join("\n");
   return content.replace(needle, replacement);
 }
@@ -244,30 +234,6 @@ function patchPiGoalAutoResume(content) {
 
   if (!content.includes(needle)) return content;
   return content.replace(needle, branch);
-}
-
-function patchPiHljsLazy(content) {
-  if (content.includes(PI_HLJS_LAZY_MARKER)) return content;
-
-  const importNeedle = 'import hljs from "highlight.js/lib/index.js";\n';
-  if (!content.includes(importNeedle)) return content;
-
-  const replacement = [
-    "// " + PI_HLJS_LAZY_MARKER + ": defer highlight.js loading until first syntax highlight.",
-    "import { createRequire } from \"node:module\";",
-    "const axumRequire = createRequire(import.meta.url);",
-    "let axumHljsInstance;",
-    "function getHljs() {",
-    "    if (!axumHljsInstance) axumHljsInstance = axumRequire(\"highlight.js/lib/index.js\");",
-    "    return axumHljsInstance;",
-    "}",
-  ].join("\n");
-
-  let patched = content.replace(importNeedle, replacement + "\n");
-  patched = patched.replaceAll("? hljs.highlight(code, {", "? getHljs().highlight(code, {")
-    .replaceAll(": hljs.highlightAuto(code, options.languageSubset).value;", ": getHljs().highlightAuto(code, options.languageSubset).value;")
-    .replaceAll("return hljs.getLanguage(name) !== undefined;", "return getHljs().getLanguage(name) !== undefined;");
-  return patched;
 }
 
 function patchPiJitiLazyLoader(content) {
@@ -563,15 +529,6 @@ export function applyBundledPiPatches(options) {
     results.push({ patched: false, file: piSubagentsPromptsPath });
   }
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
-  const piSyntaxHighlightPath = path.join(piRoot, "dist", "utils", "syntax-highlight.js");
-  if (fs.existsSync(piSyntaxHighlightPath)) {
-    const hljsOriginal = fs.readFileSync(piSyntaxHighlightPath, "utf8");
-    const hljsPatched = patchPiHljsLazy(hljsOriginal);
-    if (hljsPatched !== hljsOriginal) {
-      fs.writeFileSync(piSyntaxHighlightPath, hljsPatched);
-    }
-    results.push({ patched: hljsPatched !== hljsOriginal, file: piSyntaxHighlightPath });
-  }
   const piExtensionLoaderPath = path.join(piRoot, "dist", "core", "extensions", "loader.js");
   if (fs.existsSync(piExtensionLoaderPath)) {
     const loaderOriginal = fs.readFileSync(piExtensionLoaderPath, "utf8");
@@ -597,4 +554,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiHljsLazy, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiGoalAutoResume, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsProactiveDelegation, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

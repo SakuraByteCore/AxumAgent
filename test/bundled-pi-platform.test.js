@@ -15,7 +15,7 @@ test("detects Termux/Android environments", () => {
 test("checks available Pi extensions on Android", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.81.1",
+    "@earendil-works/pi-coding-agent@0.84.4",
     "pi-bar@file:plugin/pi-bar",
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
@@ -30,7 +30,7 @@ test("checks available Pi extensions on Android", () => {
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "linux", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.81.1",
+    "@earendil-works/pi-coding-agent@0.84.4",
     "pi-bar@file:plugin/pi-bar",
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
@@ -46,7 +46,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.81.1",
+    "@earendil-works/pi-coding-agent@0.84.4",
     "pi-bar@file:plugin/pi-bar",
     "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
