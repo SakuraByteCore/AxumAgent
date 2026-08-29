@@ -120,7 +120,7 @@ test("plan command uses the uniform English expectation for CJK input", async ()
   assert.match(pi.messages[0].message, /不得重复本指令或需求原文/);
 });
 
-test("implement command sends the implement-spec prompt", async () => {
+test("implement command sends the subagent-dispatch prompt", async () => {
   const pi = createPi();
   const { ctx } = createContext();
 
@@ -128,8 +128,8 @@ test("implement command sends the implement-spec prompt", async () => {
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] refactor the cache layer/);
-  assert.match(pi.messages[0].message, /implement-spec workflow/);
-  assert.match(pi.messages[0].message, /task graph/);
+  assert.match(pi.messages[0].message, /split into subtasks and dispatched concurrently to subagents/);
+  assert.match(pi.messages[0].message, /no two agents modify the same file/);
   // First implement in session uses "new" streamingBehavior, mirroring /plan
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
@@ -154,7 +154,7 @@ test("bare implement command targets the requirement discussed earlier in the se
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] the requirement discussed and agreed earlier in this conversation/);
-  assert.match(pi.messages[0].message, /implement-spec workflow/);
+  assert.match(pi.messages[0].message, /split into subtasks and dispatched concurrently to subagents/);
   assert.ok(!notifications.some((n) => n.level === "warning"));
 });
 

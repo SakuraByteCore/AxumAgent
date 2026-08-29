@@ -20,16 +20,11 @@ const PLAN_PROMPT_SUFFIX = `
 let firstPlanSent = false;
 const PERF_MARK_PREFIX = `pi-companion:plan`;
 
-// Pre-built implement prompt skeleton — sibling of /plan, encodes the implement-spec workflow
+// Pre-built implement prompt skeleton — sibling of /plan, encodes the parallel subagent-dispatch workflow
 const IMPLEMENT_PROMPT_PREFIX = `[Requirement] `;
 const IMPLEMENT_PROMPT_SUFFIX = `
 
-[Instructions] Implement the requirement following the implement-spec workflow:
-1. Break the requirement into a task graph of small tickets with explicit blocking relationships, and keep a visible frontier of tickets that are ready to be worked on.
-2. Research first: read the relevant code and docs before writing anything (reuse prior /plan findings if the approach was already discussed).
-3. Work through the frontier: implement tickets one by one, using parallel subagents for independent tickets where available; communicate through context pointers instead of duplicating information.
-4. Fully implement each ticket (no placeholders, no stubs, no silent fallbacks), run its tests, merge the finished work, and only then take on tickets it was blocking.
-5. Once every ticket is complete, do a final code review of the whole change, fix all issues found, and finish with a summary of what was implemented.`;
+[Instructions] For this requirement, every part that can be parallelized must be split into subtasks and dispatched concurrently to subagents. Each subtask must have a clearly bounded scope and an explicit output format. Any subtask that writes files must be marked as such, so no two agents modify the same file. Finally, you integrate all the results and check them for consistency.`;
 
 // Session-first-implement flag (mirrors firstPlanSent)
 let firstImplementSent = false;
@@ -908,7 +903,7 @@ pi.registerCommand("plan", {
 // ── /implement ─────────────────────────────────────────────────────────
 
 pi.registerCommand("implement", {
-  description: "Implement now: run the implement-spec workflow on the given requirement, or on the plan discussed earlier in this session: /implement [requirement]",
+  description: "Implement now: split the requirement into parallel subagent tasks, or implement the plan discussed earlier in this session: /implement [requirement]",
   getArgumentCompletions: () => null,
   async handler(args: string, ctx) {
     // Bare /implement means: implement the requirement discussed and agreed earlier in this conversation
