@@ -124,6 +124,44 @@ test("plan command uses Japanese expectation for kana input", async () => {
   assert.match(pi.messages[0].message, /\[Expectation\] 現在の要件の期待される結果を、噛み砕いた表現で説明してください/);
 });
 
+test("implement command sends the implement-spec prompt", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("implement").handler("refactor the cache layer", ctx);
+
+  assert.equal(pi.messages.length, 1);
+  assert.match(pi.messages[0].message, /\[Requirement\] refactor the cache layer/);
+  assert.match(pi.messages[0].message, /implement-spec workflow/);
+  assert.match(pi.messages[0].message, /task graph/);
+  // First implement in session uses "new" streamingBehavior, mirroring /plan
+  assert.equal(pi.messages[0].options.streamingBehavior, "new");
+});
+
+test("implement command falls back to followUp streamingBehavior on later sends", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("implement").handler("first requirement", ctx);
+  await pi.commands.get("implement").handler("second requirement", ctx);
+
+  assert.equal(pi.messages.length, 2);
+  // firstImplementSent is module state: after any prior send, every send must use followUp
+  assert.equal(pi.messages[1].options.streamingBehavior, "followUp");
+});
+
+test("implement command warns and sends nothing on empty input", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+
+  await pi.commands.get("implement").handler("   ", ctx);
+
+  assert.equal(pi.messages.length, 0);
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0].message, /\/implement <requirement>/);
+  assert.equal(notifications[0].level, "warning");
+});
+
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
   const pi = createPi();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-settled-"));

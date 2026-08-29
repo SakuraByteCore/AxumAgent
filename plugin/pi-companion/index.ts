@@ -30,6 +30,20 @@ function pickExpectation(requirement: string): string {
   return `Use plain English style to describe the expected outcome of the current requirement.`;
 }
 
+// Pre-built implement prompt skeleton — sibling of /plan, encodes the implement-spec workflow
+const IMPLEMENT_PROMPT_PREFIX = `[Requirement] `;
+const IMPLEMENT_PROMPT_SUFFIX = `
+
+[Instructions] Implement the requirement following the implement-spec workflow:
+1. Break the requirement into a task graph of small tickets with explicit blocking relationships, and keep a visible frontier of tickets that are ready to be worked on.
+2. Research first: read the relevant code and docs before writing anything (reuse prior /plan findings if the approach was already discussed).
+3. Work through the frontier: implement tickets one by one, using parallel subagents for independent tickets where available; communicate through context pointers instead of duplicating information.
+4. Fully implement each ticket (no placeholders, no stubs, no silent fallbacks), run its tests, merge the finished work, and only then take on tickets it was blocking.
+5. Once every ticket is complete, do a final code review of the whole change, fix all issues found, and finish with a summary of what was implemented.`;
+
+// Session-first-implement flag (mirrors firstPlanSent)
+let firstImplementSent = false;
+
 const RALPH_COMMIT_PATTERN = /\bcommit\b|提交/i;
 
 function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, commitRequested: boolean): string {
@@ -902,6 +916,30 @@ pi.registerCommand("plan", {
   },
 });
 
+// ── /implement ─────────────────────────────────────────────────────────
+
+pi.registerCommand("implement", {
+  description: "Implement now: decompose the requirement into a ticket task graph and execute it via the implement-spec workflow: /implement <requirement>",
+  getArgumentCompletions: () => null,
+  async handler(args: string, ctx) {
+    const requirement = args.trim();
+    if (!requirement) {
+      ctx.ui.notify("Please provide a requirement: /implement <requirement>", "warning");
+      return;
+    }
+
+    const prompt = IMPLEMENT_PROMPT_PREFIX + requirement + IMPLEMENT_PROMPT_SUFFIX;
+    ctx.ui.notify("Implement request sent, waiting for Agent…", "info");
+
+    // Same first-send optimization as /plan: "new" bypasses followUp scheduling overhead
+    const isFirst = !firstImplementSent;
+    if (isFirst) firstImplementSent = true;
+    const streamingBehavior = isFirst ? "new" : "followUp";
+
+    await pi.sendUserMessage(prompt, { streamingBehavior });
+  },
+});
+
 	// ── /ralph ──────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ralph", {
@@ -1047,6 +1085,7 @@ pi.on("session_start", async () => {
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
+  firstImplementSent = false; // reset per-session first-implement optimization flag
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────
