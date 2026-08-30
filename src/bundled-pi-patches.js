@@ -21,6 +21,7 @@ const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
+const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_45S";
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
 const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
@@ -310,6 +311,34 @@ function patchPiVersionNotificationSuppress(content) {
   return content.replace(needle, replacement);
 }
 
+
+/**
+ * Lower the bundled HTTP idle timeout default. An upstream-cancelled stream
+ * whose socket is never closed (common behind relays and proxies) keeps the
+ * SSE read blocked until undici bodyTimeout fires; the stock 300s default hid
+ * an already-cancelled generation for five minutes before any retry fired.
+ * 45s surfaces the `Body Timeout Error` promptly, and the `timeout` keyword
+ * already routes that error into the connection-error lane (fixed 5s cadence,
+ * no retry-budget drain). Users can still override via httpIdleTimeoutMs.
+ */
+function patchPiHttpIdleTimeoutDefault(content) {
+  if (content.includes(PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER)) return content;
+
+  const needle = "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;";
+  if (!content.includes(needle)) {
+    throw new Error("unable to patch bundled Pi http dispatcher: idle timeout default anchor not found");
+  }
+
+  return content.replace(
+    needle,
+    [
+      `// ${PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER}: upstream-cancelled streams that never close must`,
+      `// fail fast; stock default was 300s. The timeout error routes to the connection-error`,
+      `// retry lane automatically. Users may still override via httpIdleTimeoutMs.`,
+      `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 45_000;`,
+    ].join("\n"),
+  );
+}
 /**
  * Hide the duplicate `[Skills]` / `[Extensions]` sections that Pi's
  * `showLoadedResources` prints in the startup banner. Axum's SAKURA CYBERDECK
@@ -1290,6 +1319,18 @@ export function applyBundledPiPatches(options) {
     results.push({ patched: undiciPatched !== undiciOriginal, file: undiciWebidlPath });
   }
 
+  // Lower the stock 300s HTTP idle timeout so upstream-cancelled streams that
+  // never close their socket surface as a retryable body-timeout quickly.
+  const httpDispatcherPath = path.join(piRoot, "dist", "core", "http-dispatcher.js");
+  if (fs.existsSync(httpDispatcherPath)) {
+    const dispatcherOriginal = fs.readFileSync(httpDispatcherPath, "utf8");
+    const dispatcherPatched = patchPiHttpIdleTimeoutDefault(dispatcherOriginal);
+    if (dispatcherPatched !== dispatcherOriginal) {
+      fs.writeFileSync(httpDispatcherPath, dispatcherPatched);
+    }
+    results.push({ patched: dispatcherPatched !== dispatcherOriginal, file: httpDispatcherPath });
+  }
+
   // Strict-429 rate-limit exemption: patch every retry.js copy reachable from
   // pi-coding-agent (top-level and its nested dependency), plus the session-level
   // retry driver, so throttling never surfaces as a raw error or drains budgets;
@@ -1429,4 +1470,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, restorePiSubagentsPrompts };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, restorePiSubagentsPrompts };

@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -987,4 +987,22 @@ test("patches bundled Pi assistant message to dedupe consecutive identical failu
   assert.match(patched, /if \(axumLastBubbleFailure !== `error:\$\{errorMsg\}`\)/);
   assert.equal(patchPiAssistantMessageErrorDedup(patched), patched);
   assert.throws(() => patchPiAssistantMessageErrorDedup("class X {}"), /class anchor not found/);
+});
+
+test("patches bundled Pi http dispatcher to lower the idle timeout default", () => {
+  const source = [
+    'import * as undici from "undici";',
+    "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;",
+    "export function configureHttpDispatcher() {}",
+  ].join("\n");
+  const patched = patchPiHttpIdleTimeoutDefault(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_HTTP_IDLE_TIMEOUT_45S/);
+  assert.match(patched, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 45_000;/);
+  assert.doesNotMatch(patched, /300_000/);
+  // Idempotent: a second run leaves the patched output untouched.
+  assert.equal(patchPiHttpIdleTimeoutDefault(patched), patched);
+  // Anchor drift upstream must fail loudly instead of silently skipping.
+  const drifted = source.replace("300_000", "600_000");
+  assert.throws(() => patchPiHttpIdleTimeoutDefault(drifted), /idle timeout default anchor not found/);
 });
