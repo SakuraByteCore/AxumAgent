@@ -264,24 +264,21 @@ function detectSkills(cwd: string | undefined): string[] {
 }
 
 /**
- * Return the representative slash commands provided by bundled extensions.
- * Only the primary/entry command per extension is shown for brevity.
+ * Collect slash commands provided by bundled extensions at runtime.
+ * Bundled extensions are injected via -e flags at launch, which the pi
+ * resource loader marks with scope "temporary"; user/project-scoped
+ * extension commands, prompt templates, skills, and namespaced helper
+ * commands (e.g. "pi-companion:setup") are excluded from the header.
  */
-function getBundledCommands(): string[] {
-  return [
-    "/pi-debug",
-    "/goal",
-    "/clear",
-    "/plan",
-    "/ralph",
-    "/rules",
-    "/plugin-create-mode",
-    "/websearch",
-    "/curator",
-    "/google-account",
-    "/search",
-    "/fff",
-  ];
+function getBundledCommands(pi: ExtensionAPI): string[] {
+  const seen = new Set<string>();
+  for (const cmd of pi.getCommands()) {
+    if (cmd.source !== "extension") continue;
+    if (cmd.sourceInfo.scope !== "temporary") continue;
+    if (cmd.name.includes(":")) continue;
+    if (!seen.has(cmd.name)) seen.add(cmd.name);
+  }
+  return [...seen].map((name) => `/${name}`).sort();
 }
 
 const HEADER_ART_TARGET = 34;
@@ -1127,7 +1124,7 @@ export default function (pi: ExtensionAPI): void {
 		if (!ctx.hasUI) return;
 		// Probe on every start so freshly installed skills surface.
 		skillsCache = detectSkills(ctx.cwd);
-		commandsCache = getBundledCommands();
+		commandsCache = getBundledCommands(pi);
 		const headerCwd = ctx.cwd;
 		welcomeGlyph = WELCOME_GLYPHS[Math.floor(Math.random() * WELCOME_GLYPHS.length)] ?? DEFAULT_WELCOME_GLYPH;
 		ctx.ui.setHeader(() => {

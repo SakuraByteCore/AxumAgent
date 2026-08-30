@@ -11,6 +11,26 @@ import bar from "../plugin/pi-bar/index.ts";
 const headerSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8");
 const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
 
+const MOCK_COMMANDS = [
+  { name: "pi-debug", description: "debugger", source: "extension", sourceInfo: { path: "/mock/bundled/pi-debug/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "goal", description: "goal mode", source: "extension", sourceInfo: { path: "/mock/bundled/pi-goal/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "clear", description: "clear", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "plan", description: "plan", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "implement", description: "implement", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "ralph", description: "ralph", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "rules", description: "rules", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "plugin-create-mode", description: "plugin guide", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "fff", description: "file search", source: "extension", sourceInfo: { path: "/mock/bundled/pi-fff/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "pi-companion:setup", description: "internal setup", source: "extension", sourceInfo: { path: "/mock/bundled/pi-companion/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "user-cmd", description: "user ext", source: "extension", sourceInfo: { path: "/home/user/.pi/agent/extensions/user-ext/index.ts", source: "local", scope: "user", origin: "top-level" } },
+  { name: "proj-cmd", description: "project ext", source: "extension", sourceInfo: { path: "/proj/.pi/extensions/proj-ext/index.ts", source: "local", scope: "project", origin: "top-level" } },
+  { name: "templ", description: "prompt template", source: "prompt", sourceInfo: { path: "/home/user/.pi/prompts/templ.md", source: "local", scope: "user", origin: "top-level" } },
+];
+
+const EXPECTED_COMMANDS = MOCK_COMMANDS.filter(
+  (c) => c.source === "extension" && c.sourceInfo.scope === "temporary" && !c.name.includes(":"),
+).map((c) => `/${c.name}`);
+
 function getSourceArtRows() {
   const artBlock = headerSource.match(/const ANIME_ART = \[(.*?)\] as const;/s)?.[1] ?? "";
   return [...artBlock.matchAll(/^\s+"(.*)",?\r?$/gm)].map((match) => match[1]);
@@ -28,6 +48,7 @@ function createHeaderRenderer(rows = 80, argv = []) {
         if (name === "session_start") sessionStart = callback;
       },
       events: { on() {}, emit() {} },
+      getCommands: () => MOCK_COMMANDS,
     });
     assert.equal(typeof sessionStart, "function");
 
@@ -153,14 +174,9 @@ test("pi-header frames the claude-code style welcome block", () => {
  const cmdLines = lines.filter((l) => rawInfoText(l).startsWith(" commands: ") || rawInfoText(l).startsWith("           "));
  const allCmdText = cmdLines.join(" ");
  assert.ok(cmdLines.length >= 1, "commands info line present");
- assert.ok(allCmdText.includes("/pi-debug"));
- assert.ok(allCmdText.includes("/goal"));
- assert.ok(allCmdText.includes("/clear"));
- assert.ok(allCmdText.includes("/plan"));
- assert.ok(allCmdText.includes("/ralph"));
- assert.ok(allCmdText.includes("/rules"));
- assert.ok(allCmdText.includes("/plugin-create-mode"));
- assert.ok(allCmdText.includes("/fff"));
+ for (const cmd of EXPECTED_COMMANDS) {
+ assert.ok(allCmdText.includes(cmd), `${cmd} present in commands line`);
+ }
  }
 });
 
@@ -173,14 +189,23 @@ test("pi-header shows bundled commands instead of extensions", () => {
   const allCmdText = cmdLines.join(" ");
 
   assert.ok(cmdLines.length >= 1);
-  assert.ok(allCmdText.includes("/pi-debug"));
-  assert.ok(allCmdText.includes("/goal"));
-  assert.ok(allCmdText.includes("/clear"));
-  assert.ok(allCmdText.includes("/plan"));
-  assert.ok(allCmdText.includes("/ralph"));
-  assert.ok(allCmdText.includes("/rules"));
-  assert.ok(allCmdText.includes("/plugin-create-mode"));
-  assert.ok(allCmdText.includes("/fff"));
+  for (const cmd of EXPECTED_COMMANDS) {
+    assert.ok(allCmdText.includes(cmd), `${cmd} present in commands line`);
+  }
+
+  assert.ok(!allCmdText.includes("/user-cmd"));
+  assert.ok(!allCmdText.includes("/proj-cmd"));
+  assert.ok(!allCmdText.includes("/templ"));
+  assert.ok(!allCmdText.includes("pi-companion:setup"));
+
+  const sortedExpected = [...EXPECTED_COMMANDS].sort();
+  let lastIndex = -1;
+  for (const cmd of sortedExpected) {
+    const index = allCmdText.indexOf(cmd);
+    assert.ok(index !== -1, `${cmd} present for sort-order check`);
+    assert.ok(index >= lastIndex, `${cmd} renders in sorted order`);
+    lastIndex = index;
+  }
 });
 
 test("pi-header wraps long commands list inside the frame", () => {
@@ -192,8 +217,7 @@ test("pi-header wraps long commands list inside the frame", () => {
 
   assert.equal(maxInner, 50);
   assert.ok(lines.every((line) => [...line].length <= boxWidth), "no info line exceeds the frame");
-  const commands = ["/pi-debug", "/goal", "/clear", "/plan", "/ralph", "/rules", "/plugin-create-mode", "/fff"];
-  for (const cmd of commands) {
+  for (const cmd of EXPECTED_COMMANDS) {
     assert.ok(lines.some((l) => l.includes(cmd)), `${cmd} survives wrapping`);
   }
   const infoText = (line) => line.replace(/^│/, "").trimStart();
