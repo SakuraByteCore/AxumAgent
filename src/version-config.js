@@ -5,6 +5,7 @@ import path from "node:path";
 
 const REPO = "SakuraByteCore/AxumAgent";
 const ARCHIVE_BASE = `https://github.com/${REPO}/archive/refs`;
+const GITHUB_API_TIMEOUT_MS = 15000;
 
 let cachedPackageVersion;
 
@@ -74,6 +75,9 @@ export function fetchAvailableTags() {
         });
       },
     );
+    req.setTimeout(GITHUB_API_TIMEOUT_MS, () => {
+      req.destroy(new Error(`GitHub API request timed out after ${GITHUB_API_TIMEOUT_MS}ms`));
+    });
     req.on("error", (err) => reject(new Error(`GitHub API request failed: ${err.message}`)));
   });
 }

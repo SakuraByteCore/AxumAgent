@@ -272,34 +272,31 @@ export function ensureBundledPi(options) {
   const npm = resolveNpmInstallCommand(options);
   const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
   console.error("Axum first-run setup: installing bundled Pi and extensions...");
-  const runNpm = (retry) => {
+  const NPM_INSTALL_MAX_ATTEMPTS = 3;
+  const runNpm = (attemptsLeft) => {
     const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
       cwd: cacheRoot,
       stdio: "inherit",
       env: npmInstallEnv(options),
       shell: npm.shell,
     });
-    if (result.error) {
-      const msg = result.error.message;
-      if (retry && (msg.includes("ENOTEMPTY") || msg.includes("EPERM") || msg.includes("EBUSY"))) {
-        console.error("retrying bundled Pi install after cleanup...");
-        try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
-        return runNpm(false);
+    const retryOrThrow = (message) => {
+      if (attemptsLeft <= 1) {
+        throw new Error(message);
       }
-      throw new Error(`failed to install bundled Pi dependencies: ${msg}`);
+      console.error(`${message}; cleaning up and retrying bundled Pi install (${attemptsLeft - 1} attempt(s) left)...`);
+      try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
+      return runNpm(attemptsLeft - 1);
+    };
+    if (result.error) {
+      return retryOrThrow(`failed to install bundled Pi dependencies: ${result.error.message}`);
     }
     if ((result.status ?? 1) !== 0) {
-      const status = result.status;
-      if (retry && (status === -1 || String(status).includes("ENOTEMPTY"))) {
-        console.error("retrying bundled Pi install after cleanup...");
-        try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
-        return runNpm(false);
-      }
-      throw new Error(`failed to install bundled Pi dependencies: npm exited ${status}`);
+      return retryOrThrow(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
     }
     return result;
   };
-  runNpm(true);
+  runNpm(NPM_INSTALL_MAX_ATTEMPTS);
   if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
   applyBundledPiPatches(options);
   ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);

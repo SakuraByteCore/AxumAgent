@@ -321,31 +321,34 @@ test("stress.subagentRetry: /subagent and retry paths concurrent", { timeout: 12
 });
 
 // ── Stress 10: error pattern boundary ───────────────────────
-test("stress.errorPatterns: 15 distinct error patterns all recovered", { timeout: 60000 }, async function() {
+test("stress.errorPatterns: transient patterns auto-recover, non-transient errors are left alone", { timeout: 60000 }, async function() {
   var pi = await createPi();
   var h = pi.listeners.get("message_end");
 
-  var errorMessages = [
+  var transientMessages = [
     "429 Too Many Requests", "rate_limit exceeded", "ECONNRESET",
     "stream interrupted", "socket hang up", "upstream request timeout",
-    "insufficient_quota", "service unavailable", "server error",
+    "service unavailable", "server error",
     "premature close", "fetch failed", "connection refused",
-    "model not found", "invalid_api_key", "authentication failed",
   ];
+  var nonTransientMessages = [
+    "insufficient_quota", "model not found", "invalid_api_key", "authentication failed",
+  ];
+  var allMessages = transientMessages.concat(nonTransientMessages);
 
   var configPath = path.join(pi.cwd, ".pi-response-guard.json");
   var configDir = path.dirname(configPath);
   if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify({ enabled: true, retryMessage: "continue", maxConsecutiveAutoRetries: errorMessages.length, autoContinueOnThinkingOnlyStop: true }, null, 2));
+  fs.writeFileSync(configPath, JSON.stringify({ enabled: true, retryMessage: "continue", maxConsecutiveAutoRetries: allMessages.length, autoContinueOnThinkingOnlyStop: true }, null, 2));
 
   var settleHandler = pi.listeners.get("agent_settled");
   throwIfFail("errorPatterns.settleHandlerExists", !!settleHandler, "agent_settled not found");
 
-  for (var i = 0; i < errorMessages.length; i++) {
+  for (var i = 0; i < allMessages.length; i++) {
     var evt = {
       message: makeAssistantMessage({
         stopReason: "error",
-        errorMessage: errorMessages[i],
+        errorMessage: allMessages[i],
         content: [{ type: "text", text: "" }],
       }),
     };
@@ -357,8 +360,8 @@ test("stress.errorPatterns: 15 distinct error patterns all recovered", { timeout
     return m.options && m.options.streamingBehavior === "followUp";
   });
   throwIfFail("errorPatterns.matchedAndRecovered",
-    autoRetries.length === errorMessages.length,
-    "expected " + errorMessages.length + " auto-retries, got " + autoRetries.length);
+    autoRetries.length === transientMessages.length,
+    "expected " + transientMessages.length + " auto-retries, got " + autoRetries.length);
 });
 
 // ── Stress 11: idle↔busy rapid oscillation ──────────────────

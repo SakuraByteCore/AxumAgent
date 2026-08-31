@@ -674,6 +674,10 @@ function buildRateLimitRetryHelpers() {
     "// consumes the user-configured retry budget.",
     "const RATE_LIMIT_DELAY_MS = 5000;",
     "const RATE_LIMIT_MAX_ATTEMPTS = 30;",
+    "const RETRY_JITTER_MS = 1500;",
+    "function jitteredDelay(baseMs) {",
+    "    return baseMs + Math.floor(Math.random() * RETRY_JITTER_MS);",
+    "}",
     "function isRateLimit429Error(errorMessage) {",
     `    return typeof errorMessage === \"string\" && /${PI_RATE_LIMIT_429_PATTERN_SOURCE}/.test(errorMessage);`,
     "}",
@@ -728,7 +732,7 @@ function patchPiAiRateLimitRetry(content) {
     "            }",
     "            rateLimitAttempt++;",
     "            lastRetry = { attempt: rateLimitAttempt, errorMessage: response.errorMessage || \"Unknown error\" };",
-    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
     "            scheduledMaxAttempts = RATE_LIMIT_MAX_ATTEMPTS;",
     "        }",
     "        else {",
@@ -888,7 +892,7 @@ function patchPiAgentSessionRateLimitRetry(content) {
     "            this._rateLimitRetryAttempt++;",
     "            attempt = this._rateLimitRetryAttempt;",
     "            maxAttempts = RATE_LIMIT_MAX_ATTEMPTS;",
-    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
     "        }",
     "        else {",
     "            this._retryAttempt++;",
@@ -1046,12 +1050,12 @@ function patchPiAgentSessionConnectionRetry(content) {
   patched = patched.replace(willRetryNeedle, willRetryReplacement);
 
   const prepareNeedle = [
-    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
     "        }",
     "        else {",
   ].join("\n");
   const prepareReplacement = [
-    "            delayMs = RATE_LIMIT_DELAY_MS;",
+    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
     "        }",
     "        else if (isConnectionError(message.errorMessage)) {",
     "            if (this._connectionRetryAttempt >= CONNECTION_MAX_ATTEMPTS) {",
@@ -1060,7 +1064,7 @@ function patchPiAgentSessionConnectionRetry(content) {
     "            this._connectionRetryAttempt++;",
     "            attempt = this._connectionRetryAttempt;",
     "            maxAttempts = CONNECTION_MAX_ATTEMPTS;",
-    "            delayMs = CONNECTION_DELAY_MS;",
+    "            delayMs = jitteredDelay(CONNECTION_DELAY_MS);",
     "        }",
     "        else {",
   ].join("\n");
@@ -1293,6 +1297,32 @@ ${classAnchor}`,
   return updated;
 }
 
+const PI_RETRY_JITTER_MARKER = "AXUM_PI_RETRY_JITTER";
+
+function patchPiRetryJitter(content) {
+  if (!content.includes(PI_RATE_LIMIT_RETRY_EXEMPT_MARKER)) return content;
+  if (content.includes("RETRY_JITTER_MS")) return content;
+  const attemptsAnchor = "const RATE_LIMIT_MAX_ATTEMPTS = 30;";
+  if (!content.includes(attemptsAnchor)) {
+    throw new Error("unable to upgrade bundled Pi retry jitter: rate-limit attempts anchor not found");
+  }
+  if (!content.includes("delayMs = RATE_LIMIT_DELAY_MS;")) {
+    throw new Error("unable to upgrade bundled Pi retry jitter: rate-limit delay anchor not found");
+  }
+  const jitterBlock = [
+    `// ${PI_RETRY_JITTER_MARKER}: exemption-lane delays get positive jitter so`,
+    "// concurrent clients do not retry in lockstep against the same endpoint.",
+    "const RETRY_JITTER_MS = 1500;",
+    "function jitteredDelay(baseMs) {",
+    "    return baseMs + Math.floor(Math.random() * RETRY_JITTER_MS);",
+    "}",
+  ].join("\n");
+  return content
+    .replace(attemptsAnchor, jitterBlock + "\n" + attemptsAnchor)
+    .replaceAll("delayMs = RATE_LIMIT_DELAY_MS;", "delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);")
+    .replaceAll("delayMs = CONNECTION_DELAY_MS;", "delayMs = jitteredDelay(CONNECTION_DELAY_MS);");
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -1344,7 +1374,7 @@ export function applyBundledPiPatches(options) {
     if (!fs.existsSync(retryPath)) continue;
     const retryOriginal = fs.readFileSync(retryPath, "utf8");
     const retryPatched = patchPiAiRateLimitRetry(retryOriginal);
-    const retryPatchedFinal = patchPiAiRetryable422(retryPatched);
+    const retryPatchedFinal = patchPiRetryJitter(patchPiAiRetryable422(retryPatched));
     if (retryPatchedFinal !== retryOriginal) {
       fs.writeFileSync(retryPath, retryPatchedFinal);
     }
@@ -1354,7 +1384,7 @@ export function applyBundledPiPatches(options) {
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
   if (fs.existsSync(agentSessionPath)) {
     const sessionOriginal = fs.readFileSync(agentSessionPath, "utf8");
-    const sessionPatched = patchPiAgentSessionConnectionRetry(sessionOriginal);
+    const sessionPatched = patchPiAgentSessionConnectionRetry(patchPiRetryJitter(sessionOriginal));
     if (sessionPatched !== sessionOriginal) {
       fs.writeFileSync(agentSessionPath, sessionPatched);
     }
@@ -1470,4 +1500,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, restorePiSubagentsPrompts };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiSubagentsParallelBatch, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, restorePiSubagentsPrompts };

@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -732,6 +732,8 @@ test("patches bundled pi-ai retry loop with strict-429 exemption and fixed delay
   assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
   assert.match(patched, /const RATE_LIMIT_DELAY_MS = 5000;/);
   assert.match(patched, /const RATE_LIMIT_MAX_ATTEMPTS = 30;/);
+  assert.match(patched, /const RETRY_JITTER_MS = 1500;/);
+  assert.match(patched, /function jitteredDelay\(baseMs\) \{/);
   assert.match(patched, /let rateLimitAttempt = 0;/);
   assert.match(patched, /rateLimitAttempt\+\+;/);
   assert.match(patched, /polic\?y\.baseDelayMs|delayMs = policy\.baseDelayMs;/);
@@ -794,11 +796,56 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
   assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
   assert.match(patched, /_rateLimitRetryAttempt = 0;/);
   assert.match(patched, /this\._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS/);
-  assert.match(patched, /delayMs = RATE_LIMIT_DELAY_MS;/);
+  assert.match(patched, /delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/);
   assert.match(patched, /delayMs = settings\.baseDelayMs;/);
   assert.equal(patched.includes("settings.baseDelayMs * 2 **"), false);
   assert.equal((patched.match(/_rateLimitRetryAttempt = 0;/g) || []).length, 4);
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
+});
+
+test("upgrades legacy 429 retry patches to jittered delay lanes", () => {
+  const legacy = [
+    "// AXUM_PI_429_RETRY_EXEMPT: strict-429 lanes exempt from the retry budget.",
+    "const RATE_LIMIT_DELAY_MS = 5000;",
+    "const CONNECTION_DELAY_MS = 10000;",
+    "const RATE_LIMIT_MAX_ATTEMPTS = 30;",
+    "async function retryLane() {",
+    "    let delayMs = 0;",
+    "    delayMs = RATE_LIMIT_DELAY_MS;",
+    "    delayMs = RATE_LIMIT_DELAY_MS;",
+    "    delayMs = CONNECTION_DELAY_MS;",
+    "}",
+  ].join("\n");
+  // Content without the exemption marker is untouched.
+  const untouched = "export async function retry() {}";
+  assert.equal(patchPiRetryJitter(untouched), untouched);
+  // Content already carrying the jitter block (previously upgraded, or freshly
+  // patched by patchPiAiRateLimitRetry/patchPiAgentSessionConnectionRetry) is a no-op.
+  const alreadyJittered = [
+    "// AXUM_PI_429_RETRY_EXEMPT",
+    "const RETRY_JITTER_MS = 1500;",
+    "const RATE_LIMIT_MAX_ATTEMPTS = 30;",
+  ].join("\n");
+  assert.equal(patchPiRetryJitter(alreadyJittered), alreadyJittered);
+  // Drift: marker present but the attempts anchor moved.
+  assert.throws(() => patchPiRetryJitter("// AXUM_PI_429_RETRY_EXEMPT"), /rate-limit attempts anchor not found/);
+  // Drift: attempts anchor present but no fixed rate-limit delay lane.
+  const missingDelay = [
+    "// AXUM_PI_429_RETRY_EXEMPT",
+    "const RATE_LIMIT_MAX_ATTEMPTS = 30;",
+  ].join("\n");
+  assert.throws(() => patchPiRetryJitter(missingDelay), /rate-limit delay anchor not found/);
+  // Upgrade path rewrites every fixed-delay lane to jittered form.
+  const upgraded = patchPiRetryJitter(legacy);
+  assert.match(upgraded, /\/\/ AXUM_PI_RETRY_JITTER/);
+  assert.match(upgraded, /const RETRY_JITTER_MS = 1500;/);
+  assert.match(upgraded, /function jitteredDelay\(baseMs\) \{/);
+  assert.equal(upgraded.includes("delayMs = RATE_LIMIT_DELAY_MS;"), false);
+  assert.equal(upgraded.includes("delayMs = CONNECTION_DELAY_MS;"), false);
+  assert.equal((upgraded.match(/delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/g) || []).length, 2);
+  assert.equal((upgraded.match(/delayMs = jitteredDelay\(CONNECTION_DELAY_MS\);/g) || []).length, 1);
+  // Re-running on upgraded output is a no-op.
+  assert.equal(patchPiRetryJitter(upgraded), upgraded);
 });
 
 test("connection error pattern matches transport failures and rejects unrelated errors", () => {
@@ -870,8 +917,8 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
   assert.match(patched, /AXUM_PI_CONNECTION_RETRY_EXEMPT/);
   assert.equal((patched.match(/_connectionRetryAttempt = 0;/g) || []).length, 4);
   assert.match(patched, /this\._connectionRetryAttempt < CONNECTION_MAX_ATTEMPTS/);
-  assert.match(patched, /delayMs = CONNECTION_DELAY_MS;/);
-  assert.match(patched, /delayMs = RATE_LIMIT_DELAY_MS;/);
+  assert.match(patched, /delayMs = jitteredDelay\(CONNECTION_DELAY_MS\);/);
+  assert.match(patched, /delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/);
   assert.match(patched, /delayMs = settings\.baseDelayMs;/);
   assert.equal(patched.includes("settings.baseDelayMs * 2 **"), false);
   assert.equal((patched.match(/isConnectionError\(message\.errorMessage\)/g) || []).length, 2);
@@ -882,6 +929,8 @@ test("throws when bundled retry anchors drift from expected shapes", () => {
   assert.throws(() => patchPiAiRateLimitRetry("export async function retryAssistantCall() {}"), /RetrySleepAbortError anchor not found/);
   assert.throws(() => patchPiAgentSessionRateLimitRetry("class SomethingElse {}"), /class anchor not found/);
   assert.throws(() => patchPiAgentSessionConnectionRetry("class SomethingElse {}"), /class anchor not found/);
+  assert.throws(() => patchPiRetryJitter("// AXUM_PI_429_RETRY_EXEMPT"), /rate-limit attempts anchor not found/);
+  assert.throws(() => patchPiRetryJitter(["// AXUM_PI_429_RETRY_EXEMPT", "const RATE_LIMIT_MAX_ATTEMPTS = 30;"].join("\n")), /rate-limit delay anchor not found/);
 });
 
 test("patches bundled Pi interactive mode to soften 429 display", () => {
