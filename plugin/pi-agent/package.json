@@ -1,0 +1,19 @@
+{
+  "name": "pi-agent",
+  "version": "0.0.5",
+  "description": "Run background Pi agents from a running interactive session with live progress UI (vendored from @giladbarnea/pi-user-agents; parameter properties rewritten to plain field assignments)",
+  "keywords": [
+    "pi"
+  ],
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0",
+    "@earendil-works/pi-tui": ">=0.74.0"
+  },
+  "license": "MIT"
+}

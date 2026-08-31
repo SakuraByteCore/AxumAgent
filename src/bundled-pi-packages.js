@@ -56,4 +56,8 @@ export const bundledPiPackages = [
   // pi-memory: plain-Markdown memory tools (write/read/scratchpad) plus optional
   // memory_search backed by the external qmd CLI. Single-file pure TS, zero deps.
   { name: "pi-memory@0.4.2", packageName: "pi-memory", extensionPath: "index.ts", android: true },
+  // pi-agent: user-triggered background Pi agents (/agent) with a live progress widget,
+  // vendored from @giladbarnea/pi-user-agents@0.0.5. Parameter-property constructors were
+  // rewritten to explicit field assignments so the Windows compile path can strip its TS.
+  { name: "pi-agent@file:plugin/pi-agent", packageName: "pi-agent", extensionPath: "index.ts", android: true },
 ];
