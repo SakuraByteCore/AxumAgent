@@ -16,9 +16,8 @@ const PLAN_PROMPT_SUFFIX = `
 
 [Instructions] Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
 
-// Session-first-plan flag & perf marks
+// Session-first-plan flag
 let firstPlanSent = false;
-const PERF_MARK_PREFIX = `pi-companion:plan`;
 
 // Pre-built implement prompt skeleton — sibling of /plan, encodes the parallel subagent-dispatch workflow
 const IMPLEMENT_PROMPT_PREFIX = `[Requirement] `;
@@ -848,21 +847,14 @@ pi.registerCommand("plan", {
   description: "Plan first: research the requirement, re-confirm the approach, and discuss before writing code: /plan <requirement>",
   getArgumentCompletions: () => null,
   async handler(args: string, ctx) {
-    const t0 = performance.now();
     const requirement = args.trim();
     if (!requirement) {
       ctx.ui.notify("Please provide a requirement: /plan <requirement>", "warning");
       return;
     }
 
-    // Perf mark: handler entry → prompt built
-    performance.mark(`${PERF_MARK_PREFIX}:handler-entry`);
-
     // Build prompt using pre-compiled template parts (single allocation, zero join)
     const prompt = PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX;
-
-    performance.mark(`${PERF_MARK_PREFIX}:prompt-built`);
-    performance.measure(`${PERF_MARK_PREFIX}:build`, `${PERF_MARK_PREFIX}:handler-entry`, `${PERF_MARK_PREFIX}:prompt-built`);
 
     // Instant UI feedback — user sees confirmation BEFORE network/agent latency
     ctx.ui.notify("Plan sent, waiting for Agent…", "info");
@@ -872,18 +864,7 @@ pi.registerCommand("plan", {
     if (isFirst) firstPlanSent = true;
     const streamingBehavior = isFirst ? "new" : "followUp";
 
-    performance.mark(`${PERF_MARK_PREFIX}:send-start`);
     await pi.sendUserMessage(prompt, { streamingBehavior });
-    performance.mark(`${PERF_MARK_PREFIX}:send-end`);
-    performance.measure(`${PERF_MARK_PREFIX}:send`, `${PERF_MARK_PREFIX}:send-start`, `${PERF_MARK_PREFIX}:send-end`);
-
-    // Log timing summary (dev-only, no user noise)
-    const buildMs = performance.getEntriesByName(`${PERF_MARK_PREFIX}:build`)[0]?.duration ?? 0;
-    const sendMs = performance.getEntriesByName(`${PERF_MARK_PREFIX}:send`)[0]?.duration ?? 0;
-    const totalMs = performance.now() - t0;
-    if (process.env.NODE_ENV !== "production" || process.env.DEBUG) {
-      console.debug(`[pi-companion] /plan timing: build=${buildMs.toFixed(2)}ms send=${sendMs.toFixed(2)}ms total=${totalMs.toFixed(2)}ms first=${isFirst}`);
-    }
   },
 });
 
