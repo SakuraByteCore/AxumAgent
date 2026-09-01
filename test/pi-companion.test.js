@@ -106,6 +106,73 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
 
+test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-home-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "plan-prompt.md"), "before {{requirement}} after\n", "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    await pi.commands.get("plan").handler("add login", ctx);
+
+    assert.equal(pi.messages.length, 1);
+    assert.equal(pi.messages[0].message, "before add login after\n");
+    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("plan command notifies when the user template exists but is empty", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-home-empty-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "plan-prompt.md"), "   \n", "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    await pi.commands.get("plan").handler("add login", ctx);
+
+    assert.equal(pi.messages.length, 0);
+    assert.ok(notifications.some((n) => n.level === "error" && /Plan prompt template is empty/.test(n.message)));
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("plan command notifies when the user template lacks the requirement placeholder", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-home-placeholder-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "plan-prompt.md"), "before after\n", "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+
+  try {
+    await pi.commands.get("plan").handler("add login", ctx);
+
+    assert.equal(pi.messages.length, 0);
+    assert.ok(notifications.some((n) => n.level === "error" && /must include \{\{requirement\}\}/.test(n.message)));
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
 test("plan command uses the uniform English expectation for CJK input", async () => {
   const pi = createPi();
   const { ctx } = createContext();

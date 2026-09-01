@@ -15,6 +15,8 @@ const PLAN_PROMPT_MIDDLE = `
 const PLAN_PROMPT_SUFFIX = `
 
 [Instructions] Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+const PLAN_PROMPT_TEMPLATE_RELATIVE_PATH = [".pi", "agent", "plan-prompt.md"];
+const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 
 // Session-first-plan flag
 let firstPlanSent = false;
@@ -767,6 +769,21 @@ async function loadConfig(ctx: QueueAwareContext, lastConfigError: { value?: str
 	}
 }
 
+async function buildPlanPrompt(requirement: string): Promise<string> {
+	const templatePath = join(homedir(), ...PLAN_PROMPT_TEMPLATE_RELATIVE_PATH);
+	if (!existsSync(templatePath)) {
+		return PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX;
+	}
+	const template = await readFile(templatePath, "utf8");
+	if (!template.trim()) {
+		throw new Error(`Plan prompt template is empty: ${templatePath}`);
+	}
+	if (!template.includes(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER)) {
+		throw new Error(`Plan prompt template must include ${PLAN_PROMPT_REQUIREMENT_PLACEHOLDER}: ${templatePath}`);
+	}
+	return template.replaceAll(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER, requirement);
+}
+
 // ── /clear ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
@@ -853,8 +870,14 @@ pi.registerCommand("plan", {
       return;
     }
 
-    // Build prompt using pre-compiled template parts (single allocation, zero join)
-    const prompt = PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX;
+    let prompt: string;
+    try {
+      prompt = await buildPlanPrompt(requirement);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Failed to build /plan prompt: ${message}`, "error");
+      return;
+    }
 
     // Instant UI feedback — user sees confirmation BEFORE network/agent latency
     ctx.ui.notify("Plan sent, waiting for Agent…", "info");
