@@ -428,6 +428,11 @@ export class AgentViewer implements Component {
 		child.stdin?.end(text);
 	}
 
+	private scrollToBottom(): void {
+		this.autoScroll = true;
+		this.scrollOffset = Math.max(0, this.contentLines(this.innerWidth(this.lastWidth)).length);
+	}
+
 	private innerWidth(width: number): number {
 		return Math.max(1, width - 4);
 	}
@@ -457,6 +462,7 @@ export class AgentViewer implements Component {
 		input.onSubmit = (value: string) => {
 			const message = value.trim();
 			this.composer = undefined;
+			this.scrollToBottom();
 			if (!message) {
 				logSteering(agent.id, "steer-empty", {
 					status: agent.status,
@@ -465,7 +471,6 @@ export class AgentViewer implements Component {
 				this.tui.requestRender();
 				return;
 			}
-			this.autoScroll = true;
 			logSteering(agent.id, "steer-submitted", {
 				status: agent.status,
 				streaming: session.isStreaming,
