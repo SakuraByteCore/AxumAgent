@@ -158,6 +158,34 @@ Targets:
 
 It shows a diff before saving. If the file was changed externally, saving is refused.
 
+## Customize the `/plan` Prompt
+
+`/plan` supports a user-level prompt override file:
+
+```text
+~/.pi/agent/plan-prompt.md
+```
+
+Rules:
+
+- If the file does not exist, Axum falls back to the built-in `/plan` prompt.
+- If the file exists, Axum uses its content as the `/plan` prompt template.
+- The file must include the placeholder `{{requirement}}` so Axum knows where to inject the user requirement.
+- If the file exists but is empty, or does not contain `{{requirement}}`, `/plan` stops with an error instead of sending a broken prompt.
+
+Example:
+
+```md
+[Requirement]
+{{requirement}}
+
+[Expectation]
+Describe the expected outcome in plain language, including visible behavior, boundaries, and any missing information that must be confirmed first.
+
+[Instructions]
+Research the current implementation first, then propose a plan, risks, compatibility impact, and validation approach. Do not write code yet.
+```
+
 ## Doctor
 
 ```bash

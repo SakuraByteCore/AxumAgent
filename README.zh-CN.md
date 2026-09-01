@@ -153,6 +153,34 @@ axum code
 
 保存前会显示 diff。若文件被外部修改则拒绝保存。
 
+## 自定义 `/plan` Prompt
+
+`/plan` 支持用户级 prompt 覆盖文件：
+
+```text
+~/.pi/agent/plan-prompt.md
+```
+
+规则：
+
+- 文件不存在时，Axum 回退到内置 `/plan` prompt。
+- 文件存在时，Axum 直接使用其中内容作为 `/plan` 模板。
+- 文件必须包含占位符 `{{requirement}}`，这样 Axum 才知道把用户需求插到哪里。
+- 如果文件存在但为空，或不包含 `{{requirement}}`，`/plan` 会直接报错，而不是发送损坏的 prompt。
+
+示例：
+
+```md
+[Requirement]
+{{requirement}}
+
+[Expectation]
+先用自然语言讲清楚预期结果，包括用户可见行为、边界条件，以及仍需补充确认的信息。
+
+[Instructions]
+先调研当前实现，再给出方案、风险、兼容性影响和验证方式。现在不要写代码。
+```
+
 ## Doctor
 
 ```bash
