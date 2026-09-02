@@ -50,9 +50,9 @@ export const bundledPiPackages = [
   // pi-hashline-edit-pro: hash-anchored read/replace/insert/grep tools. Stable 3-char
   // per-line hashes reject stale/ambiguous anchors. Pure TS, zero native deps.
   { name: "pi-hashline-edit-pro@2.7.0", packageName: "pi-hashline-edit-pro", extensionPath: "index.ts", android: true },
-  // pi-subagents: Claude Code-style single-agent delegation and parallel multi-agent
-  // workflows via an Agent tool. Custom profiles from ~/.pi/agent/subagents/. Pure TS, zero native deps.
-  { name: "@kky42/pi-subagents@1.0.7", packageName: "@kky42/pi-subagents", extensionPath: "index.ts", android: true },
+  // pi-task: local task delegation plugin. Single or batched subagent spawns on top of
+  // createAgentSession, modeled after oh-my-pi's task tool. Pure TS, zero native deps.
+  { name: "pi-task@file:plugin/pi-task", packageName: "pi-task", extensionPath: "index.ts", android: true },
   // pi-memory: plain-Markdown memory tools (write/read/scratchpad) plus optional
   // memory_search backed by the external qmd CLI. Single-file pure TS, zero deps.
   { name: "pi-memory@0.4.2", packageName: "pi-memory", extensionPath: "index.ts", android: true },

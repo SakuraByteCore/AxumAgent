@@ -63,10 +63,10 @@ axum code
 
 > Tip: in a repository checkout, run `node bin/axum.js code` (or the installed `code` command) to skip the `npm run` wrapper and shave ~0.2s off every startup.
 
-Start a background subagent from the prompt:
+Delegate subagent work from the prompt; the bundled `task` tool spawns single or batched subagents automatically:
 
 ```text
-/subagent Explore find all files that handle authentication
+Find all files that handle authentication and summarize how the login flow works.
 ```
 
 Open the bundled pi-plugins skill guide for plugin management workflows:
@@ -96,7 +96,7 @@ The distribution ships these packages, all in one install:
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
-- `@kky42/pi-subagents`
+- `pi-task` (local task-delegation plugin: single or batched subagent fan-out, modeled after oh-my-pi)
 - `pi-memory`
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget)
 
@@ -194,7 +194,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `@kky42/pi-subagents` / `pi-memory` / `pi-agent`.
+Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-task` / `pi-memory` / `pi-agent`.
 
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.

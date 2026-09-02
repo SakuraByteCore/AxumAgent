@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiSubagentsParallelBatch, restorePiSubagentsPrompts, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -32,7 +32,7 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -55,7 +55,7 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
 
@@ -67,7 +67,7 @@ test("checks available Pi extensions on Android", () => {
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
   assert.equal(extensions[5], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(extensions[6], path.join(cache, "node_modules", "@kky42", "pi-subagents", "index.ts"));
+  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-task", "index.ts"));
   assert.equal(extensions[7], path.join(cache, "node_modules", "pi-memory", "index.ts"));
   assert.equal(extensions[8], path.join(cache, "node_modules", "pi-agent", "index.ts"));
   assert.equal(existingBundledExtensions(options).length, 9);
@@ -83,7 +83,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -95,7 +95,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   assert.equal(extensions[2], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "@kky42", "pi-subagents", "index.ts"));
+  assert.equal(extensions[5], path.join(cache, "node_modules", "pi-task", "index.ts"));
   assert.equal(extensions[6], path.join(cache, "node_modules", "pi-memory", "index.ts"));
   assert.equal(extensions[7], path.join(cache, "node_modules", "pi-agent", "index.ts"));
   assert.equal(existingBundledExtensions(options).length, 8);
@@ -149,7 +149,7 @@ pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("pi-debug", { "index.ts": "" });
 pkg("pi-companion", { "index.ts": "" });
 pkg("pi-hashline-edit-pro", { "index.ts": "" });
-pkg("@kky42/pi-subagents", { "index.ts": "" });
+pkg("pi-task", { "index.ts": "" });
 pkg("pi-memory", { "index.ts": "" });
 pkg("pi-agent", { "index.ts": "" });
 `);
@@ -197,7 +197,7 @@ class StdinBuffer {
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@kky42/pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-task", { "index.ts": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
 
@@ -369,88 +369,6 @@ test("upgrades old pi-goal auto-resume patch to cover no-progress pauses", () =>
   assert.match(upgraded, /transitionGoal\(\{ \.\.\.goal, safetyPauseCause: cause \}, "paused"\)/);
   assert.equal(patchPiGoalAutoResume(upgraded), upgraded);
 });
-test("restores pi-subagents prompts after retired prompt-injection patches", () => {
-  const injected = [
-    "// AXUM_PI_SUBAGENTS_PROACTIVE: proactive-delegation default (Axum).",
-    "export const AGENT_PROMPT_SNIPPET =",
-    "  \"Default to launching a subagent when the task matches an available agent, runs independently, or needs reading across several files; delegate without waiting for the user to ask.\";",
-    "",
-    "// AXUM_PI_SUBAGENTS_PROACTIVE: proactive-delegation default (Axum).",
-    "  \"Proactively use Agent when the task matches an available agent, you have independent work to run in parallel, or answering means reading across several files. Delegate proactively as the default working mode instead of waiting for the user to explicitly request a subagent.\",",
-    "",
-    "// AXUM_PI_SUBAGENTS_PROACTIVE: proactive-delegation default (Axum).",
-    "Proactively delegate to a specialized agent when one matches the task, the work can run independently, or delegating would keep large search/read output out of the main context. This is the default working mode: delegate on your own judgment without waiting for the user to explicitly request a subagent.",
-    "",
-    "  // AXUM_PI_SUBAGENTS_PARALLEL: parallel fan-out is the default for independent subtasks (Axum).",
-    "  \"Delegate independent subtasks concurrently by default: emit multiple Agent calls in the same assistant response, or a single Agent call with its tasks array to run a parallel batch. Parallel fan-out never requires the user to ask for it.\",",
-    "  \"Re-evaluate delegation on every turn, not only the first: after each subagent result returns, delegate again whenever the remaining work matches an agent, runs independently, or spans several files.\",",
-    "",
-    "- Delegate independent subtasks concurrently by default: emit multiple Agent calls in the same assistant response, or one Agent call with its tasks array to run a parallel batch. Do not wait for the user to ask for parallelism.",
-    "- Re-evaluate delegation on every turn: after each subagent result returns, delegate again whenever the remaining work matches an agent, runs independently, or spans several files.",
-  ].join("\n");
-
-  const restored = restorePiSubagentsPrompts(injected);
-
-  // Every injected block is reverted to the verbatim upstream line.
-  assert.ok(restored.includes('export const AGENT_PROMPT_SNIPPET =\n  "Launch a fresh subagent when the task matches an available agent, can run independently, or would read across several files.";'));
-  assert.ok(restored.includes('"Reach for Agent when the task matches an available agent, when you have independent work to run in parallel, or when answering would mean reading across several files.",'));
-  assert.ok(restored.includes("Use Agent when a specialized agent matches the task, the work can run independently, or delegating would keep large search/read output out of the main context."));
-  assert.ok(restored.includes('  "If the user asks for parallel work, launch multiple Agent calls in the same assistant response.",'));
-  assert.ok(restored.includes("- If the user asks for parallel work, launch independent Agent calls in the same assistant response."));
-
-  // No injection marker or injected wording survives the restore.
-  assert.ok(!restored.includes("AXUM_PI_SUBAGENTS_PROACTIVE"));
-  assert.ok(!restored.includes("AXUM_PI_SUBAGENTS_PARALLEL"));
-  assert.ok(!restored.includes("Default to launching a subagent"));
-  assert.ok(!restored.includes("Delegate proactively as the default working mode"));
-  assert.ok(!restored.includes("Delegate independent subtasks concurrently by default"));
-  assert.ok(!restored.includes("Re-evaluate delegation on every turn"));
-
-  // Clean upstream sources are left untouched.
-  const clean = '  "If the user asks for parallel work, launch multiple Agent calls in the same assistant response.",';
-  assert.equal(restorePiSubagentsPrompts(clean), clean);
-  // Idempotent on already-restored content.
-  assert.equal(restorePiSubagentsPrompts(restored), restored);
-});
-
-test("patches pi-subagents Agent tool with a parallel batch executor", () => {
-  const source = [
-    "const agentToolParameters = Type.Object({",
-    "  description: Type.String({",
-    "  }),",
-    "});",
-    "",
-    "function createAgentTool(",
-    "  state: DelegationState,",
-    ") {",
-    "    async execute(toolCallId, params, signal, onUpdate, ctx) {",
-    "      const effectiveState: DelegationState = {",
-    "    }",
-    "}",
-  ].join("\n");
-
-  const patched = patchPiSubagentsParallelBatch(source);
-  assert.notEqual(patched, source, "patch should change the source");
-  assert.match(patched, /AXUM_PI_SUBAGENTS_PARALLEL/);
-  // Tool schema gains the optional batch tasks array.
-  assert.match(patched, /const agentTaskParameters = Type\.Object\(\{/);
-  assert.match(patched, /tasks: Type\.Optional\(/);
-  assert.match(patched, /Type\.Array\(agentTaskParameters/);
-  // Batch executor fans out concurrently under the same width budget.
-  assert.match(patched, /async function runSubagentBatch\(/);
-  assert.match(patched, /await Promise\.all\(/);
-  assert.match(patched, /exceeds available width/);
-  // execute() routes batch requests before the single-task path.
-  const batchBranchIndex = patched.indexOf("return await runSubagentBatch(toolCallId, batchTasks, state, options, signal, onUpdate, ctx);");
-  const singlePathIndex = patched.indexOf("      const effectiveState: DelegationState = {", batchBranchIndex);
-  assert.ok(batchBranchIndex > -1 && singlePathIndex > batchBranchIndex);
-  // Idempotent.
-  assert.equal(patchPiSubagentsParallelBatch(patched), patched);
-  // Unknown tool shape is left untouched rather than crashing.
-  const reshaped = source.replace("const agentToolParameters = Type.Object({", "const toolSchema = Type.Object({");
-  assert.equal(patchPiSubagentsParallelBatch(reshaped), reshaped);
-});
-
 
 test("filters invalid Windows env keys before npm install", () => {
   const env = npmInstallEnv({
@@ -559,7 +477,7 @@ pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('pi-debug', { 'index.ts': '' });
 pkg('pi-companion', { 'index.ts': '' });
 pkg('pi-hashline-edit-pro', { 'index.ts': '' });
-pkg('@kky42/pi-subagents', { 'index.ts': '' });
+pkg('pi-task', { 'index.ts': '' });
 pkg('pi-memory', { 'index.ts': '' });
 pkg('pi-agent', { 'index.ts': '' });
 `);
@@ -601,7 +519,7 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-companion", { "index.ts": "" });
   writePkg(cache, "pi-web-access", { "index.ts": "" });
   writePkg(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePkg(cache, "@kky42/pi-subagents", { "index.ts": "" });
+  writePkg(cache, "pi-task", { "index.ts": "" });
   writePkg(cache, "pi-memory", { "index.ts": "" });
   writePkg(cache, "pi-agent", { "index.ts": "" });
   writePkg(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -636,7 +554,7 @@ writePkg("pi-debug", { "index.ts": "" });
 writePkg("pi-companion", { "index.ts": "" });
 writePkg("pi-web-access", { "index.ts": "" });
 writePkg("pi-hashline-edit-pro", { "index.ts": "" });
-writePkg("@kky42/pi-subagents", { "index.ts": "" });
+writePkg("pi-task", { "index.ts": "" });
 writePkg("pi-memory", { "index.ts": "" });
 writePkg("pi-agent", { "index.ts": "" });
 writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
