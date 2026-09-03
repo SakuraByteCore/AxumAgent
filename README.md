@@ -96,7 +96,7 @@ The distribution ships these packages, all in one install:
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
-- `pi-task` (lean isolated subagent tool: spawn child Pi subprocesses with tool allowlists, reports delivered via completion notification)
+- `@tintinweb/pi-subagents` (Claude Code-style sub-agents and workflow orchestration: parallel agents, live fleet view, custom agent types, mid-run steering, dynamic workflows; not bundled on Windows)
 - `pi-memory`
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget)
 
@@ -194,7 +194,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-task` / `pi-memory` / `pi-agent`.
+Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-subagents` / `pi-memory` / `pi-agent`.
 
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.

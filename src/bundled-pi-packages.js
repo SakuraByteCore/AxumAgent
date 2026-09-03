@@ -50,9 +50,12 @@ export const bundledPiPackages = [
   // pi-hashline-edit-pro: hash-anchored read/replace/insert/grep tools. Stable 3-char
   // per-line hashes reject stale/ambiguous anchors. Pure TS, zero native deps.
   { name: "pi-hashline-edit-pro@2.7.0", packageName: "pi-hashline-edit-pro", extensionPath: "index.ts", android: true },
-  // pi-task: lean isolated subagent tool. Spawns child Pi subprocesses with
-  // tool allowlists and reports back via completion notification. Pure TS, zero native deps.
-  { name: "pi-task@file:plugin/pi-task", packageName: "pi-task", extensionPath: "index.ts", android: true },
+  // @tintinweb/pi-subagents: Claude Code-style sub-agents and workflow
+  // orchestration (parallel agents, live fleet view, custom agent types,
+  // mid-run steering, dynamic workflows). Pure TS with pure-JS deps,
+  // Android-safe. Six published sources use TS parameter properties that
+  // the Windows runtime strip path cannot compile, so keep it off win32.
+  { name: "@tintinweb/pi-subagents@0.19.0", packageName: "@tintinweb/pi-subagents", extensionPath: "src/index.ts", android: true, unsupportedPlatforms: ["win32"] },
   // pi-memory: plain-Markdown memory tools (write/read/scratchpad) plus optional
   // memory_search backed by the external qmd CLI. Single-file pure TS, zero deps.
   { name: "pi-memory@0.4.2", packageName: "pi-memory", extensionPath: "index.ts", android: true },
