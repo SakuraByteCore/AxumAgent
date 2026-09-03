@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { compileExtensionPackage, readCompileManifest } from "../src/compile-bundled-extensions.js";
 
@@ -79,4 +80,21 @@ test("compileExtensionPackage never overwrites pre-existing JS files it did not 
   assert.equal(fs.readFileSync(path.join(root, "index.js"), "utf8"), "export const native = true;\n");
   const manifest = readCompileManifest(root);
   assert.equal(manifest.files["index.ts"], undefined);
+});
+
+test("compileExtensionPackage transpiles parameter properties in imported modules", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "axum-compile-parameter-property-"));
+  makePackage(root, {
+    "src/index.ts": "import { Greeter } from \"./engine.ts\"; export const greet = () => new Greeter(\"axum\").greet();\n",
+    "src/engine.ts": "export class Greeter { constructor(private readonly name: string) {} greet(): string { return this.name; } }\n",
+  });
+
+  const result = compileExtensionPackage({ packageRoot: root });
+
+  assert.deepEqual(result.collisions, []);
+  const output = fs.readFileSync(path.join(root, "src", "engine.js"), "utf8");
+  assert.match(output, /this\.name = name/);
+  assert.doesNotMatch(output, /private readonly/);
+  const module = await import(pathToFileURL(path.join(root, "src", "index.js")).href);
+  assert.equal(module.greet(), "axum");
 });

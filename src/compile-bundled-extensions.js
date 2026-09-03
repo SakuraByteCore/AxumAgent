@@ -49,7 +49,7 @@ function rewriteTsImports(source, fileImports = new Set(), dirImports = new Set(
 }
 
 function stripAndRewrite(source, fileImports, dirImports) {
-  const stripped = stripTypeScriptTypes(source, { mode: "strip" });
+  const stripped = stripTypeScriptTypes(source, { mode: "transform" });
   return rewriteTsImports(stripped, fileImports, dirImports);
 }
 
