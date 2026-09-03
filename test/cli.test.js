@@ -95,6 +95,7 @@ test("package scripts delegate to axum entrypoints", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
   assert.equal(packageJson.scripts.code, "node bin/axum.js code");
   assert.equal(packageJson.scripts.update, "node bin/axum.js update");
+  assert.equal(packageJson.scripts.install, "node bin/axum.js install");
   assert.equal(packageJson.engines.node, ">=22.19.0");
 });
 
