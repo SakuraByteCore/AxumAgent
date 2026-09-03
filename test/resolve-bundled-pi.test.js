@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -821,6 +821,9 @@ test("connection error pattern matches transport failures and rejects unrelated 
   assert.equal(pattern.test("client disconnected: context canceled"), true);
   assert.equal(pattern.test("client disconnected: context cancelled"), true);
   assert.equal(pattern.test("context canceled"), true);
+  assert.equal(pattern.test("context deadline exceeded"), true);
+  assert.equal(pattern.test("Error: context deadline exceeded"), true);
+  assert.equal(pattern.test("Post \"https://relay.example.com/v1/chat/completions\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"), true);
   assert.equal(pattern.test("request timed out"), true);
   assert.equal(pattern.test("stream terminated before completion"), true);
   assert.equal(pattern.test("Error: 429: Too Many Requests"), false);
@@ -890,6 +893,24 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
   assert.equal(patchPiAgentSessionConnectionRetry(patched), patched);
 });
 
+test("upgrades stale connection-exemption caches to the deadline-aware pattern", () => {
+  const legacyV1 = "connection.?(error|refused|reset|lost)|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
+  for (const legacy of [PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, legacyV1]) {
+    const stale = [
+      "// AXUM_PI_CONNECTION_RETRY_EXEMPT: transport/connection errors retry on a",
+      `    return typeof errorMessage === \"string\" && /${legacy}/i.test(errorMessage);`,
+    ].join("\n");
+    const upgraded = patchPiAgentSessionConnectionRetry(stale);
+    assert.ok(upgraded.includes("context.?deadline.?exceeded"));
+    assert.ok(upgraded.includes(`/${PI_CONNECTION_ERROR_PATTERN_SOURCE}/i.test`));
+    assert.equal(patchPiAgentSessionConnectionRetry(upgraded), upgraded);
+  }
+  assert.throws(
+    () => patchPiAgentSessionConnectionRetry("// AXUM_PI_CONNECTION_RETRY_EXEMPT\nno pattern anchor here"),
+    /legacy pattern anchor not found/,
+  );
+});
+
 test("throws when bundled retry anchors drift from expected shapes", () => {
   assert.throws(() => patchPiAiRateLimitRetry("export async function retryAssistantCall() {}"), /RetrySleepAbortError anchor not found/);
   assert.throws(() => patchPiAgentSessionRateLimitRetry("class SomethingElse {}"), /class anchor not found/);
@@ -946,6 +967,38 @@ test("patches bundled pi-ai retryability to treat strict 422/520 gateway transie
   assert.match(patched, /if \(STRICT_TRANSIENT_STATUS_PATTERN\.test\(errorMessage\)\)/);
   assert.equal(patchPiAiRetryable422(patched), patched);
   assert.throws(() => patchPiAiRetryable422("nothing here"), /isRetryableAssistantError anchor not found/);
+});
+
+test("patches bundled pi-ai retryability to keep relay deadline aborts retryable", () => {
+  const vulnerable = [
+    "export function isRetryableAssistantError(message) {",
+    '    if (message.stopReason !== "error" || !message.errorMessage)',
+    "        return false;",
+    "    const errorMessage = message.errorMessage;",
+    "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);",
+    "}",
+  ].join("\n");
+  const patched = patchPiAiDeadlineRetryable(vulnerable);
+  assert.match(patched, /AXUM_PI_DEADLINE_RETRYABLE/);
+  assert.match(patched, /if \(\/context\.\?deadline\.\?exceeded\/i\.test\(errorMessage\)\)/);
+  assert.equal(patchPiAiDeadlineRetryable(patched), patched);
+  assert.throws(() => patchPiAiDeadlineRetryable("nothing here"), /deadline retry: retryable return anchor not found/);
+
+  const currentEra = [
+    "// AXUM_PI_422_RETRYABLE: gateway-originated transient statuses",
+    "const STRICT_TRANSIENT_STATUS_PATTERN = /^\\s*(?:Error:\\s*)?(?:422|520)[:\\s]/;",
+    "export function isRetryableAssistantError(message) {",
+    "    const errorMessage = message.errorMessage;",
+    "    if (STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage))",
+    "        return true;",
+    "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);",
+    "}",
+  ].join("\n");
+  const upgraded = patchPiAiRetryable422(currentEra);
+  assert.match(upgraded, /AXUM_PI_DEADLINE_RETRYABLE/);
+  assert.equal((upgraded.match(/AXUM_PI_422_RETRYABLE/g) || []).length, 1);
+  assert.equal((upgraded.match(/RETRYABLE_PROVIDER_ERROR_PATTERN\.test\(errorMessage\)/g) || []).length, 1);
+  assert.equal(patchPiAiRetryable422(upgraded), upgraded);
 });
 
 test("patches bundled Pi interactive mode to dedupe consecutive identical errors", () => {

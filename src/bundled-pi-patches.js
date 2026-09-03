@@ -20,6 +20,7 @@ const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
+const PI_DEADLINE_RETRYABLE_MARKER = "AXUM_PI_DEADLINE_RETRYABLE";
 const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED";
 const PI_HTTP_IDLE_TIMEOUT_LEGACY_MARKERS = [
   { marker: "AXUM_PI_HTTP_IDLE_TIMEOUT_120S", value: "120_000" },
@@ -747,7 +748,9 @@ function patchPiAgentSessionRateLimitRetry(content) {
 // transient environment noise: like strict 429s they retry on a fixed cadence
 // with a dedicated counter so a flaky link never wastes the user retry budget.
 const PI_CONNECTION_RETRY_EXEMPT_MARKER = "AXUM_PI_CONNECTION_RETRY_EXEMPT";
-const PI_CONNECTION_ERROR_PATTERN_SOURCE = "connection.?(error|refused|reset|lost)|client.?disconnected|context.?cancell?ed|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
+const PI_CONNECTION_ERROR_PATTERN_V1_SOURCE = "connection.?(error|refused|reset|lost)|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
+const PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE = "connection.?(error|refused|reset|lost)|client.?disconnected|context.?cancell?ed|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
+const PI_CONNECTION_ERROR_PATTERN_SOURCE = PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE + "|context.?deadline.?exceeded";
 
 function buildConnectionRetryHelpers() {
   return [
@@ -763,11 +766,26 @@ function buildConnectionRetryHelpers() {
   ].join("\n");
 }
 
+// Bundles cached with an older exemption patch embed the stale word list in
+// the injected helper; swap it in place so relay-deadline aborts (context
+// deadline exceeded) join the lane without waiting for a cache rebuild.
+function upgradePiAgentSessionConnectionPattern(content) {
+  if (content.includes(PI_CONNECTION_ERROR_PATTERN_SOURCE)) return content;
+  for (const legacySource of [PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, PI_CONNECTION_ERROR_PATTERN_V1_SOURCE]) {
+    if (content.includes(legacySource)) {
+      return content.replace(legacySource, PI_CONNECTION_ERROR_PATTERN_SOURCE);
+    }
+  }
+  throw new Error("unable to upgrade bundled Pi agent session connection retry: legacy pattern anchor not found");
+}
+
 // Extends the strict-429-exempted agent session with a connection-error lane:
 // transient transport failures retry on a fixed cadence with their own
 // counter instead of aborting the turn after the default retry budget.
 function patchPiAgentSessionConnectionRetry(content) {
-  if (content.includes(PI_CONNECTION_RETRY_EXEMPT_MARKER)) return content;
+  if (content.includes(PI_CONNECTION_RETRY_EXEMPT_MARKER)) {
+    return upgradePiAgentSessionConnectionPattern(content);
+  }
 
   let patched = patchPiAgentSessionRateLimitRetry(content);
 
@@ -995,14 +1013,19 @@ ${classAnchor}`,
 function patchPiAiRetryable422(content) {
   const upgradedPattern = "const STRICT_TRANSIENT_STATUS_PATTERN = /^\\s*(?:Error:\\s*)?(?:422|520)[:\\s]/;";
   if (content.includes(PI_422_RETRYABLE_MARKER)) {
-    if (content.includes(upgradedPattern)) return content;
-    const legacyPattern = "const STRICT_422_PATTERN = /^\\s*(?:Error:\\s*)?422[:\\s]/;";
-    if (!content.includes(legacyPattern)) {
-      throw new Error("unable to upgrade bundled Pi retry.js: legacy 422 pattern not found");
+    let upgraded = content;
+    if (!upgraded.includes(upgradedPattern)) {
+      const legacyPattern = "const STRICT_422_PATTERN = /^\\s*(?:Error:\\s*)?422[:\\s]/;";
+      if (!upgraded.includes(legacyPattern)) {
+        throw new Error("unable to upgrade bundled Pi retry.js: legacy 422 pattern not found");
+      }
+      upgraded = upgraded
+        .replaceAll(legacyPattern, upgradedPattern)
+        .replaceAll("STRICT_422_PATTERN.test(errorMessage)", "STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage)");
     }
-    return content
-      .replaceAll(legacyPattern, upgradedPattern)
-      .replaceAll("STRICT_422_PATTERN.test(errorMessage)", "STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage)");
+    // Older caches keep retrying through the 422/520 gate but are missing
+    // the relay-deadline lane; patch that lane in place instead of returning.
+    return patchPiAiDeadlineRetryable(upgraded);
   }
   const fnAnchor = "export function isRetryableAssistantError(message) {";
   if (!content.includes(fnAnchor)) {
@@ -1025,7 +1048,23 @@ ${fnAnchor}`,
     retAnchor,
     "    if (STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage))\n        return true;\n" + retAnchor,
   );
-  return updated;
+  return patchPiAiDeadlineRetryable(updated);
+}
+
+
+// A relay's own generation deadline (`context deadline exceeded`) is a
+// transient upstream failure, not a rejected call: keep it retryable so the
+// session driver routes it through the retry lanes instead of ending the turn.
+function patchPiAiDeadlineRetryable(content) {
+  if (content.includes(PI_DEADLINE_RETRYABLE_MARKER)) return content;
+  const retAnchor = "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);";
+  if (!content.includes(retAnchor)) {
+    throw new Error("unable to patch bundled Pi retry.js deadline retry: retryable return anchor not found");
+  }
+  return content.replace(
+    retAnchor,
+    "    // " + PI_DEADLINE_RETRYABLE_MARKER + ": relay deadline aborts (context deadline\n    // exceeded) are transient upstream failures; keep them in the retry lanes.\n    if (/context.?deadline.?exceeded/i.test(errorMessage))\n        return true;\n" + retAnchor,
+  );
 }
 
 
@@ -1290,4 +1329,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
