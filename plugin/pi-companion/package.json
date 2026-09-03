@@ -1,14 +1,33 @@
 {
   "name": "pi-companion",
   "version": "0.2.0",
-  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan, /implement, /clear, /ralph, /rules, /plugin-create-mode), auto-continue response guard, and read-only advisory watcher in one single-file extension, zero native deps",
+  "description": "Bundled companion plugin for pi-coding-agent \u2014 slash shortcuts (/plan, /clear, /ralph, /rules, /plugin-create-mode), auto-continue response guard, and read-only advisory watcher in one single-file extension, zero native deps",
   "type": "module",
   "main": "index.ts",
-  "files": ["index.ts", "LICENSE", "config.json"],
+  "files": [
+    "index.ts",
+    "LICENSE",
+    "config.json"
+  ],
   "pi": {
-    "extensions": ["./index.ts"]
+    "extensions": [
+      "./index.ts"
+    ]
   },
-  "keywords": ["pi-package", "pi", "coding-agent", "extension", "pi-companion", "plan", "implement", "clear", "ralph", "response-guard", "advisor", "android", "termux"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "coding-agent",
+    "extension",
+    "pi-companion",
+    "plan",
+    "clear",
+    "ralph",
+    "response-guard",
+    "advisor",
+    "android",
+    "termux"
+  ],
   "license": "MIT",
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.74.0"

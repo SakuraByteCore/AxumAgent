@@ -187,44 +187,6 @@ test("plan command uses the uniform English expectation for CJK input", async ()
   assert.match(pi.messages[0].message, /must not repeat this instruction or the original requirement text/);
 });
 
-test("implement command sends the subagent-dispatch prompt", async () => {
-  const pi = createPi();
-  const { ctx } = createContext();
-
-  await pi.commands.get("implement").handler("refactor the cache layer", ctx);
-
-  assert.equal(pi.messages.length, 1);
-  assert.match(pi.messages[0].message, /\[Requirement\] refactor the cache layer/);
-  assert.match(pi.messages[0].message, /split into subtasks and dispatched concurrently to subagents/);
-  assert.match(pi.messages[0].message, /no two agents modify the same file/);
-  // First implement in session uses "new" streamingBehavior, mirroring /plan
-  assert.equal(pi.messages[0].options.streamingBehavior, "new");
-});
-
-test("implement command falls back to followUp streamingBehavior on later sends", async () => {
-  const pi = createPi();
-  const { ctx } = createContext();
-
-  await pi.commands.get("implement").handler("first requirement", ctx);
-  await pi.commands.get("implement").handler("second requirement", ctx);
-
-  assert.equal(pi.messages.length, 2);
-  // firstImplementSent is module state: after any prior send, every send must use followUp
-  assert.equal(pi.messages[1].options.streamingBehavior, "followUp");
-});
-
-test("bare implement command targets the requirement discussed earlier in the session", async () => {
-  const pi = createPi();
-  const { ctx, notifications } = createContext();
-
-  await pi.commands.get("implement").handler("   ", ctx);
-
-  assert.equal(pi.messages.length, 1);
-  assert.match(pi.messages[0].message, /\[Requirement\] the requirement discussed and agreed earlier in this conversation/);
-  assert.match(pi.messages[0].message, /split into subtasks and dispatched concurrently to subagents/);
-  assert.ok(!notifications.some((n) => n.level === "warning"));
-});
-
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
   const pi = createPi();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-settled-"));

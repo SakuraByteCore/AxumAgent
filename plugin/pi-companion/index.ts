@@ -21,15 +21,6 @@ const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 // Session-first-plan flag
 let firstPlanSent = false;
 
-// Pre-built implement prompt skeleton — sibling of /plan, encodes the parallel subagent-dispatch workflow
-const IMPLEMENT_PROMPT_PREFIX = `[Requirement] `;
-const IMPLEMENT_PROMPT_SUFFIX = `
-
-[Instructions] For this requirement, every part that can be parallelized must be split into subtasks and dispatched concurrently to subagents. Each subtask must have a clearly bounded scope and an explicit output format. Any subtask that writes files must be marked as such, so no two agents modify the same file. Finally, you integrate all the results and check them for consistency.`;
-
-// Session-first-implement flag (mirrors firstPlanSent)
-let firstImplementSent = false;
-
 const RALPH_COMMIT_PATTERN = /\bcommit\b|提交/i;
 
 function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, commitRequested: boolean): string {
@@ -891,27 +882,6 @@ pi.registerCommand("plan", {
   },
 });
 
-// ── /implement ─────────────────────────────────────────────────────────
-
-pi.registerCommand("implement", {
-  description: "Implement now: split the requirement into parallel subagent tasks, or implement the plan discussed earlier in this session: /implement [requirement]",
-  getArgumentCompletions: () => null,
-  async handler(args: string, ctx) {
-    // Bare /implement means: implement the requirement discussed and agreed earlier in this conversation
-    const requirement = args.trim() || "the requirement discussed and agreed earlier in this conversation";
-
-    const prompt = IMPLEMENT_PROMPT_PREFIX + requirement + IMPLEMENT_PROMPT_SUFFIX;
-    ctx.ui.notify("Implement request sent, waiting for Agent…", "info");
-
-    // Same first-send optimization as /plan: "new" bypasses followUp scheduling overhead
-    const isFirst = !firstImplementSent;
-    if (isFirst) firstImplementSent = true;
-    const streamingBehavior = isFirst ? "new" : "followUp";
-
-    await pi.sendUserMessage(prompt, { streamingBehavior });
-  },
-});
-
 	// ── /ralph ──────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ralph", {
@@ -1057,7 +1027,6 @@ pi.on("session_start", async () => {
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
-  firstImplementSent = false; // reset per-session first-implement optimization flag
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────
