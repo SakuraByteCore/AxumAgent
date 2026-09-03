@@ -129,29 +129,6 @@ test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists
   }
 });
 
-test("task command appends the parallel-solve directive", async () => {
-  const pi = createPi();
-  const { ctx } = createContext();
-
-  await pi.commands.get("task").handler("fix the cache layer", ctx);
-
-  assert.equal(pi.messages.length, 1);
-  assert.equal(pi.messages[0].message, "fix the cache layer\n\nSolve this problem in parallel.");
-  // First task in session uses "new" streamingBehavior, mirroring /plan
-  assert.equal(pi.messages[0].options.streamingBehavior, "new");
-});
-
-test("task command without a requirement warns and sends nothing", async () => {
-  const pi = createPi();
-  const { ctx, notifications } = createContext();
-
-  await pi.commands.get("task").handler("   ", ctx);
-
-  assert.equal(pi.messages.length, 0);
-  assert.ok(notifications.some((n) => n.level === "warning"));
-});
-
-
 test("plan command notifies when the user template exists but is empty", async () => {
   const pi = createPi();
   const { ctx, notifications } = createContext();

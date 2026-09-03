@@ -1,24 +1,39 @@
 # pi-task
 
-Local task-delegation extension: a `task` tool that spawns fresh subagent sessions
-via `createAgentSession`, modeled after oh-my-pi's task tool.
+Lean isolated subagent tool for Pi. **Zero runtime dependencies.**
 
-## Tool
+One tool (`subagent`), four actions:
 
-- Single spawn: `{ task, name?, agent? }`
-- Batch fan-out: `{ tasks: [{ name?, agent, task }] }` — runs items concurrently
-  under a semaphore (default 4), bounded by a max-width guard (default 8).
+| action | what it does |
+| --- | --- |
+| `spawn` | Start an isolated child Pi session (`pi --mode json -p --no-session -ne --no-skills --no-prompt-templates --no-context-files`) with a tool allowlist; returns a `jobId` immediately so work can continue in parallel |
+| `wait` | Block until the job finishes (max 120s) and return the full report |
+| `status` | Job state plus a report tail |
+| `kill` | Stop the job |
 
-## Agents
+On completion a `subagent-complete` steering message delivers the report as a
+new turn, so the parent conversation only sees the final report, never the
+child's intermediate work.
 
-Built-ins: `general-purpose` (full tools) and `explorer` (read-only:
-read/grep/find/ls).
+## Parameters
 
-Custom profiles are Markdown files with frontmatter (`description`, optional
-`tools`, `model`, `thinking`) discovered from, in increasing precedence:
+- `action`: spawn / wait / status / kill
+- `task` (spawn): full task including role, e.g. "You are a code reviewer; review X and report findings"
+- `tools` (spawn): comma list, default `read,bash,grep,find,ls`; add `write,edit` only when the child should modify files
+- `cwd` (spawn): working directory, defaults to the session cwd
+- `model` / `timeoutSec` (spawn): optional; timeout default 600s
+- `jobId` (wait/status/kill)
 
-1. `~/.omp/agent/agents/` (oh-my-pi compat)
-2. `~/.pi/agent/subagents/`
-3. `<cwd>/.pi/agents/`
+## Design
 
-Child sessions exclude the `task` tool, so subagents cannot delegate further.
+Children are fully isolated: own minimal prompt, ephemeral (`--no-session`),
+and launched without skills, prompt templates, or context files. Follow-up
+questions are handled by spawning a new subagent with context from the
+previous report. At most 4 subagents run concurrently; reports are clipped at
+6k characters in the notification (`action=status` shows the tail). The
+interactive UI shows a live `subagent-async` widget with one row per running
+job, refreshed every second.
+
+## License
+
+MIT

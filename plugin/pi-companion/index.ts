@@ -21,14 +21,6 @@ const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 // Session-first-plan flag
 let firstPlanSent = false;
 
-// Pre-built task prompt: bare requirement plus the parallel-solve directive
-const TASK_COMMAND_PROMPT_SUFFIX = `
-
-Solve this problem in parallel.`;
-
-// Session-first-task flag (mirrors firstPlanSent)
-let firstTaskSent = false;
-
 const RALPH_COMMIT_PATTERN = /\bcommit\b|提交/i;
 
 function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, commitRequested: boolean): string {
@@ -890,30 +882,6 @@ pi.registerCommand("plan", {
   },
 });
 
-// ── /task ──────────────────────────────────────────────────────────────
-
-pi.registerCommand("task", {
-  description: "Dispatch and fan out: send the requirement with a solve-in-parallel directive: /task <requirement>",
-  getArgumentCompletions: () => null,
-  async handler(args: string, ctx) {
-    const requirement = args.trim();
-    if (!requirement) {
-      ctx.ui.notify("Please provide a requirement: /task <requirement>", "warning");
-      return;
-    }
-
-    // Instant UI feedback — user sees confirmation BEFORE network/agent latency
-    ctx.ui.notify("Task sent, waiting for Agent…", "info");
-
-    // Same first-send optimization as /plan: "new" bypasses followUp scheduling overhead
-    const isFirst = !firstTaskSent;
-    if (isFirst) firstTaskSent = true;
-    const streamingBehavior = isFirst ? "new" : "followUp";
-
-    await pi.sendUserMessage(requirement + TASK_COMMAND_PROMPT_SUFFIX, { streamingBehavior });
-  },
-});
-
 	// ── /ralph ──────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ralph", {
@@ -1059,7 +1027,6 @@ pi.on("session_start", async () => {
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
-  firstTaskSent = false; // reset per-session first-task optimization flag
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────

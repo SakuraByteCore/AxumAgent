@@ -38,7 +38,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-companion` (pi-shortcuts + pi-guard を統合: ショートカット + レスポンスガード + アドバイザリウォッチャー)
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
-- `pi-task`（ローカルのタスク委譲プラグイン: 単発・バッチ両対応の subagent ファンアウト、oh-my-pi の task セマンティクス準拠）
+- `pi-task`（軽量な分離 subagent ツール: ツール許可リスト付きの子 Pi プロセスを起動し、完了通知でレポートを受け取る）
 - `pi-memory`
 - `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 手動起動のバックグラウンドエージェント + ライブ進捗ウィジェット）
 

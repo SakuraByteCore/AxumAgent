@@ -1,12 +1,7 @@
 {
   "name": "pi-task",
   "version": "0.1.0",
-  "description": "Task delegation tool: single or batched subagent spawns on top of createAgentSession, following oh-my-pi task semantics. Pure TS, zero native deps.",
-  "keywords": [
-    "pi",
-    "task",
-    "subagent"
-  ],
+  "description": "Lean isolated subagent tool: spawn subprocess agents with tool allowlists, receive reports via completion notification. Pure TS, zero runtime deps.",
   "type": "module",
   "pi": {
     "extensions": [
@@ -15,7 +10,6 @@
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.84.0",
-    "@earendil-works/pi-tui": ">=0.84.0",
     "typebox": "*"
   },
   "license": "MIT"

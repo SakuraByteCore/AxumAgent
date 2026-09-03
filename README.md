@@ -96,7 +96,7 @@ The distribution ships these packages, all in one install:
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
-- `pi-task` (local task-delegation plugin: single or batched subagent fan-out, modeled after oh-my-pi)
+- `pi-task` (lean isolated subagent tool: spawn child Pi subprocesses with tool allowlists, reports delivered via completion notification)
 - `pi-memory`
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget)
 

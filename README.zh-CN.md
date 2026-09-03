@@ -38,7 +38,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 + 响应守卫 + 建议旁观者）
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
-- `pi-task`（本地任务委派插件：单发或批量 subagent 派发，语义参照 oh-my-pi）
+- `pi-task`（轻量隔离 subagent 工具：以工具白名单启动子 Pi 进程，通过完成通知回收报告）
 - `pi-memory`
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：手动触发的后台 Agent，带实时进度挂件）
 
