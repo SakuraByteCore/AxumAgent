@@ -794,6 +794,9 @@ test("connection error pattern matches transport failures and rejects unrelated 
   assert.equal(pattern.test("getaddrinfo ENOTFOUND api.example.com"), true);
   assert.equal(pattern.test("socket hang up"), true);
   assert.equal(pattern.test("socket connection was closed unexpectedly"), true);
+  assert.equal(pattern.test("client disconnected: context canceled"), true);
+  assert.equal(pattern.test("client disconnected: context cancelled"), true);
+  assert.equal(pattern.test("context canceled"), true);
   assert.equal(pattern.test("request timed out"), true);
   assert.equal(pattern.test("stream terminated before completion"), true);
   assert.equal(pattern.test("Error: 429: Too Many Requests"), false);

@@ -725,7 +725,7 @@ function patchPiAgentSessionRateLimitRetry(content) {
 // transient environment noise: like strict 429s they retry on a fixed cadence
 // with a dedicated counter so a flaky link never wastes the user retry budget.
 const PI_CONNECTION_RETRY_EXEMPT_MARKER = "AXUM_PI_CONNECTION_RETRY_EXEMPT";
-const PI_CONNECTION_ERROR_PATTERN_SOURCE = "connection.?(error|refused|reset|lost)|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
+const PI_CONNECTION_ERROR_PATTERN_SOURCE = "connection.?(error|refused|reset|lost)|client.?disconnected|context.?cancell?ed|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
 
 function buildConnectionRetryHelpers() {
   return [
