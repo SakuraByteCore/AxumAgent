@@ -207,11 +207,13 @@ function buildPiEnv(compileCacheDir) {
 }
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault }, { supportedBundledPiPackages }, { ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
     import("../src/provider-config.js"),
+    import("../src/bundled-pi-platform.js"),
+    import("../src/default-system-prompt.js"),
     import("node:child_process"),
   ]);
 
@@ -220,6 +222,11 @@ async function runPi(passthrough) {
   ensureTuiModeDefault();
   const piCli = resolvePiCli(bundledPiOptions);
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
+  // Ship the subagent delegation policy only where the pi-subagents extension
+  // providing the Agent tool actually loads (non-safe sessions, supported platform).
+  if (!safe && supportedBundledPiPackages(bundledPiOptions).includes("@tintinweb/pi-subagents")) {
+    ensureSubagentDelegationPolicy(bundledPiOptions);
+  }
   const extensionArgs = safe ? [] : resolveBundledExtensions(bundledPiOptions).flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
   const hasProviderArg = hasArg(piArgs, "--provider") || hasArg(piArgs, "--model");
