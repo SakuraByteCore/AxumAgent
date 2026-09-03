@@ -15,6 +15,7 @@ const PI_VERSION_NOTIFICATION_SUPPRESSED_MARKER = "AXUM_PI_VERSION_NOTIFICATION_
 const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN";
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
+const PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER = "AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBMIT";
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
@@ -275,6 +276,23 @@ function patchPiJitiLazyLoader(content) {
   return content
     .replace(staticImportNeedle, "")
     .replace(createJitiNeedle, nativeFastPath + createJitiNeedle);
+}
+
+// Scroll the fullscreen transcript to the bottom on every editor submit. The
+// alt-screen ScrollView drops followEnd as soon as the user scrolls up, and
+// upstream never re-engages it on submit, so pressing Enter after reading
+// earlier history leaves the viewport frozen. Re-anchoring on submit mirrors
+// the /pi-agent viewer fix in a382ff6; passive streaming output still keeps
+// the user's scroll position because the ScrollView follow logic is untouched.
+function patchPiAltScreenScrollOnSubmit(content) {
+  if (content.includes(PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER)) return content;
+
+  const needle = "            if (!text)\n                return;\n";
+  if (!content.includes(needle)) return content;
+  const injection =
+    "            // " + PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER + ": Enter re-anchors the fullscreen transcript to the latest message.\n" +
+    "            if (this.renderer instanceof TuiAltScreen) this.renderer.scrollToBottom();\n";
+  return content.replace(needle, needle + injection);
 }
 
 function patchPiVersionNotificationSuppress(content) {
@@ -1256,6 +1274,7 @@ export function applyBundledPiPatches(options) {
     let piInteractivePatched = patchPiVersionNotificationSuppress(piInteractiveOriginal);
     piInteractivePatched = patchPiLoadedSkillsExtensionsHide(piInteractivePatched);
     piInteractivePatched = patchPiStartupChangelogCollapse(piInteractivePatched);
+    piInteractivePatched = patchPiAltScreenScrollOnSubmit(piInteractivePatched);
     if (piInteractivePatched !== piInteractiveOriginal) {
       fs.writeFileSync(piInteractiveModePath, piInteractivePatched);
     }
@@ -1267,4 +1286,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };

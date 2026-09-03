@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -613,6 +613,30 @@ test("patches bundled Pi extension loader for native JS entries and lazy jiti", 
   assert.doesNotMatch(patched, /^import \{ createJiti \} from "jiti\/static";/m);
   assert.match(patched, /const \{ createJiti \} = await import\("jiti\/static"\);/);
   assert.equal(patchPiJitiLazyLoader(patched), patched);
+});
+
+test("patches interactive editor submit to scroll fullscreen transcript to bottom", () => {
+  const source = [
+    "    setupEditorSubmitHandler() {",
+    "        this.defaultEditor.onSubmit = async (text) => {",
+    "            text = text.trim();",
+    "            if (!text)",
+    "                return;",
+    "            // Handle commands",
+    "            if (text === \"/settings\") {",
+    "                this.showSettingsSelector();",
+    "            }",
+    "        };",
+    "    }",
+  ].join("\n") + "\n";
+  const patched = patchPiAltScreenScrollOnSubmit(source);
+  assert.match(patched, /AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBMIT/);
+  assert.match(patched, /this\.renderer instanceof TuiAltScreen\) this\.renderer\.scrollToBottom\(\);/);
+  const [markerLine, scrollLine, commandLine] = patched.split("\n").slice(5, 9);
+  assert.ok(markerLine.includes("AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBMIT"));
+  assert.ok(scrollLine.includes("this.renderer.scrollToBottom()"));
+  assert.ok(commandLine.includes("// Handle commands"));
+  assert.equal(patchPiAltScreenScrollOnSubmit(patched), patched);
 });
 
 test("prunes stale v8-compile-cache directories for other Node versions", () => {
