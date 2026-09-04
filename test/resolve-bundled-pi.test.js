@@ -1052,7 +1052,7 @@ test("patches bundled Pi assistant message to dedupe consecutive identical failu
   assert.throws(() => patchPiAssistantMessageErrorDedup("class X {}"), /class anchor not found/);
 });
 
-test("patches bundled Pi http dispatcher to disable the idle timeout default", () => {
+test("patches bundled Pi http dispatcher to a finite idle timeout default", () => {
   const source = [
     'import * as undici from "undici";',
     "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;",
@@ -1060,8 +1060,8 @@ test("patches bundled Pi http dispatcher to disable the idle timeout default", (
   ].join("\n");
   const patched = patchPiHttpIdleTimeoutDefault(source);
   assert.notEqual(patched, source, "patch should change the source");
-  assert.match(patched, /AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED/);
-  assert.match(patched, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;/);
+  assert.match(patched, /AXUM_PI_HTTP_IDLE_TIMEOUT_120S/);
+  assert.match(patched, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;/);
   assert.doesNotMatch(patched, /300_000/);
   // Idempotent: a second run leaves the patched output untouched.
   assert.equal(patchPiHttpIdleTimeoutDefault(patched), patched);
@@ -1070,31 +1070,31 @@ test("patches bundled Pi http dispatcher to disable the idle timeout default", (
   assert.throws(() => patchPiHttpIdleTimeoutDefault(drifted), /idle timeout default anchor not found/);
 });
 
-test("upgrades the legacy 45s idle timeout patch to the disabled default in place", () => {
+test("upgrades the legacy 45s idle timeout patch to the finite default in place", () => {
   const legacyPatched = [
     'import * as undici from "undici";',
     "// AXUM_PI_HTTP_IDLE_TIMEOUT_45S: upstream-cancelled streams that never close must",
     "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 45_000;",
   ].join("\n");
   const upgraded = patchPiHttpIdleTimeoutDefault(legacyPatched);
-  assert.match(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED/);
+  assert.match(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_120S/);
   assert.doesNotMatch(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_45S/);
-  assert.match(upgraded, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;/);
+  assert.match(upgraded, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;/);
   assert.doesNotMatch(upgraded, /45_000/);
   assert.equal(patchPiHttpIdleTimeoutDefault(upgraded), upgraded);
 });
 
-test("upgrades the legacy 120s idle timeout patch to the disabled default in place", () => {
-  const legacyPatched = [
+test("upgrades the disabled idle timeout patch back to the finite default in place", () => {
+  const disabledPatched = [
     'import * as undici from "undici";',
-    "// AXUM_PI_HTTP_IDLE_TIMEOUT_120S: upstream-cancelled streams that never close must",
-    "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;",
+    "// AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED: never abort streams client-side",
+    "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;",
   ].join("\n");
-  const upgraded = patchPiHttpIdleTimeoutDefault(legacyPatched);
-  assert.match(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED/);
-  assert.doesNotMatch(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_120S/);
-  assert.match(upgraded, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;/);
-  assert.doesNotMatch(upgraded, /120_000/);
+  const upgraded = patchPiHttpIdleTimeoutDefault(disabledPatched);
+  assert.match(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_120S/);
+  assert.doesNotMatch(upgraded, /AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED/);
+  assert.match(upgraded, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;/);
+  assert.doesNotMatch(upgraded, /DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;/);
   assert.equal(patchPiHttpIdleTimeoutDefault(upgraded), upgraded);
 });
 

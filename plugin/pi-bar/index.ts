@@ -32,9 +32,25 @@
  *    only write, and render reads live state directly.
  */
 
-import { CustomEditor, type ExtensionAPI, type ExtensionContext, type KeybindingsManager, type Theme, type ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { Component, EditorTheme, TUI } from "@earendil-works/pi-tui";
-import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+type ExtensionAPI = any;
+type ExtensionContext = any;
+type KeybindingsManager = any;
+type Theme = any;
+type ThemeColor = any;
+type Component = any;
+type EditorTheme = any;
+type TUI = any;
+
+type CustomEditorCtor = new (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: unknown) => any;
+
+const { CustomEditor: RuntimeCustomEditor = class {} } = await import("@earendil-works/pi-coding-agent").catch(() => ({})) as { CustomEditor?: CustomEditorCtor };
+const piTui = await import("@earendil-works/pi-tui").catch(() => ({})) as {
+  truncateToWidth?: (text: string, width: number, ellipsis?: string) => string;
+  visibleWidth?: (text: string) => number;
+};
+const visibleWidth = piTui.visibleWidth ?? ((text: string) => text.replace(/\x1b\[[0-9;]*m/g, "").length);
+const truncateToWidth = piTui.truncateToWidth ?? ((text: string, width: number, ellipsis = "") =>
+  visibleWidth(text) <= width ? text : text.slice(0, Math.max(0, width - visibleWidth(ellipsis))) + ellipsis);
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -418,14 +434,14 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
  */
 type ColorFn = (text: string) => string;
 
-class DashedBorderEditor extends CustomEditor {
+class DashedBorderEditor extends RuntimeCustomEditor {
   private dashedBorderFn: ColorFn | undefined;
 
   constructor(
     tui: TUI,
     theme: EditorTheme,
     keybindings: KeybindingsManager,
-    options?: ConstructorParameters<typeof CustomEditor>[3],
+    options?: unknown,
   ) {
     super(tui, theme, keybindings, options);
     // The parent Editor declares `borderColor;` as a class field, which at

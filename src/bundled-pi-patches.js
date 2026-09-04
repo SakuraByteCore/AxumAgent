@@ -21,9 +21,9 @@ const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
 const PI_DEADLINE_RETRYABLE_MARKER = "AXUM_PI_DEADLINE_RETRYABLE";
-const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED";
+const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_120S";
 const PI_HTTP_IDLE_TIMEOUT_LEGACY_MARKERS = [
-  { marker: "AXUM_PI_HTTP_IDLE_TIMEOUT_120S", value: "120_000" },
+  { marker: "AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED", value: "0" },
   { marker: "AXUM_PI_HTTP_IDLE_TIMEOUT_45S", value: "45_000" },
 ];
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
@@ -334,17 +334,13 @@ function patchPiVersionNotificationSuppress(content) {
 
 
 /**
- * Disable the bundled HTTP idle timeout by default. Any client-side idle
- * abort reaches upstream as `client disconnected: context canceled` and the
- * request has to be reissued as a fresh generation, so prevention beats
- * recovery: never cut a stream on our side, and let the relay surface its
- * own hard failures. The SDK maps 0 to the max int32 timeout, so the default
- * lane is effectively unbounded; long-thinking models whose relays buffer
- * entire generations without streaming bytes stay safe. The TUI settings
- * still expose `httpIdleTimeoutMs` (a finite value, or `disabled` again) for
- * anyone who wants fail-fast detection of upstream-cancelled streams whose
- * sockets never close. Caches previously carrying the 45s or 120s patch are
- * upgraded in place.
+ * Keep the bundled HTTP idle timeout finite by default. Upstream-cancelled
+ * streams can leave the socket open forever behind relays/proxies; an
+ * unbounded local body timeout makes the TUI look frozen and prevents retry
+ * recovery from kicking in. 120s is long enough for slow buffered generations
+ * but still gives the retry lanes a bounded failure signal. Users can still
+ * override via httpIdleTimeoutMs, including disabling the timeout explicitly.
+ * Caches previously carrying the disabled or 45s patch are upgraded in place.
  */
 function patchPiHttpIdleTimeoutDefault(content) {
   if (content.includes(PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER)) return content;
@@ -355,7 +351,7 @@ function patchPiHttpIdleTimeoutDefault(content) {
       .replace(legacy.marker, PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER)
       .replace(
         `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = ${legacy.value};`,
-        "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;",
+        "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;",
       );
   }
 
@@ -367,11 +363,11 @@ function patchPiHttpIdleTimeoutDefault(content) {
   return content.replace(
     needle,
     [
-      `// ${PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER}: never abort streams client-side; a local idle`,
-      `// abort reaches upstream as a client disconnect and the request has to be reissued`,
-      `// from scratch. 0 maps to max int32, so the default lane is disabled. Pick a`,
-      `// finite httpIdleTimeoutMs value in settings to restore fail-fast hang detection.`,
-      `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;`,
+      `// ${PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER}: keep idle streams bounded so`,
+      `// upstream-cancelled sockets surface as retryable body timeouts instead`,
+      `// of leaving the UI frozen indefinitely. Users may still override via`,
+      `// httpIdleTimeoutMs, including disabled/0 when they really want it.`,
+      `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;`,
     ].join("\n"),
   );
 }

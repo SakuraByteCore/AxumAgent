@@ -269,6 +269,9 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-debug", { "index.ts": "" });
+  writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
+  writePackage(cache, "pi-memory", { "index.ts": "" });
+  writePackage(cache, "pi-agent", { "index.ts": "" });
   writeAgentSettings(agentDir);
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
@@ -281,7 +284,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   const compiledIndex = argv.indexOf(path.join(cache, "node_modules", "pi-bar", "index.js"));
   assert.notEqual(compiledIndex, -1);
   assert.equal(argv[compiledIndex - 1], "-e");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 4);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 7);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {
