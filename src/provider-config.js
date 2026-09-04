@@ -369,3 +369,26 @@ export function ensureTuiModeDefault(file = getSettingsPath()) {
   }
 }
 
+export function getWebSearchConfigPath(env = process.env) {
+  if (env.PI_CODING_AGENT_DIR) return path.join(expandTilde(env.PI_CODING_AGENT_DIR), "web-search.json");
+  return path.join(os.homedir(), ".pi", "web-search.json");
+}
+
+const DEFAULT_WEB_SEARCH_WORKFLOW = "none";
+
+export function ensureWebSearchWorkflowDefault(file = getWebSearchConfigPath()) {
+  let config;
+  try {
+    config = readJsonFile(file);
+  } catch (error) {
+    // Never overwrite a user file that holds unparseable JSON; pi-web-access
+    // itself falls back to defaults in that case.
+    console.error(`Skipping web-search workflow default: ${error.message}`);
+    return { file, seeded: false };
+  }
+  if (config.workflow !== undefined) return { file, seeded: false };
+  config.workflow = DEFAULT_WEB_SEARCH_WORKFLOW;
+  writeJsonFile(file, config);
+  return { file, seeded: true };
+}
+

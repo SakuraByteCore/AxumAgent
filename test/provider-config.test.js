@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureDefaultProviderReasoningSupport, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -196,5 +196,49 @@ test("saveSteeringMode rejects unsupported mode", () => {
   assert.throws(() => saveSteeringMode("bogus", file), /Unsupported steering mode/);
   assert.throws(() => saveSteeringMode("followUp", file), /Unsupported steering mode/);
   assert.throws(() => saveSteeringMode(undefined, file), /Unsupported steering mode/);
+});
+
+test("getWebSearchConfigPath honors PI_CODING_AGENT_DIR and defaults to ~/.pi", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-websearch-dir-"));
+  assert.equal(getWebSearchConfigPath({ PI_CODING_AGENT_DIR: dir }), path.join(dir, "web-search.json"));
+  assert.equal(getWebSearchConfigPath({}), path.join(os.homedir(), ".pi", "web-search.json"));
+});
+
+test("ensureWebSearchWorkflowDefault seeds workflow none when file is missing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-websearch-new-"));
+  const file = path.join(dir, "web-search.json");
+  const result = ensureWebSearchWorkflowDefault(file);
+  assert.equal(result.seeded, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { workflow: "none" });
+});
+
+test("ensureWebSearchWorkflowDefault preserves existing keys and fills missing workflow", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-websearch-merge-"));
+  const file = path.join(dir, "web-search.json");
+  fs.writeFileSync(file, JSON.stringify({ searxng: { baseUrl: "http://127.0.0.1:8888" } }));
+  const result = ensureWebSearchWorkflowDefault(file);
+  assert.equal(result.seeded, true);
+  const merged = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(merged.workflow, "none");
+  assert.equal(merged.searxng.baseUrl, "http://127.0.0.1:8888");
+});
+
+test("ensureWebSearchWorkflowDefault never overrides an explicit workflow", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-websearch-keep-"));
+  const file = path.join(dir, "web-search.json");
+  fs.writeFileSync(file, JSON.stringify({ workflow: "auto-summary" }));
+  const result = ensureWebSearchWorkflowDefault(file);
+  assert.equal(result.seeded, false);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).workflow, "auto-summary");
+});
+
+test("ensureWebSearchWorkflowDefault leaves malformed JSON untouched", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-websearch-broken-"));
+  const file = path.join(dir, "web-search.json");
+  const broken = "{ this is not valid json }";
+  fs.writeFileSync(file, broken);
+  const result = ensureWebSearchWorkflowDefault(file);
+  assert.equal(result.seeded, false);
+  assert.equal(fs.readFileSync(file, "utf8"), broken);
 });
 
