@@ -119,8 +119,9 @@ test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists
   try {
     await pi.commands.get("plan").handler("add login", ctx);
 
+    assert.ok(pi.messages[0].message.startsWith("before add login after\n"));
+    assert.match(pi.messages[0].message, /Read-only plan mode is now enforced/, "lock notice is appended even with a user template");
     assert.equal(pi.messages.length, 1);
-    assert.equal(pi.messages[0].message, "before add login after\n");
     assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
@@ -729,4 +730,73 @@ test("ralph deferred continuation stops retrying after the attempt limit", async
   t.mock.timers.tick(60_000);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(pi.messages.length, 1);
+});
+
+async function emitCollect(pi, event, ...args) {
+  const handlers = pi.listeners.get(event) ?? [];
+  const results = [];
+  for (const handler of handlers) {
+    results.push(await handler(...args));
+  }
+  return results;
+}
+
+async function writeBlocked(pi, toolName, input) {
+  const results = await emitCollect(pi, "tool_call", { toolName, input });
+  return results.some((r) => r?.block === true);
+}
+
+test("plan mode blocks write/edit until /build unlocks, empty /build falls back to discussed requirement", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("build").handler("", ctx); // ensure session starts writable
+  assert.equal(await writeBlocked(pi, "write", { path: "a.ts", content: "x" }), false, "write allowed before /plan");
+
+  await pi.commands.get("plan").handler("add login", ctx);
+  assert.match(pi.messages.at(-1).message, /Read-only plan mode is now enforced/, "plan prompt carries the lock notice");
+
+  assert.equal(await writeBlocked(pi, "write", { path: "a.ts", content: "x" }), true, "write blocked in plan mode");
+  assert.equal(await writeBlocked(pi, "edit", { path: "a.ts" }), true, "edit blocked in plan mode");
+  assert.equal(await writeBlocked(pi, "read", { path: "a.ts" }), false, "read still allowed in plan mode");
+
+  await pi.commands.get("build").handler("", ctx);
+  assert.equal(await writeBlocked(pi, "write", { path: "a.ts", content: "x" }), false, "/build unlocks write");
+  assert.match(pi.messages.at(-1).message, /discussed and confirmed earlier in this conversation/, "empty /build falls back to the discussed requirement");
+  assert.match(pi.messages.at(-1).message, /\[Requirement\]/);
+});
+
+test("plan mode blocks writing shell commands but allows read-only ones", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+  await pi.commands.get("plan").handler("audit repo", ctx);
+
+  const blocked = (command) => writeBlocked(pi, "bash", { command });
+
+  assert.equal(await blocked("git status && git diff HEAD~1 | head -50"), false);
+  assert.equal(await blocked("find src -name '*.ts' 2>/dev/null | head"), false);
+  assert.equal(await blocked("cat package.json | grep version"), false);
+  assert.equal(await blocked("npm test"), false);
+  assert.equal(await blocked("git log --oneline"), false);
+
+  assert.equal(await blocked("rm -rf dist"), true);
+  assert.equal(await blocked("echo hello > out.txt"), true);
+  assert.equal(await blocked("echo hello >> out.txt"), true);
+  assert.equal(await blocked("git commit -m wip"), true);
+  assert.equal(await blocked("git checkout -- ."), true);
+  assert.equal(await blocked("npm install lodash"), true);
+  assert.equal(await blocked("sed -i s/a/b/ file.ts"), true);
+  assert.equal(await blocked("curl -o plugin.tgz https://example.com/x.tgz"), true);
+  assert.equal(await blocked("npx some-codegen-tool"), true);
+  assert.equal(await blocked("cat <<EOF > config.json"), true);
+});
+
+test("session_start resets plan mode back to writable", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+  await pi.commands.get("plan").handler("scoped write", ctx);
+  assert.equal(await writeBlocked(pi, "write", { path: "a.ts" }), true);
+
+  await emit(pi, "session_start", {}, ctx);
+  assert.equal(await writeBlocked(pi, "write", { path: "a.ts" }), false, "new session unlocks write");
 });
