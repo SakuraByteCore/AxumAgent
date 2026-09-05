@@ -192,6 +192,10 @@ export default function registerDebug(pi: ExtensionAPI): void {
     },
   });
 
+  pi.on("session_shutdown", async () => {
+    await detachActive();
+  });
+
   pi.registerCommand(`${EXT}:break`, {
     description: "Set breakpoints. Usage: /pi-debug:break <file>:<line> [<file>:<line> ...]",
     handler: async (rawArgs: string) => {
