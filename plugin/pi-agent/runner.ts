@@ -77,7 +77,7 @@ export async function handleAgentCommand(
 	}
 }
 
-async function startUserAgent(
+export async function startUserAgent(
 	pi: ExtensionAPI,
 	runningAgents: Set<RunningAgent>,
 	widget: UserAgentWidget,
@@ -87,7 +87,7 @@ async function startUserAgent(
 	args: string,
 	invocation: string,
 	ctx: ExtensionCommandContext,
-): Promise<void> {
+): Promise<RunningAgent> {
 	const parsed = parseAgentCommand(args, command);
 	const parsedForwardedArgs = parseForwardedArgs(parsed.forwardedArgs);
 	const agentDir = getAgentDir();
@@ -150,6 +150,7 @@ async function startUserAgent(
 		runningAgents.delete(runningAgent);
 		widget.update();
 	});
+	return runningAgent;
 }
 
 function createRunningAgent(

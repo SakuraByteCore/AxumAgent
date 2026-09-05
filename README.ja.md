@@ -39,7 +39,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
 - `@tintinweb/pi-subagents`（Claude Code 風のサブエージェントとワークフロー編成: 並列実行、ライブフリートビュー、カスタムエージェントタイプ、実行中のステアリング、動的ワークフロー。Windows では同梱しません）
-- `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 手動起動のバックグラウンドエージェント + ライブ進捗ウィジェット）
+- `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 手動起動のバックグラウンドエージェント + ライブ進捗ウィジェット。さらに `/dispatch` コマンドと `dispatch_agent` ツールによるエージェント主導のバッチ分散に対応)
 
 ## 要件
 

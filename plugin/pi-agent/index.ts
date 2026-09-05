@@ -1,9 +1,10 @@
+import { registerDispatch } from "./dispatch.js";
 import type {
 	MessageEndEvent,
 	MessageEndEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { registerAgentAutocomplete } from "./autocomplete.js";
-import { createRebaseDelivery, handleAgentCommand } from "./runner.js";
+import { createRebaseDelivery, handleAgentCommand, startUserAgent } from "./runner.js";
 import type {
 	AgentCommandDetails,
 	DetachedEntryData,
@@ -50,6 +51,24 @@ export default function userAgent(pi: ExtensionAPI): void {
 				ctx,
 			);
 		},
+	});
+
+	// ── /dispatch + dispatch_agent: main-agent-driven batch fan-out ─────────────
+
+	registerDispatch(pi, {
+		isShuttingDown: () => shuttingDown,
+		startAgent: (dispatchArgs, invocation, ctx) =>
+			startUserAgent(
+				pi,
+				runningAgents,
+				widget,
+				() => shuttingDown,
+				() => ++nextAgentNumber,
+				"agent",
+				dispatchArgs,
+				invocation,
+				ctx,
+			),
 	});
 
 	pi.on("session_shutdown", async () => {

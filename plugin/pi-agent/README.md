@@ -199,3 +199,22 @@ Design notes — result delivery through the Pi SDK, the squashed-message format
 ---
 
 Heavily inspired by [tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents).
+
+## Batch fan-out (fork addition)
+
+This fork adds `/dispatch`, which hands a batch of tasks to the main agent and lets it fan the
+work out to background agents itself.
+
+```
+/dispatch fix the flaky login test
+          write a README section for pi-bar
+          bump plugin versions to 0.1.15
+```
+
+The command injects the batch as a user message asking the agent to split it into independent
+units and to spawn one background agent per unit via the new `dispatch_agent` tool
+(`executionMode: "parallel"`, so several dispatches in one turn truly run concurrently). Each
+spawned agent is a regular `/agent` instance: it shows in the agents widget, and its result is
+delivered back into this conversation on completion (squash semantics). The tool accepts the
+same knobs as `/agent`: `isolate` (blank context), `squash` (default on), `model`, and
+`thinking`.
