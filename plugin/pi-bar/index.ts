@@ -55,6 +55,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath } from "./prompt-history";
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
@@ -444,6 +445,7 @@ class DashedBorderEditor extends RuntimeCustomEditor {
     options?: unknown,
   ) {
     super(tui, theme, keybindings, options);
+    ensurePromptHistoryLoaded();
     (this as unknown as { history: string[] }).history = sharedPromptHistory;
     // The parent Editor declares `borderColor;` as a class field, which at
     // construction time installs an own { value: undefined, writable: true }
@@ -468,6 +470,22 @@ class DashedBorderEditor extends RuntimeCustomEditor {
     self.dashedBorderFn = (text: string) =>
       theme.borderColor(text.replaceAll("\u2500", "\u254c"));
   }
+
+  /**
+   * Persist genuinely new submissions to the project history file so ↑ works
+   * across process restarts. The base class normalizes (trim + consecutive
+   * dedup), so only a history head that actually changed and is not already
+   * on disk is appended; entries replayed from a resumed session hit the
+   * persisted-entries set and are skipped instead of duplicating the file.
+   */
+  override addToHistory(text: string): void {
+    ensurePromptHistoryLoaded();
+    const previous = sharedPromptHistory[0];
+    super.addToHistory(text);
+    const newest = sharedPromptHistory[0];
+    if (!newest || newest === previous || persistedPromptEntries.has(newest)) return;
+    persistPromptEntry(newest);
+  }
 }
 
 // Shared prompt history. Pi tears the editor down and builds a fresh one on
@@ -477,6 +495,38 @@ class DashedBorderEditor extends RuntimeCustomEditor {
 // constructor) for this module-level array before the instance is ever used,
 // so ↑/↓ navigation keeps working across session switches within the process.
 const sharedPromptHistory: string[] = [];
+
+// Project-scoped persistence layered on the shared history above. The shared
+// array alone only survives in-process /new session switches; here the
+// project's persisted entries are loaded once (file order is oldest-first,
+// the editor array is newest-first) when the first editor is built, and each
+// genuinely new submission is appended to the project history file.
+let promptHistoryFile: string | undefined;
+const persistedPromptEntries = new Set<string>();
+let promptHistoryLoaded = false;
+let promptHistoryError: string | undefined;
+
+function ensurePromptHistoryLoaded(): void {
+	if (promptHistoryLoaded) return;
+	promptHistoryLoaded = true;
+	promptHistoryFile = promptHistoryPath(process.cwd(), AGENT_DIR);
+	const entries = loadPromptHistory(promptHistoryFile);
+	for (const entry of entries) persistedPromptEntries.add(entry);
+	if (sharedPromptHistory.length === 0) sharedPromptHistory.push(...entries.reverse());
+}
+
+function persistPromptEntry(entry: string): void {
+	if (!promptHistoryFile) return;
+	try {
+		appendPromptHistoryEntry(promptHistoryFile, entry);
+		persistedPromptEntries.add(entry);
+	} catch (error) {
+		// Persist failure must stay visible, not silently degrade: the editor
+		// keeps working in-memory, and the error is surfaced as a notification
+		// on the next session_start (ctx is unreachable from the editor).
+		promptHistoryError = error instanceof Error ? error.message : String(error);
+	}
+}
 
 const dashedEditorFactory =
   (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) =>
@@ -1422,6 +1472,10 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		settings = loadSettings();
 		currentCtx = ctx;
+		if (promptHistoryError) {
+			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
+			promptHistoryError = undefined;
+		}
 		hideFooter(ctx);
 		installHeader(ctx);
 		runEmitGit(ctx);
