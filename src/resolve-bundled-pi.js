@@ -1,16 +1,8 @@
 import path from "node:path";
 import fs from "node:fs";
-import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
+import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { readCompileManifest } from "./compile-bundled-extensions.js";
 import { supportedBundledPiExtensions } from "./bundled-pi-platform.js";
-
-function packageDirName(packageName) {
-  if (packageName.startsWith("@")) {
-    const [scope, name] = packageName.split("/");
-    return path.join(scope, name);
-  }
-  return packageName;
-}
 
 function packageRoot(packageName, options) {
   const packageDir = packageDirName(packageName);

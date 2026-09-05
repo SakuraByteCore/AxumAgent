@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
+import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { isAndroidLike } from "./bundled-pi-platform.js";
 
 const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
@@ -32,14 +32,6 @@ const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
 const PI_RATE_LIMIT_429_PATTERN_SOURCE = "^\\s*(?:Error:\\s*)?429[:\\s]";
-
-function packageDirName(packageName) {
-  if (packageName.startsWith("@")) {
-    const [scope, name] = packageName.split("/");
-    return path.join(scope, name);
-  }
-  return packageName;
-}
 
 function resolveBundledPackageRoot(packageName, options) {
   return path.join(getBundledPiNodeModules(options), packageDirName(packageName));
@@ -1170,6 +1162,13 @@ function patchPiRetryJitter(content) {
     .replaceAll("delayMs = CONNECTION_DELAY_MS;", "delayMs = jitteredDelay(CONNECTION_DELAY_MS);");
 }
 
+function patchFileInPlace(filePath, ...patchers) {
+  const original = fs.readFileSync(filePath, "utf8");
+  const patched = patchers.reduce((content, apply) => apply(content), original);
+  if (patched !== original) fs.writeFileSync(filePath, patched);
+  return { patched: patched !== original, file: filePath };
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -1178,34 +1177,19 @@ export function applyBundledPiPatches(options) {
   if (!fs.existsSync(stdinBufferPath)) {
     throw new Error(`bundled Pi TUI stdin buffer not found: ${stdinBufferPath}`);
   }
-  const tuiOriginal = fs.readFileSync(stdinBufferPath, "utf8");
-  const tuiPatched = patchPiTuiStdinBuffer(tuiOriginal);
-  if (tuiPatched !== tuiOriginal) {
-    fs.writeFileSync(stdinBufferPath, tuiPatched);
-  }
-  results.push({ patched: tuiPatched !== tuiOriginal, file: stdinBufferPath });
+  results.push(patchFileInPlace(stdinBufferPath, patchPiTuiStdinBuffer));
 
   const piRoot = resolveBundledPackageRoot(PI_CODING_AGENT_PACKAGE, options);
   const undiciWebidlPath = path.join(piRoot, "node_modules", "undici", "lib", "web", "webidl", "index.js");
   if (fs.existsSync(undiciWebidlPath)) {
-    const undiciOriginal = fs.readFileSync(undiciWebidlPath, "utf8");
-    const undiciPatched = patchUndiciMarkAsUncloneableFallback(undiciOriginal);
-    if (undiciPatched !== undiciOriginal) {
-      fs.writeFileSync(undiciWebidlPath, undiciPatched);
-    }
-    results.push({ patched: undiciPatched !== undiciOriginal, file: undiciWebidlPath });
+    results.push(patchFileInPlace(undiciWebidlPath, patchUndiciMarkAsUncloneableFallback));
   }
 
   // Lower the stock 300s HTTP idle timeout so upstream-cancelled streams that
   // never close their socket surface as a retryable body-timeout quickly.
   const httpDispatcherPath = path.join(piRoot, "dist", "core", "http-dispatcher.js");
   if (fs.existsSync(httpDispatcherPath)) {
-    const dispatcherOriginal = fs.readFileSync(httpDispatcherPath, "utf8");
-    const dispatcherPatched = patchPiHttpIdleTimeoutDefault(dispatcherOriginal);
-    if (dispatcherPatched !== dispatcherOriginal) {
-      fs.writeFileSync(httpDispatcherPath, dispatcherPatched);
-    }
-    results.push({ patched: dispatcherPatched !== dispatcherOriginal, file: httpDispatcherPath });
+    results.push(patchFileInPlace(httpDispatcherPath, patchPiHttpIdleTimeoutDefault));
   }
 
   // Strict-429 rate-limit exemption: patch every retry.js copy reachable from
@@ -1219,44 +1203,20 @@ export function applyBundledPiPatches(options) {
   ];
   for (const retryPath of piAiRetryPaths) {
     if (!fs.existsSync(retryPath)) continue;
-    const retryOriginal = fs.readFileSync(retryPath, "utf8");
-    const retryPatched = patchPiAiRateLimitRetry(retryOriginal);
-    const retryPatchedFinal = patchPiRetryJitter(patchPiAiRetryable422(retryPatched));
-    if (retryPatchedFinal !== retryOriginal) {
-      fs.writeFileSync(retryPath, retryPatchedFinal);
-    }
-    results.push({ patched: retryPatchedFinal !== retryOriginal, file: retryPath });
+    results.push(patchFileInPlace(retryPath, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiRetryJitter));
   }
 
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
-  if (fs.existsSync(agentSessionPath)) {
-    const sessionOriginal = fs.readFileSync(agentSessionPath, "utf8");
-    const sessionPatched = patchPiAgentSessionConnectionRetry(patchPiRetryJitter(sessionOriginal));
-    if (sessionPatched !== sessionOriginal) {
-      fs.writeFileSync(agentSessionPath, sessionPatched);
-    }
-    results.push({ patched: sessionPatched !== sessionOriginal, file: agentSessionPath });
-  } else {
-    results.push({ patched: false, file: agentSessionPath });
-  }
+  results.push(fs.existsSync(agentSessionPath)
+    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry)
+    : { patched: false, file: agentSessionPath });
 
   const interactiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(interactiveModePath)) {
-    const interactiveOriginal = fs.readFileSync(interactiveModePath, "utf8");
-    const interactivePatched = patchPiInteractiveRateLimitDisplay(interactiveOriginal);
-    const interactiveFinal = patchPiInteractiveErrorDedup(interactivePatched);
-    if (interactiveFinal !== interactiveOriginal) {
-      fs.writeFileSync(interactiveModePath, interactiveFinal);
-    }
-    results.push({ patched: interactiveFinal !== interactiveOriginal, file: interactiveModePath });
+    results.push(patchFileInPlace(interactiveModePath, patchPiInteractiveRateLimitDisplay, patchPiInteractiveErrorDedup));
     const assistantMessagePath = path.join(piRoot, "dist", "modes", "interactive", "components", "assistant-message.js");
     if (fs.existsSync(assistantMessagePath)) {
-      const assistantOriginal = fs.readFileSync(assistantMessagePath, "utf8");
-      const assistantPatched = patchPiAssistantMessageErrorDedup(assistantOriginal);
-      if (assistantPatched !== assistantOriginal) {
-        fs.writeFileSync(assistantMessagePath, assistantPatched);
-      }
-      results.push({ patched: assistantPatched !== assistantOriginal, file: assistantMessagePath });
+      results.push(patchFileInPlace(assistantMessagePath, patchPiAssistantMessageErrorDedup));
     }
   } else {
     results.push({ patched: false, file: interactiveModePath });
@@ -1267,60 +1227,27 @@ export function applyBundledPiPatches(options) {
     if (!fs.existsSync(toolsManagerPath)) {
       throw new Error(`bundled Pi tools-manager not found: ${toolsManagerPath}`);
     }
-    const tmOriginal = fs.readFileSync(toolsManagerPath, "utf8");
-    const tmPatched = patchTermuxAutoInstall(tmOriginal);
-    if (tmPatched !== tmOriginal) {
-      fs.writeFileSync(toolsManagerPath, tmPatched);
-    }
-    results.push({ patched: tmPatched !== tmOriginal, file: toolsManagerPath });
+    results.push(patchFileInPlace(toolsManagerPath, patchTermuxAutoInstall));
   }
 
   const piGoalRoot = resolveBundledPackageRoot(PI_GOAL_PACKAGE, options);
   const piGoalSettingsPath = path.join(piGoalRoot, "src", "settings.ts");
-  if (fs.existsSync(piGoalSettingsPath)) {
-    const piGoalOriginal = fs.readFileSync(piGoalSettingsPath, "utf8");
-    const piGoalPatched = patchPiGoalLinkSyncFallback(piGoalOriginal);
-    if (piGoalPatched !== piGoalOriginal) {
-      fs.writeFileSync(piGoalSettingsPath, piGoalPatched);
-    }
-    results.push({ patched: piGoalPatched !== piGoalOriginal, file: piGoalSettingsPath });
-  } else {
-    results.push({ patched: false, file: piGoalSettingsPath });
-  }
+  results.push(fs.existsSync(piGoalSettingsPath)
+    ? patchFileInPlace(piGoalSettingsPath, patchPiGoalLinkSyncFallback)
+    : { patched: false, file: piGoalSettingsPath });
   const piGoalRuntimePath = path.join(piGoalRoot, "src", "runtime.ts");
-  if (fs.existsSync(piGoalRuntimePath)) {
-    const piGoalRuntimeOriginal = fs.readFileSync(piGoalRuntimePath, "utf8");
-    const piGoalRuntimePatched = patchPiGoalAutoResume(piGoalRuntimeOriginal);
-    if (piGoalRuntimePatched !== piGoalRuntimeOriginal) {
-      fs.writeFileSync(piGoalRuntimePath, piGoalRuntimePatched);
-    }
-    results.push({ patched: piGoalRuntimePatched !== piGoalRuntimeOriginal, file: piGoalRuntimePath });
-  } else {
-    results.push({ patched: false, file: piGoalRuntimePath });
-  }
+  results.push(fs.existsSync(piGoalRuntimePath)
+    ? patchFileInPlace(piGoalRuntimePath, patchPiGoalAutoResume)
+    : { patched: false, file: piGoalRuntimePath });
+
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   const piExtensionLoaderPath = path.join(piRoot, "dist", "core", "extensions", "loader.js");
   if (fs.existsSync(piExtensionLoaderPath)) {
-    const loaderOriginal = fs.readFileSync(piExtensionLoaderPath, "utf8");
-    const loaderPatched = patchPiJitiLazyLoader(loaderOriginal);
-    if (loaderPatched !== loaderOriginal) {
-      fs.writeFileSync(piExtensionLoaderPath, loaderPatched);
-    }
-    results.push({ patched: loaderPatched !== loaderOriginal, file: piExtensionLoaderPath });
+    results.push(patchFileInPlace(piExtensionLoaderPath, patchPiJitiLazyLoader));
   }
-  if (fs.existsSync(piInteractiveModePath)) {
-    const piInteractiveOriginal = fs.readFileSync(piInteractiveModePath, "utf8");
-    let piInteractivePatched = patchPiVersionNotificationSuppress(piInteractiveOriginal);
-    piInteractivePatched = patchPiLoadedSkillsExtensionsHide(piInteractivePatched);
-    piInteractivePatched = patchPiStartupChangelogCollapse(piInteractivePatched);
-    piInteractivePatched = patchPiAltScreenScrollOnSubmit(piInteractivePatched);
-    if (piInteractivePatched !== piInteractiveOriginal) {
-      fs.writeFileSync(piInteractiveModePath, piInteractivePatched);
-    }
-    results.push({ patched: piInteractivePatched !== piInteractiveOriginal, file: piInteractiveModePath });
-  } else {
-    results.push({ patched: false, file: piInteractiveModePath });
-  }
+  results.push(fs.existsSync(piInteractiveModePath)
+    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit)
+    : { patched: false, file: piInteractiveModePath });
 
   return results;
 }

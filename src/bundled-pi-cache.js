@@ -19,3 +19,11 @@ export function getBundledPiCacheRoot({ env = process.env, platform = process.pl
 export function getBundledPiNodeModules(options) {
   return path.join(getBundledPiCacheRoot(options), "node_modules");
 }
+
+export function packageDirName(packageName) {
+  if (packageName.startsWith("@")) {
+    const [scope, name] = packageName.split("/");
+    return path.join(scope, name);
+  }
+  return packageName;
+}

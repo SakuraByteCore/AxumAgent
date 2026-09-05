@@ -253,56 +253,101 @@ export function pruneStaleCompileCaches(cacheRoot) {
   return removed;
 }
 
+const INSTALL_LOCK_STALE_MS = 10 * 60 * 1000;
+const INSTALL_LOCK_TIMEOUT_MS = 10 * 60 * 1000;
+const INSTALL_LOCK_RETRY_MS = 250;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function acquireInstallLock(cacheRoot) {
+  fs.mkdirSync(cacheRoot, { recursive: true });
+  const lockPath = path.join(cacheRoot, ".install.lock");
+  const deadline = Date.now() + INSTALL_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: "wx" });
+      return () => {
+        try {
+          fs.rmSync(lockPath, { force: true });
+        } catch {}
+      };
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      let stats;
+      try {
+        stats = fs.statSync(lockPath);
+      } catch {
+        continue;
+      }
+      if (Date.now() - stats.mtimeMs > INSTALL_LOCK_STALE_MS) {
+        fs.rmSync(lockPath, { force: true });
+        continue;
+      }
+      if (Date.now() > deadline) {
+        throw new Error(`timed out waiting for bundled Pi install lock: ${lockPath}`);
+      }
+      sleepSync(INSTALL_LOCK_RETRY_MS);
+    }
+  }
+}
+
 export function ensureBundledPi(options) {
   const cacheRoot = getBundledPiCacheRoot(options);
-  pruneStaleCompileCaches(cacheRoot);
-  ensurePluginSource(cacheRoot, options);
-  ensureBundledSkills(cacheRoot, options);
-  if (bundledReady(options)) {
+  const releaseLock = acquireInstallLock(cacheRoot);
+  try {
+    pruneStaleCompileCaches(cacheRoot);
+    ensurePluginSource(cacheRoot, options);
+    ensureBundledSkills(cacheRoot, options);
+    if (bundledReady(options)) {
+      applyBundledPiPatches(options);
+      ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
+      try {
+        compileBundledExtensions(options);
+      } catch { /* extensions stay on runtime jiti transpile */ }
+      return;
+    }
+
+    fs.mkdirSync(cacheRoot, { recursive: true });
+    fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true });
+    const npm = resolveNpmInstallCommand(options);
+    const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
+    console.error("Axum first-run setup: installing bundled Pi and extensions...");
+    const NPM_INSTALL_MAX_ATTEMPTS = 3;
+    const runNpm = (attemptsLeft) => {
+      const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
+        cwd: cacheRoot,
+        stdio: "inherit",
+        env: npmInstallEnv(options),
+        shell: npm.shell,
+      });
+      const retryOrThrow = (message) => {
+        if (attemptsLeft <= 1) {
+          throw new Error(message);
+        }
+        console.error(`${message}; cleaning up and retrying bundled Pi install (${attemptsLeft - 1} attempt(s) left)...`);
+        try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
+        return runNpm(attemptsLeft - 1);
+      };
+      if (result.error) {
+        return retryOrThrow(`failed to install bundled Pi dependencies: ${result.error.message}`);
+      }
+      if ((result.status ?? 1) !== 0) {
+        return retryOrThrow(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
+      }
+      return result;
+    };
+    runNpm(NPM_INSTALL_MAX_ATTEMPTS);
+    if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
     applyBundledPiPatches(options);
     ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
     try {
       compileBundledExtensions(options);
     } catch { /* extensions stay on runtime jiti transpile */ }
-    return;
+  } finally {
+    releaseLock();
   }
-
-  fs.mkdirSync(cacheRoot, { recursive: true });
-  fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true });
-  const npm = resolveNpmInstallCommand(options);
-  const args = ["install", "--prefix", cacheRoot, "--omit=dev", "--no-audit", "--no-fund", "--no-save", "--install-strategy=hoisted", ...supportedBundledPiPackages(options)];
-  console.error("Axum first-run setup: installing bundled Pi and extensions...");
-  const NPM_INSTALL_MAX_ATTEMPTS = 3;
-  const runNpm = (attemptsLeft) => {
-    const result = spawnSync(npm.command, [...npm.argsPrefix, ...args], {
-      cwd: cacheRoot,
-      stdio: "inherit",
-      env: npmInstallEnv(options),
-      shell: npm.shell,
-    });
-    const retryOrThrow = (message) => {
-      if (attemptsLeft <= 1) {
-        throw new Error(message);
-      }
-      console.error(`${message}; cleaning up and retrying bundled Pi install (${attemptsLeft - 1} attempt(s) left)...`);
-      try { fs.rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true }); } catch {}
-      return runNpm(attemptsLeft - 1);
-    };
-    if (result.error) {
-      return retryOrThrow(`failed to install bundled Pi dependencies: ${result.error.message}`);
-    }
-    if ((result.status ?? 1) !== 0) {
-      return retryOrThrow(`failed to install bundled Pi dependencies: npm exited ${result.status}`);
-    }
-    return result;
-  };
-  runNpm(NPM_INSTALL_MAX_ATTEMPTS);
-  if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
-  applyBundledPiPatches(options);
-  ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
-  try {
-    compileBundledExtensions(options);
-  } catch { /* extensions stay on runtime jiti transpile */ }
 }
 
 export function ensureBundledSkills(cacheRoot, options) {

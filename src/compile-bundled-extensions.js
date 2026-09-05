@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { stripTypeScriptTypes } from "node:module";
-import { getBundledPiNodeModules } from "./bundled-pi-cache.js";
+import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { supportedBundledPiExtensions } from "./bundled-pi-platform.js";
 
 /**
@@ -55,14 +55,6 @@ function stripAndRewrite(source, fileImports, dirImports) {
 
 const COMPILE_MANIFEST_NAME = ".axum-compile.json";
 const COMPILE_MANIFEST_VERSION = 1;
-
-function packageDirName(packageName) {
-  if (packageName.startsWith("@")) {
-    const [scope, name] = packageName.split("/");
-    return path.join(scope, name);
-  }
-  return packageName;
-}
 
 export function compiledManifestPath(packageRoot) {
   return path.join(packageRoot, COMPILE_MANIFEST_NAME);

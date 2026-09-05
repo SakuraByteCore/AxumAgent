@@ -6,25 +6,18 @@ export function getSessionsDir(env = process.env) {
   return path.join(getAgentDir(env), "sessions");
 }
 
-function safeReadFirstLine(filePath) {
+function readSessionText(filePath) {
   try {
-    const fd = fs.openSync(filePath, "r");
-    try {
-      const buf = Buffer.alloc(4096);
-      const n = fs.readSync(fd, buf, 0, 4096, 0);
-      const chunk = buf.subarray(0, n).toString("utf8");
-      const nl = chunk.indexOf("\n");
-      return nl === -1 ? chunk : chunk.slice(0, nl);
-    } finally {
-      fs.closeSync(fd);
-    }
+    return fs.readFileSync(filePath, "utf8");
   } catch {
     return "";
   }
 }
 
-function parseSessionMeta(filePath) {
-  const firstLine = safeReadFirstLine(filePath);
+function parseSessionMeta(text) {
+  const chunk = text.slice(0, 4096);
+  const nl = chunk.indexOf("\n");
+  const firstLine = nl === -1 ? chunk : chunk.slice(0, nl);
   if (!firstLine) return null;
   try {
     const obj = JSON.parse(firstLine);
@@ -38,6 +31,40 @@ function parseSessionMeta(filePath) {
   } catch {
     return null;
   }
+}
+
+function extractSessionDetails(text, maxSummaryChars) {
+  let summary = "";
+  let summaryFound = false;
+  let messageCount = 0;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (obj.type !== "message") continue;
+    messageCount += 1;
+    if (summaryFound) continue;
+    const msg = obj.message;
+    if (!msg || msg.role !== "user") continue;
+    const content = msg.content;
+    if (typeof content === "string") {
+      summary = content.slice(0, maxSummaryChars);
+      summaryFound = true;
+    } else if (Array.isArray(content)) {
+      for (const part of content) {
+        if (part && part.type === "text" && part.text) {
+          summary = part.text.slice(0, maxSummaryChars);
+          summaryFound = true;
+          break;
+        }
+      }
+    }
+  }
+  return { summary, messageCount };
 }
 
 function restoreCwdFromDirName(dirName) {
@@ -72,7 +99,8 @@ export function listSessions({ env = process.env, maxSummaryChars = 200, limitPe
       } catch {
         continue;
       }
-      const meta = parseSessionMeta(filePath);
+      const text = readSessionText(filePath);
+      const meta = parseSessionMeta(text);
       if (!meta) {
         sessions.push({
           file: dir.name + "/" + fileName,
@@ -87,6 +115,7 @@ export function listSessions({ env = process.env, maxSummaryChars = 200, limitPe
         });
         continue;
       }
+      const { summary, messageCount } = extractSessionDetails(text, maxSummaryChars);
       sessions.push({
         file: dir.name + "/" + fileName,
         fileName,
@@ -98,8 +127,8 @@ export function listSessions({ env = process.env, maxSummaryChars = 200, limitPe
         timestamp: meta.timestamp,
         cwd: meta.cwd,
         version: meta.version,
-        summary: extractSummary(filePath, maxSummaryChars),
-        messageCount: countMessages(filePath),
+        summary,
+        messageCount,
       });
     }
     if (sessions.length) {
@@ -114,67 +143,6 @@ export function listSessions({ env = process.env, maxSummaryChars = 200, limitPe
   return { projects };
 }
 
-function extractSummary(filePath, maxChars) {
-  try {
-    const text = fs.readFileSync(filePath, "utf8");
-    const lines = text.split("\n");
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        const obj = JSON.parse(line);
-        if (obj.type !== "message") continue;
-        const msg = obj.message;
-        if (!msg || msg.role !== "user") continue;
-        const content = msg.content;
-        if (typeof content === "string") return content.slice(0, maxChars);
-        if (Array.isArray(content)) {
-          for (const part of content) {
-            if (part && part.type === "text" && part.text) return part.text.slice(0, maxChars);
-          }
-        }
-      } catch {
-        continue;
-      }
-    }
-  } catch {
-    // File read failed; fall through.
-  }
-  return "";
-}
-
-function countMessages(filePath) {
-  let count = 0;
-  try {
-    const fd = fs.openSync(filePath, "r");
-    try {
-      const buf = Buffer.alloc(65536);
-      let leftover = "";
-      let pos = 0;
-      for (;;) {
-        const n = fs.readSync(fd, buf, 0, buf.length, pos);
-        if (n === 0) break;
-        pos += n;
-        leftover += buf.subarray(0, n).toString("utf8");
-        const lines = leftover.split("\n");
-        leftover = lines.pop() || "";
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const obj = JSON.parse(line);
-            if (obj.type === "message") count += 1;
-          } catch {
-            // Ignore malformed lines.
-          }
-        }
-      }
-    } finally {
-      fs.closeSync(fd);
-    }
-  } catch {
-    // File unreadable; return what we have.
-  }
-  return count;
-}
 
 export function readSession({ file, env = process.env, maxMessages = 500, maxContentChars = 2000 } = {}) {
   if (!file) throw new Error("file is required");
