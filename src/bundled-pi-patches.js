@@ -21,11 +21,10 @@ const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
 const PI_DEADLINE_RETRYABLE_MARKER = "AXUM_PI_DEADLINE_RETRYABLE";
-const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_120S";
-const PI_HTTP_IDLE_TIMEOUT_LEGACY_MARKERS = [
-  { marker: "AXUM_PI_HTTP_IDLE_TIMEOUT_DISABLED", value: "0" },
-  { marker: "AXUM_PI_HTTP_IDLE_TIMEOUT_45S", value: "45_000" },
-];
+const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_BODY_DISABLED";
+const PI_HTTP_IDLE_TIMEOUT_STOCK_ANCHOR = "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;";
+const PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN = /\/\/ AXUM_PI_HTTP_IDLE_TIMEOUT_[A-Z0-9_]+:[^\n]*(?:\n\/\/[^\n]*)*\nexport const DEFAULT_HTTP_IDLE_TIMEOUT_MS = [0-9_]+;/;
+const PI_HTTP_IDLE_TIMEOUT_HEADERS_ANCHOR = "headersTimeout: normalizedTimeoutMs,";
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
 const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
@@ -326,41 +325,47 @@ function patchPiVersionNotificationSuppress(content) {
 
 
 /**
- * Keep the bundled HTTP idle timeout finite by default. Upstream-cancelled
- * streams can leave the socket open forever behind relays/proxies; an
- * unbounded local body timeout makes the TUI look frozen and prevents retry
- * recovery from kicking in. 120s is long enough for slow buffered generations
- * but still gives the retry lanes a bounded failure signal. Users can still
- * override via httpIdleTimeoutMs, including disabling the timeout explicitly.
- * Caches previously carrying the disabled or 45s patch are upgraded in place.
+ * Split the bundled HTTP idle timeout semantics: the response body timeout is
+ * disabled by default while the first-byte (headers) timeout stays capped at
+ * 120s. Mid-stream silence is normal for long-thinking models served through
+ * buffering relays; every client-side idle abort surfaces upstream as a client
+ * disconnect, the relay re-bills the full generation on the follow-up retry,
+ * and the user sees the opaque undici abort error (`terminated`) after the
+ * retry lanes burn out. Codex-compatible behavior waits on the stream instead.
+ * A truly hung gateway still fails fast because no headers ever arrive, and
+ * users can opt a finite value back in via httpIdleTimeoutMs. Caches carrying
+ * any previous idle-timeout patch generation are upgraded in place.
  */
 function patchPiHttpIdleTimeoutDefault(content) {
   if (content.includes(PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER)) return content;
 
-  for (const legacy of PI_HTTP_IDLE_TIMEOUT_LEGACY_MARKERS) {
-    if (!content.includes(legacy.marker)) continue;
-    return content
-      .replace(legacy.marker, PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER)
-      .replace(
-        `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = ${legacy.value};`,
-        "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;",
-      );
-  }
+  const bodyDisabledBlock = [
+    `// ${PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER}: mid-stream silence is normal for`,
+    `// long-thinking models behind buffering relays, and every client-side idle`,
+    `// abort surfaces upstream as a client disconnect plus a fully re-billed`,
+    `// retry. The default therefore leaves the response body timeout disabled`,
+    `// (the same wait-forever stance Codex takes) while HTTP_HEADERS_TIMEOUT_CAP_MS`,
+    `// still bounds requests that never receive a single byte. Set a finite`,
+    `// httpIdleTimeoutMs to restore fail-fast body timeouts.`,
+    `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;`,
+    `const HTTP_HEADERS_TIMEOUT_CAP_MS = 120_000;`,
+  ].join("\n");
 
-  const needle = "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;";
-  if (!content.includes(needle)) {
+  let next;
+  if (PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN.test(content)) {
+    next = content.replace(PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN, bodyDisabledBlock);
+  } else if (content.includes(PI_HTTP_IDLE_TIMEOUT_STOCK_ANCHOR)) {
+    next = content.replace(PI_HTTP_IDLE_TIMEOUT_STOCK_ANCHOR, bodyDisabledBlock);
+  } else {
     throw new Error("unable to patch bundled Pi http dispatcher: idle timeout default anchor not found");
   }
 
-  return content.replace(
-    needle,
-    [
-      `// ${PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER}: keep idle streams bounded so`,
-      `// upstream-cancelled sockets surface as retryable body timeouts instead`,
-      `// of leaving the UI frozen indefinitely. Users may still override via`,
-      `// httpIdleTimeoutMs, including disabled/0 when they really want it.`,
-      `export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 120_000;`,
-    ].join("\n"),
+  if (!next.includes(PI_HTTP_IDLE_TIMEOUT_HEADERS_ANCHOR)) {
+    throw new Error("unable to patch bundled Pi http dispatcher: headers timeout anchor not found");
+  }
+  return next.replace(
+    PI_HTTP_IDLE_TIMEOUT_HEADERS_ANCHOR,
+    "headersTimeout: normalizedTimeoutMs > 0 ? Math.min(normalizedTimeoutMs, HTTP_HEADERS_TIMEOUT_CAP_MS) : HTTP_HEADERS_TIMEOUT_CAP_MS,",
   );
 }
 /**
