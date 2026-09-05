@@ -18,56 +18,8 @@ const PLAN_PROMPT_SUFFIX = `
 const PLAN_PROMPT_TEMPLATE_RELATIVE_PATH = [".pi", "agent", "plan-prompt.md"];
 const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 
-// Read-only plan mode: appended to every /plan prompt so the model knows the lock is physical
-const PLAN_READONLY_NOTE = `
-
-[System] Read-only plan mode is now enforced by the extension: the write and edit tools are blocked, and shell commands that would modify files are rejected. Do not attempt any file modification — limit yourself to read-only research and discussion. This lock stays active until the user runs /build.`;
-const BUILD_PROMPT_PREFIX = `[Requirement] `;
-const BUILD_PROMPT_FALLBACK = `Implement the requirement we discussed and confirmed earlier in this conversation.`;
-const BUILD_PROMPT_SUFFIX = `
-
-[Instructions] Planning is finished — implement now. The read-only lock from /plan is lifted and you have full write access: make the code changes directly, run the relevant tests to verify, and keep the diff scoped to the requirement.`;
-
 // Session-first-plan flag
 let firstPlanSent = false;
-
-// Read-only plan-mode lock: engaged by /plan, released by /build, reset on session_start
-let planReadOnly = false;
-let firstBuildSent = false;
-
-// Best-effort shell classifier for plan mode. bash is Turing-complete, so this is a
-// pragmatic guard (per product decision), not a sandbox: it blocks commands that
-// obviously write to disk and allows everything else.
-// Commands whose primary purpose is writing to disk.
-const SHELL_WRITE_COMMANDS = new Set(["rm", "mv", "cp", "touch", "mkdir", "rmdir", "dd", "tee", "truncate", "shred", "ln", "chmod", "chown", "chgrp", "patch", "install", "rsync", "make"]);
-// Only these read-only git subcommands pass; anything else (add, commit, checkout, ...) is blocked.
-const GIT_READ_SUBCOMMANDS = new Set(["status", "diff", "log", "show", "blame", "grep", "ls-files", "ls-remote", "rev-parse", "rev-list", "describe", "shortlog", "whatchanged", "show-branch"]);
-const PKG_MANAGERS = new Set(["npm", "pnpm", "yarn", "bun", "pip", "pip3"]);
-const PKG_WRITE_SUBCOMMANDS = new Set(["install", "i", "add", "remove", "rm", "uninstall", "un", "update", "up", "upgrade", "init", "link", "unlink", "publish", "ci", "dedupe", "prune", "rebuild"]);
-// Output redirection counts as a write; fd duplication (>&1) and /dev/null sinks are exempt.
-const SHELL_REDIRECT_WRITE = />>?(?![&\d])(?!\s*\/?dev\/null\b)/;
-
-function firstWordOf(segment: string): string {
-	const head = segment.trim().split(/\s+/, 1)[0] ?? "";
-	return head.split("/").pop() ?? head;
-}
-
-function segmentWritesToDisk(head: string, segment: string): boolean {
-	if (!head) return false;
-	if (SHELL_WRITE_COMMANDS.has(head)) return true;
-	if (head === "npx" || head === "bunx") return true; // executes remote code with full privileges
-	const subcommand = segment.trim().split(/\s+/)[1] ?? "";
-	if (head === "git") return !GIT_READ_SUBCOMMANDS.has(subcommand);
-	if (PKG_MANAGERS.has(head)) return PKG_WRITE_SUBCOMMANDS.has(subcommand);
-	if (head === "sed") return /(^|\s)-[a-zA-Z]*i(\s|$)/.test(segment);
-	if (head === "curl" || head === "wget") return /(^|\s)(-[oO]|--output)(\s|=|$)/.test(segment);
-	return false;
-}
-
-function isWritingShellCommand(command: string): boolean {
-	if (SHELL_REDIRECT_WRITE.test(command)) return true;
-	return command.split(/[|&;\n]+/).some((segment) => segmentWritesToDisk(firstWordOf(segment), segment));
-}
 
 const RALPH_COMMIT_PATTERN = /\bcommit\b|提交/i;
 
@@ -918,9 +870,6 @@ pi.registerCommand("plan", {
       return;
     }
 
-    planReadOnly = true;
-    prompt += PLAN_READONLY_NOTE;
-
     // Instant UI feedback — user sees confirmation BEFORE network/agent latency
     ctx.ui.notify("Plan sent, waiting for Agent…", "info");
 
@@ -931,38 +880,6 @@ pi.registerCommand("plan", {
 
     await pi.sendUserMessage(prompt, { streamingBehavior });
   },
-});
-
-// ── /build ─────────────────────────────────────────────────────────────
-
-pi.registerCommand("build", {
-  description: "Unlock read-only plan mode and start code generation: /build [prompt]",
-  getArgumentCompletions: () => null,
-  async handler(args: string, ctx) {
-    planReadOnly = false;
-    const requirement = args.trim() || BUILD_PROMPT_FALLBACK;
-    ctx.ui.notify("Build sent, plan-mode lock released…", "info");
-    const isFirst = !firstBuildSent;
-    if (isFirst) firstBuildSent = true;
-    await pi.sendUserMessage(BUILD_PROMPT_PREFIX + requirement + BUILD_PROMPT_SUFFIX, { streamingBehavior: isFirst ? "new" : "followUp" });
-  },
-});
-
-// ── Read-only plan-mode guard ───────────────────────────────────────────────
-
-pi.on("tool_call", (event) => {
-  if (!planReadOnly) return undefined;
-  const { toolName } = event as { toolName: string };
-  if (toolName === "write" || toolName === "edit") {
-    return { block: true, reason: "Read-only plan mode is active: file modifications are blocked until the user unlocks code generation with /build." };
-  }
-  if (toolName !== "bash") return undefined;
-  const command = (event as { input?: { command?: unknown } }).input?.command;
-  if (typeof command !== "string" || !isWritingShellCommand(command)) return undefined;
-  return {
-    block: true,
-    reason: "Read-only plan mode is active: this shell command writes to disk and is blocked until /build unlocks code generation. Use read-only commands instead (read/grep/find/ls, git status/diff/log, npm test…).",
-  };
 });
 
 	// ── /ralph ──────────────────────────────────────────────────────────────
@@ -1110,8 +1027,6 @@ pi.on("session_start", async () => {
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
-  planReadOnly = false; // new sessions start writable; /plan re-engages the read-only lock
-  firstBuildSent = false;
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────
