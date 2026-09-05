@@ -17,7 +17,6 @@ test("checks available Pi extensions on Android", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.84.4",
     "pi-bar@file:plugin/pi-bar",
-    "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
     "pi-web-access@0.24.2",
@@ -25,7 +24,7 @@ test("checks available Pi extensions on Android", () => {
     "@tintinweb/pi-subagents@0.19.0",
     "pi-agent@file:plugin/pi-agent",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 7);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -33,7 +32,6 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.84.4",
     "pi-bar@file:plugin/pi-bar",
-    "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
     "pi-web-access@0.24.2",
@@ -42,7 +40,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "@tintinweb/pi-subagents@0.19.0",
     "pi-agent@file:plugin/pi-agent",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 8);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -50,13 +48,12 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   assert.deepEqual(packages, [
     "@earendil-works/pi-coding-agent@0.84.4",
     "pi-bar@file:plugin/pi-bar",
-    "pi-debug@file:plugin/pi-debug",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
     "pi-hashline-edit-pro@2.7.0",
     "pi-agent@file:plugin/pi-agent",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 6);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 5);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -66,9 +63,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-debug", "pi-companion", "pi-agent"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-debug", "pi-companion", "pi-agent"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-debug", "pi-companion", "pi-agent"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-companion", "pi-agent"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-companion", "pi-agent"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-companion", "pi-agent"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {

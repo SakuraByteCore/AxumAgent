@@ -24,11 +24,6 @@ export const bundledPiPackages = [
   // pi-bar now also hosts the sakura cyberdeck startup header (formerly the
   // standalone pi-header plugin), rendered via ctx.ui.setHeader() at session
   // start, plus a dashed-rule CustomEditor. Single-file, zero native deps.
-  // pi-debug: real debugger driver (DAP over stdio) exposing attach / break /
-  // continue / step / stack / variables slash commands. Speaks the Debug Adapter
-  // Protocol to lldb-dap / dlv / debugpy. Pure TS, zero native deps.
-  { name: "pi-debug@file:plugin/pi-debug", packageName: "pi-debug", extensionPath: "index.ts", android: true },
-
   // pi-goal: pure TS extension for autonomous /goal completion. No native deps.
   { name: "@narumitw/pi-goal@0.31.0", packageName: "@narumitw/pi-goal", extensionPath: "src/index.ts", android: true },
   // pi-companion: bundled companion extension (merged from pi-shortcuts + pi-guard).
