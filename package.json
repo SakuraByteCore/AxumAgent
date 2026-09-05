@@ -26,6 +26,7 @@
     "bin/",
     "src/",
     "plugin/",
+    "!plugin/pi-context",
     "skills/",
     "README.md",
     "LICENSE"
