@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsRemoveAgentsCommand, patchPiSubagentsAgentsRefs, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -1107,3 +1107,57 @@ test("upgrades the legacy disabled idle timeout patch and adds the headers cap",
   assert.equal(patchPiHttpIdleTimeoutDefault(upgraded), upgraded);
 });
 
+
+test("removes the bundled pi-subagents /agents command registration", () => {
+  const source = [
+    "  pi.registerCommand(\"agents\", {",
+    "    description: \"Manage agents\",",
+    "    handler: async (_args, ctx) => { await showAgentsMenu(ctx); },",
+    "  });",
+    "",
+    "  const workflowMenuDeps = {};",
+  ].join("\n");
+  const patched = patchPiSubagentsRemoveAgentsCommand(source);
+  assert.notEqual(patched, source, "patch should change the source");
+  assert.match(patched, /AXUM_PI_SUBAGENTS_AGENTS_COMMAND_REMOVED/);
+  assert.doesNotMatch(patched, /registerCommand\("agents"/);
+  // Neighbouring code is untouched.
+  assert.match(patched, /const workflowMenuDeps = \{\};/);
+  // Idempotent.
+  assert.equal(patchPiSubagentsRemoveAgentsCommand(patched), patched);
+  // Already-clean upstream source (no agents command at all) stays untouched.
+  const clean = "export default function(pi) {}\n";
+  assert.equal(patchPiSubagentsRemoveAgentsCommand(clean), clean);
+  // A drifted-but-present registration fails loudly instead of silently skipping.
+  const drifted = source.replace("\"Manage agents\"", "\"Manage subagents\"");
+  assert.throws(() => patchPiSubagentsRemoveAgentsCommand(drifted), /anchor not found/);
+});
+
+test("cleans dangling /agents references from bundled pi-subagents surfaces", () => {
+  const toolDescription = "you are notified when the workflow completes. Use /agents → Workflows to watch live progress. stop it from /agents → Workflows first.";
+  const patchedToolDescription = patchPiSubagentsAgentsRefs(toolDescription);
+  assert.doesNotMatch(patchedToolDescription, /\/agents/);
+  assert.match(patchedToolDescription, /stop it first/);
+  assert.match(patchedToolDescription, /AXUM_PI_SUBAGENTS_AGENTS_REFS_CLEANED/);
+  // Idempotent.
+  assert.equal(patchPiSubagentsAgentsRefs(patchedToolDescription), patchedToolDescription);
+
+  const taskMessage = "Stop it from /agents → Workflows before resuming it.";
+  const patchedTask = patchPiSubagentsAgentsRefs(taskMessage);
+  assert.match(patchedTask, /Stop the run before resuming it\./);
+  assert.doesNotMatch(patchedTask, /\/agents → Workflows/);
+
+  const cardLine = "Large workflow · /agents → Workflows to stop";
+  const patchedCard = patchPiSubagentsAgentsRefs(cardLine);
+  assert.match(patchedCard, /Large workflow \(still running\)/);
+
+  const groupNote = "its agents appear under a \"▸ name\" group in /agents → Workflows and its tokens count";
+  const patchedGroup = patchPiSubagentsAgentsRefs(groupNote);
+  assert.match(patchedGroup, /under a "▸ name" group and its tokens count/);
+
+  // Files with no /agents references at all stay untouched.
+  const unrelated = "const x = 1;\n";
+  assert.equal(patchPiSubagentsAgentsRefs(unrelated), unrelated);
+  // A file that still mentions /agents but with unknown phrasing fails loudly.
+  assert.throws(() => patchPiSubagentsAgentsRefs("open /agents to manage"), /reference anchors not found/);
+});
