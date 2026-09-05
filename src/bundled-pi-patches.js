@@ -1167,6 +1167,49 @@ function patchPiRetryJitter(content) {
     .replaceAll("delayMs = CONNECTION_DELAY_MS;", "delayMs = jitteredDelay(CONNECTION_DELAY_MS);");
 }
 
+const PI_SUBAGENTS_PACKAGE = "@tintinweb/pi-subagents";
+const PI_SUBAGENTS_AGENTS_COMMAND_REMOVED_MARKER = "AXUM_PI_SUBAGENTS_AGENTS_COMMAND_REMOVED";
+const PI_SUBAGENTS_AGENTS_REFS_CLEANED_MARKER = "AXUM_PI_SUBAGENTS_AGENTS_REFS_CLEANED";
+const PI_SUBAGENTS_AGENTS_COMMAND_ANCHOR = [
+  '  pi.registerCommand("agents", {',
+  '    description: "Manage agents",',
+  '    handler: async (_args, ctx) => { await showAgentsMenu(ctx); },',
+  '  });',
+].join("\n");
+
+function patchPiSubagentsRemoveAgentsCommand(content) {
+  if (content.includes(PI_SUBAGENTS_AGENTS_COMMAND_REMOVED_MARKER)) return content;
+  if (!content.includes(PI_SUBAGENTS_AGENTS_COMMAND_ANCHOR)) {
+    if (!content.includes('registerCommand("agents"')) return content;
+    throw new Error("unable to patch bundled pi-subagents: /agents command registration anchor not found");
+  }
+  const replacement = [
+    `  // ${PI_SUBAGENTS_AGENTS_COMMAND_REMOVED_MARKER}: Axum drops the /agents slash`,
+    "  // command; showAgentsMenu and its submenus stay dormant upstream code.",
+  ].join("\n");
+  return content.replace(PI_SUBAGENTS_AGENTS_COMMAND_ANCHOR, replacement);
+}
+
+const PI_SUBAGENTS_AGENTS_REF_REPLACEMENTS = [
+  [" Use /agents → Workflows to watch live progress.", ""],
+  ["under a \"▸ name\" group in /agents → Workflows and", "under a \"▸ name\" group and"],
+  ["stop it from /agents → Workflows first", "stop it first"],
+  ["Stop it from /agents → Workflows before resuming it.", "Stop the run before resuming it."],
+  ["Large workflow · /agents → Workflows to stop", "Large workflow (still running)"],
+];
+
+function patchPiSubagentsAgentsRefs(content) {
+  if (content.includes(PI_SUBAGENTS_AGENTS_REFS_CLEANED_MARKER)) return content;
+  const present = PI_SUBAGENTS_AGENTS_REF_REPLACEMENTS.filter(([needle]) => content.includes(needle));
+  if (present.length === 0) {
+    if (!content.includes("/agents")) return content;
+    throw new Error("unable to patch bundled pi-subagents: /agents reference anchors not found");
+  }
+  let patched = present.reduce((text, [needle, replacement]) => text.split(needle).join(replacement), content);
+  patched += `\n// ${PI_SUBAGENTS_AGENTS_REFS_CLEANED_MARKER}\n`;
+  return patched;
+}
+
 function patchFileInPlace(filePath, ...patchers) {
   const original = fs.readFileSync(filePath, "utf8");
   const patched = patchers.reduce((content, apply) => apply(content), original);
@@ -1254,7 +1297,22 @@ export function applyBundledPiPatches(options) {
     ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit)
     : { patched: false, file: piInteractiveModePath });
 
+  const piSubagentsRoot = resolveBundledPackageRoot(PI_SUBAGENTS_PACKAGE, options);
+  const piSubagentsIndexPath = path.join(piSubagentsRoot, "src", "index.ts");
+  results.push(fs.existsSync(piSubagentsIndexPath)
+    ? patchFileInPlace(piSubagentsIndexPath, patchPiSubagentsRemoveAgentsCommand)
+    : { patched: false, file: piSubagentsIndexPath });
+  const piSubagentsAgentsRefPaths = [
+    path.join(piSubagentsRoot, "src", "workflow", "tool-description.ts"),
+    path.join(piSubagentsRoot, "src", "workflow", "task.ts"),
+    path.join(piSubagentsRoot, "src", "ui", "workflow-card.ts"),
+  ];
+  for (const piSubagentsRefPath of piSubagentsAgentsRefPaths) {
+    if (!fs.existsSync(piSubagentsRefPath)) continue;
+    results.push(patchFileInPlace(piSubagentsRefPath, patchPiSubagentsAgentsRefs));
+  }
+
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsRemoveAgentsCommand, patchPiSubagentsAgentsRefs };
