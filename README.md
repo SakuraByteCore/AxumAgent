@@ -97,7 +97,7 @@ The distribution ships these packages, all in one install:
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
 - `@tintinweb/pi-subagents` (Claude Code-style sub-agents and workflow orchestration: parallel agents, live fleet view, custom agent types, mid-run steering, dynamic workflows; not bundled on Windows)
-- `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget)
+- `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 
 ## Configure an OpenAI-compatible Provider
 

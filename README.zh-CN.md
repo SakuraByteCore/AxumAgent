@@ -39,7 +39,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
 - `@tintinweb/pi-subagents`（Claude Code 风格子代理与工作流编排：并行子代理、实时队列视图、自定义代理类型、运行中纠偏、动态工作流；Windows 平台不打入）
-- `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：手动触发的后台 Agent，带实时进度挂件）
+- `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：手动触发的后台 Agent，带实时进度挂件；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
 
 ## 环境要求
 
