@@ -98,3 +98,19 @@ test("compileExtensionPackage transpiles parameter properties in imported module
   const module = await import(pathToFileURL(path.join(root, "src", "index.js")).href);
   assert.equal(module.greet(), "axum");
 });
+
+test("compileExtensionPackage rewrites root-level sibling imports to .js", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "axum-compile-root-sibling-"));
+  makePackage(root, {
+    "index.ts": "import { value } from \"./util\"; export const read = () => value;\n",
+    "util.ts": "export const value: string = \"v\";\n",
+  });
+
+  const result = compileExtensionPackage({ packageRoot: root });
+
+  assert.deepEqual(result.collisions, []);
+  const output = fs.readFileSync(path.join(root, "index.js"), "utf8");
+  assert.match(output, /from \"\.\/util\.js\"/);
+  const module = await import(pathToFileURL(path.join(root, "index.js")).href);
+  assert.equal(module.read(), "v");
+});
