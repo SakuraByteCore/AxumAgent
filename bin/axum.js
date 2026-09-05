@@ -98,11 +98,10 @@ async function printDoctor() {
 }
 
 async function runInstall() {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions, existingBundledExtensions }, { compileBundledExtensions }, { existsSync, rmSync, mkdirSync }] = await Promise.all([
+  const [{ ensureBundledPi, pruneStaleCompileCaches }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { existsSync, rmSync }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
-    import("../src/compile-bundled-extensions.js"),
     import("node:fs"),
   ]);
 
@@ -113,14 +112,7 @@ async function runInstall() {
   // Force clean reinstall by removing node_modules
   rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true });
   // Also prune stale compile caches
-  const prefix = "v8-compile-cache-";
-  try {
-    for (const entry of fs.readdirSync(cacheRoot)) {
-      if (entry.startsWith(prefix)) {
-        rmSync(path.join(cacheRoot, entry), { recursive: true, force: true });
-      }
-    }
-  } catch {}
+  pruneStaleCompileCaches(cacheRoot);
 
   ensureBundledPi(options);
 
