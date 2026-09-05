@@ -444,6 +444,7 @@ class DashedBorderEditor extends RuntimeCustomEditor {
     options?: unknown,
   ) {
     super(tui, theme, keybindings, options);
+    (this as unknown as { history: string[] }).history = sharedPromptHistory;
     // The parent Editor declares `borderColor;` as a class field, which at
     // construction time installs an own { value: undefined, writable: true }
     // property on the instance, shadowing any prototype-level accessor we
@@ -469,9 +470,18 @@ class DashedBorderEditor extends RuntimeCustomEditor {
   }
 }
 
+// Shared prompt history. Pi tears the editor down and builds a fresh one on
+// every session_start (e.g. after /new) via setEditorComponent, which would
+// silently discard the in-memory input history the Editor keeps per instance.
+// It swaps the instance's `history` field (initialised by the base Editor
+// constructor) for this module-level array before the instance is ever used,
+// so ↑/↓ navigation keeps working across session switches within the process.
+const sharedPromptHistory: string[] = [];
+
 const dashedEditorFactory =
   (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) =>
     new DashedBorderEditor(tui, theme, keybindings);
+
 
 // ---------------------------------------------------------------------------
 // Types
