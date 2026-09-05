@@ -9,6 +9,7 @@ Usage:
   axum code [--safe] [pi args...]
   axum resume [--safe] [pi args...]
   axum web [--port <port>]
+  axum chat [pi-web args...]
   axum doctor
   axum versions
   axum update [version]
@@ -20,6 +21,8 @@ Commands:
   resume        Resume a previous session via Pi's session picker
                 (equivalent to \`axum code --resume\`)
   web           Open the local OpenAI-compatible provider setup page
+  chat          Start the browser chat UI (bundled @agegr/pi-web)
+                Shares providers and sessions with \`axum code\` via ~/.pi
   doctor        Check bundled Pi and extension files
   versions      List published Axum versions and the currently installed one
   update        Reinstall Axum; without a version argument it pulls the main
@@ -55,6 +58,7 @@ function parseFlags(argv) {
 function resolveArgs(argv) {
   if (argv.length === 0) return { mode: "help" };
   if (argv[0] === "web") return { mode: "web", argv: argv.slice(1) };
+  if (argv[0] === "chat") return { mode: "chat", argv: argv.slice(1) };
   if (argv[0] === "code") return { mode: "run", passthrough: argv.slice(1) };
   if (argv[0] === "resume") return { mode: "run", passthrough: ["--resume", ...argv.slice(1)] };
   if (argv[0] === "doctor") return { mode: "doctor" };
@@ -265,6 +269,11 @@ async function main() {
   }
   if (action.mode === "web") {
     await runWebCommand(action.argv ?? []);
+    return undefined;
+  }
+  if (action.mode === "chat") {
+    const { runPiWebChat } = await import("../src/pi-web-chat.js");
+    runPiWebChat(action.argv ?? []);
     return undefined;
   }
   await runPi(action.passthrough ?? []);

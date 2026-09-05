@@ -68,6 +68,12 @@ Provider と System Prompt を Web で設定します:
 axum web
 ```
 
+同梱の pi-web UI でブラウザチャット（provider とセッションは `axum code` と共有）:
+
+```bash
+axum chat
+```
+
 エージェントを起動します:
 
 ```bash

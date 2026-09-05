@@ -68,6 +68,12 @@ axum
 axum web
 ```
 
+在浏览器中聊天（内置 pi-web 界面，与 `axum code` 共享 provider 与会话）:
+
+```bash
+axum chat
+```
+
 启动代理:
 
 ```bash

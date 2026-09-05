@@ -92,6 +92,7 @@ test("axum without args shows Axum command help", () => {
 test("package scripts delegate to axum entrypoints", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
   assert.equal(packageJson.scripts.code, "node bin/axum.js code");
+  assert.equal(packageJson.scripts.chat, "node bin/axum.js chat");
   assert.equal(packageJson.scripts.update, "node bin/axum.js update");
   assert.equal(packageJson.scripts.install, "node bin/axum.js install");
   assert.equal(packageJson.engines.node, ">=22.19.0");
@@ -196,6 +197,39 @@ test("axum resume forwards --resume to bundled Pi", () => {
   assert.deepEqual(argv.slice(-8), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--resume", "--help"]);
 });
 
+
+test("axum help lists the chat command", () => {
+  const result = run([]);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /axum chat \[pi-web args\.\.\.\]/);
+  assert.match(result.stdout, /@agegr\/pi-web/);
+});
+
+test("axum chat passes through args to bundled pi-web and forwards the exit code", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-chat-"));
+  const argvFile = path.join(dir, "argv.json");
+  const piWebDir = writePackage(dir, "@agegr/pi-web", {
+    "bin/pi-web.js": `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2))); process.exit(3);\n`,
+  });
+  const result = spawnSync(process.execPath, ["bin/axum.js", "chat", "--port", "31241", "--no-open"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_PI_WEB_DIR: piWebDir },
+    timeout: 30000,
+  });
+  assert.equal(result.status, 3, result.stderr);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.deepEqual(argv, ["--port", "31241", "--no-open"]);
+});
+
+test("axum chat exits 1 with a clear error when the pi-web bin is missing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-chat-missing-"));
+  const result = spawnSync(process.execPath, ["bin/axum.js", "chat"], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_PI_WEB_DIR: dir },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /@agegr\/pi-web bin not found at AXUM_PI_WEB_DIR/);
+});
 function writePiEnvProbeCache(cache, envFile) {
   writePackage(cache, "@earendil-works/pi-coding-agent", {
     "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ compileCache: process.env.NODE_COMPILE_CACHE ?? null }));`,

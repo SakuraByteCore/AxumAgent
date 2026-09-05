@@ -11,16 +11,20 @@
   "scripts": {
     "test": "node --test test/*.test.js",
     "code": "node bin/axum.js code",
+    "chat": "node bin/axum.js chat",
     "update": "node bin/axum.js update",
     "install": "node bin/axum.js install",
     "web": "node bin/axum.js web",
-    "build": "node --check bin/axum.js && node --check bin/code.js && node --check src/bundled-pi-packages.js && node --check src/bundled-pi-platform.js && node --check src/bundled-pi-cache.js && node --check src/resolve-bundled-pi.js && node --check src/ensure-bundled-pi.js && node --check src/bundled-pi-patches.js && node --check src/provider-config.js && node --check src/system-prompt-config.js && node --check src/session-store.js && node --check src/provider-web.js && node --check src/version-config.js",
+    "build": "node --check bin/axum.js && node --check bin/code.js && node --check src/bundled-pi-packages.js && node --check src/bundled-pi-platform.js && node --check src/bundled-pi-cache.js && node --check src/resolve-bundled-pi.js && node --check src/ensure-bundled-pi.js && node --check src/bundled-pi-patches.js && node --check src/provider-config.js && node --check src/system-prompt-config.js && node --check src/session-store.js && node --check src/provider-web.js && node --check src/pi-web-chat.js && node --check src/version-config.js",
     "prepack": "npm run build && npm test",
     "pack:dry": "npm pack --dry-run",
     "prepare": "npm run build"
   },
   "engines": {
     "node": ">=22.19.0"
+  },
+  "dependencies": {
+    "@agegr/pi-web": "^0.8.11"
   },
   "files": [
     "bin/",

@@ -55,6 +55,12 @@ Configure your Provider and System Prompt on the Web UI:
 axum web
 ```
 
+Chat in the browser with the bundled pi-web UI (shares providers and sessions with `axum code`):
+
+```bash
+axum chat
+```
+
 Launch the agent:
 
 ```bash
