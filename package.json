@@ -1,6 +1,6 @@
 {
   "name": "axum",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "description": "Pi-based coding agent distribution with bundled Hermes Memory extension",
   "license": "FSL-1.1-ALv2",
   "type": "module",
