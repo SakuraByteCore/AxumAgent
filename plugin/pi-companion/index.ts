@@ -1192,6 +1192,7 @@ pi.on("session_start", async () => {
 			return;
 		}
 
+		const lastMsgBeforeRetry = lastAssistantMessage;
 		consecutiveAutoRetries += 1;
 		pendingAutoRetryMessage = config.retryMessage;
 		deferredAutoContinueReason = undefined;
@@ -1202,7 +1203,7 @@ pi.on("session_start", async () => {
 
 		if (config.notifyOnAutoContinue) {
 			// Extract error text for filtering specific errors from notifications
-			const lastMsg = lastAssistantMessage;
+			const lastMsg = lastMsgBeforeRetry;
 			const errorText = lastMsg
 				? [lastMsg.errorMessage, extractTextBlocks(lastMsg.content)]
 					.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
