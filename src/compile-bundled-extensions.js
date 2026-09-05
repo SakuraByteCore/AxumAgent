@@ -124,7 +124,10 @@ function collectSourcesAndImports(root) {
     
     // Walk ALL .ts files in the package and compute their relative import path from this directory
     for (const [relFile, _] of tsFilesByRelPath) {
-      const fileDir = path.dirname(relFile);
+    // path.dirname returns "." for root-level files; normalize to "" so
+    // root siblings are not misclassified as living in a subdirectory.
+    let fileDir = path.dirname(relFile);
+    if (fileDir === ".") fileDir = "";
       const fileBase = path.basename(relFile, ".ts");
       
       // Compute relative path from current directory (dir) to the target file
