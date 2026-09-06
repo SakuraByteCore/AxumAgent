@@ -1,7 +1,7 @@
 import { bundledPiPackages } from "./bundled-pi-packages.js";
 
-export function isAndroidLike({ platform = process.platform, env = process.env } = {}) {
-  return platform === "android" || Boolean(env.TERMUX_VERSION || env.PREFIX?.includes("/com.termux/"));
+export function isAndroidLike({ platform, env = process.env } = {}) {
+  return resolvedPlatform({ platform, env }) === "android" || Boolean(env.TERMUX_VERSION || env.PREFIX?.includes("/com.termux/"));
 }
 
 function resolvedPlatform(options = {}) {

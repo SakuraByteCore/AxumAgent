@@ -66,7 +66,8 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
 }
 
 function writeWin32TestEnv(baseEnv, extra = {}) {
-  return { ...baseEnv, AXUM_BUNDLED_PI_TEST_PLATFORM: "win32", ...extra };
+  const { TERMUX_VERSION, PREFIX, NODE_COMPILE_CACHE, ...cleanBase } = baseEnv;
+  return { ...cleanBase, AXUM_BUNDLED_PI_TEST_PLATFORM: "win32", ...extra };
 }
 
 function writeModelsConfig(agentDir, providers = {
@@ -316,7 +317,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   const compiledIndex = argv.indexOf(path.join(cache, "node_modules", "pi-bar", "index.js"));
   assert.notEqual(compiledIndex, -1);
   assert.equal(argv[compiledIndex - 1], "-e");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 7);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 6);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {

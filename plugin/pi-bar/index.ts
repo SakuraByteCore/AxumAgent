@@ -55,7 +55,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath } from "./prompt-history";
+import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath } from "./prompt-history.ts";
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
