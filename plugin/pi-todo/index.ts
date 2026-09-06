@@ -4,10 +4,11 @@
  * Codex-style task progress panel for pi-coding-agent. Registers a `todo`
  * tool the model uses to maintain a task plan (pending / in_progress /
  * completed), renders the checklist in the transcript for each call, and
- * keeps a live progress widget above the editor while any plan exists.
+ * keeps a live progress widget above the editor.
  *
  * Single file, zero native deps. Widget state is per-process; the panel is
- * cleared on every session start so stale plans never survive /resume.
+ * visible by default (empty state) and session starts wipe only the plan,
+ * so stale todos never survive /resume.
  */
 
 import { Type } from "typebox";
@@ -80,10 +81,16 @@ export function renderTodoLines(th: Theme, items: TodoItem[], width: number): st
 	return lines;
 }
 
+/** Default panel content before any plan exists; keeps the widget visible. */
+export function renderEmptyTodoLines(th: Theme): string[] {
+	return [`${th.fg("accent", "Todo")} ${th.fg("dim", "— no active plan; multi-step tasks populate this panel")}`];
+}
+
 function makeTodoComponent(): Component {
 	return {
 		render(width: number): string[] {
-			if (!theme || todos.length === 0) return [];
+			if (!theme) return [];
+			if (todos.length === 0) return renderEmptyTodoLines(theme);
 			return renderTodoLines(theme, todos, width);
 		},
 		invalidate() {
@@ -99,14 +106,6 @@ function makeTodoComponent(): Component {
 
 function refreshWidget(): void {
 	if (!ui) return;
-	if (todos.length === 0) {
-		if (widgetRegistered) {
-			ui.setWidget(WIDGET_KEY, undefined);
-			widgetRegistered = false;
-			tui = undefined;
-		}
-		return;
-	}
 	if (!widgetRegistered) {
 		ui.setWidget(
 			WIDGET_KEY,
@@ -210,14 +209,11 @@ export default function register(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.hasUI && ctx.mode === "tui" ? ctx.ui : undefined;
 		todos = [];
-		if (ui) {
-			// Don't resurrect a stale widget from a previous session.
-			if (widgetRegistered) {
-				ui.setWidget(WIDGET_KEY, undefined);
-				widgetRegistered = false;
-				tui = undefined;
-			}
-		}
+		// Wipe the plan but keep the panel: re-register so the widget starts
+		// every session visible in its empty state instead of absent.
+		widgetRegistered = false;
+		tui = undefined;
+		refreshWidget();
 	});
 
 	pi.on("session_shutdown", async () => {

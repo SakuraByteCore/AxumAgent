@@ -89,7 +89,24 @@ test("normalizes duplicate in_progress entries to first-wins, rest-pending", asy
   assert.deepEqual(statuses, ["in_progress", "pending", "pending"]);
 });
 
-test("widget appears above editor after execution and clears when plan is emptied", async () => {
+test("widget is registered by default at session start with an empty state", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+
+  const widgetFactory = uiState.widgets.get("pi-todo");
+  assert.ok(widgetFactory, "widget visible by default, before any todo call");
+  assert.equal(typeof widgetFactory, "function", "widget content is a component factory");
+
+  const component = widgetFactory({ requestRender() {} }, theme);
+  const lines = component.render(80);
+  assert.ok(lines[0].includes("Todo"), "empty state shows the panel header");
+  assert.ok(lines[0].includes("no active plan"), "empty state explains the panel");
+  assert.equal(lines.some((l) => l.includes("done")), false, "no progress counter before a plan exists");
+});
+
+test("widget swaps empty state for the live plan and back without vanishing", async () => {
   const pi = createPi();
   register(pi.pi);
   const uiState = makeUi();
@@ -100,20 +117,18 @@ test("widget appears above editor after execution and clears when plan is emptie
     todos: [{ content: "Task A", status: "in_progress" }, { content: "Task B", status: "pending" }],
   }, undefined, undefined, undefined);
   const widgetFactory = uiState.widgets.get("pi-todo");
-  assert.ok(widgetFactory, "widget registered after todo call");
-  assert.equal(typeof widgetFactory, "function", "widget content is a component factory");
-
-  const fakeTui = { requestRender() {} };
-  const component = widgetFactory(fakeTui, theme);
+  const component = widgetFactory({ requestRender() {} }, theme);
   const lines = component.render(80);
   assert.equal(lines[0].includes("Todo"), true);
   assert.equal(lines[0].includes("0/2 done"), true);
   assert.ok(lines.some((l) => l.includes("[>]") && l.includes("Task A")));
   assert.ok(lines.some((l) => l.includes("[ ]") && l.includes("Task B")));
 
-  // Empty plan → widget removed
+  // Emptying the plan returns to the default empty state; the panel stays.
   await tool.execute("tc-4", { todos: [] }, undefined, undefined, undefined);
-  assert.equal(uiState.widgets.has("pi-todo"), false);
+  assert.ok(uiState.widgets.has("pi-todo"), "widget still registered after empty plan");
+  const emptyLines = component.render(80);
+  assert.ok(emptyLines[0].includes("no active plan"), "empty plan reverts to default empty state");
 });
 
 test("renderTodoLines truncates long lists and marks all-done header", () => {
@@ -146,7 +161,7 @@ test("/todo clear empties the list and notifys user", async () => {
 
   const cmd = pi.commands.get("todo");
   await cmd.handler("clear", { ui: uiState.ui, hasUI: true, mode: "tui" });
-  assert.equal(uiState.widgets.has("pi-todo"), false, "widget removed by /todo clear");
+  assert.ok(uiState.widgets.has("pi-todo"), "panel stays visible; only the plan is cleared");
   assert.equal(uiState.notifications.at(-1).message, "Todo list cleared");
 });
 
@@ -160,7 +175,7 @@ test("/todo reports empty state when no plan exists", async () => {
   assert.match(uiState.notifications.at(-1).message, /No active todo list/);
 });
 
-test("session_start clears todos and widget from previous session", async () => {
+test("session_start wipes only the plan; the panel stays visible with an empty state", async () => {
   const pi = createPi();
   register(pi.pi);
   const uiState = makeUi();
@@ -169,9 +184,13 @@ test("session_start clears todos and widget from previous session", async () => 
   await tool.execute("tc-6", { todos: [{ content: "Stale", status: "pending" }] }, undefined, undefined, undefined);
   assert.ok(uiState.widgets.has("pi-todo"));
 
-  // New session: widget must not carry over.
+  // New session: the panel remains by design, but no stale plan survives.
   await startSession(pi, uiState.ui);
-  assert.equal(uiState.widgets.has("pi-todo"), false, "widget cleared on new session");
+  const widgetFactory = uiState.widgets.get("pi-todo");
+  assert.ok(widgetFactory, "widget still visible after session restart");
+  const lines = widgetFactory({ requestRender() {} }, theme).render(80);
+  assert.ok(lines[0].includes("no active plan"), "new session starts from the empty state");
+  assert.equal(lines.some((l) => l.includes("Stale")), false, "stale plan does not survive session restart");
 });
 
 test("session_shutdown disposes widget and state", async () => {
