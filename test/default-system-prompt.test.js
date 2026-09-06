@@ -5,8 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import {
   ensureTodoProgressPolicy,
+  ensureParallelToolBatchingPolicy,
   TODO_POLICY_BEGIN,
   TODO_POLICY_END,
+  PARALLEL_POLICY_BEGIN,
+  PARALLEL_POLICY_END,
   resolveAppendSystemPromptFile,
 } from "../src/default-system-prompt.js";
 
@@ -44,4 +47,45 @@ test("todo progress policy: replaces only its own block on upgrade, keeping user
   assert.ok(!content.includes("stale todo draft"));
   assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
   assert.ok(content.includes("progress panel"));
+});
+
+test("parallel tool batching policy: creates the file, is idempotent, and stores mode 600", (t) => {
+  const env = withTempEnv(t);
+  const result = ensureParallelToolBatchingPolicy({ env });
+  const content = fs.readFileSync(result.path, "utf8");
+  assert.equal(result.changed, true);
+  assert.ok(content.includes(PARALLEL_POLICY_BEGIN));
+  assert.ok(content.includes(PARALLEL_POLICY_END));
+  assert.ok(content.includes("Parallel Tool Batching Policy"));
+  assert.ok(content.includes("Never batch"));
+  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
+  assert.equal(ensureParallelToolBatchingPolicy({ env }).changed, false, "idempotent second run");
+});
+
+test("parallel tool batching policy: replaces only its own block on upgrade, keeping user content", (t) => {
+  const env = withTempEnv(t);
+  const target = resolveAppendSystemPromptFile(env);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `My custom rules.\n${PARALLEL_POLICY_BEGIN}\nstale parallel draft\n${PARALLEL_POLICY_END}\n`);
+  const result = ensureParallelToolBatchingPolicy({ env });
+  const content = fs.readFileSync(target, "utf8");
+  assert.equal(result.changed, true);
+  assert.ok(!content.includes("stale parallel draft"));
+  assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
+  assert.ok(content.includes("Always batch in one message"));
+});
+
+test("policy blocks coexist: todo and parallel blocks upsert independently", (t) => {
+  const env = withTempEnv(t);
+  ensureTodoProgressPolicy({ env });
+  ensureParallelToolBatchingPolicy({ env });
+  const target = resolveAppendSystemPromptFile(env);
+  let content = fs.readFileSync(target, "utf8");
+  assert.ok(content.includes(TODO_POLICY_BEGIN));
+  assert.ok(content.includes(PARALLEL_POLICY_BEGIN));
+  assert.ok(content.indexOf(TODO_POLICY_BEGIN) < content.indexOf(PARALLEL_POLICY_BEGIN));
+  ensureTodoProgressPolicy({ env });
+  content = fs.readFileSync(target, "utf8");
+  assert.ok(content.includes(TODO_POLICY_BEGIN));
+  assert.ok(content.includes(PARALLEL_POLICY_BEGIN), "todo re-upsert does not clobber parallel block");
 });

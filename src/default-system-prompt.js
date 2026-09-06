@@ -23,6 +23,30 @@ it while you work; a plan that is never created means a panel that never moves.
 - Do not batch several finished steps into one overdue update; progress must be visible as it happens.
 ${TODO_POLICY_END}`;
 
+
+export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";
+export const PARALLEL_POLICY_END = "<!-- /axum:parallel-tool-batching-policy -->";
+
+export const PARALLEL_TOOL_BATCHING_POLICY = `${PARALLEL_POLICY_BEGIN}
+## Parallel Tool Batching Policy
+
+Pi executes all tool calls in one assistant message concurrently, so batching
+independent calls cuts whole round-trips of latency. Serializing calls that
+could be batched is wasted wall-clock time.
+
+### Always batch in one message
+
+- Independent reads, greps, globs, and listings across different files or directories.
+- Independent web searches or fetches for different questions.
+- Edits to unrelated files, once each target is confirmed.
+- Independent commands that do not consume each other's output.
+
+### Never batch
+
+- A call whose arguments depend on a previous call's result.
+- Multiple writes to the same file: run them one after another.
+- A tool call that must observe the state left by an earlier call.
+${PARALLEL_POLICY_END}`;
 function buildUpsertedContent(existing, begin, end, block) {
   const start = existing.indexOf(begin);
   if (start !== -1) {
@@ -51,4 +75,8 @@ function ensureManagedPolicyBlock({ begin, end, block }, { env = process.env } =
 
 export function ensureTodoProgressPolicy(options) {
   return ensureManagedPolicyBlock({ begin: TODO_POLICY_BEGIN, end: TODO_POLICY_END, block: TODO_PROGRESS_POLICY }, options);
+}
+
+export function ensureParallelToolBatchingPolicy(options) {
+  return ensureManagedPolicyBlock({ begin: PARALLEL_POLICY_BEGIN, end: PARALLEL_POLICY_END, block: PARALLEL_TOOL_BATCHING_POLICY }, options);
 }
