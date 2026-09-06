@@ -51,6 +51,9 @@ export const bundledPiPackages = [
   // Android-safe. Six published sources use TS parameter properties that
   // the Windows runtime strip path cannot compile, so keep it off win32.
   { name: "@tintinweb/pi-subagents@0.19.0", packageName: "@tintinweb/pi-subagents", extensionPath: "src/index.ts", android: true, unsupportedPlatforms: ["win32"] },
+  // pi-todo: Codex-style task progress panel (todo tool + live widget above editor).
+  // Pure TS, zero native deps.
+  { name: "pi-todo@file:plugin/pi-todo", packageName: "pi-todo", extensionPath: "index.ts", android: true },
   // pi-agent: user-triggered background Pi agents (/agent) with a live progress widget,
   // vendored from @giladbarnea/pi-user-agents@0.0.5. Parameter-property constructors were
   // rewritten to explicit field assignments so the Windows compile path can strip its TS.
