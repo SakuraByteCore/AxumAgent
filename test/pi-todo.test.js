@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import register from "../plugin/pi-todo/index.ts";
-import { renderTodoLines } from "../plugin/pi-todo/index.ts";
+import { renderTodoLines, truncateToWidth } from "../plugin/pi-todo/index.ts";
 
 // ── Mock pi runtime ────────────────────────────────────────────────────────
 
@@ -119,8 +119,8 @@ test("todo tool registers the widget; emptying the plan hides it again", async (
   const component = widgetFactory({ requestRender() {} }, theme);
   const lines = component.render(80);
   assert.equal(lines[0].includes("Todo"), true);
-  assert.equal(lines[0].includes("1/2"), true, "in_progress counts toward progress");
-  assert.ok(lines.some((l) => l.includes("[>]") && l.includes("Task A")));
+  assert.equal(lines[0].includes("0/2"), true, "in_progress does not count as done");
+  assert.ok(lines.some((l) => /\[([-\\|/])\]/.test(l) && l.includes("Task A")), "in_progress renders the spinner glyph");
   assert.ok(lines.some((l) => l.includes("[ ]") && l.includes("Task B")));
 
   await tool.execute("tc-4", { todos: [] }, undefined, undefined, undefined);
@@ -217,7 +217,7 @@ test("/resume restores the latest persisted plan and its panel", async () => {
   assert.ok(widgetFactory, "widget restored after resume");
   const component = widgetFactory({ requestRender() {} }, theme);
   const lines = component.render(80);
-  assert.ok(lines.some((l) => l.includes("2/2")), "progress header restored");
+  assert.ok(lines.some((l) => l.includes("1/2")), "progress header counts completed only");
   assert.ok(lines.some((l) => l.includes("Second step")));
 });
 
@@ -247,4 +247,56 @@ test("fresh startup ignores session entries", async () => {
   const uiState2 = makeUi();
   await startSession(pi, uiState2.ui, { reason: "startup" });
   assert.equal(uiState2.widgets.has("pi-todo"), false, "startup always starts blank");
+});
+
+test("truncateToWidth counts wide CJK characters as two columns", () => {
+  const cjk = "任务步骤一二三四五六七八九十";
+  const ascii = truncateToWidth("abcdefghij", 5);
+  const wide = truncateToWidth(cjk, 9);
+  assert.equal(ascii, "abcd…");
+  assert.equal(wide, "任务步骤…");
+  assert.equal(truncateToWidth("short", 20), "short", "short text untouched");
+});
+
+test("renderTodoLines keeps CJK lines within the panel width", () => {
+  const items = [{ content: "修复进度计数并把长中文内容全部塞到一行展示测试", status: "in_progress" }];
+  const width = 20;
+  const lines = renderTodoLines(theme, items, width);
+  const [, itemLine] = lines;
+  assert.ok(itemLine.endsWith("…"), "CJK content truncated with ellipsis");
+  const visualWidth = [...itemLine].reduce((w, ch) => w + (/[\u1100-\u115f\u2e80-\u9fff\uff00-\uff60]/.test(ch) ? 2 : 1), 0);
+  assert.ok(visualWidth <= width, `line width ${visualWidth} exceeds ${width}`);
+});
+
+test("renderTodoLines keeps the in_progress item visible beyond the panel limit", () => {
+  const items = Array.from({ length: 12 }, (_, i) => ({
+    content: `Step ${i + 1}`,
+    status: i === 11 ? "in_progress" : "completed",
+  }));
+  const lines = renderTodoLines(theme, items, 60);
+  assert.ok(lines.some((l) => l.includes("Step 12")), "active item visible even when it overflows the window");
+  assert.equal(lines.some((l) => /\[√\] Step 1\b/.test(l)), false, "earlier items yield to the active one");
+  assert.equal(lines.some((l) => l.includes("more")), false, "active item is the last entry, nothing hidden after it");
+});
+
+test("/todo shows the full checklist as a multiline notification", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-11", {
+    todos: [
+      { content: "First step", status: "completed" },
+      { content: "Second step", status: "in_progress" },
+      { content: "Third step", status: "pending" },
+    ],
+  }, undefined, undefined, undefined);
+  const cmd = pi.commands.get("todo");
+  await cmd.handler("", { ui: uiState.ui, hasUI: true, mode: "tui" });
+  const message = uiState.notifications.at(-1).message;
+  assert.ok(message.includes("\n"), "notification spans multiple lines");
+  assert.ok(message.includes("Todo 1/3"), "header reports completed count");
+  assert.ok(message.includes("[>] Second step"), "in_progress row present");
+  assert.ok(message.includes("[ ] Third step"), "pending row present");
 });

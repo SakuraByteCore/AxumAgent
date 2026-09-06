@@ -31,11 +31,14 @@ const TOOL_NAME = "todo";
 const MAX_PANEL_ITEMS = 8;
 /** ASCII glyphs keep the panel dependency-free and safe in every terminal. */
 /** Single-cell glyphs keep column math exact in every terminal. */
-const STATUS_GLYPH: Record<TodoStatus, string> = {
+const STATUS_GLYPH: Record<Exclude<TodoStatus, "in_progress">, string> = {
 	completed: "[√]",
-	in_progress: "[>]",
 	pending: "[ ]",
 };
+const IN_PROGRESS_GLYPH = "[>]";
+const SPINNER_FRAMES = ["-", "\\", "|", "/"];
+const SPINNER_INTERVAL_MS = 120;
+const ELLIPSIS = "\u2026";
 
 const TODO_PARAMETERS = Type.Object({
 	todos: Type.Array(
@@ -56,32 +59,101 @@ let ui: ExtensionUIContext | undefined;
 let tui: TUI | undefined;
 let theme: Theme | undefined;
 let widgetRegistered = false;
+let spinnerFrame = 0;
+let spinnerTimer: ReturnType<typeof setInterval> | undefined;
 
 // ── Rendering ──────────────────────────────────────────────────────────────
 
+function charDisplayWidth(codePoint: number): number {
+	return (
+		(codePoint >= 0x1100 && codePoint <= 0x115f) ||
+		(codePoint >= 0x2e80 && codePoint <= 0x9fff) ||
+		(codePoint >= 0xa000 && codePoint <= 0xa4cf) ||
+		(codePoint >= 0xac00 && codePoint <= 0xd7a3) ||
+		(codePoint >= 0xf900 && codePoint <= 0xfaff) ||
+		(codePoint >= 0xfe30 && codePoint <= 0xfe4f) ||
+		(codePoint >= 0xff00 && codePoint <= 0xff60) ||
+		(codePoint >= 0xffe0 && codePoint <= 0xffe6) ||
+		(codePoint >= 0x20000 && codePoint <= 0x3fffd)
+	) ? 2 : 1;
+}
+
+function displayWidth(text: string): number {
+	let width = 0;
+	for (const char of text) width += charDisplayWidth(char.codePointAt(0) ?? 0);
+	return width;
+}
+
+export function truncateToWidth(text: string, maxWidth: number): string {
+	if (maxWidth < 1) return "";
+	if (displayWidth(text) <= maxWidth) return text;
+	const limit = maxWidth - 1;
+	let result = "";
+	let width = 0;
+	for (const char of text) {
+		const charWidth = charDisplayWidth(char.codePointAt(0) ?? 0);
+		if (width + charWidth > limit) break;
+		width += charWidth;
+		result += char;
+	}
+	return result + ELLIPSIS;
+}
+
+function inProgressGlyph(): string {
+	return `[${SPINNER_FRAMES[spinnerFrame]}]`;
+}
+
+function visibleItems(items: TodoItem[]): { visible: TodoItem[]; hiddenAfter: number } {
+	if (items.length <= MAX_PANEL_ITEMS) return { visible: items, hiddenAfter: 0 };
+	const activeIndex = items.findIndex((t) => t.status === "in_progress");
+	const start = activeIndex >= MAX_PANEL_ITEMS ? activeIndex : 0;
+	const visible = items.slice(start, start + MAX_PANEL_ITEMS);
+	return { visible, hiddenAfter: items.length - start - visible.length };
+}
 
 export function renderTodoLines(th: Theme, items: TodoItem[], width: number): string[] {
-	const progress = items.filter((t) => t.status !== "pending").length;
+	const completed = items.filter((t) => t.status === "completed").length;
 	const lines: string[] = [];
-	const allDone = items.length > 0 && progress === items.length;
-	const detail = allDone ? `${progress}/${items.length} done` : `${progress}/${items.length}`;
+	const allDone = items.length > 0 && completed === items.length;
+	const detail = allDone ? `${completed}/${items.length} done` : `${completed}/${items.length}`;
 	const header = `${th.fg("accent", "Todo")} ${th.fg("dim", detail)}`;
 	lines.push(header);
-	const visible = items.slice(0, MAX_PANEL_ITEMS);
+	const { visible, hiddenAfter } = visibleItems(items);
 	for (const item of visible) {
-		const glyph = STATUS_GLYPH[item.status];
+		const glyph = item.status === "in_progress" ? inProgressGlyph() : STATUS_GLYPH[item.status];
 		const prefix = `${glyph} `;
-		const maxContent = Math.max(1, width - prefix.length);
-		const text = item.content.length > maxContent ? item.content.slice(0, maxContent - 1) + "…" : item.content;
-		let line = `${glyph} ${text}`;
+		const maxContent = Math.max(1, width - glyph.length - 1);
+		const text = truncateToWidth(item.content, maxContent);
+		let line = `${prefix}${text}`;
 		if (item.status === "completed") line = th.fg("dim", line);
 		else if (item.status === "in_progress") line = th.fg("accent", line);
 		lines.push(line);
 	}
-	if (items.length > visible.length) {
-		lines.push(th.fg("dim", `… ${items.length - visible.length} more`));
+	if (hiddenAfter > 0) {
+		lines.push(th.fg("dim", `… ${hiddenAfter} more`));
 	}
 	return lines;
+}
+
+function stopSpinner(): void {
+	if (!spinnerTimer) return;
+	clearInterval(spinnerTimer);
+	spinnerTimer = undefined;
+	spinnerFrame = 0;
+}
+
+function updateSpinner(): void {
+	const hasActive = todos.some((t) => t.status === "in_progress");
+	if (!hasActive || !tui) {
+		stopSpinner();
+		return;
+	}
+	if (spinnerTimer) return;
+	spinnerTimer = setInterval(() => {
+		spinnerFrame = (spinnerFrame + 1) % SPINNER_FRAMES.length;
+		tui?.requestRender();
+	}, SPINNER_INTERVAL_MS);
+	spinnerTimer.unref?.();
 }
 
 function makeTodoComponent(): Component {
@@ -92,10 +164,12 @@ function makeTodoComponent(): Component {
 			return renderTodoLines(theme, todos, width);
 		},
 		invalidate() {
+			stopSpinner();
 			widgetRegistered = false;
 			tui = undefined;
 		},
 		dispose() {
+			stopSpinner();
 			widgetRegistered = false;
 			tui = undefined;
 		},
@@ -103,8 +177,12 @@ function makeTodoComponent(): Component {
 }
 
 function refreshWidget(): void {
-	if (!ui) return;
+	if (!ui) {
+		stopSpinner();
+		return;
+	}
 	if (todos.length === 0) {
+		stopSpinner();
 		if (widgetRegistered) {
 			ui.setWidget(WIDGET_KEY, undefined);
 			widgetRegistered = false;
@@ -118,6 +196,7 @@ function refreshWidget(): void {
 			(t, th) => {
 				tui = t;
 				theme = th;
+				updateSpinner();
 				return makeTodoComponent();
 			},
 			{ placement: "aboveEditor" },
@@ -126,6 +205,7 @@ function refreshWidget(): void {
 		return;
 	}
 	tui?.requestRender();
+	updateSpinner();
 }
 
 // ── Tool registration ──────────────────────────────────────────────────────
@@ -179,6 +259,16 @@ function summarized(todos_: TodoItem[]): string {
 	return active ? `${head} Current: ${active.content}` : head;
 }
 
+function formatChecklist(items: TodoItem[]): string {
+	const done = items.filter((t) => t.status === "completed").length;
+	const lines = [`Todo ${done}/${items.length}`];
+	for (const item of items) {
+		const glyph = item.status === "in_progress" ? IN_PROGRESS_GLYPH : STATUS_GLYPH[item.status];
+		lines.push(`${glyph} ${item.content}`);
+	}
+	return lines.join("\n");
+}
+
 export default function register(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: TOOL_NAME,
@@ -190,6 +280,7 @@ export default function register(pi: ExtensionAPI): void {
 			"For multi-step tasks (3+ steps), create a plan with the todo tool first, then mark each step in_progress as you start it and completed as you finish it.",
 			"Keep exactly one task in_progress at a time; never leave the list stale after finishing work.",
 			"When the task list is fully done, mark every entry completed rather than deleting entries.",
+			"Update the plan immediately when the work changes: add newly discovered steps as pending and drop entries that are no longer needed.",
 		],
 		parameters: TODO_PARAMETERS,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx): Promise<any> {
@@ -229,7 +320,7 @@ export default function register(pi: ExtensionAPI): void {
 				ctx.ui.notify("No active todo list. The agent creates one with the todo tool for multi-step work.", "info");
 				return;
 			}
-			ctx.ui.notify(summarized(todos), "info");
+			ctx.ui.notify(formatChecklist(todos), "info");
 			if (ctx.hasUI && ctx.mode === "tui") {
 				refreshWidgetFrom(ctx.ui);
 			}
@@ -244,6 +335,7 @@ export default function register(pi: ExtensionAPI): void {
 	}
 
 	pi.on("session_start", async (event, ctx) => {
+		stopSpinner();
 		ui = ctx.hasUI && ctx.mode === "tui" ? ctx.ui : undefined;
 		// Resume/fork continue an existing session: restore the latest persisted
 		// plan. Startup/reload/new sessions start blank.
@@ -259,6 +351,7 @@ export default function register(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async () => {
+		stopSpinner();
 		if (ui && widgetRegistered) {
 			ui.setWidget(WIDGET_KEY, undefined);
 		}
