@@ -38,7 +38,6 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-companion` (pi-shortcuts + pi-guard を統合: ショートカット + レスポンスガード + アドバイザリウォッチャー)
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
-- `@tintinweb/pi-subagents`（Claude Code 風のサブエージェントとワークフロー編成: 並列実行、ライブフリートビュー、カスタムエージェントタイプ、実行中のステアリング、動的ワークフロー。Windows では同梱しません）
 - `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 手動起動のバックグラウンドエージェント + ライブ進捗ウィジェット。さらに `/dispatch` コマンドと `dispatch_agent` ツールによるエージェント主導のバッチ分散に対応)
 
 ## 要件
@@ -81,12 +80,6 @@ axum code
 ```
 
 > ヒント: リポジトリのチェックアウト内では、`npm run` のラッパーを経由せずに `node bin/axum.js code`（またはグローバルの `code` コマンド）を実行すると、起動時間を約 0.2 秒短縮できます。
-
-プロンプトで作業を依頼すると、同梱の `task` ツールが単発・バッチの subagent を自動で起動します:
-
-```text
-認証を扱うファイルをすべて洗い出し、ログインの流れを要約してください。
-```
 
 拡張が壊れて起動できない場合は、bundled extensions を一切読み込まないセーフモードで起動できます:
 
@@ -166,7 +159,7 @@ axum doctor
 
 `doctor` は bundled Pi cache と entrypoint を確認します。
 
-セーフモード (`axum code --safe`) は、`pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-subagents` / `pi-agent` を読み込まずに Pi 本体のみを起動します。
+セーフモード (`axum code --safe`) は、`pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent` を読み込まずに Pi 本体のみを起動します。
 
 
 Bundled Pi ランタイムは npm の global package ディレクトリではなく、ユーザーキャッシュに保存されます。そのため、Axum を再インストールしても通常は `axum code` の first-run setup を繰り返しません。

@@ -45,12 +45,6 @@ export const bundledPiPackages = [
   // pi-hashline-edit-pro: hash-anchored read/replace/insert/grep tools. Stable 3-char
   // per-line hashes reject stale/ambiguous anchors. Pure TS, zero native deps.
   { name: "pi-hashline-edit-pro@2.7.0", packageName: "pi-hashline-edit-pro", extensionPath: "index.ts", android: true },
-  // @tintinweb/pi-subagents: Claude Code-style sub-agents and workflow
-  // orchestration (parallel agents, live fleet view, custom agent types,
-  // mid-run steering, dynamic workflows). Pure TS with pure-JS deps,
-  // Android-safe. Six published sources use TS parameter properties that
-  // the Windows runtime strip path cannot compile, so keep it off win32.
-  { name: "@tintinweb/pi-subagents@0.19.0", packageName: "@tintinweb/pi-subagents", extensionPath: "src/index.ts", android: true, unsupportedPlatforms: ["win32"] },
   // pi-todo: Codex-style task progress panel (todo tool + live widget above editor).
   // Pure TS, zero native deps.
   { name: "pi-todo@file:plugin/pi-todo", packageName: "pi-todo", extensionPath: "index.ts", android: true },

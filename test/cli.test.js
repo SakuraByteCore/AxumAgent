@@ -56,7 +56,6 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-todo", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   if (includeWindowsBroken) {

@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsRemoveAgentsCommand, patchPiSubagentsAgentsRefs, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -31,7 +31,6 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-todo", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -40,8 +39,8 @@ test("resolves bundled Pi from Axum cache directory", () => {
   const extensions = resolveBundledExtensions(options);
   assert.equal(piCli, path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "cli.js"));
   assert.equal(fs.existsSync(piCli), true);
-  assert.equal(extensions.length, 9);
-  assert.equal(existingBundledExtensions(options).length, 9);
+  assert.equal(extensions.length, 8);
+  assert.equal(existingBundledExtensions(options).length, 8);
 });
 
 test("checks available Pi extensions on Android", () => {
@@ -53,21 +52,19 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
   writePackage(cache, "pi-todo", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
-  assert.equal(extensions.length, 8);
+  assert.equal(extensions.length, 7);
   assert.equal(extensions[0], path.join(cache, "node_modules", "pi-bar", "index.ts"));
   assert.equal(extensions[1], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "@tintinweb", "pi-subagents", "src", "index.ts"));
-  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-todo", "index.ts"));
-  assert.equal(extensions[7], path.join(cache, "node_modules", "pi-agent", "index.ts"));
-  assert.equal(existingBundledExtensions(options).length, 8);
+  assert.equal(extensions[5], path.join(cache, "node_modules", "pi-todo", "index.ts"));
+  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-agent", "index.ts"));
+  assert.equal(existingBundledExtensions(options).length, 7);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -505,7 +502,6 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-companion", { "index.ts": "" });
   writePkg(cache, "pi-web-access", { "index.ts": "" });
   writePkg(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePkg(cache, "@tintinweb/pi-subagents", { "src/index.ts": "" });
   writePkg(cache, "pi-todo", { "index.ts": "" });
 writePkg(cache, "pi-agent", { "index.ts": "" });
   writePkg(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -539,7 +535,6 @@ writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
 writePkg("pi-companion", { "index.ts": "" });
 writePkg("pi-web-access", { "index.ts": "" });
 writePkg("pi-hashline-edit-pro", { "index.ts": "" });
-writePkg("@tintinweb/pi-subagents", { "src/index.ts": "" });
 writePkg("pi-todo", { "index.ts": "" });
 writePkg("pi-agent", { "index.ts": "" });
 writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -578,7 +573,6 @@ test("windows-published TS packages stay excluded when runtime compile would mis
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.equal(packages.includes("pi-web-access@0.24.2"), false);
   assert.equal(packages.includes("@ff-labs/pi-fff@0.10.5"), false);
-  assert.equal(packages.includes("@tintinweb/pi-subagents@0.19.0"), false);
 });
 
 test("patches bundled Pi extension loader for native JS entries and lazy jiti", () => {
@@ -1115,59 +1109,4 @@ test("upgrades the legacy disabled idle timeout patch and adds the headers cap",
   assert.match(upgraded, /HTTP_HEADERS_TIMEOUT_CAP_MS = 120_000;/);
   assert.match(upgraded, /headersTimeout: normalizedTimeoutMs > 0 \? Math\.min/);
   assert.equal(patchPiHttpIdleTimeoutDefault(upgraded), upgraded);
-});
-
-
-test("removes the bundled pi-subagents /agents command registration", () => {
-  const source = [
-    "  pi.registerCommand(\"agents\", {",
-    "    description: \"Manage agents\",",
-    "    handler: async (_args, ctx) => { await showAgentsMenu(ctx); },",
-    "  });",
-    "",
-    "  const workflowMenuDeps = {};",
-  ].join("\n");
-  const patched = patchPiSubagentsRemoveAgentsCommand(source);
-  assert.notEqual(patched, source, "patch should change the source");
-  assert.match(patched, /AXUM_PI_SUBAGENTS_AGENTS_COMMAND_REMOVED/);
-  assert.doesNotMatch(patched, /registerCommand\("agents"/);
-  // Neighbouring code is untouched.
-  assert.match(patched, /const workflowMenuDeps = \{\};/);
-  // Idempotent.
-  assert.equal(patchPiSubagentsRemoveAgentsCommand(patched), patched);
-  // Already-clean upstream source (no agents command at all) stays untouched.
-  const clean = "export default function(pi) {}\n";
-  assert.equal(patchPiSubagentsRemoveAgentsCommand(clean), clean);
-  // A drifted-but-present registration fails loudly instead of silently skipping.
-  const drifted = source.replace("\"Manage agents\"", "\"Manage subagents\"");
-  assert.throws(() => patchPiSubagentsRemoveAgentsCommand(drifted), /anchor not found/);
-});
-
-test("cleans dangling /agents references from bundled pi-subagents surfaces", () => {
-  const toolDescription = "you are notified when the workflow completes. Use /agents → Workflows to watch live progress. stop it from /agents → Workflows first.";
-  const patchedToolDescription = patchPiSubagentsAgentsRefs(toolDescription);
-  assert.doesNotMatch(patchedToolDescription, /\/agents/);
-  assert.match(patchedToolDescription, /stop it first/);
-  assert.match(patchedToolDescription, /AXUM_PI_SUBAGENTS_AGENTS_REFS_CLEANED/);
-  // Idempotent.
-  assert.equal(patchPiSubagentsAgentsRefs(patchedToolDescription), patchedToolDescription);
-
-  const taskMessage = "Stop it from /agents → Workflows before resuming it.";
-  const patchedTask = patchPiSubagentsAgentsRefs(taskMessage);
-  assert.match(patchedTask, /Stop the run before resuming it\./);
-  assert.doesNotMatch(patchedTask, /\/agents → Workflows/);
-
-  const cardLine = "Large workflow · /agents → Workflows to stop";
-  const patchedCard = patchPiSubagentsAgentsRefs(cardLine);
-  assert.match(patchedCard, /Large workflow \(still running\)/);
-
-  const groupNote = "its agents appear under a \"▸ name\" group in /agents → Workflows and its tokens count";
-  const patchedGroup = patchPiSubagentsAgentsRefs(groupNote);
-  assert.match(patchedGroup, /under a "▸ name" group and its tokens count/);
-
-  // Files with no /agents references at all stay untouched.
-  const unrelated = "const x = 1;\n";
-  assert.equal(patchPiSubagentsAgentsRefs(unrelated), unrelated);
-  // A file that still mentions /agents but with unknown phrasing fails loudly.
-  assert.throws(() => patchPiSubagentsAgentsRefs("open /agents to manage"), /reference anchors not found/);
 });

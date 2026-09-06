@@ -4,9 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  SUBAGENT_POLICY_BEGIN,
-  SUBAGENT_POLICY_END,
-  ensureSubagentDelegationPolicy,
   ensureTodoProgressPolicy,
   TODO_POLICY_BEGIN,
   TODO_POLICY_END,
@@ -24,78 +21,27 @@ test("resolves APPEND_SYSTEM.md under the agent dir", () => {
   assert.equal(resolveAppendSystemPromptFile(env), path.join(env.PI_CODING_AGENT_DIR, "APPEND_SYSTEM.md"));
 });
 
-test("creates the file with the policy block when missing", (t) => {
+test("todo progress policy: creates the file, is idempotent, and stores mode 600", (t) => {
   const env = withTempEnv(t);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(result.path, "utf8");
-  assert.equal(result.changed, true);
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN));
-  assert.ok(content.includes(SUBAGENT_POLICY_END));
-  assert.ok(content.includes("Subagent Delegation Policy"));
-});
-
-test("is idempotent when the block is already up to date", (t) => {
-  const env = withTempEnv(t);
-  assert.equal(ensureSubagentDelegationPolicy({ env }).changed, true);
-  assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false);
-});
-
-test("appends without clobbering pre-existing user content", (t) => {
-  const env = withTempEnv(t);
-  const target = resolveAppendSystemPromptFile(env);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, "My custom rules.\n");
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(result.path, "utf8");
-  assert.equal(result.changed, true);
-  assert.ok(content.startsWith("My custom rules.\n\n"));
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN));
-});
-
-test("replaces only the marked block on upgrade, keeping surrounding content", (t) => {
-  const env = withTempEnv(t);
-  const target = resolveAppendSystemPromptFile(env);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `before\n${SUBAGENT_POLICY_BEGIN}\nold policy draft\n${SUBAGENT_POLICY_END}\nafter\n`);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(result.path, "utf8");
-  assert.equal(result.changed, true);
-  assert.ok(content.startsWith("before\n"));
-  assert.ok(content.endsWith("after\n"));
-  assert.ok(!content.includes("old policy draft"));
-  assert.ok(content.includes("Agent` tool"));
-});
-
-test("stores the file with mode 600", (t) => {
-  const env = withTempEnv(t);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const mode = fs.statSync(result.path).mode & 0o777;
-  assert.equal(mode, 0o600);
-});
-
-test("todo progress policy: creates, is idempotent, and coexists with the subagent block", (t) => {
-  const env = withTempEnv(t);
-  assert.equal(ensureSubagentDelegationPolicy({ env }).changed, true);
   const result = ensureTodoProgressPolicy({ env });
   const content = fs.readFileSync(result.path, "utf8");
   assert.equal(result.changed, true);
   assert.ok(content.includes(TODO_POLICY_BEGIN));
   assert.ok(content.includes(TODO_POLICY_END));
   assert.ok(content.includes("Todo Progress Policy"));
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "subagent block preserved");
-  assert.ok(content.indexOf(SUBAGENT_POLICY_BEGIN) < content.indexOf(TODO_POLICY_BEGIN), "todo block appended after subagent block");
+  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
   assert.equal(ensureTodoProgressPolicy({ env }).changed, false, "idempotent second run");
 });
 
-test("todo progress policy: replaces only its own block on upgrade", (t) => {
+test("todo progress policy: replaces only its own block on upgrade, keeping user content", (t) => {
   const env = withTempEnv(t);
   const target = resolveAppendSystemPromptFile(env);
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `${SUBAGENT_POLICY_BEGIN}\nsubagent draft\n${SUBAGENT_POLICY_END}\n${TODO_POLICY_BEGIN}\nstale todo draft\n${TODO_POLICY_END}\n`);
+  fs.writeFileSync(target, `My custom rules.\n${TODO_POLICY_BEGIN}\nstale todo draft\n${TODO_POLICY_END}\n`);
   const result = ensureTodoProgressPolicy({ env });
-  const content = fs.readFileSync(result.path, "utf8");
+  const content = fs.readFileSync(target, "utf8");
   assert.equal(result.changed, true);
   assert.ok(!content.includes("stale todo draft"));
-  assert.ok(content.includes("subagent draft"), "other managed blocks untouched");
+  assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
   assert.ok(content.includes("progress panel"));
 });
