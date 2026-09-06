@@ -9,21 +9,24 @@ function createPi() {
   const tools = new Map();
   const commands = new Map();
   const listeners = new Map();
+  const entries = [];
   const pi = {
     registerTool(tool) { tools.set(tool.name, tool); },
     registerCommand(name, cmd) { commands.set(name, cmd); },
+    appendEntry(customType, data) { entries.push({ type: "custom", customType, data }); },
     on(event, handler) {
       const list = listeners.get(event) ?? [];
       list.push(handler);
       listeners.set(event, list);
     },
   };
-  return { pi, tools, commands, listeners };
+  const sessionManager = { getEntries: () => entries };
+  return { pi, tools, commands, listeners, entries, sessionManager };
 }
 
-async function emit(pi, event, ctx = {}) {
+async function emit(pi, event, ctx = {}, extra = {}) {
   for (const handler of pi.listeners.get(event) ?? []) {
-    await handler({ type: event }, ctx);
+    await handler({ type: event, ...extra }, ctx);
   }
 }
 
@@ -45,8 +48,11 @@ function makeUi() {
   };
 }
 
-function startSession(pi, ui) {
-  return emit(pi, "session_start", { hasUI: true, mode: "tui", ui })
+function startSession(pi, ui, opts = {}) {
+  const ctx = pi.sessionManager
+    ? { hasUI: true, mode: "tui", ui, sessionManager: pi.sessionManager }
+    : { hasUI: true, mode: "tui", ui };
+  return emit(pi, "session_start", ctx, { reason: opts.reason ?? "startup" });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────
@@ -190,4 +196,55 @@ test("session_shutdown disposes widget and state", async () => {
   assert.ok(uiState.widgets.has("pi-todo"));
   await emit(pi, "session_shutdown", {});
   assert.equal(uiState.widgets.has("pi-todo"), false, "widget removed on shutdown");
+});
+
+test("/resume restores the latest persisted plan and its panel", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-8", {
+    todos: [
+      { content: "First step", status: "completed" },
+      { content: "Second step", status: "in_progress" },
+    ],
+  }, undefined, undefined, undefined);
+
+  const uiState2 = makeUi();
+  await startSession(pi, uiState2.ui, { reason: "resume" });
+  const widgetFactory = uiState2.widgets.get("pi-todo");
+  assert.ok(widgetFactory, "widget restored after resume");
+  const component = widgetFactory({ requestRender() {} }, theme);
+  const lines = component.render(80);
+  assert.ok(lines.some((l) => l.includes("2/2")), "progress header restored");
+  assert.ok(lines.some((l) => l.includes("Second step")));
+});
+
+test("/resume after /todo clear keeps the panel hidden", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-9", { todos: [{ content: "Task", status: "pending" }] }, undefined, undefined, undefined);
+  const cmd = pi.commands.get("todo");
+  await cmd.handler("clear", { ui: uiState.ui, hasUI: true, mode: "tui" });
+
+  const uiState2 = makeUi();
+  await startSession(pi, uiState2.ui, { reason: "resume" });
+  assert.equal(uiState2.widgets.has("pi-todo"), false, "cleared plan stays cleared after resume");
+});
+
+test("fresh startup ignores session entries", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-10", { todos: [{ content: "Task", status: "pending" }] }, undefined, undefined, undefined);
+
+  const uiState2 = makeUi();
+  await startSession(pi, uiState2.ui, { reason: "startup" });
+  assert.equal(uiState2.widgets.has("pi-todo"), false, "startup always starts blank");
 });

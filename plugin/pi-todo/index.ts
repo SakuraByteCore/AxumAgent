@@ -7,13 +7,13 @@
  * keeps a live progress widget above the editor.
  *
  * Single file, zero native deps. Widget state is per-process; the panel
- * appears once a plan exists and hides again when the plan empties, so
- * stale todos never survive /resume.
+ * appears once a plan exists and hides again when the plan empties. On
+ * /resume (or fork) the latest plan is restored from session entries.
  */
 
 import { Type } from "typebox";
 import type { Component, TUI } from "@earendil-works/pi-tui";
-import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIContext, SessionMessageEntry, Theme } from "@earendil-works/pi-coding-agent";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -143,6 +143,35 @@ function normalizeTodos(items: TodoItem[]): TodoItem[] {
 	});
 }
 
+/** Custom session entry that persists the plan so /resume can restore it. */
+export const TODO_ENTRY_TYPE = "pi-todo-state";
+
+interface TodoEntryData {
+	todos: TodoItem[];
+}
+
+/**
+ * Restore the newest persisted plan: custom entries win over legacy tool
+ * results (sessions recorded before state persistence existed). Returns
+ * null when the session holds no plan at all.
+ */
+function restoreTodos(ctx: ExtensionContext): TodoItem[] | null {
+	const entries = ctx.sessionManager?.getEntries?.() ?? [];
+	for (let i = entries.length - 1; i >= 0; i--) {
+		const entry = entries[i];
+		if (entry.type === "custom" && entry.customType === TODO_ENTRY_TYPE) {
+			const data = (entry as { data?: TodoEntryData }).data;
+			return Array.isArray(data?.todos) ? normalizeTodos(data.todos) : [];
+		}
+		if (entry.type !== "message") continue;
+		const message = (entry as SessionMessageEntry).message;
+		if (message.role !== "toolResult" || message.toolName !== TOOL_NAME) continue;
+		const details = (message as { details?: TodoEntryData }).details;
+		if (Array.isArray(details?.todos)) return normalizeTodos(details.todos);
+	}
+	return null;
+}
+
 function summarized(todos_: TodoItem[]): string {
 	const done = todos_.filter((t) => t.status === "completed").length;
 	const active = todos_.find((t) => t.status === "in_progress");
@@ -165,6 +194,7 @@ export default function register(pi: ExtensionAPI): void {
 		parameters: TODO_PARAMETERS,
 		async execute(_toolCallId, params, _signal, _onUpdate, _ctx): Promise<any> {
 			todos = normalizeTodos(params.todos);
+			pi.appendEntry<TodoEntryData>(TODO_ENTRY_TYPE, { todos });
 			refreshWidget();
 			return {
 				content: [{ type: "text" as const, text: summarized(todos) }],
@@ -190,6 +220,7 @@ export default function register(pi: ExtensionAPI): void {
 			const arg = args.trim().toLowerCase();
 			if (arg === "clear") {
 				todos = [];
+				pi.appendEntry<TodoEntryData>(TODO_ENTRY_TYPE, { todos });
 				refreshWidget();
 				ctx.ui.notify("Todo list cleared", "info");
 				return;
@@ -212,10 +243,13 @@ export default function register(pi: ExtensionAPI): void {
 		refreshWidget();
 	}
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		ui = ctx.hasUI && ctx.mode === "tui" ? ctx.ui : undefined;
-		todos = [];
-		// Wipe the plan and drop any widget still registered by a previous session.
+		// Resume/fork continue an existing session: restore the latest persisted
+		// plan. Startup/reload/new sessions start blank.
+		const resumed = event.reason === "resume" || event.reason === "fork";
+		todos = (resumed && restoreTodos(ctx)) || [];
+		// Drop any widget still registered by a previous session.
 		if (ui && widgetRegistered) {
 			ui.setWidget(WIDGET_KEY, undefined);
 		}
