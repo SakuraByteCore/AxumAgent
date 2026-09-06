@@ -1,0 +1,63 @@
+name: Update pi-web dependency
+
+on:
+  schedule:
+    - cron: "15 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Check @agegr/pi-web versions
+        id: check
+        run: |
+          CURRENT=$(node -p "require('./package-lock.json').packages['node_modules/@agegr/pi-web'].version")
+          LATEST=$(npm view @agegr/pi-web version)
+          echo "current=$CURRENT" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Bump @agegr/pi-web
+        if: steps.check.outputs.changed == 'true'
+        run: npm install "@agegr/pi-web@^${{ steps.check.outputs.latest }}"
+
+      - name: Build and test
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          npm run build
+          npm test
+
+      - name: Open pull request
+        if: steps.check.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="chore/pi-web-${{ steps.check.outputs.latest }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add package.json package-lock.json
+          git commit -m "chore(deps): bump @agegr/pi-web from ${{ steps.check.outputs.current }} to ${{ steps.check.outputs.latest }}"
+          git push -f origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(deps): bump @agegr/pi-web to ${{ steps.check.outputs.latest }}" \
+            --body "Automated weekly bump of the bundled @agegr/pi-web chat UI dependency (${{ steps.check.outputs.current }} -> ${{ steps.check.outputs.latest }}). Build and test suite passed before this PR was opened." \
+            || echo "pull request for $BRANCH already exists"
