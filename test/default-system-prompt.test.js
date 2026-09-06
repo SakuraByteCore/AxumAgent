@@ -7,6 +7,9 @@ import {
   SUBAGENT_POLICY_BEGIN,
   SUBAGENT_POLICY_END,
   ensureSubagentDelegationPolicy,
+  ensureTodoProgressPolicy,
+  TODO_POLICY_BEGIN,
+  TODO_POLICY_END,
   resolveAppendSystemPromptFile,
 } from "../src/default-system-prompt.js";
 
@@ -68,4 +71,31 @@ test("stores the file with mode 600", (t) => {
   const result = ensureSubagentDelegationPolicy({ env });
   const mode = fs.statSync(result.path).mode & 0o777;
   assert.equal(mode, 0o600);
+});
+
+test("todo progress policy: creates, is idempotent, and coexists with the subagent block", (t) => {
+  const env = withTempEnv(t);
+  assert.equal(ensureSubagentDelegationPolicy({ env }).changed, true);
+  const result = ensureTodoProgressPolicy({ env });
+  const content = fs.readFileSync(result.path, "utf8");
+  assert.equal(result.changed, true);
+  assert.ok(content.includes(TODO_POLICY_BEGIN));
+  assert.ok(content.includes(TODO_POLICY_END));
+  assert.ok(content.includes("Todo Progress Policy"));
+  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "subagent block preserved");
+  assert.ok(content.indexOf(SUBAGENT_POLICY_BEGIN) < content.indexOf(TODO_POLICY_BEGIN), "todo block appended after subagent block");
+  assert.equal(ensureTodoProgressPolicy({ env }).changed, false, "idempotent second run");
+});
+
+test("todo progress policy: replaces only its own block on upgrade", (t) => {
+  const env = withTempEnv(t);
+  const target = resolveAppendSystemPromptFile(env);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `${SUBAGENT_POLICY_BEGIN}\nsubagent draft\n${SUBAGENT_POLICY_END}\n${TODO_POLICY_BEGIN}\nstale todo draft\n${TODO_POLICY_END}\n`);
+  const result = ensureTodoProgressPolicy({ env });
+  const content = fs.readFileSync(result.path, "utf8");
+  assert.equal(result.changed, true);
+  assert.ok(!content.includes("stale todo draft"));
+  assert.ok(content.includes("subagent draft"), "other managed blocks untouched");
+  assert.ok(content.includes("progress panel"));
 });
