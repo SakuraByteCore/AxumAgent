@@ -6,9 +6,9 @@
  * completed), renders the checklist in the transcript for each call, and
  * keeps a live progress widget above the editor.
  *
- * Single file, zero native deps. Widget state is per-process; the panel is
- * visible by default (empty state) and session starts wipe only the plan,
- * so stale todos never survive /resume.
+ * Single file, zero native deps. Widget state is per-process; the panel
+ * appears once a plan exists and hides again when the plan empties, so
+ * stale todos never survive /resume.
  */
 
 import { Type } from "typebox";
@@ -30,8 +30,9 @@ const WIDGET_KEY = "pi-todo";
 const TOOL_NAME = "todo";
 const MAX_PANEL_ITEMS = 8;
 /** ASCII glyphs keep the panel dependency-free and safe in every terminal. */
+/** Single-cell glyphs keep column math exact in every terminal. */
 const STATUS_GLYPH: Record<TodoStatus, string> = {
-	completed: "[x]",
+	completed: "[√]",
 	in_progress: "[>]",
 	pending: "[ ]",
 };
@@ -60,9 +61,11 @@ let widgetRegistered = false;
 
 
 export function renderTodoLines(th: Theme, items: TodoItem[], width: number): string[] {
-	const done = items.filter((t) => t.status === "completed").length;
+	const progress = items.filter((t) => t.status !== "pending").length;
 	const lines: string[] = [];
-	const header = `${th.fg("accent", "Todo")} ${th.fg("dim", `${done}/${items.length} done`)}`;
+	const allDone = items.length > 0 && progress === items.length;
+	const detail = allDone ? `${progress}/${items.length} done` : `${progress}/${items.length}`;
+	const header = `${th.fg("accent", "Todo")} ${th.fg("dim", detail)}`;
 	lines.push(header);
 	const visible = items.slice(0, MAX_PANEL_ITEMS);
 	for (const item of visible) {
@@ -81,16 +84,11 @@ export function renderTodoLines(th: Theme, items: TodoItem[], width: number): st
 	return lines;
 }
 
-/** Default panel content before any plan exists; keeps the widget visible. */
-export function renderEmptyTodoLines(th: Theme): string[] {
-	return [`${th.fg("accent", "Todo")} ${th.fg("dim", "— no active plan; multi-step tasks populate this panel")}`];
-}
-
 function makeTodoComponent(): Component {
 	return {
 		render(width: number): string[] {
 			if (!theme) return [];
-			if (todos.length === 0) return renderEmptyTodoLines(theme);
+			if (todos.length === 0) return [];
 			return renderTodoLines(theme, todos, width);
 		},
 		invalidate() {
@@ -106,6 +104,14 @@ function makeTodoComponent(): Component {
 
 function refreshWidget(): void {
 	if (!ui) return;
+	if (todos.length === 0) {
+		if (widgetRegistered) {
+			ui.setWidget(WIDGET_KEY, undefined);
+			widgetRegistered = false;
+			tui = undefined;
+		}
+		return;
+	}
 	if (!widgetRegistered) {
 		ui.setWidget(
 			WIDGET_KEY,
@@ -209,8 +215,10 @@ export default function register(pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		ui = ctx.hasUI && ctx.mode === "tui" ? ctx.ui : undefined;
 		todos = [];
-		// Wipe the plan but keep the panel: re-register so the widget starts
-		// every session visible in its empty state instead of absent.
+		// Wipe the plan and drop any widget still registered by a previous session.
+		if (ui && widgetRegistered) {
+			ui.setWidget(WIDGET_KEY, undefined);
+		}
 		widgetRegistered = false;
 		tui = undefined;
 		refreshWidget();
