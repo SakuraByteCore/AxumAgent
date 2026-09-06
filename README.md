@@ -98,6 +98,7 @@ The distribution ships these packages, all in one install:
 - `pi-hashline-edit-pro`
 - `pi-todo` (Codex-style task progress panel: `todo` tool maintains a plan checklist rendered live above the editor, plus the `/todo` command)
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
+- `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
 
 ## Configure an OpenAI-compatible Provider
 
@@ -193,7 +194,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent`.
+Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent` / `pi-subagents`.
 
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.

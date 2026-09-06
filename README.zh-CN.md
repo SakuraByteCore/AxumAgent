@@ -39,6 +39,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - `@narumitw/pi-goal`
 - `pi-hashline-edit-pro`
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：手动触发的后台 Agent，带实时进度挂件；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
+- `pi-subagents`（单 Agent 委托与脚本化多 Agent 工作流：task 委托、后台运行、多代理编排）
 
 ## 环境要求
 
@@ -187,7 +188,7 @@ axum doctor
 
 `doctor` 检查打包 Pi 缓存与入口点。
 
-安全模式 (`axum code --safe`) 仅启动 Pi 本体，不加载 `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent`。
+安全模式 (`axum code --safe`) 仅启动 Pi 本体，不加载 `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent` / `pi-subagents`。
 
 
 打包 Pi 运行时存储于用户缓存，而非 npm 全局包目录。因此重新安装 Axum 通常不会重复执行 `axum code` 的首次安装流程。

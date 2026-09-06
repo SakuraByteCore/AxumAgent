@@ -58,6 +58,7 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "pi-todo", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.ts": "" });
   if (includeWindowsBroken) {
     writePackage(cache, "pi-web-access", { "index.ts": "" });
     writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -130,7 +131,7 @@ test("axum code disables ambient extensions before loading bundled extensions", 
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 6;
+  const expectedExtensionCount = 7;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
@@ -304,6 +305,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "pi-todo", { "index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.ts": "" });
   writeAgentSettings(agentDir);
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
@@ -316,7 +318,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   const compiledIndex = argv.indexOf(path.join(cache, "node_modules", "pi-bar", "index.js"));
   assert.notEqual(compiledIndex, -1);
   assert.equal(argv[compiledIndex - 1], "-e");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 6);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 7);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {

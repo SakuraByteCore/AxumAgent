@@ -52,4 +52,8 @@ export const bundledPiPackages = [
   // vendored from @giladbarnea/pi-user-agents@0.0.5. Parameter-property constructors were
   // rewritten to explicit field assignments so the Windows compile path can strip its TS.
   { name: "pi-agent@file:plugin/pi-agent", packageName: "pi-agent", extensionPath: "index.ts", android: true },
+  // pi-subagents: single-agent delegation and scripted multi-agent workflows
+  // (task tool, background runs, /agents orchestration). Pure TS with no
+  // parameter properties or extensionless relative imports, zero native deps.
+  { name: "pi-subagents@0.66.0", packageName: "pi-subagents", extensionPath: "index.ts", android: true },
 ];
