@@ -1,4 +1,5 @@
 import { registerDispatch } from "./dispatch.js";
+import { registerSessionLifecycle } from "./session-lifecycle.js";
 import type {
 	MessageEndEvent,
 	MessageEndEventResult,
@@ -71,19 +72,11 @@ export default function userAgent(pi: ExtensionAPI): void {
 			),
 	});
 
-	pi.on("session_shutdown", async () => {
-		shuttingDown = true;
-		widget.dispose();
-		const agents = [...runningAgents];
-		for (const agent of agents) {
-			void agent.session?.abort();
-			agent.retire?.();
-		}
-		await Promise.allSettled(agents.map((agent) => agent.finished));
-		for (const agent of agents) {
-			agent.session?.dispose();
-		}
-		runningAgents.clear();
+	registerSessionLifecycle(pi, {
+		runningAgents,
+		setShuttingDown: (value) => { shuttingDown = value; },
+		setMainSessionContext: (ctx) => { mainSessionContext = ctx; },
+		disposeWidget: () => widget.dispose(),
 	});
 }
 

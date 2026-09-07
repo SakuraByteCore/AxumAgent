@@ -136,3 +136,34 @@ test("dispatch_agent execute surfaces start failures as tool errors", async () =
   assert.match(result.content[0].text, /Model "nope" not found/);
   assert.equal(result.details.error, 'Model "nope" not found in the live model catalog.');
 });
+
+test("session lifecycle: shutdown latches agents cleanup, start resets the latch", async () => {
+  const { registerSessionLifecycle } = await import("../plugin/pi-agent/session-lifecycle.ts");
+  const handlers = new Map();
+  const pi = { on(name, handler) { handlers.set(name, handler); } };
+  const disposed = [];
+  let shuttingDown = false;
+  let mainCtx = undefined;
+  const retired = [];
+  const runningAgents = new Set([
+    { session: { abort() { this.aborted = true; }, dispose() { disposed.push(this); }, aborted: false }, retire: () => retired.push("a"), finished: Promise.resolve() },
+  ]);
+  registerSessionLifecycle(pi, {
+    runningAgents,
+    setShuttingDown: (value) => { shuttingDown = value; },
+    setMainSessionContext: (ctx) => { mainCtx = ctx; },
+    disposeWidget: () => disposed.push("widget"),
+  });
+
+  assert.equal(shuttingDown, false);
+  await handlers.get("session_shutdown")({}, {});
+  assert.equal(shuttingDown, true);
+  assert.equal(runningAgents.size, 0);
+  assert.deepEqual(retired, ["a"]);
+  assert.equal(disposed[0], "widget");
+
+  const nextCtx = { marker: "new-session" };
+  handlers.get("session_start")({ reason: "new" }, nextCtx);
+  assert.equal(shuttingDown, false);
+  assert.equal(mainCtx, nextCtx);
+});
