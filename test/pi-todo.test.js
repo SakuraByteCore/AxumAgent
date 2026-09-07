@@ -279,6 +279,19 @@ test("renderTodoLines keeps the in_progress item visible beyond the panel limit"
   assert.equal(lines.some((l) => l.includes("more")), false, "active item is the last entry, nothing hidden after it");
 });
 
+test("renderTodoLines keeps the panel full when the active item passes the limit", () => {
+  const items = Array.from({ length: 12 }, (_, i) => ({
+    content: `Step ${i + 1}`,
+    status: i === 11 ? "in_progress" : "completed",
+  }));
+  const lines = renderTodoLines(theme, items, 60);
+  const rows = lines.filter((l) => /^\[.\] /.test(l));
+  assert.equal(rows.length, 8, "window stays at MAX_PANEL_ITEMS instead of collapsing to the tail");
+  assert.ok(rows.some((l) => l.includes("Step 12")), "active item still visible");
+  assert.ok(rows.some((l) => l.includes("Step 5")), "window clamps to the tail end, keeping trailing context");
+  assert.equal(rows.some((l) => /Step [1-4]\b/.test(l)), false, "overflowed leading items stay hidden");
+});
+
 test("/todo shows the full checklist as a multiline notification", async () => {
   const pi = createPi();
   register(pi.pi);

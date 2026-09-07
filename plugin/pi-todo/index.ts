@@ -106,7 +106,10 @@ function inProgressGlyph(): string {
 function visibleItems(items: TodoItem[]): { visible: TodoItem[]; hiddenAfter: number } {
 	if (items.length <= MAX_PANEL_ITEMS) return { visible: items, hiddenAfter: 0 };
 	const activeIndex = items.findIndex((t) => t.status === "in_progress");
-	const start = activeIndex >= MAX_PANEL_ITEMS ? activeIndex : 0;
+	// Slide the window so it stays full: clamp the start at the tail end
+	// instead of anchoring on the active item, which would collapse the
+	// panel to the trailing few rows once the active index passes the limit.
+	const start = activeIndex >= MAX_PANEL_ITEMS ? Math.min(activeIndex, items.length - MAX_PANEL_ITEMS) : 0;
 	const visible = items.slice(start, start + MAX_PANEL_ITEMS);
 	return { visible, hiddenAfter: items.length - start - visible.length };
 }
