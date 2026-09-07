@@ -24,6 +24,40 @@ it while you work; a plan that is never created means a panel that never moves.
 ${TODO_POLICY_END}`;
 
 
+const LEGACY_SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v1 -->";
+const LEGACY_SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
+export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v2 -->";
+export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
+
+export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
+## Subagent Delegation Policy
+
+The \`subagent\` tool is the default execution engine for parallelizable work, not a
+fallback. The main thread keeps only scoping, dispatch, and final synthesis.
+
+### Trigger immediately
+
+- A request carrying 2+ independent tasks or requirements: silently partition them
+  into non-overlapping scopes, then launch all of them in a single \`subagent\`
+  workflow with \`async: true\` before implementing anything inline.
+- Multi-file exploration, external research, full test suites, builds, installs,
+  and bulk homogeneous edits across unrelated files: delegate right away.
+- No planning tax: allow yourself at most a short scope sketch before dispatching;
+  never deliver a long analysis block first. Dispatch early and refine while
+  children run.
+
+### Keep inline
+
+- Trivial single-step actions where delegation overhead exceeds the work itself.
+- Sequential steps with data dependencies, and any two writers targeting the same
+  file (merge those into one child).
+
+### After dispatch
+
+- Validate conflicts between child reports, synthesize one aggregated answer, and
+  never forward raw multi-agent reports to the user.
+${SUBAGENT_POLICY_END}`;
+
 export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";
 export const PARALLEL_POLICY_END = "<!-- /axum:parallel-tool-batching-policy -->";
 
@@ -79,4 +113,25 @@ export function ensureTodoProgressPolicy(options) {
 
 export function ensureParallelToolBatchingPolicy(options) {
   return ensureManagedPolicyBlock({ begin: PARALLEL_POLICY_BEGIN, end: PARALLEL_POLICY_END, block: PARALLEL_TOOL_BATCHING_POLICY }, options);
+}
+
+export function ensureSubagentDelegationPolicy({ env = process.env } = {}) {
+  const target = resolveAppendSystemPromptFile(env);
+  const original = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
+  let existing = original;
+  const legacyStart = existing.indexOf(LEGACY_SUBAGENT_POLICY_BEGIN);
+  if (legacyStart !== -1) {
+    const legacyStop = existing.indexOf(LEGACY_SUBAGENT_POLICY_END, legacyStart);
+    if (legacyStop !== -1) {
+      existing = legacyStart === 0
+        ? existing.slice(legacyStop + LEGACY_SUBAGENT_POLICY_END.length).trimStart()
+        : (existing.slice(0, legacyStart) + existing.slice(legacyStop + LEGACY_SUBAGENT_POLICY_END.length)).replace(/\n{3,}/g, "\n\n");
+    }
+  }
+  const next = buildUpsertedContent(existing, SUBAGENT_POLICY_BEGIN, SUBAGENT_POLICY_END, SUBAGENT_DELEGATION_POLICY);
+  if (next === original) return { path: target, changed: false };
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, next, { mode: 0o600 });
+  try { fs.chmodSync(target, 0o600); } catch {}
+  return { path: target, changed: true };
 }

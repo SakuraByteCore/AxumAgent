@@ -203,7 +203,7 @@ function buildPiEnv(compileCacheDir) {
 }
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
@@ -226,6 +226,11 @@ async function runPi(passthrough) {
   }
   // Parallel tool batching is core Pi behavior and applies to every session.
   ensureParallelToolBatchingPolicy(bundledPiOptions);
+  // Ship the subagent delegation policy only where pi-subagents loads
+  // (non-safe sessions).
+  if (!safe && packageNames.some((name) => name.startsWith("pi-subagents@"))) {
+    ensureSubagentDelegationPolicy(bundledPiOptions);
+  }
   const extensionArgs = safe ? [] : resolveBundledExtensions(bundledPiOptions).flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
   const hasProviderArg = hasArg(piArgs, "--provider") || hasArg(piArgs, "--model");

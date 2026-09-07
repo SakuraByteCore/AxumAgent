@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   PI_RATE_LIMIT_429_PATTERN_SOURCE,
+  PI_SUBAGENTS_PROACTIVE_MARKER,
   applyBundledPiPatches,
+  patchPiSubagentsProactiveDelegation,
   patchPiTuiStdinBuffer,
 } from "../src/bundled-pi-patches.js";
 
@@ -49,4 +51,23 @@ test("applyBundledPiPatches throws for a cache root without installed packages",
     () => applyBundledPiPatches({ env: { ...process.env, AXUM_BUNDLED_PI_DIR: "/nonexistent-axum-cache" } }),
     /stdin buffer not found/,
   );
+});
+
+test("patchPiSubagentsProactiveDelegation rewrites passive tool wording and is idempotent", () => {
+  const content = [
+    'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate to subagents; orchestrate in one workflowScript call.";',
+    'const guideline = `Use subagent only when delegation is needed. keep`;',
+  ].join("\n");
+  const once = patchPiSubagentsProactiveDelegation(content);
+  assert.ok(once.includes(PI_SUBAGENTS_PROACTIVE_MARKER));
+  assert.ok(once.includes("Delegate proactively to subagents"));
+  assert.ok(once.includes("Use subagent proactively"));
+  assert.ok(!once.includes("Use subagent only when delegation is needed"));
+  const twice = patchPiSubagentsProactiveDelegation(once);
+  assert.equal(twice, once);
+});
+
+test("patchPiSubagentsProactiveDelegation skips upstream content that drifted", () => {
+  const drifted = "export const SUBAGENT_TOOL_PROMPT_SNIPPET = \"something new\";";
+  assert.equal(patchPiSubagentsProactiveDelegation(drifted), drifted);
 });
