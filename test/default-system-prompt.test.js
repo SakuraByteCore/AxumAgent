@@ -100,7 +100,7 @@ test("subagent delegation policy: creates the file, is idempotent, and stores mo
   assert.equal(result.changed, true);
   assert.ok(content.includes(SUBAGENT_POLICY_BEGIN));
   assert.ok(content.includes(SUBAGENT_POLICY_END));
-  assert.ok(content.includes("Trigger immediately"));
+  assert.ok(content.includes("Dispatch first, think second"));
   assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
   assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent second run");
 });

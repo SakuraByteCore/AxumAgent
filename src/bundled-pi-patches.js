@@ -17,7 +17,8 @@ const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPS
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 const PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER = "AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBMIT";
 const PI_SUBAGENTS_PACKAGE = "pi-subagents";
-const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
+const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
+const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
@@ -1173,19 +1174,27 @@ function patchPiSubagentsProactiveDelegation(content) {
   if (content.includes(PI_SUBAGENTS_PROACTIVE_MARKER)) return content;
   const needles = [
     [
-      'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate to subagents; orchestrate in one workflowScript call.";',
-      'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate proactively to subagents; orchestrate in one workflowScript call. When the request carries multiple independent tasks or requirements, partition them into non-overlapping scopes and launch all of them in one async workflow immediately, without a long planning pass first.";',
+      [
+        'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate proactively to subagents; orchestrate in one workflowScript call. When the request carries multiple independent tasks or requirements, partition them into non-overlapping scopes and launch all of them in one async workflow immediately, without a long planning pass first.";',
+        'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate to subagents; orchestrate in one workflowScript call.";',
+      ],
+      'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";',
     ],
     [
-      "Use subagent only when delegation is needed.",
-      "Use subagent proactively; do not wait for the user to explicitly request delegation.",
+      [
+        "Use subagent proactively; do not wait for the user to explicitly request delegation.",
+        "Use subagent only when delegation is needed.",
+      ],
+      "Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",
     ],
   ];
   let patched = content;
-  for (const [needle, replacement] of needles) {
-    if (!patched.includes(needle)) return content;
-    patched = patched.replace(needle, replacement);
+  for (const [variants, replacement] of needles) {
+    const variant = variants.find((candidate) => patched.includes(candidate));
+    if (!variant) return content;
+    patched = patched.replace(variant, replacement);
   }
+  patched = patched.replace("// " + LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n", "");
   return "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n" + patched;
 }
 function patchFileInPlace(filePath, ...patchers) {
@@ -1288,4 +1297,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, PI_SUBAGENTS_PROACTIVE_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER };

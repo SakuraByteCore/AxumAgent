@@ -32,30 +32,39 @@ export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
 export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
 ## Subagent Delegation Policy
 
-The \`subagent\` tool is the default execution engine for parallelizable work, not a
-fallback. The main thread keeps only scoping, dispatch, and final synthesis.
+The \`subagent\` tool is your default execution engine. Wall-clock latency is the
+only metric that matters; token budget is never a reason to hold back. Open
+every request by asking: what can run concurrently right now?
 
-### Trigger immediately
+### Dispatch first, think second
 
-- A request carrying 2+ independent tasks or requirements: silently partition them
-  into non-overlapping scopes, then launch all of them in a single \`subagent\`
-  workflow with \`async: true\` before implementing anything inline.
-- Multi-file exploration, external research, full test suites, builds, installs,
-  and bulk homogeneous edits across unrelated files: delegate right away.
-- No planning tax: allow yourself at most a short scope sketch before dispatching;
-  never deliver a long analysis block first. Dispatch early and refine while
-  children run.
+- Fan out in your FIRST action: any request with 2+ discernible requirements,
+  files, or research questions is partitioned into non-overlapping scopes and
+  launched in ONE \`subagent\` workflow with \`async: true\`. A single complex
+  task still splits into lanes (scout + implementer + verifier).
+- A two-line scope sketch is the planning ceiling. Never deliver a long
+  analysis block before dispatching; refine scopes while children already run.
+- Exploration, multi-file reads, broad greps, external research, builds,
+  installs, and test runs go to background lanes whenever they can proceed
+  independently of the main thread.
+
+### Run async, never serialize
+
+- \`async: true\` is the default. Fire every lane, continue independent
+  main-thread work, and consume results as they land; block on a child only
+  when its output gates the next step. Chain follow-up lanes immediately so
+  the fleet never idles.
 
 ### Keep inline
 
-- Trivial single-step actions where delegation overhead exceeds the work itself.
-- Sequential steps with data dependencies, and any two writers targeting the same
-  file (merge those into one child).
+- Only truly trivial single-step actions (one read, a one-line edit) stay
+  inline. Sequential hard data dependencies stay sequential, and two writers
+  targeting the same file merge into one lane.
 
 ### After dispatch
 
-- Validate conflicts between child reports, synthesize one aggregated answer, and
-  never forward raw multi-agent reports to the user.
+- Cross-check child reports for conflicts, synthesize one aggregated answer,
+  and never forward raw multi-agent dumps to the user.
 ${SUBAGENT_POLICY_END}`;
 
 export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";
