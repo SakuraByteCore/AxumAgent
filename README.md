@@ -91,14 +91,15 @@ axum doctor
 The distribution ships these packages, all in one install:
 
 - `@earendil-works/pi-coding-agent`
-- `pi-bar` (AxumAgent bundled fork)
-- `pi-header` (AxumAgent bundled fork)
+- `pi-bar` (AxumAgent bundled fork, absorbs the former pi-header)
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
 - `@narumitw/pi-goal`
+- `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`
 - `pi-todo` (Codex-style task progress panel: `todo` tool maintains a plan checklist rendered live above the editor, plus the `/todo` command)
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 - `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
+- `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
 
 ## Configure an OpenAI-compatible Provider
 
@@ -194,7 +195,7 @@ axum doctor
 
 `doctor` checks the bundled Pi cache and entrypoint.
 
-Safe mode (`axum code --safe`) launches the Pi core without loading `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent` / `pi-subagents`.
+Safe mode (`axum code --safe`) launches the Pi core without loading any of the bundled extensions above.
 
 
 The bundled Pi runtime is stored in the user cache, not the npm global package directory. So reinstalling Axum usually does not repeat the first-run setup of `axum code`.

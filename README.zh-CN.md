@@ -33,13 +33,15 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 本分发包含以下包，一次安装全部就位:
 
 - `@earendil-works/pi-coding-agent`
-- `pi-bar`（AxumAgent 打包分支）
-- `pi-header`（AxumAgent 打包分支）
+- `pi-bar`（AxumAgent 打包分支，已并入原 pi-header）
 - `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 + 响应守卫 + 建议旁观者）
 - `@narumitw/pi-goal`
+- `pi-web-access`（Web 搜索、提取与内容整理工具：/websearch、/curator、/google-account、/search）
 - `pi-hashline-edit-pro`
+- `pi-todo`（Codex 风格的任务进度面板：todo 工具在编辑器上方实时渲染计划清单，另含 /todo 命令）
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：手动触发的后台 Agent，带实时进度挂件；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
 - `pi-subagents`（单 Agent 委托与脚本化多 Agent 工作流：task 委托、后台运行、多代理编排）
+- `@ff-labs/pi-fff`（仅桌面端：带频率排序的 FFF 文件搜索；Android 与 Windows 不包含）
 
 ## 环境要求
 
@@ -188,7 +190,7 @@ axum doctor
 
 `doctor` 检查打包 Pi 缓存与入口点。
 
-安全模式 (`axum code --safe`) 仅启动 Pi 本体，不加载 `pi-edit` / `pi-bar` / `pi-goal` / `pi-header` / `pi-web-access` / `pi-hashline-edit-pro` / `pi-agent` / `pi-subagents`。
+安全模式（`axum code --safe`）仅启动 Pi 本体，不加载上述打包扩展。
 
 
 打包 Pi 运行时存储于用户缓存，而非 npm 全局包目录。因此重新安装 Axum 通常不会重复执行 `axum code` 的首次安装流程。
