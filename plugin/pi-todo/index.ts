@@ -61,7 +61,9 @@ let theme: Theme | undefined;
 let widgetRegistered = false;
 let spinnerFrame = 0;
 let spinnerTimer: ReturnType<typeof setInterval> | undefined;
-
+// The spinner only animates while the agent is actively running; a stale
+// in_progress item left behind by an aborted or finished run must not spin.
+let agentRunning = false;
 // ── Rendering ──────────────────────────────────────────────────────────────
 
 function charDisplayWidth(codePoint: number): number {
@@ -146,7 +148,7 @@ function stopSpinner(): void {
 }
 
 function updateSpinner(): void {
-	const hasActive = todos.some((t) => t.status === "in_progress");
+	const hasActive = agentRunning && todos.some((t) => t.status === "in_progress");
 	if (!hasActive || !tui) {
 		stopSpinner();
 		return;
@@ -339,6 +341,7 @@ export default function register(pi: ExtensionAPI): void {
 
 	pi.on("session_start", async (event, ctx) => {
 		stopSpinner();
+		agentRunning = false;
 		ui = ctx.hasUI && ctx.mode === "tui" ? ctx.ui : undefined;
 		// Resume/fork continue an existing session: restore the latest persisted
 		// plan. Startup/reload/new sessions start blank.
@@ -351,6 +354,17 @@ export default function register(pi: ExtensionAPI): void {
 		widgetRegistered = false;
 		tui = undefined;
 		refreshWidget();
+	});
+
+	pi.on("agent_start", async () => {
+		agentRunning = true;
+		updateSpinner();
+	});
+
+	pi.on("agent_settled", async () => {
+		agentRunning = false;
+		stopSpinner();
+		tui?.requestRender();
 	});
 
 	pi.on("session_shutdown", async () => {

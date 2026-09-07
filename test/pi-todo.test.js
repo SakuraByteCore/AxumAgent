@@ -313,3 +313,35 @@ test("/todo shows the full checklist as a multiline notification", async () => {
   assert.ok(message.includes("[>] Second step"), "in_progress row present");
   assert.ok(message.includes("[ ] Third step"), "pending row present");
 });
+
+test("spinner stops ticking when the agent settles and resumes on the next run", async (t) => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-12", { todos: [{ content: "Long task", status: "in_progress" }] }, undefined, undefined, undefined);
+
+  let renders = 0;
+  const tui = { requestRender() { renders += 1; } };
+  uiState.widgets.get("pi-todo")(tui, theme);
+  t.after(() => { void emit(pi, "session_shutdown", {}); });
+
+  // Idle session: an in_progress row alone must not animate anything.
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(renders, 0, "no spinner ticks while the agent is idle");
+
+  await emit(pi, "agent_start");
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(renders > 0, "spinner ticks while the agent runs");
+
+  await emit(pi, "agent_settled");
+  const settledCount = renders;
+  assert.ok(settledCount > 0);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(renders, settledCount, "no spinner ticks after the agent settles");
+
+  await emit(pi, "agent_start");
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(renders > settledCount, "spinner resumes on the next run");
+});
