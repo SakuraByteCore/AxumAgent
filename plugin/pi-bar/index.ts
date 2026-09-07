@@ -295,7 +295,11 @@ function getBundledCommands(pi: ExtensionAPI): string[] {
     if (cmd.name.includes(":")) continue;
     if (!seen.has(cmd.name)) seen.add(cmd.name);
   }
-  return [...seen].map((name) => `/${name}`).sort();
+  const folded = [...seen].filter((name) => {
+    const dash = name.indexOf("-");
+    return dash === -1 || !seen.has(name.slice(0, dash));
+  });
+  return folded.map((name) => `/${name}`).sort();
 }
 
 const HEADER_ART_TARGET = 34;

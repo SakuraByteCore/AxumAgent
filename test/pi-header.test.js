@@ -27,9 +27,22 @@ const MOCK_COMMANDS = [
   { name: "templ", description: "prompt template", source: "prompt", sourceInfo: { path: "/home/user/.pi/prompts/templ.md", source: "local", scope: "user", origin: "top-level" } },
 ];
 
-const EXPECTED_COMMANDS = MOCK_COMMANDS.filter(
-  (c) => c.source === "extension" && c.sourceInfo.scope === "temporary" && !c.name.includes(":"),
-).map((c) => `/${c.name}`);
+MOCK_COMMANDS.push(
+  { name: "subagents", description: "manage subagents", source: "extension", sourceInfo: { path: "/mock/bundled/pi-subagents/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "subagents-stop", description: "stop run", source: "extension", sourceInfo: { path: "/mock/bundled/pi-subagents/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "subagents-steer", description: "steer run", source: "extension", sourceInfo: { path: "/mock/bundled/pi-subagents/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "subagent-cost", description: "cost report", source: "extension", sourceInfo: { path: "/mock/bundled/pi-subagents/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+);
+
+const BUNDLED_NAMES = new Set(
+  MOCK_COMMANDS.filter(
+    (c) => c.source === "extension" && c.sourceInfo.scope === "temporary" && !c.name.includes(":"),
+  ).map((c) => c.name),
+);
+const EXPECTED_COMMANDS = [...BUNDLED_NAMES].filter((name) => {
+  const dash = name.indexOf("-");
+  return dash === -1 || !BUNDLED_NAMES.has(name.slice(0, dash));
+}).map((name) => `/${name}`);
 
 function getSourceArtRows() {
   const artBlock = headerSource.match(/const ANIME_ART = \[(.*?)\] as const;/s)?.[1] ?? "";
@@ -197,6 +210,10 @@ test("pi-header shows bundled commands instead of extensions", () => {
   assert.ok(!allCmdText.includes("/proj-cmd"));
   assert.ok(!allCmdText.includes("/templ"));
   assert.ok(!allCmdText.includes("pi-companion:setup"));
+  assert.ok(allCmdText.includes("/subagents"), "parent command /subagents present");
+  assert.ok(!allCmdText.includes("subagents-stop"), "folded child /subagents-stop hidden");
+  assert.ok(!allCmdText.includes("subagents-steer"), "folded child /subagents-steer hidden");
+  assert.ok(allCmdText.includes("/subagent-cost"), "unrelated /subagent-cost kept");
 
   const sortedExpected = [...EXPECTED_COMMANDS].sort();
   let lastIndex = -1;
