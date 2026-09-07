@@ -732,3 +732,35 @@ test("ralph deferred continuation stops retrying after the attempt limit", async
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(pi.messages.length, 1);
 });
+
+test("session_start clears deferred auto-continue state from the previous session", async () => {
+  const pi = createPi();
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-reset-"));
+  const ctx = {
+    cwd: tmpDir,
+    hasUI: true,
+    ui: { notify() {} },
+    hasPendingMessages() { return false; },
+    isIdle() { return true; },
+    getContextUsage() { return { tokens: 0, contextWindow: 100 }; },
+  };
+
+  try {
+    await emit(pi, "message_end", {
+      message: {
+        role: "assistant",
+        stopReason: "stop",
+        content: [{ type: "thinking", text: "private reasoning only" }],
+        usage: { input: 10, output: 1 },
+      },
+    }, ctx);
+
+    // Session switches (e.g. /new) before agent_settled drains the deferred retry.
+    await emit(pi, "session_start", {}, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
+
+    assert.equal(pi.messages.length, 0, "stale deferred retry must not fire in the new session");
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+});

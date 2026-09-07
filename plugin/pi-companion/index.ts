@@ -1027,6 +1027,13 @@ pi.on("session_start", async () => {
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
+  consecutiveAutoRetries = 0;
+  pendingAutoRetryMessage = undefined;
+  deferredAutoContinueReason = undefined;
+  previousMessageRole = undefined;
+  lastUserMessageWasAutoRetry = false;
+  lastAssistantMessage = undefined;
+  lastAssistantAlreadyHandled = false;
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────
