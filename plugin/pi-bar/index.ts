@@ -48,14 +48,14 @@ const piTui = await import("@earendil-works/pi-tui").catch(() => ({})) as {
   truncateToWidth?: (text: string, width: number, ellipsis?: string) => string;
   visibleWidth?: (text: string) => number;
 };
-const visibleWidth = piTui.visibleWidth ?? ((text: string) => text.replace(/\x1b\[[0-9;]*m/g, "").length);
-const truncateToWidth = piTui.truncateToWidth ?? ((text: string, width: number, ellipsis = "") =>
-  visibleWidth(text) <= width ? text : text.slice(0, Math.max(0, width - visibleWidth(ellipsis))) + ellipsis);
+const visibleWidth = piTui.visibleWidth ?? displayWidth;
+const truncateToWidth = piTui.truncateToWidth ?? truncateDisplayToWidth;
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath } from "./prompt-history.ts";
+import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
@@ -144,36 +144,11 @@ function frameGradient(text: string): string {
 /** Strip CSI/SCS escape sequences so measurable width tracks only visible glyphs. */
 function headerVisibleWidth(text: string): number {
   // Only single-width glyphs are emitted by cyberdeck content; one text-codepoint == one cell.
-  return [...text.replace(/\x1b\[[0-9;]*m/g, "")].length;
+  return displayWidth(text);
 }
 
 function truncateLine(text: string, width: number): string {
-  if (width <= 0) return "";
-  if (headerVisibleWidth(text) <= width) return text;
-  const chars = [...text];
-  let used = 0;
-  let out = "";
-  for (let i = 0; i < chars.length; i++) {
-    const ch = chars[i];
-    if (ch === "\x1b") {
-      let seq = ch;
-      while (i + 1 < chars.length && chars[i + 1] !== "m") {
-        i++;
-        seq += chars[i];
-      }
-      if (i + 1 < chars.length) {
-        i++;
-        seq += "m";
-      }
-      out += seq;
-      continue;
-    }
-    const cw = headerVisibleWidth(ch);
-    if (used + cw > width) break;
-    out += ch;
-    used += cw;
-  }
-  return out;
+  return truncateDisplayToWidth(text, width);
 }
 
 /** Top border with an inset `[Label]` chip — `╭─ Label ───╮` style. */
@@ -734,7 +709,8 @@ function renderContinuous(percent: number, width: number, theme: Theme, color: T
 function renderBlocks(percent: number, n: number, theme: Theme, color: ThemeColor): string {
 	const p = percent < 0 ? 0 : percent > 100 ? 100 : percent;
 	const filledFloat = (p / 100) * n;
-	const dimBg = theme.getFgAnsi("dim").replace("\x1b[38;", "\x1b[48;");
+	const dimFgAnsi = theme.getFgAnsi("dim");
+	const dimBg = dimFgAnsi.startsWith("\x1b[38;") ? dimFgAnsi.replace("\x1b[38;", "\x1b[48;") : dimFgAnsi;
 	const fg = theme.getFgAnsi(color);
 	const reset = RESET_BOTH;
 	let out = "";
@@ -831,21 +807,7 @@ function trailingText(s: string, budget: number): string {
 	// preceding ANSI escape runs, which cost 0 columns), then take the tail.
 	// The lift avoids the reverse-scan ambiguity when two SGR escapes abut: a
 	// trailing 'm' that begins a new escape would otherwise be misread as a cell.
-	const cells: string[] = [];
-	let i = 0;
-	let escStart = 0;
-	while (i < s.length) {
-		if (s.charCodeAt(i) === 0x1b) {
-			let j = i + 1;
-			while (j < s.length && s.charCodeAt(j) !== 0x6d) j++;
-			i = j + 1;
-		} else {
-			cells.push(s.slice(escStart, i + 1));
-			escStart = i + 1;
-			i++;
-		}
-	}
-	return cells.slice(Math.max(0, cells.length - budget)).join("");
+	return takeDisplayTail(s, budget);
 }
 
 function renderSide(ids: string[], segs: Map<string, Segment>, settings: Settings, theme: Theme): RSeg[] {
@@ -1121,10 +1083,30 @@ function fmtTokens(n: number): string {
 	return `${Math.round(n / 1_000_000)}M`;
 }
 
-function gitBranch(cwd: string): string | undefined {
+export function gitBranch(cwd: string): string | undefined {
+	let dir = cwd;
 	try {
-		const head = readFileSync(join(cwd, ".git", "HEAD"), "utf-8").trim();
-		return head.startsWith("ref: refs/heads/") ? head.slice(16) : head.slice(0, 8);
+		while (true) {
+			const dotGit = join(dir, ".git");
+			if (existsSync(dotGit)) {
+				const stats = statSync(dotGit);
+				let headPath: string | undefined;
+				if (stats.isDirectory()) {
+					headPath = join(dotGit, "HEAD");
+				} else if (stats.isFile()) {
+					const match = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, "utf-8"));
+					if (!match) return undefined;
+					const gitDir = match[1];
+					headPath = join(isAbsolute(gitDir) ? gitDir : resolve(dir, gitDir), "HEAD");
+				}
+				if (!headPath) return undefined;
+				const head = readFileSync(headPath, "utf-8").trim();
+				return head.startsWith("ref: refs/heads/") ? head.slice(16) : head.slice(0, 8);
+			}
+			const parent = dirname(dir);
+			if (parent === dir) return undefined;
+			dir = parent;
+		}
 	} catch {
 		return undefined;
 	}

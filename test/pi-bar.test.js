@@ -84,7 +84,7 @@ test("isSvn walks up from cwd looking for a .svn directory", () => {
   assert.match(statuslineSource, /if \(existsSync\(svnDir\) && statSync\(svnDir\)\.isDirectory\(\)\) return true;/);
   // fs/path imports extended for the probe.
   assert.match(statuslineSource, /import \{ existsSync, readdirSync, readFileSync, statSync \} from "node:fs";/);
-  assert.match(statuslineSource, /import \{ basename, dirname, join \} from "node:path";/);
+  assert.match(statuslineSource, /import \{ basename, dirname, isAbsolute, join, resolve \} from "node:path";/);
 });
 
 test("emitGit precedence is svn > git > empty", () => {
@@ -213,8 +213,76 @@ test("final line keeps the right (model) end and clips leading overflow", () => 
   // plain right-truncating truncateToWidth.
   assert.match(statuslineSource, /return clipKeepRight\(`\$\{l\.text\}\$\{" ".repeat\(pad\)\}\$\{r\.text\}`, width\);/);
   assert.match(statuslineSource, /return clipKeepRight\(parts\.join\(""\), width\);/);
-  // trailingText decomposes ANSI + cells forward so adjacent SGR escapes are
-  // not miscounted as printable cells.
+  // trailingText now delegates to the grapheme/cell-width tail slicer so wide
+  // glyphs and surrogate pairs are never split mid-cluster.
   assert.match(statuslineSource, /function trailingText\(s: string, budget: number\): string \{/);
-  assert.match(statuslineSource, /return cells\.slice\(Math\.max\(0, cells\.length - budget\)\)\.join\(""\);/);
+  assert.match(statuslineSource, /return takeDisplayTail\(s, budget\);/);
+});
+
+test("gitBranch resolves from repo subdirectories and git worktrees", async () => {
+  const os = await import("node:os");
+  const { gitBranch } = await import("../plugin/pi-bar/index.ts");
+
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "pi-bar-git-"));
+  try {
+    fs.mkdirSync(path.join(repo, ".git"), { recursive: true });
+    fs.writeFileSync(path.join(repo, ".git", "HEAD"), "ref: refs/heads/main\n");
+    const subdir = path.join(repo, "packages", "app");
+    fs.mkdirSync(subdir, { recursive: true });
+    assert.equal(gitBranch(repo), "main");
+    assert.equal(gitBranch(subdir), "main");
+
+    // Worktree: .git is a file pointing at the real gitdir.
+    const worktree = fs.mkdtempSync(path.join(os.tmpdir(), "pi-bar-wt-"));
+    const gitDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-bar-gitdir-"));
+    fs.writeFileSync(path.join(gitDir, "HEAD"), "ref: refs/heads/feature-x\n");
+    fs.writeFileSync(path.join(worktree, ".git"), `gitdir: ${gitDir}\n`);
+    const wtSub = path.join(worktree, "src");
+    fs.mkdirSync(wtSub, { recursive: true });
+    assert.equal(gitBranch(worktree), "feature-x");
+    assert.equal(gitBranch(wtSub), "feature-x");
+
+    // Detached HEAD shows the short hash; no .git anywhere returns undefined.
+    fs.writeFileSync(path.join(repo, ".git", "HEAD"), "0123456789abcdef0123456789abcdef01234567\n");
+    assert.equal(gitBranch(repo), "01234567");
+    const plain = fs.mkdtempSync(path.join(os.tmpdir(), "pi-bar-plain-"));
+    assert.equal(gitBranch(plain), undefined);
+  } finally {
+    fs.rmSync(repo, { recursive: true, force: true });
+  }
+});
+
+test("display-width helpers measure terminal cells, not UTF-16 units", async () => {
+  const { displayWidth, truncateDisplayToWidth, takeDisplayTail } = await import("../plugin/pi-bar/display-width.ts");
+
+  assert.equal(displayWidth("abc"), 3);
+  assert.equal(displayWidth("模型-x"), 6);
+  assert.equal(displayWidth("🚀"), 2);
+  assert.equal(displayWidth("\x1b[31mab\x1b[0m"), 2);
+  assert.equal(displayWidth("é"), 1);
+});
+
+test("truncateDisplayToWidth never splits ANSI runs or wide glyphs", async () => {
+  const { displayWidth, truncateDisplayToWidth } = await import("../plugin/pi-bar/display-width.ts");
+
+  const colored = "\x1b[38;5;240m模型abc\x1b[0m";
+  const cut = truncateDisplayToWidth(colored, 6, "…");
+  assert.ok(displayWidth(cut) <= 6);
+  assert.ok(cut.startsWith("\x1b[38;5;240m"));
+  assert.ok(cut.endsWith("…"));
+
+  const plain = truncateDisplayToWidth("模型abc", 5);
+  assert.equal(displayWidth(plain), 5);
+});
+
+test("takeDisplayTail never emits lone surrogates for emoji tails", async () => {
+  const { takeDisplayTail } = await import("../plugin/pi-bar/display-width.ts");
+  const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+  const s = "\x1b[32mabc🚀de\x1b[0m";
+  for (let budget = 1; budget <= 7; budget++) {
+    const tail = takeDisplayTail(s, budget);
+    assert.ok(!lone.test(tail), "lone surrogate at budget " + budget);
+  }
+  assert.equal(takeDisplayTail(s, 100), s);
 });
