@@ -78,8 +78,10 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
 
   // Inline the /plan handler exactly as registered by pi-companion so the
   // verification does not depend on loading TypeScript source.
-  const PLAN_FIRST_TEMPLATE =
-    "Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.";
+  const PLAN_OBJECTIVE =
+    "Discuss and finalize the technical solution: clarify the solution's details and implementation method, and formulate an actionable plan.";
+  const PLAN_RULES =
+    "Focus solely on researching and discussing the solution; do not write code or generate code snippets. I will only begin generating code if you explicitly instruct me to do so. Please state the current expected outcome in plain, simple language.";
   mockPi.registerCommand("plan", {
     description: "Plan first: research the requirement, re-confirm the approach, and discuss before writing code: /plan <requirement>",
     getArgumentCompletions: () => null,
@@ -89,7 +91,7 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
         ctx.ui.notify("Please provide a requirement: /plan <requirement>", "warning");
         return;
       }
-      const prompt = `[Requirement] ${requirement}\n\n[Instructions] ${PLAN_FIRST_TEMPLATE}`;
+      const prompt = `[Requirement] ${requirement}\n\n[Objective] ${PLAN_OBJECTIVE}\n\n[Rules] ${PLAN_RULES}`;
       mockPi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
     },
   });
@@ -100,6 +102,6 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
 
   assert.equal(sentMessages.length, 1);
   assert.ok(sentMessages[0].message.includes("[Requirement] add user login"));
-  assert.ok(sentMessages[0].message.includes("approach first"));
+  assert.ok(sentMessages[0].message.includes("do not write code or generate code snippets"));
   assert.equal(sentMessages[0].options?.streamingBehavior, "followUp");
 });

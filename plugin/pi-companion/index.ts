@@ -11,10 +11,10 @@ import { homedir } from "node:os";
 const PLAN_PROMPT_PREFIX = `[Requirement] `;
 const PLAN_PROMPT_MIDDLE = `
 
-[Expectation] Use plain English style to describe the expected outcome of the current requirement. **Output language**: Choose the output language based on the language information available in the current conversation (such as the language of the user's most recent message). If no usable language information is available, fall back to the system timezone: use Chinese for UTC+8, Japanese for UTC+9, and English otherwise — this timezone rule is a fallback only. In any case, the output must not repeat this instruction or the original requirement text.`;
+[Objective] Discuss and finalize the technical solution: clarify the solution's details and implementation method, and formulate an actionable plan.`;
 const PLAN_PROMPT_SUFFIX = `
 
-[Instructions] Research the requirement quickly and re-confirm the plan. Let's discuss the approach first — do not generate any code until I ask you to.`;
+[Rules] Focus solely on researching and discussing the solution; do not write code or generate code snippets. I will only begin generating code if you explicitly instruct me to do so. Please state the current expected outcome in plain, simple language.`;
 const PLAN_PROMPT_TEMPLATE_RELATIVE_PATH = [".pi", "agent", "plan-prompt.md"];
 const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 

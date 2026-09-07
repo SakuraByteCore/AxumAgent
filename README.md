@@ -179,11 +179,11 @@ Example:
 [Requirement]
 {{requirement}}
 
-[Expectation]
-Describe the expected outcome in plain language, including visible behavior, boundaries, and any missing information that must be confirmed first.
+[Objective]
+Discuss and finalize the technical solution: clarify the solution's details and implementation method, and formulate an actionable plan.
 
-[Instructions]
-Research the current implementation first, then propose a plan, risks, compatibility impact, and validation approach. Do not write code yet.
+[Rules]
+Focus solely on researching and discussing the solution; do not write code or generate code snippets. I will only begin generating code if you explicitly instruct me to do so. Please state the current expected outcome in plain, simple language.
 ```
 
 ## Doctor

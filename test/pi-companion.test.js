@@ -101,7 +101,9 @@ test("plan command still sends the plan-first prompt", async () => {
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
-  assert.match(pi.messages[0].message, /\[Expectation\] Use plain English style to describe the expected outcome of the current requirement/);
+  assert.match(pi.messages[0].message, /\[Objective\] Discuss and finalize the technical solution: clarify the solution's details and implementation method, and formulate an actionable plan/);
+  assert.match(pi.messages[0].message, /\[Rules\] Focus solely on researching and discussing the solution; do not write code or generate code snippets/);
+  assert.match(pi.messages[0].message, /Please state the current expected outcome in plain, simple language/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
@@ -173,18 +175,18 @@ test("plan command notifies when the user template lacks the requirement placeho
   }
 });
 
-test("plan command uses the uniform English expectation for CJK input", async () => {
+test("plan command applies the same no-code rules for CJK input", async () => {
   const pi = createPi();
   const { ctx } = createContext();
 
   await pi.commands.get("plan").handler("实现登录功能", ctx);
 
-  // CJK input no longer switches the expectation wording to Chinese.
-  assert.match(pi.messages[0].message, /\[Expectation\] Use plain English style to describe the expected outcome/);
-  // The prompt carries the output-language directive with the timezone fallback.
-  assert.match(pi.messages[0].message, /\*\*Output language\*\*/);
-  assert.match(pi.messages[0].message, /use Chinese for UTC\+8, Japanese for UTC\+9, and English otherwise/);
-  assert.match(pi.messages[0].message, /must not repeat this instruction or the original requirement text/);
+  // CJK input gets the identical built-in template:
+  // research/discuss only, no code, and an expected outcome in plain language.
+  assert.match(pi.messages[0].message, /\[Requirement\] 实现登录功能/);
+  assert.match(pi.messages[0].message, /\[Objective\] Discuss and finalize the technical solution/);
+  assert.match(pi.messages[0].message, /\[Rules\].*do not write code or generate code snippets/);
+  assert.match(pi.messages[0].message, /Please state the current expected outcome in plain, simple language/);
 });
 
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
