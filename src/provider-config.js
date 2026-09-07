@@ -63,12 +63,17 @@ export function providerNameFromBaseUrl(baseUrl) {
 export function normalizeBaseUrl(baseUrl) {
   const trimmed = String(baseUrl || "").trim().replace(/\/+$/, "");
   if (!trimmed) throw new Error("Base URL is required");
-  const url = new URL(trimmed);
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid base URL: ${trimmed}`);
+  }
   if (!/^https?:$/.test(url.protocol)) throw new Error("Base URL must start with http:// or https://");
   return url.toString().replace(/\/+$/, "");
 }
 
-const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high"];
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 export const DEFAULT_THINKING_LEVEL = "high";
 
@@ -131,9 +136,9 @@ export function buildOpenAICompatibleProvider(options) {
 }
 
 export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) {
-  const name = options.name || providerNameFromBaseUrl(options.baseUrl);
-  const config = loadModelsConfig(file);
   const provider = buildOpenAICompatibleProvider(options);
+  const name = options.name || providerNameFromBaseUrl(provider.baseUrl);
+  const config = loadModelsConfig(file);
   config.providers[name] = provider;
   saveModelsConfig(config, file);
   return { file, name, provider: config.providers[name] };
@@ -236,8 +241,8 @@ export function getRetrySettings(file = getSettingsPath()) {
   const retry = config.retry || {};
   return {
     enabled: retry.enabled === undefined ? false : Boolean(retry.enabled),
-    maxRetries: typeof retry.maxRetries === "number" ? retry.maxRetries : 3,
-    baseDelayMs: typeof retry.baseDelayMs === "number" ? retry.baseDelayMs : 2000,
+    maxRetries: typeof retry.maxRetries === "number" && Number.isFinite(retry.maxRetries) ? retry.maxRetries : 3,
+    baseDelayMs: typeof retry.baseDelayMs === "number" && Number.isFinite(retry.baseDelayMs) ? retry.baseDelayMs : 2000,
   };
 }
 

@@ -53,6 +53,23 @@ test("respects PI_CODING_AGENT_DIR for models path", () => {
   assert.equal(getModelsPath({ PI_CODING_AGENT_DIR: dir }), path.join(dir, "models.json"));
 });
 
+test("upsert with an unparseable base URL surfaces a friendly error, not Invalid URL", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-badurl-"));
+  const file = path.join(dir, "models.json");
+  assert.throws(
+    () => upsertOpenAICompatibleProvider({ baseUrl: "not a url", model: "m", apiKey: "k" }, file),
+    (error) => /Invalid base URL|Base URL/.test(error.message) && !/^Invalid URL$/.test(error.message),
+  );
+});
+
+test("getRetrySettings falls back to defaults for non-finite or wrong-typed values", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-retry-invalid-"));
+  const settings = getSettingsPath({ PI_CODING_AGENT_DIR: dir });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(settings, JSON.stringify({ retry: { enabled: true, maxRetries: "5", baseDelayMs: null } }));
+  assert.deepEqual(getRetrySettings(settings), { enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+});
+
 test("saves default provider selection to Pi settings", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-default-"));
   const settings = getSettingsPath({ PI_CODING_AGENT_DIR: dir });
@@ -61,6 +78,22 @@ test("saves default provider selection to Pi settings", () => {
   assert.equal(result.file, settings);
   assert.deepEqual(JSON.parse(fs.readFileSync(settings, "utf8")), { defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" });
   assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "high" });
+});
+
+test("accepts native Pi thinking levels xhigh and max on the read path", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-xhigh-"));
+  const settings = getSettingsPath({ PI_CODING_AGENT_DIR: dir });
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(settings, JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "xhigh" }));
+  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "xhigh" });
+
+  const saveResult = saveDefaultProviderSelection({ provider: "localmock", model: "mock-a", thinkingLevel: "max" }, settings);
+  assert.equal(saveResult.config.defaultThinkingLevel, "max");
+  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "localmock", model: "mock-a", thinkingLevel: "max" });
+});
+
+test("rejects unknown thinking levels", () => {
+  assert.throws(() => saveDefaultProviderSelection({ provider: "p", model: "m", thinkingLevel: "ultra" }), /Unsupported reasoning strength/);
 });
 
 test("upgrades legacy default model config for high thinking", () => {
