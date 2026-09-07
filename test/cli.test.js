@@ -299,7 +299,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
     "index.ts": "",
     "index.js": "export default () => {};\n",
   });
-  fs.writeFileSync(path.join(cache, "node_modules", "pi-bar", ".axum-compile.json"), JSON.stringify({ version: 1, files: { "index.ts": "hash" } }));
+  fs.writeFileSync(path.join(cache, "node_modules", "pi-bar", ".axum-compile.json"), JSON.stringify({ version: 2, files: { "index.ts": "hash" } }));
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });

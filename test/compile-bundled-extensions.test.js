@@ -34,7 +34,7 @@ test("compileExtensionPackage transforms TS sources and records a manifest", () 
   assert.equal(calls, 2);
   assert.equal(fs.readFileSync(path.join(root, "src/index.js"), "utf8"), "// compiled\nexport const name = \"x\";\n");
   const manifest = readCompileManifest(root);
-  assert.equal(manifest.version, 1);
+  assert.equal(manifest.version, 2);
   assert.ok(manifest.files["src/index.ts"]);
   assert.ok(manifest.files["src/util.ts"]);
 });
@@ -113,4 +113,42 @@ test("compileExtensionPackage rewrites root-level sibling imports to .js", async
   assert.match(output, /from \"\.\/util\.js\"/);
   const module = await import(pathToFileURL(path.join(root, "index.js")).href);
   assert.equal(module.read(), "v");
+});
+
+test("compileExtensionPackage rewrites side-effect .ts imports to .js", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "axum-compile-side-effect-"));
+  makePackage(root, {
+    "index.ts": "import \"./types.ts\"; export const value: string = \"ok\";\n",
+    "types.ts": "export const marker: string = \"m\";\n",
+  });
+
+  const result = compileExtensionPackage({ packageRoot: root });
+
+  assert.deepEqual(result.collisions, []);
+  const output = fs.readFileSync(path.join(root, "index.js"), "utf8");
+  assert.match(output, /import "\.\/types\.js";/);
+  const module = await import(pathToFileURL(path.join(root, "index.js")).href);
+  assert.equal(module.value, "ok");
+});
+
+test("compileExtensionPackage regenerates outputs when the manifest comes from an older compiler version", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "axum-compile-stale-manifest-"));
+  makePackage(root, {
+    "index.ts": "import \"./types.ts\"; export const value: string = \"ok\";\n",
+    "types.ts": "export const marker: string = \"m\";\n",
+    "index.js": "import \"./types.ts\"; export const value = \"ok\";\n",
+    "types.js": "export const marker = \"m\";\n",
+    ".axum-compile.json": JSON.stringify({ version: 1, files: { "index.ts": "old", "types.ts": "old" } }),
+  });
+
+  const result = compileExtensionPackage({ packageRoot: root });
+
+  assert.deepEqual(result.collisions, []);
+  assert.deepEqual(result.compiled.sort(), ["index.ts", "types.ts"]);
+  const output = fs.readFileSync(path.join(root, "index.js"), "utf8");
+  assert.match(output, /import "\.\/types\.js";/);
+  const manifest = readCompileManifest(root);
+  assert.equal(manifest.version, 2);
+  const module = await import(pathToFileURL(path.join(root, "index.js")).href);
+  assert.equal(module.value, "ok");
 });

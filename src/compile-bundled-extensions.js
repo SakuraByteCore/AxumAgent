@@ -19,7 +19,7 @@ function rewriteTsImports(source, fileImports = new Set(), dirImports = new Set(
     const sortedDirs = [...dirImports].sort((a, b) => b.length - a.length);
     for (const dir of sortedDirs) {
       const escapedDir = dir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(?:from\\s+|import\\s*\\(\\s*)['\"](${escapedDir})['"]`, 'g');
+      const regex = new RegExp(`(?:from\\s+|import\\s*\\(\\s*|import\\s+)['"](${escapedDir})['"]`, 'g');
       source = source.replace(regex, (match) => {
         const quote = match.slice(-1);
         // Rewrite './hashline' -> './hashline/index.js', '..' -> '../index.js'
@@ -32,7 +32,7 @@ function rewriteTsImports(source, fileImports = new Set(), dirImports = new Set(
     const sortedFiles = [...fileImports].sort((a, b) => b.length - a.length);
     for (const file of sortedFiles) {
       const escapedFile = file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(?:from\\s+|import\\s*\\(\\s*)['\"](${escapedFile})['"]`, 'g');
+      const regex = new RegExp(`(?:from\\s+|import\\s*\\(\\s*|import\\s+)['"](${escapedFile})['"]`, 'g');
       source = source.replace(regex, (match) => {
         const quote = match.slice(-1);
         // Rewrite './hash' -> './hash.js', '../utils' -> '../utils.js'
@@ -41,7 +41,7 @@ function rewriteTsImports(source, fileImports = new Set(), dirImports = new Set(
     }
   }
   // Then, rewrite .ts imports
-  const regex = /(?:from\s+|import\s*\(\s*)['"](\.\.?\/[^"']*?)\.ts['"]/g;
+  const regex = /(?:from\s+|import\s*\(\s*|import\s+)['"](\.\.?\/[^"']*?)\.ts['"]/g;
   return source.replace(regex, (match) => {
     const quote = match.slice(-1);
     return match.slice(0, -4) + ".js" + quote;
@@ -54,8 +54,7 @@ function stripAndRewrite(source, fileImports, dirImports) {
 }
 
 const COMPILE_MANIFEST_NAME = ".axum-compile.json";
-const COMPILE_MANIFEST_VERSION = 1;
-
+const COMPILE_MANIFEST_VERSION = 2;
 export function compiledManifestPath(packageRoot) {
   return path.join(packageRoot, COMPILE_MANIFEST_NAME);
 }
@@ -189,10 +188,15 @@ export function compileExtensionPackage({ packageRoot, transform, log = () => {}
 
   const manifestPath = path.join(packageRoot, COMPILE_MANIFEST_NAME);
   let manifest = { version: COMPILE_MANIFEST_VERSION, files: {} };
+  // Manifests written by an older compiler version are discarded; their .js
+  // outputs must be regenerated because import rewrites may have changed.
+  let staleManifest = false;
   try {
     const parsed = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     if (parsed?.version === COMPILE_MANIFEST_VERSION && typeof parsed.files === "object") {
       manifest = parsed;
+    } else {
+      staleManifest = true;
     }
   } catch { /* rebuild manifest from scratch */ }
 
@@ -208,7 +212,7 @@ export function compileExtensionPackage({ packageRoot, transform, log = () => {}
       skipped.push(rel);
       continue;
     }
-    if (fs.existsSync(jsPath) && manifest.files[rel] === undefined) {
+    if (fs.existsSync(jsPath) && manifest.files[rel] === undefined && !staleManifest) {
       collisions.push(rel);
       continue;
     }
