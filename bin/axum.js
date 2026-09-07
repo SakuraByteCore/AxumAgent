@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { supportedBundledPiExtensions } from "../src/bundled-pi-platform.js";
 
 function usage() {
   return `Axum Agent
@@ -31,9 +32,7 @@ Commands:
                 (triggers full npm install + TypeScript compilation)
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
-  - pi-bar
-  - pi-companion
-  - @narumitw/pi-goal
+${supportedBundledPiExtensions().map((ext) => `  - ${ext.packageName}`).join("\n")}
 
 Run \`axum code --help\` for Pi options.
 `;
@@ -71,8 +70,16 @@ function resolveArgs(argv) {
 
 async function runWebCommand(argv) {
   const flags = parseFlags(argv);
+  let port = 0;
+  if (flags.port !== undefined) {
+    const parsed = Number(flags.port);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535) {
+      throw new Error("Invalid port: " + flags.port + ". Expected an integer between 0 and 65535 (0 picks a random free port).");
+    }
+    port = parsed;
+  }
   const { startProviderWeb } = await import("../src/provider-web.js");
-  await startProviderWeb({ port: flags.port ? Number(flags.port) : 0 });
+  await startProviderWeb({ port });
 }
 
 async function printDoctor() {

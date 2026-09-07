@@ -91,6 +91,21 @@ test("axum without args shows Axum command help", () => {
   assert.doesNotMatch(result.stdout, /provider web/);
 });
 
+test("axum help lists every supported bundled extension", async () => {
+  const { supportedBundledPiExtensions } = await import("../src/bundled-pi-platform.js");
+  const result = run([]);
+  assert.equal(result.status, 0);
+  for (const ext of supportedBundledPiExtensions()) {
+    assert.ok(result.stdout.includes(`  - ${ext.packageName}`), `help output is missing ${ext.packageName}`);
+  }
+});
+
+test("axum web rejects non-numeric --port with a clear error", () => {
+  const result = run(["web", "--port", "abc"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Invalid port: abc/);
+});
+
 test("package scripts delegate to axum entrypoints", () => {
   const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
   assert.equal(packageJson.scripts.code, "node bin/axum.js code");
