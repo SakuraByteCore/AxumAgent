@@ -26,7 +26,7 @@ const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
 const PI_DEADLINE_RETRYABLE_MARKER = "AXUM_PI_DEADLINE_RETRYABLE";
 const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_BODY_DISABLED";
 const PI_HTTP_IDLE_TIMEOUT_STOCK_ANCHOR = "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;";
-const PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN = /\/\/ AXUM_PI_HTTP_IDLE_TIMEOUT_[A-Z0-9_]+:[^\n]*(?:\n\/\/[^\n]*)*\nexport const DEFAULT_HTTP_IDLE_TIMEOUT_MS = [0-9_]+;/;
+const PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN = /\/\/ AXUM_PI_HTTP_IDLE_TIMEOUT_[A-Z0-9_]+:[^\n]*(?:\n\/\/[^\n]*)*\nexport const DEFAULT_HTTP_IDLE_TIMEOUT_MS = [0-9_]+;(?:\nconst HTTP_HEADERS_TIMEOUT_CAP_MS = [0-9_]+;)?/;
 const PI_HTTP_IDLE_TIMEOUT_HEADERS_ANCHOR = "headersTimeout: normalizedTimeoutMs,";
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
 const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
@@ -552,7 +552,7 @@ function patchPiAiRateLimitRetry(content) {
     "            }",
     "            attempt++;",
     "            lastRetry = { attempt, errorMessage: response.errorMessage || \"Unknown error\" };",
-    "            delayMs = policy.baseDelayMs;",
+    "            delayMs = policy.baseDelayMs * 2 ** (attempt - 1);",
     "            scheduledMaxAttempts = maxAttempts;",
     "        }",
     "        await callbacks?.onRetryScheduled?.(lastRetry.attempt, scheduledMaxAttempts, delayMs, lastRetry.errorMessage);",
@@ -712,7 +712,7 @@ function patchPiAgentSessionRateLimitRetry(content) {
     "            }",
     "            attempt = this._retryAttempt;",
     "            maxAttempts = settings.maxRetries;",
-    "            delayMs = settings.baseDelayMs;",
+    "            delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
     "        }",
     "        this._emit({",
     "            type: \"auto_retry_start\",",
@@ -1189,12 +1189,17 @@ function patchPiSubagentsProactiveDelegation(content) {
     ],
   ];
   let patched = content;
+  const legacyLine = "// " + LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n";
+  const isLegacyMarked = patched.includes(legacyLine);
   for (const [variants, replacement] of needles) {
     const variant = variants.find((candidate) => patched.includes(candidate));
-    if (!variant) return content;
+    if (!variant) {
+      if (isLegacyMarked) continue;
+      return content;
+    }
     patched = patched.replace(variant, replacement);
   }
-  patched = patched.replace("// " + LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n", "");
+  patched = patched.replace(legacyLine, "");
   return "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n" + patched;
 }
 function patchFileInPlace(filePath, ...patchers) {

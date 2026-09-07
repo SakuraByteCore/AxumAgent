@@ -688,8 +688,7 @@ test("patches bundled pi-ai retry loop with strict-429 exemption and fixed delay
   assert.match(patched, /function jitteredDelay\(baseMs\) \{/);
   assert.match(patched, /let rateLimitAttempt = 0;/);
   assert.match(patched, /rateLimitAttempt\+\+;/);
-  assert.match(patched, /polic\?y\.baseDelayMs|delayMs = policy\.baseDelayMs;/);
-  assert.equal(patched.includes("policy.baseDelayMs * 2 **"), false);
+  assert.match(patched, /delayMs = policy\.baseDelayMs \* 2 \*\* \(attempt - 1\);/);
   assert.match(patched, /onRetryScheduled\?\.\(lastRetry\.attempt, scheduledMaxAttempts, delayMs, lastRetry\.errorMessage\)/);
   assert.match(patched, /onRetryFinished\?\.\(false, lastRetry\.attempt, lastRetry\.errorMessage\)/);
   assert.equal(patchPiAiRateLimitRetry(patched), patched);
@@ -749,8 +748,7 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
   assert.match(patched, /_rateLimitRetryAttempt = 0;/);
   assert.match(patched, /this\._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS/);
   assert.match(patched, /delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/);
-  assert.match(patched, /delayMs = settings\.baseDelayMs;/);
-  assert.equal(patched.includes("settings.baseDelayMs * 2 **"), false);
+  assert.match(patched, /delayMs = settings\.baseDelayMs \* 2 \*\* \(this\._retryAttempt - 1\);/);
   assert.equal((patched.match(/_rateLimitRetryAttempt = 0;/g) || []).length, 4);
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
 });
@@ -877,8 +875,7 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
   assert.match(patched, /this\._connectionRetryAttempt < CONNECTION_MAX_ATTEMPTS/);
   assert.match(patched, /delayMs = jitteredDelay\(CONNECTION_DELAY_MS\);/);
   assert.match(patched, /delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/);
-  assert.match(patched, /delayMs = settings\.baseDelayMs;/);
-  assert.equal(patched.includes("settings.baseDelayMs * 2 **"), false);
+  assert.match(patched, /delayMs = settings\.baseDelayMs \* 2 \*\* \(this\._retryAttempt - 1\);/);
   assert.equal((patched.match(/isConnectionError\(message\.errorMessage\)/g) || []).length, 2);
   assert.equal(patchPiAgentSessionConnectionRetry(patched), patched);
 });
