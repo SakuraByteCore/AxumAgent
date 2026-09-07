@@ -140,6 +140,32 @@ test("provider web fetches models and saves default config", async () => {
   }
 });
 
+test("provider web rejects oversized request bodies and invalid base URLs", async () => {
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const oversized = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: `{"pad":"${"x".repeat(5 * 1024 * 1024)}"}`,
+    });
+    assert.equal(oversized.status, 400);
+    assert.match((await oversized.json()).error, /Request body too large/);
+
+    const badUrl = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl: "not a url", apiKey: "k", model: "m" }),
+    });
+    assert.equal(badUrl.status, 400);
+    assert.match((await badUrl.json()).error, /Invalid base URL/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
+
 test("provider web browser auto-open can be disabled for non-interactive runs", async () => {
   const { openBrowser } = await import("../src/provider-web.js");
   assert.equal(openBrowser("http://127.0.0.1:1", { env: { AXUM_PROVIDER_WEB_NO_OPEN: "1" } }), false);
