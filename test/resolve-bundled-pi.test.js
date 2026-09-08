@@ -7,7 +7,7 @@ import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
 import { ensureBundledPi, ensureBundledSkills, npmInstallEnv, pruneStaleCompileCaches, resolveNpmInstallCommand } from "../src/ensure-bundled-pi.js";
 import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bundled-pi-platform.js";
-import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
+import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
 function writePackage(root, name, files = {}) {
@@ -747,7 +747,7 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
   assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
   assert.match(patched, /_rateLimitRetryAttempt = 0;/);
   assert.match(patched, /this\._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS/);
-  assert.match(patched, /delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/);
+  assert.match(patched, /delayMs = jitteredDelay\(settings\.fixedDelayMs \?\? RATE_LIMIT_DELAY_MS\);/);
   assert.match(patched, /delayMs = settings\.baseDelayMs \* 2 \*\* \(this\._retryAttempt - 1\);/);
   assert.equal((patched.match(/_rateLimitRetryAttempt = 0;/g) || []).length, 4);
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
@@ -796,6 +796,45 @@ test("upgrades legacy 429 retry patches to jittered delay lanes", () => {
   assert.equal((upgraded.match(/delayMs = jitteredDelay\(CONNECTION_DELAY_MS\);/g) || []).length, 1);
   // Re-running on upgraded output is a no-op.
   assert.equal(patchPiRetryJitter(upgraded), upgraded);
+});
+
+test("configurable delay patch upgrades fixed exemption lanes to user settings", () => {
+  for (const getter of ["policy?.fixedDelayMs", "settings.fixedDelayMs"]) {
+    const patch = buildPiRetryConfigurableDelayPatch(getter);
+    const legacy = [
+      "const RATE_LIMIT_DELAY_MS = 3000;",
+      "const CONNECTION_DELAY_MS = 3000;",
+      "    delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
+      "    delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
+      "    delayMs = jitteredDelay(CONNECTION_DELAY_MS);",
+    ].join("\n");
+    const upgraded = patch(legacy);
+    assert.equal(upgraded.includes("delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);"), false);
+    assert.equal(upgraded.includes("delayMs = jitteredDelay(CONNECTION_DELAY_MS);"), false);
+    assert.equal((upgraded.match(new RegExp("delayMs = jitteredDelay\\(" + getter.replace("?", "\\?") + " \\?\\? RATE_LIMIT_DELAY_MS\\);", "g")) || []).length, 2);
+    assert.ok(upgraded.includes("delayMs = jitteredDelay(" + getter + " ?? CONNECTION_DELAY_MS);"));
+    // Stock files (no exemption lanes yet) are left for the fresh patch chain.
+    const untouched = "export async function retry() {}";
+    assert.equal(patch(untouched), untouched);
+    // Idempotent on already-upgraded content.
+    assert.equal(patch(upgraded), upgraded);
+  }
+});
+
+test("settings manager forwards retry.fixedDelayMs with a sanitized default", () => {
+  const stock = [
+    "    getRetrySettings() {",
+    "        return {",
+    "            enabled: this.getRetryEnabled(),",
+    "            maxRetries: this.settings.retry?.maxRetries ?? 3,",
+    "            baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,",
+    "        };",
+    "    }",
+  ].join("\n");
+  const patched = patchPiSettingsRetryFixedDelay(stock);
+  assert.ok(patched.includes("fixedDelayMs: Number.isFinite(this.settings.retry?.fixedDelayMs) && this.settings.retry.fixedDelayMs > 0 ? Math.floor(this.settings.retry.fixedDelayMs) : 3000,"));
+  assert.equal(patchPiSettingsRetryFixedDelay(patched), patched);
+  assert.throws(() => patchPiSettingsRetryFixedDelay("class SettingsManager {}"), /retry settings anchor not found/);
 });
 
 test("connection error pattern matches transport failures and rejects unrelated errors", () => {
@@ -873,8 +912,8 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
   assert.match(patched, /AXUM_PI_CONNECTION_RETRY_EXEMPT/);
   assert.equal((patched.match(/_connectionRetryAttempt = 0;/g) || []).length, 4);
   assert.match(patched, /this\._connectionRetryAttempt < CONNECTION_MAX_ATTEMPTS/);
-  assert.match(patched, /delayMs = jitteredDelay\(CONNECTION_DELAY_MS\);/);
-  assert.match(patched, /delayMs = jitteredDelay\(RATE_LIMIT_DELAY_MS\);/);
+  assert.match(patched, /delayMs = jitteredDelay\(settings\.fixedDelayMs \?\? CONNECTION_DELAY_MS\);/);
+  assert.match(patched, /delayMs = jitteredDelay\(settings\.fixedDelayMs \?\? RATE_LIMIT_DELAY_MS\);/);
   assert.match(patched, /delayMs = settings\.baseDelayMs \* 2 \*\* \(this\._retryAttempt - 1\);/);
   assert.equal((patched.match(/isConnectionError\(message\.errorMessage\)/g) || []).length, 2);
   assert.equal(patchPiAgentSessionConnectionRetry(patched), patched);

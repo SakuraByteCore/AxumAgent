@@ -67,7 +67,7 @@ test("getRetrySettings falls back to defaults for non-finite or wrong-typed valu
   const settings = getSettingsPath({ PI_CODING_AGENT_DIR: dir });
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(settings, JSON.stringify({ retry: { enabled: true, maxRetries: "5", baseDelayMs: null } }));
-  assert.deepEqual(getRetrySettings(settings), { enabled: true, maxRetries: 3, baseDelayMs: 2000 });
+  assert.deepEqual(getRetrySettings(settings), { enabled: true, maxRetries: 3, baseDelayMs: 2000, fixedDelayMs: 3000 });
 });
 
 test("saves default provider selection to Pi settings", () => {

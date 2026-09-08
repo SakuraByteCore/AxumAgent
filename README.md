@@ -133,6 +133,7 @@ Options:
 - **Enable retry** — default off. Pi core defaults to on, but Axum requires explicit enablement.
 - **Max retry count** — default `3`.
 - **Base backoff delay (ms)** — default `2000`. Exponential backoff: `baseDelayMs * 2^(attempt-1)`.
+- **Fixed retry delay (ms)** — default `3000`. Fixed-cadence delay (with jitter) for the strict-429 rate-limit and connection-error exemption lanes, which do not consume the retry budget above.
 
 Retries target overload, rate-limit, and server errors. Context overflow is **not** retried (it is handled by compaction).
 

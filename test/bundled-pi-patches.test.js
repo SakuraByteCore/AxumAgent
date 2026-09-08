@@ -110,7 +110,7 @@ test("patchPiAiRateLimitRetry keeps upstream exponential backoff on the non-429 
   ].join("\n");
   const patched = patchPiAiRateLimitRetry(stock);
   assert.ok(patched.includes("delayMs = policy.baseDelayMs * 2 ** (attempt - 1);"));
-  assert.ok(patched.includes("delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);"));
+  assert.ok(patched.includes("delayMs = jitteredDelay(policy?.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);"));
   assert.equal(patchPiAiRateLimitRetry(patched), patched);
 });
 
@@ -165,7 +165,7 @@ test("patchPiAgentSessionRateLimitRetry keeps upstream exponential backoff on th
   ].join("\n");
   const patched = patchPiAgentSessionRateLimitRetry(stock);
   assert.ok(patched.includes("delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);"));
-  assert.ok(patched.includes("delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);"));
+  assert.ok(patched.includes("delayMs = jitteredDelay(settings.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);"));
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
 });
 

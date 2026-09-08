@@ -243,16 +243,18 @@ export function getRetrySettings(file = getSettingsPath()) {
     enabled: retry.enabled === undefined ? false : Boolean(retry.enabled),
     maxRetries: typeof retry.maxRetries === "number" && Number.isFinite(retry.maxRetries) ? retry.maxRetries : 3,
     baseDelayMs: typeof retry.baseDelayMs === "number" && Number.isFinite(retry.baseDelayMs) ? retry.baseDelayMs : 2000,
+    fixedDelayMs: typeof retry.fixedDelayMs === "number" && Number.isFinite(retry.fixedDelayMs) ? retry.fixedDelayMs : 3000,
   };
 }
 
-export function saveRetrySettings({ enabled, maxRetries, baseDelayMs } = {}, file = getSettingsPath()) {
+export function saveRetrySettings({ enabled, maxRetries, baseDelayMs, fixedDelayMs } = {}, file = getSettingsPath()) {
   const config = readJsonFile(file);
   config.retry = {
     ...(config.retry || {}),
     enabled: Boolean(enabled),
     maxRetries: positiveNumber(maxRetries, 3, "Max retries"),
     baseDelayMs: positiveNumber(baseDelayMs, 2000, "Base delay"),
+    fixedDelayMs: positiveNumber(fixedDelayMs, 3000, "Fixed delay"),
   };
   writeJsonFile(file, config);
   return { file, retry: getRetrySettings(file) };

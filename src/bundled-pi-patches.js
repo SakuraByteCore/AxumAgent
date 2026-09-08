@@ -541,7 +541,7 @@ function patchPiAiRateLimitRetry(content) {
     "            }",
     "            rateLimitAttempt++;",
     "            lastRetry = { attempt: rateLimitAttempt, errorMessage: response.errorMessage || \"Unknown error\" };",
-    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
+    "            delayMs = jitteredDelay(policy?.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);",
     "            scheduledMaxAttempts = RATE_LIMIT_MAX_ATTEMPTS;",
     "        }",
     "        else {",
@@ -701,7 +701,7 @@ function patchPiAgentSessionRateLimitRetry(content) {
     "            this._rateLimitRetryAttempt++;",
     "            attempt = this._rateLimitRetryAttempt;",
     "            maxAttempts = RATE_LIMIT_MAX_ATTEMPTS;",
-    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
+    "            delayMs = jitteredDelay(settings.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);",
     "        }",
     "        else {",
     "            this._retryAttempt++;",
@@ -876,12 +876,12 @@ function patchPiAgentSessionConnectionRetry(content) {
   patched = patched.replace(willRetryNeedle, willRetryReplacement);
 
   const prepareNeedle = [
-    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
+    "            delayMs = jitteredDelay(settings.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);",
     "        }",
     "        else {",
   ].join("\n");
   const prepareReplacement = [
-    "            delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);",
+    "            delayMs = jitteredDelay(settings.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);",
     "        }",
     "        else if (isConnectionError(message.errorMessage)) {",
     "            if (this._connectionRetryAttempt >= CONNECTION_MAX_ATTEMPTS) {",
@@ -890,7 +890,7 @@ function patchPiAgentSessionConnectionRetry(content) {
     "            this._connectionRetryAttempt++;",
     "            attempt = this._connectionRetryAttempt;",
     "            maxAttempts = CONNECTION_MAX_ATTEMPTS;",
-    "            delayMs = jitteredDelay(CONNECTION_DELAY_MS);",
+    "            delayMs = jitteredDelay(settings.fixedDelayMs ?? CONNECTION_DELAY_MS);",
     "        }",
     "        else {",
   ].join("\n");
@@ -1170,6 +1170,40 @@ function patchPiRetryJitter(content) {
     .replaceAll("delayMs = CONNECTION_DELAY_MS;", "delayMs = jitteredDelay(CONNECTION_DELAY_MS);");
 }
 
+// Exemption-lane delays honor retry.fixedDelayMs from the user settings file;
+// older patched bundles burned the delay constants in as fixed values. Each
+// lane reads the value flowing through getRetrySettings (policy in pi-ai,
+// settings in the agent session) and falls back to the lane constant.
+function buildPiRetryConfigurableDelayPatch(getterExpr) {
+  const rateLimitNeedle = "delayMs = jitteredDelay(RATE_LIMIT_DELAY_MS);";
+  const connectionNeedle = "delayMs = jitteredDelay(CONNECTION_DELAY_MS);";
+  return (content) => {
+    if (!content.includes(rateLimitNeedle) && !content.includes(connectionNeedle)) return content;
+    return content
+      .replaceAll(rateLimitNeedle, "delayMs = jitteredDelay(" + getterExpr + " ?? RATE_LIMIT_DELAY_MS);")
+      .replaceAll(connectionNeedle, "delayMs = jitteredDelay(" + getterExpr + " ?? CONNECTION_DELAY_MS);");
+  };
+}
+
+// Pi's settings manager builds the retry policy field-by-field, so the new
+// retry.fixedDelayMs value must be forwarded explicitly; invalid or missing
+// values fall back to the same default as the lane constants.
+function patchPiSettingsRetryFixedDelay(content) {
+  if (content.includes("retry?.fixedDelayMs")) return content;
+  const needle = [
+    "            baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,",
+    "        };",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    throw new Error("unable to patch bundled Pi settings manager: retry settings anchor not found");
+  }
+  return content.replace(needle, [
+    "            baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,",
+    "            fixedDelayMs: Number.isFinite(this.settings.retry?.fixedDelayMs) && this.settings.retry.fixedDelayMs > 0 ? Math.floor(this.settings.retry.fixedDelayMs) : 3000,",
+    "        };",
+  ].join("\n"));
+}
+
 function patchPiSubagentsProactiveDelegation(content) {
   if (content.includes(PI_SUBAGENTS_PROACTIVE_MARKER)) return content;
   const needles = [
@@ -1243,13 +1277,18 @@ export function applyBundledPiPatches(options) {
   ];
   for (const retryPath of piAiRetryPaths) {
     if (!fs.existsSync(retryPath)) continue;
-    results.push(patchFileInPlace(retryPath, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiRetryJitter));
+    results.push(patchFileInPlace(retryPath, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiRetryJitter, buildPiRetryConfigurableDelayPatch("policy?.fixedDelayMs")));
   }
 
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
   results.push(fs.existsSync(agentSessionPath)
-    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry)
+    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"))
     : { patched: false, file: agentSessionPath });
+
+  const settingsManagerPath = path.join(piRoot, "dist", "core", "settings-manager.js");
+  results.push(fs.existsSync(settingsManagerPath)
+    ? patchFileInPlace(settingsManagerPath, patchPiSettingsRetryFixedDelay)
+    : { patched: false, file: settingsManagerPath });
 
   const interactiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(interactiveModePath)) {
@@ -1302,4 +1341,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER };
