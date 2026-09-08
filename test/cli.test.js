@@ -56,7 +56,7 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "pi-todo", { "index.ts": "" });
+  writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   if (includeWindowsBroken) {
@@ -318,7 +318,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "pi-todo", { "index.ts": "" });
+  writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writeAgentSettings(agentDir);

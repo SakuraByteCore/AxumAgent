@@ -45,9 +45,9 @@ export const bundledPiPackages = [
   // pi-hashline-edit-pro: hash-anchored read/replace/insert/grep tools. Stable 3-char
   // per-line hashes reject stale/ambiguous anchors. Pure TS, zero native deps.
   { name: "pi-hashline-edit-pro@2.7.0", packageName: "pi-hashline-edit-pro", extensionPath: "index.ts", android: true },
-  // pi-todo: Codex-style task progress panel (todo tool + live widget above editor).
-  // Pure TS, zero native deps.
-  { name: "pi-todo@file:plugin/pi-todo", packageName: "pi-todo", extensionPath: "index.ts", android: true },
+  // todos-tool: structured todo list tracking (todo tool + live HUD above editor,
+  // /todo and /todos-configure commands). Pure TS, zero dependencies.
+  { name: "@gamaraan/todos-tool@0.3.0", packageName: "@gamaraan/todos-tool", extensionPath: "src/index.ts", android: true },
   // pi-agent: user-triggered background Pi agents (/agent) with a live progress widget,
   // vendored from @giladbarnea/pi-user-agents@0.0.5. Parameter-property constructors were
   // rewritten to explicit field assignments so the Windows compile path can strip its TS.

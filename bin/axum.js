@@ -228,7 +228,7 @@ async function runPi(passthrough) {
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
   const packageNames = supportedBundledPiPackages(bundledPiOptions);
   // Ship the todo progress policy only where pi-todo loads (non-safe sessions).
-  if (!safe && packageNames.some((name) => name.startsWith("pi-todo@"))) {
+  if (!safe && packageNames.some((name) => name.startsWith("@gamaraan/todos-tool@"))) {
     ensureTodoProgressPolicy(bundledPiOptions);
   }
   // Parallel tool batching is core Pi behavior and applies to every session.

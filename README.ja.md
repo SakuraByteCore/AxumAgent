@@ -38,7 +38,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `@narumitw/pi-goal`
 - `pi-web-access`（Web 検索・抽出・キュレーションツール: /websearch, /curator, /google-account, /search）
 - `pi-hashline-edit-pro`
-- `pi-todo`（Codex スタイルのタスク進行パネル: todo ツールがエディタ上部に計画チェックリストをライブ表示、/todo コマンド付き）
+- `@gamaraan/todos-tool`（構造化 todo トラッキング: todo ツールがエディタ上部に計画チェックリストをライブ HUD 表示、/todo と /todos-configure コマンド付き）
 - `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 手動起動のバックグラウンドエージェント + ライブ進捗ウィジェット。さらに `/dispatch` コマンドと `dispatch_agent` ツールによるエージェント主導のバッチ分散に対応)
 - `pi-subagents`（単一エージェント委譲とスクリプト化されたマルチエージェントワークフロー: タスク委譲・バックグラウンド実行・オーケストレーション）
 - `@ff-labs/pi-fff`（デスクトップ限定: フリークエンシー付き FFF ファイル検索。Android と Windows では除外）

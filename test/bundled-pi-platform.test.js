@@ -21,7 +21,7 @@ test("checks available Pi extensions on Android", () => {
     "pi-companion@file:plugin/pi-companion",
     "pi-web-access@0.24.2",
     "pi-hashline-edit-pro@2.7.0",
-    "pi-todo@file:plugin/pi-todo",
+    "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
   ]);
@@ -38,7 +38,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-web-access@0.24.2",
     "@ff-labs/pi-fff@0.10.5",
     "pi-hashline-edit-pro@2.7.0",
-    "pi-todo@file:plugin/pi-todo",
+    "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
   ]);
@@ -53,7 +53,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
     "pi-hashline-edit-pro@2.7.0",
-    "pi-todo@file:plugin/pi-todo",
+    "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
   ]);
@@ -67,9 +67,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-companion", "pi-todo", "pi-agent"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-companion", "pi-todo", "pi-agent"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-companion", "pi-todo", "pi-agent"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-companion", "pi-agent"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-companion", "pi-agent"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-companion", "pi-agent"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {

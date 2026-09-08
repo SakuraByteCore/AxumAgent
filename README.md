@@ -96,7 +96,7 @@ The distribution ships these packages, all in one install:
 - `@narumitw/pi-goal`
 - `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`
-- `pi-todo` (Codex-style task progress panel: `todo` tool maintains a plan checklist rendered live above the editor, plus the `/todo` command)
+- `@gamaraan/todos-tool` (structured todo tracking: the `todo` tool maintains a plan checklist rendered as a live HUD above the editor, plus the `/todo` and `/todos-configure` commands)
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 - `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)

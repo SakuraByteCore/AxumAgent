@@ -31,7 +31,7 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "pi-todo", { "index.ts": "" });
+  writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -53,7 +53,7 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "pi-todo", { "index.ts": "" });
+  writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
 
@@ -64,7 +64,7 @@ test("checks available Pi extensions on Android", () => {
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-web-access", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(extensions[5], path.join(cache, "node_modules", "pi-todo", "index.ts"));
+  assert.equal(extensions[5], path.join(cache, "node_modules", "@gamaraan", "todos-tool", "src", "index.ts"));
   assert.equal(extensions[6], path.join(cache, "node_modules", "pi-agent", "index.ts"));
   assert.equal(extensions[7], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
   assert.equal(existingBundledExtensions(options).length, 8);
@@ -79,7 +79,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-web-access", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "pi-todo", { "index.ts": "" });
+  writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -90,7 +90,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   assert.equal(extensions[1], path.join(cache, "node_modules", "@narumitw", "pi-goal", "src", "index.ts"));
   assert.equal(extensions[2], path.join(cache, "node_modules", "pi-companion", "index.ts"));
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
-  assert.equal(extensions[4], path.join(cache, "node_modules", "pi-todo", "index.ts"));
+  assert.equal(extensions[4], path.join(cache, "node_modules", "@gamaraan", "todos-tool", "src", "index.ts"));
   assert.equal(extensions[5], path.join(cache, "node_modules", "pi-agent", "index.ts"));
   assert.equal(extensions[6], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
   assert.equal(existingBundledExtensions(options).length, 7);
@@ -143,7 +143,7 @@ pkg("pi-bar", { "index.ts": "" });
 pkg("@narumitw/pi-goal", { "src/index.ts": "" });
 pkg("pi-companion", { "index.ts": "" });
 pkg("pi-hashline-edit-pro", { "index.ts": "" });
-pkg("pi-todo", { "index.ts": "" });
+pkg("@gamaraan/todos-tool", { "src/index.ts": "" });
 pkg("pi-agent", { "index.ts": "" });
 pkg("pi-subagents", { "index.ts": "" });
 `);
@@ -190,7 +190,7 @@ class StdinBuffer {
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
   writePackage(cache, "pi-companion", { "index.ts": "" });
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePackage(cache, "pi-todo", { "index.ts": "" });
+  writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.ts": "" });
 
@@ -469,7 +469,7 @@ pkg('pi-bar', { 'index.ts': '' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': '' });
 pkg('pi-companion', { 'index.ts': '' });
 pkg('pi-hashline-edit-pro', { 'index.ts': '' });
-pkg('pi-todo', { 'index.ts': '' });
+pkg('@gamaraan/todos-tool', { 'src/index.ts': '' });
 pkg('pi-agent', { 'index.ts': '' });
 pkg('pi-subagents', { 'index.ts': '' });
 `);
@@ -510,7 +510,7 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-companion", { "index.ts": "" });
   writePkg(cache, "pi-web-access", { "index.ts": "" });
   writePkg(cache, "pi-hashline-edit-pro", { "index.ts": "" });
-  writePkg(cache, "pi-todo", { "index.ts": "" });
+  writePkg(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
 writePkg(cache, "pi-agent", { "index.ts": "" });
   writePkg(cache, "pi-subagents", { "index.ts": "" });
   writePkg(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -544,7 +544,7 @@ writePkg("@narumitw/pi-goal", { "src/index.ts": "" });
 writePkg("pi-companion", { "index.ts": "" });
 writePkg("pi-web-access", { "index.ts": "" });
 writePkg("pi-hashline-edit-pro", { "index.ts": "" });
-writePkg("pi-todo", { "index.ts": "" });
+writePkg("@gamaraan/todos-tool", { "src/index.ts": "" });
 writePkg("pi-agent", { "index.ts": "" });
 writePkg("pi-subagents", { "index.ts": "" });
 writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
