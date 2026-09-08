@@ -682,7 +682,7 @@ test("patches bundled pi-ai retry loop with strict-429 exemption and fixed delay
   ].join("\n");
   const patched = patchPiAiRateLimitRetry(vulnerable);
   assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
-  assert.match(patched, /const RATE_LIMIT_DELAY_MS = 5000;/);
+  assert.match(patched, /const RATE_LIMIT_DELAY_MS = 3000;/);
   assert.match(patched, /const RATE_LIMIT_MAX_ATTEMPTS = 30;/);
   assert.match(patched, /const RETRY_JITTER_MS = 1500;/);
   assert.match(patched, /function jitteredDelay\(baseMs\) \{/);
