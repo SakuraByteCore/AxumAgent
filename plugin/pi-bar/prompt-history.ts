@@ -58,3 +58,15 @@ export function appendPromptHistoryEntry(file: string, entry: string): void {
 	mkdirSync(dirname(file), { recursive: true });
 	appendFileSync(file, JSON.stringify(entry) + "\n");
 }
+
+/**
+ * Replace the whole history file with the given entries (oldest-first).
+ * Needed for deletion: append-only writes cannot remove lines, so the
+ * picker rewrites the file from the surviving in-memory array instead.
+ * An empty list truncates the file to zero bytes; loadPromptHistory
+ * then yields an empty history.
+ */
+export function rewritePromptHistory(file: string, entries: string[]): void {
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(file, entries.map((entry) => JSON.stringify(entry) + "\n").join(""));
+}

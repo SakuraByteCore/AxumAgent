@@ -47,14 +47,16 @@ const { CustomEditor: RuntimeCustomEditor = class {} } = await import("@earendil
 const piTui = await import("@earendil-works/pi-tui").catch(() => ({})) as {
   truncateToWidth?: (text: string, width: number, ellipsis?: string) => string;
   visibleWidth?: (text: string) => number;
+  matchesKey?: (data: string, keyId: string) => boolean;
 };
 const visibleWidth = piTui.visibleWidth ?? displayWidth;
 const truncateToWidth = piTui.truncateToWidth ?? truncateDisplayToWidth;
+const matchesKey = piTui.matchesKey ?? ((_data: string, _keyId: string) => false);
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath } from "./prompt-history.ts";
+import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
 
 // ---------------------------------------------------------------------------
@@ -504,6 +506,174 @@ function persistPromptEntry(entry: string): void {
 		// keeps working in-memory, and the error is surfaced as a notification
 		// on the next session_start (ctx is unreachable from the editor).
 		promptHistoryError = error instanceof Error ? error.message : String(error);
+	}
+}
+
+/*
+ * Prompt history deletion + picker overlay (the /history command).
+ *
+ * Indexes handed to deletePromptEntries refer to live positions in
+ * sharedPromptHistory (newest-first). Deleting splices that shared array in
+ * place so every editor instance (which all point at the same array) sees the
+ * change, then rewrites the on-disk file from the survivors. Selection-state
+ * invariants the removal relies on:
+ *  - persistedPromptEntries is content-keyed, so a text is dropped from the
+ *    set only once no occurrence of that text remains in the array;
+ *  - the disk file is oldest-first, hence the slice().reverse().
+ */
+function deletePromptEntries(indexes: number[]): number {
+	ensurePromptHistoryLoaded();
+	const targets = [...new Set(indexes)]
+		.filter((i) => i >= 0 && i < sharedPromptHistory.length)
+		.sort((a, b) => b - a);
+	if (targets.length === 0) return 0;
+	for (const i of targets) sharedPromptHistory.splice(i, 1);
+	for (const text of persistedPromptEntries) {
+		if (!sharedPromptHistory.includes(text)) persistedPromptEntries.delete(text);
+	}
+	if (!promptHistoryFile) return targets.length;
+	try {
+		rewritePromptHistory(promptHistoryFile, sharedPromptHistory.slice().reverse());
+	} catch (error) {
+		// Same exposure policy as persistPromptEntry: the in-memory deletion
+		// stands, and the write failure is surfaced on the next session_start.
+		promptHistoryError = error instanceof Error ? error.message : String(error);
+	}
+	return targets.length;
+}
+
+type PickerKey = "up" | "down" | "toggle" | "toggleAll" | "confirm" | "cancel";
+
+function pickPickerKey(data: string): PickerKey | undefined {
+	if (matchesKey(data, "up")) return "up";
+	if (matchesKey(data, "down")) return "down";
+	if (matchesKey(data, "space")) return "toggle";
+	if (matchesKey(data, "ctrl+a")) return "toggleAll";
+	if (matchesKey(data, "enter")) return "confirm";
+	if (matchesKey(data, "escape")) return "cancel";
+	// Fallback raw-sequence matching for environments where the pi-tui
+	// matchesKey helper is unavailable (never in the bundled runtime).
+	if (data === "\x1b[A") return "up";
+	if (data === "\x1b[B") return "down";
+	if (data === " ") return "toggle";
+	if (data === "\x01") return "toggleAll";
+	if (data === "\r" || data === "\n") return "confirm";
+	if (data === "\x1b") return "cancel";
+	return undefined;
+}
+
+const HISTORY_PICKER_MAX_VISIBLE = 12;
+const PICKER_ACCENT: RGB = SAKURA_STOPS[0];
+
+/** Interactive overlay: move with up/down, space toggles a row, ctrl+a
+ * selects everything (pressing it again clears the selection), enter deletes
+ * the selection - or the cursor row when nothing is ticked - and escape
+ * closes. Deletions apply immediately and stay applied on cancel. */
+class PromptHistoryPicker {
+	private rows: string[] = [];
+	private cursor = 0;
+	private scrollAnchor = 0;
+	private readonly selected = new Set<number>();
+	private deletedTotal = 0;
+	private readonly done: (result: { deleted: number } | undefined) => void;
+
+	constructor(done: (result: { deleted: number } | undefined) => void) {
+		this.done = done;
+		this.rows = sharedPromptHistory.slice();
+	}
+
+	invalidate(): void {}
+	dispose(): void {}
+
+	handleInput(data: string): void {
+		const key = pickPickerKey(data);
+		if (key === "up") {
+			if (this.cursor > 0) this.cursor -= 1;
+			return;
+		}
+		if (key === "down") {
+			if (this.cursor < this.rows.length - 1) this.cursor += 1;
+			return;
+		}
+		if (key === "toggle") {
+			if (this.selected.has(this.cursor)) this.selected.delete(this.cursor);
+			else this.selected.add(this.cursor);
+			return;
+		}
+		if (key === "toggleAll") {
+			if (this.selected.size === this.rows.length) this.selected.clear();
+			else for (let i = 0; i < this.rows.length; i++) this.selected.add(i);
+			return;
+		}
+		if (key === "confirm") {
+			this.confirmDelete();
+			return;
+		}
+		if (key === "cancel") {
+			this.done(this.deletedTotal > 0 ? { deleted: this.deletedTotal } : undefined);
+		}
+	}
+
+	private confirmDelete(): void {
+		const targets = this.selected.size > 0 ? [...this.selected] : [this.cursor];
+		if (!targets.length) return;
+		this.deletedTotal += deletePromptEntries(targets);
+		this.rows = sharedPromptHistory.slice();
+		this.selected.clear();
+		if (this.rows.length === 0) {
+			this.done({ deleted: this.deletedTotal });
+			return;
+		}
+		this.cursor = Math.min(this.cursor, this.rows.length - 1);
+		this.scrollAnchor = Math.min(this.scrollAnchor, Math.max(0, this.rows.length - HISTORY_PICKER_MAX_VISIBLE));
+	}
+
+	render(width: number): string[] {
+		return this.rows.length === 0 ? this.renderEmpty(width) : this.renderRows(width);
+	}
+
+	private renderEmpty(width: number): string[] {
+		const inner = Math.max(24, width - 2);
+		const line = "\u2502" + "History cleared. Esc to close.".padEnd(inner) + "\u2502";
+		return [
+			"\u256d" + gradient("\u2500".repeat(inner), PICKER_ACCENT, SAKURA_STOPS[SAKURA_STOPS.length - 1]) + "\u256e",
+			line,
+			"\u2570" + "\u2500".repeat(inner) + "\u256f",
+		];
+	}
+
+	private renderRows(width: number): string[] {
+		const inner = Math.max(24, width - 2);
+		const visible = Math.min(HISTORY_PICKER_MAX_VISIBLE, this.rows.length);
+		if (this.cursor < this.scrollAnchor) this.scrollAnchor = this.cursor;
+		if (this.cursor >= this.scrollAnchor + visible) this.scrollAnchor = this.cursor - visible + 1;
+		this.scrollAnchor = Math.max(0, Math.min(this.scrollAnchor, this.rows.length - visible));
+		const lines: string[] = [];
+		lines.push(this.framed(`Prompt history  ${this.selected.size}/${this.rows.length} selected`, inner, PICKER_ACCENT));
+		for (let i = this.scrollAnchor; i < this.scrollAnchor + visible; i++) {
+			const cursorMark = i === this.cursor ? rgb(PICKER_ACCENT, "\u276f") : " ";
+			const tick = this.selected.has(i) ? rgb(PICKER_ACCENT, "[x]") : "[ ]";
+			const prefix = `${cursorMark} ${tick}  `;
+			const text = truncateToWidth(this.rows[i]!.replace(/\n/g, "\u21b5 "), inner - visibleWidth(prefix), "\u2026");
+			lines.push(this.framed(prefix + text, inner));
+		}
+		const above = this.scrollAnchor;
+		const below = this.rows.length - (this.scrollAnchor + visible);
+		let nav = `${this.rows.length} entries`;
+		if (above > 0) nav += `  \u2191 ${above} more`;
+		if (below > 0) nav += `  \u2193 ${below} more`;
+		lines.push(this.framed(nav, inner));
+		lines.push(this.framed("\u2191\u2193 move  space toggle  ^A all  Enter delete  Esc close", inner));
+		return [
+			"\u256d" + gradient("\u2500".repeat(inner), PICKER_ACCENT, SAKURA_STOPS[SAKURA_STOPS.length - 1]) + "\u256e",
+			...lines,
+			"\u2570" + "\u2500".repeat(inner) + "\u256f",
+		];
+	}
+
+	private framed(content: string, inner: number, color?: RGB): string {
+		const padded = content + " ".repeat(Math.max(0, inner - visibleWidth(content)));
+		return "\u2502" + (color ? rgb(color, padded) : padded) + "\u2502";
 	}
 }
 
@@ -1175,6 +1345,28 @@ export default function (pi: ExtensionAPI): void {
 	let settings: Settings = DEFAULTS;
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
+
+	// --- /history: overlay picker for deleting up-arrow prompt history ---
+	pi.registerCommand("history", {
+		description: "Open the prompt-history picker (move: arrows, toggle: Space, select all: Ctrl+A, delete: Enter, close: Esc)",
+		handler: async (_args: string, ctx: ExtensionContext) => {
+			if (!ctx.hasUI || typeof ctx.ui.custom !== "function") return;
+			ensurePromptHistoryLoaded();
+			if (sharedPromptHistory.length === 0) {
+				ctx.ui.notify("prompt history is empty", "info");
+				return;
+			}
+			const result = await ctx.ui.custom(
+				(_tui: TUI, _theme: EditorTheme, _keybindings: KeybindingsManager, done: (r: { deleted: number } | undefined) => void) =>
+					new PromptHistoryPicker(done),
+				{ overlay: true, overlayOptions: { width: "80%", minWidth: 40, maxHeight: "60%" } },
+			);
+			if (result && result.deleted > 0) {
+				ctx.ui.notify(`deleted ${result.deleted} prompt history ${result.deleted === 1 ? "entry" : "entries"}`, "info");
+			}
+		},
+	});
+
 
 	// --- Header (merged from pi-header) state + installation ---
 	// Skills / extensions probed once per session start and cached for the

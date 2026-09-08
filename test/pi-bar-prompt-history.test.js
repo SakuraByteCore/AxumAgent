@@ -9,6 +9,7 @@ import {
 	appendPromptHistoryEntry,
 	loadPromptHistory,
 	promptHistoryPath,
+	rewritePromptHistory,
 } from "../plugin/pi-bar/prompt-history.ts";
 import { getDefaultSessionDir } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js";
 
@@ -76,6 +77,17 @@ test("load caps at the newest MAX entries and rewrites the file", () => {
 	assert.equal(loaded.at(-1), `entry-${MAX_PROMPT_HISTORY_ENTRIES + 9}`);
 	assert.equal(readEntries(file).length, MAX_PROMPT_HISTORY_ENTRIES);
 });
+test("rewritePersistedHistory replaces the whole file and survives load", () => {
+	const agentDir = tmpAgentDir();
+	const file = promptHistoryPath(process.cwd(), agentDir);
+	appendPromptHistoryEntry(file, "doomed");
+	rewritePromptHistory(file, ["a", "b", "c"]);
+	assert.deepEqual(loadPromptHistory(file), ["a", "b", "c"]);
+	assert.deepEqual(readEntries(file), ["a", "b", "c"]);
+	rewritePromptHistory(file, []);
+	assert.deepEqual(loadPromptHistory(file), []);
+	assert.deepEqual(readEntries(file), []);
+});
 
 test("pi-bar wires persistence into the dashed border editor", () => {
 	// Seeding runs before the instance history is swapped to the shared array.
@@ -86,4 +98,23 @@ test("pi-bar wires persistence into the dashed border editor", () => {
 	assert.match(indexSource, /override addToHistory\(text: string\): void \{/);
 	assert.match(indexSource, /persistedPromptEntries\.has\(newest\)\) return;/);
 	assert.match(indexSource, /\.\/prompt-history/);
+});
+
+test("the /history command opens a picker that deletes via rewrite", () => {
+	assert.match(indexSource, /registerCommand\("history"/);
+	assert.match(indexSource, /class PromptHistoryPicker/);
+	assert.match(indexSource, /ctx\.ui\.custom\(/);
+	// Deletion splices the shared array in place, prunes the dedup ledger,
+	// and rewrites the disk file oldest-first from the survivors.
+	assert.match(indexSource, /function deletePromptEntries\(indexes: number\[\]\): number \{/);
+	assert.match(indexSource, /sharedPromptHistory\.splice\(i, 1\)/);
+	assert.match(indexSource, /persistedPromptEntries\.delete\(text\)/);
+	assert.match(indexSource, /rewritePromptHistory\(promptHistoryFile, sharedPromptHistory\.slice\(\)\.reverse\(\)\)/);
+	// Picker keys: arrows, space toggle, ctrl+a select-all, enter, escape.
+	assert.match(indexSource, /matchesKey\(data, "up"\)/);
+	assert.match(indexSource, /matchesKey\(data, "down"\)/);
+	assert.match(indexSource, /matchesKey\(data, "space"\)/);
+	assert.match(indexSource, /matchesKey\(data, "ctrl\+a"\)/);
+	assert.match(indexSource, /matchesKey\(data, "enter"\)/);
+	assert.match(indexSource, /matchesKey\(data, "escape"\)/);
 });

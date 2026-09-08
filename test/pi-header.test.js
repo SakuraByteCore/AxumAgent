@@ -61,6 +61,7 @@ function createHeaderRenderer(rows = 80, argv = []) {
         if (name === "session_start") sessionStart = callback;
       },
       events: { on() {}, emit() {} },
+      registerCommand() {},
       getCommands: () => MOCK_COMMANDS,
     });
     assert.equal(typeof sessionStart, "function");
