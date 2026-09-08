@@ -100,6 +100,7 @@ The distribution ships these packages, all in one install:
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 - `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
+- `@zzxb/pi-notify` (Windows only: Toast notifications with terminal focus, result icons, and BEL reminders)
 
 ## Configure an OpenAI-compatible Provider
 

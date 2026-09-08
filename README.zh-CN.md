@@ -42,6 +42,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：手动触发的后台 Agent，带实时进度挂件；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
 - `pi-subagents`（单 Agent 委托与脚本化多 Agent 工作流：task 委托、后台运行、多代理编排）
 - `@ff-labs/pi-fff`（仅桌面端：带频率排序的 FFF 文件搜索；Android 与 Windows 不包含）
+- `@zzxb/pi-notify`（仅 Windows：Windows Toast 通知，支持终端聚焦、结果图标与 BEL 提醒）
 
 ## 环境要求
 

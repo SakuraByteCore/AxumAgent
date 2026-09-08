@@ -56,4 +56,8 @@ export const bundledPiPackages = [
   // (task tool, background runs, /agents orchestration). Pure TS with no
   // parameter properties or extensionless relative imports, zero native deps.
   { name: "pi-subagents@0.66.0", packageName: "pi-subagents", extensionPath: "index.ts", android: true },
+  // pi-notify: Windows Toast notifications with terminal focus + BEL fallback.
+  // Ships Windows-only helper binaries/scripts (activate.exe, *.ps1, *.vbs) and
+  // shells out to powershell.exe, so it is bundled for win32 only; pure TS entry.
+  { name: "@zzxb/pi-notify@0.0.1", packageName: "@zzxb/pi-notify", extensionPath: "index.ts", android: false, unsupportedPlatforms: ["linux", "darwin"] },
 ];

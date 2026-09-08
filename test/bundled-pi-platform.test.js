@@ -56,8 +56,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
+    "@zzxb/pi-notify@0.0.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 7);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
