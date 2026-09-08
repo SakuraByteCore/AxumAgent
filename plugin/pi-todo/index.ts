@@ -358,6 +358,11 @@ export default function register(pi: ExtensionAPI): void {
 
 	pi.on("agent_start", async () => {
 		agentRunning = true;
+		if (todos.length > 0) {
+			todos = [];
+			pi.appendEntry<TodoEntryData>(TODO_ENTRY_TYPE, { todos });
+			refreshWidget();
+		}
 		updateSpinner();
 	});
 

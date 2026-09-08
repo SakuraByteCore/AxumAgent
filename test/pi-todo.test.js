@@ -198,6 +198,52 @@ test("session_shutdown disposes widget and state", async () => {
   assert.equal(uiState.widgets.has("pi-todo"), false, "widget removed on shutdown");
 });
 
+
+test("agent_start clears the previous plan and persists the empty state", async (t) => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-a1", { todos: [{ content: "Old task", status: "completed" }] }, undefined, undefined, undefined);
+  assert.ok(uiState.widgets.has("pi-todo"));
+  const entriesBefore = pi.entries.length;
+
+  await emit(pi, "agent_start");
+  t.after(() => { void emit(pi, "agent_settled"); });
+
+  assert.equal(uiState.widgets.has("pi-todo"), false, "panel hidden when a new run begins");
+  const persisted = pi.entries.at(-1);
+  assert.ok(persisted && persisted.customType === "pi-todo-state", "clear is persisted");
+  assert.deepEqual(persisted.data.todos, [], "persisted plan is empty");
+  assert.ok(pi.entries.length > entriesBefore, "a new entry records the cleared state");
+});
+
+test("agent_start on an empty plan does not append redundant entries", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const entriesBefore = pi.entries.length;
+
+  await emit(pi, "agent_start");
+
+  assert.equal(pi.entries.length, entriesBefore, "no-op clear stays silent");
+});
+
+test("/resume after a plan-clearing agent_start keeps the panel hidden", async () => {
+  const pi = createPi();
+  register(pi.pi);
+  const uiState = makeUi();
+  await startSession(pi, uiState.ui);
+  const tool = pi.tools.get("todo");
+  await tool.execute("tc-a2", { todos: [{ content: "Old task", status: "in_progress" }] }, undefined, undefined, undefined);
+  await emit(pi, "agent_start");
+
+  const uiState2 = makeUi();
+  await startSession(pi, uiState2.ui, { reason: "resume" });
+  assert.equal(uiState2.widgets.has("pi-todo"), false, "resume restores the cleared empty plan");
+});
 test("/resume restores the latest persisted plan and its panel", async () => {
   const pi = createPi();
   register(pi.pi);
@@ -327,11 +373,13 @@ test("spinner stops ticking when the agent settles and resumes on the next run",
   uiState.widgets.get("pi-todo")(tui, theme);
   t.after(() => { void emit(pi, "session_shutdown", {}); });
 
-  // Idle session: an in_progress row alone must not animate anything.
+
   await new Promise((r) => setTimeout(r, 300));
   assert.equal(renders, 0, "no spinner ticks while the agent is idle");
 
   await emit(pi, "agent_start");
+  await tool.execute("tc-13", { todos: [{ content: "Long task", status: "in_progress" }] }, undefined, undefined, undefined);
+  uiState.widgets.get("pi-todo")(tui, theme);
   await new Promise((r) => setTimeout(r, 300));
   assert.ok(renders > 0, "spinner ticks while the agent runs");
 
@@ -342,6 +390,8 @@ test("spinner stops ticking when the agent settles and resumes on the next run",
   assert.equal(renders, settledCount, "no spinner ticks after the agent settles");
 
   await emit(pi, "agent_start");
+  await tool.execute("tc-14", { todos: [{ content: "Follow-up task", status: "in_progress" }] }, undefined, undefined, undefined);
+  uiState.widgets.get("pi-todo")(tui, theme);
   await new Promise((r) => setTimeout(r, 300));
   assert.ok(renders > settledCount, "spinner resumes on the next run");
 });
