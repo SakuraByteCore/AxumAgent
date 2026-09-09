@@ -28,6 +28,8 @@ export type AgentStatus =
 export type ParsedAgentCommand = {
 	isolate: boolean;
 	squash: boolean;
+	/** Wrap the task in the plan prompt template before dispatching (extension-owned -P/--plan). */
+	plan: boolean;
 	/** Leading pi CLI tokens (minus the extension's own options) to forward to the child, e.g. ["--thinking", "high"]. */
 	forwardedArgs: string[];
 	task: string;

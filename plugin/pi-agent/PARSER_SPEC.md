@@ -11,6 +11,7 @@ from the declaration in `command-line.ts`.
 type ParsedAgentCommand = {
   isolate: boolean;          // -i / --isolate
   squash: boolean;           // -s / --squash
+  plan: boolean;             // -P / --plan (wraps the task in the plan prompt template at dispatch time)
   forwardedArgs: string[];   // recognized pi option tokens (+values) in input order, e.g. ["--thinking","high"]
   task: string;              // the prose prompt (backslash escapes applied, quotes kept). Never empty.
   warnings: string[];        // advisory messages (see §5). May be empty.
@@ -44,10 +45,14 @@ leading whitespace (unchanged from today).
 | `-m`, `--model` | value | Added to `forwardedArgs` as canonical `--model <value>` |
 | `-i`, `--isolate` | boolean | Consumed here; `isolate = true` |
 | `-s`, `--squash` | boolean | Consumed here; `squash = true` |
+| `-P`, `--plan` | boolean | Consumed here; `plan = true` |
 
 `-m` and `--model` are one semantic option. Both require an exact live model ID, canonical
 `provider/id` reference, or user-defined alias before resolving through Pi's `resolveCliModel()`
 path. A preceding `--provider` scopes either spelling. `-s` is the extension's squash option.
+`-P` is the extension's plan option: when set, the runner wraps `task` in the plan prompt
+template (`~/.pi/agent/plan-prompt.md`, with a built-in fallback matching pi-companion's `/plan`)
+before dispatching. A lowercase `-p` stays blocked as `--print`, so plan uses uppercase `-P`.
 A model option with no value and no remaining task ends in the normal
 **usage error**.
 

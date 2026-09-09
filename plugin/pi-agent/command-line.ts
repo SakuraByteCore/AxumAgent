@@ -58,6 +58,7 @@ export type AgentSemanticToken = {
 export type AgentArgumentScan = {
 	isolate: boolean;
 	squash: boolean;
+	plan: boolean;
 	forwardedArgs: string[];
 	/** Ordered, non-overlapping semantic tokens over the argument text. Prose stays untokenized. */
 	tokens: AgentSemanticToken[];
@@ -121,6 +122,14 @@ export const AGENT_OPTIONS: readonly AgentOptionDefinition[] = [
 		arity: "boolean",
 		autocomplete: true,
 		description: "Squash the completed result into the main agent context",
+	},
+	{
+		semanticId: "plan",
+		names: ["-P", "--plan"],
+		role: "extension",
+		arity: "boolean",
+		autocomplete: true,
+		description: "Wrap the task in the plan prompt template",
 	},
 	{
 		semanticId: "provider",
@@ -361,6 +370,7 @@ export function scanAgentArguments(
 	const forwardedArgs: string[] = [];
 	let isolate = false;
 	let squash = false;
+	let plan = false;
 	let blocked: AgentSemanticToken | undefined;
 	let consumedOption = false;
 	let position = 0;
@@ -395,6 +405,8 @@ export function scanAgentArguments(
 			isolate = true;
 		} else if (option.semanticId === "squash") {
 			squash = true;
+		} else if (option.semanticId === "plan") {
+			plan = true;
 		} else if (option.arity === "value") {
 			forwardedArgs.push(option.forwardName ?? token);
 			const read = readValueSpan(args, position);
@@ -428,6 +440,7 @@ export function scanAgentArguments(
 	const scan: AgentArgumentScan = {
 		isolate,
 		squash,
+		plan,
 		forwardedArgs,
 		tokens,
 		proseStart,
@@ -487,11 +500,12 @@ export function parseAgentCommand(args: string, command: AgentCommandName): Pars
 	}
 	if (!scan.prose.trim())
 		throw new Error(
-			`Usage: /${command} [pi options] [-m MODELNAME] [-i|--isolate] [-s|--squash] "<task>"`,
+			`Usage: /${command} [pi options] [-m MODELNAME] [-i|--isolate] [-s|--squash] [-P|--plan] "<task>"`,
 		);
 	return {
 		isolate: scan.isolate,
 		squash: scan.squash,
+		plan: scan.plan,
 		forwardedArgs: scan.forwardedArgs,
 		task: scan.task,
 		warnings: scan.warnings,

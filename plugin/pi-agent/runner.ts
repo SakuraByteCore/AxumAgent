@@ -17,6 +17,7 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { type AgentValueValidator, parseAgentCommand } from "./command-line.js";
+import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
 import type {
 	AgentCommandName,
@@ -89,6 +90,9 @@ export async function startUserAgent(
 	ctx: ExtensionCommandContext,
 ): Promise<RunningAgent> {
 	const parsed = parseAgentCommand(args, command);
+	if (parsed.plan) {
+		parsed.task = await buildPlanPrompt(parsed.task);
+	}
 	const parsedForwardedArgs = parseForwardedArgs(parsed.forwardedArgs);
 	const agentDir = getAgentDir();
 	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {

@@ -160,6 +160,7 @@ Everything goes through one command: `/agent [options] <task>`.
 |---|---|
 | `-i`, `--isolate` | Start without the conversation snapshot |
 | `-s`, `--squash` | Deliver the result into the main context on completion |
+| `-P`, `--plan` | Wrap the task in the plan prompt template (see *Plan mode* below) |
 | `-m MODEL` | Model for this agent (alias of Pi's `--model`) |
 | *pi CLI options* | Forwarded to the agent — `--thinking`, `--tools`, `--system-prompt`, … |
 
@@ -218,3 +219,20 @@ spawned agent is a regular `/agent` instance: it shows in the agents widget, and
 delivered back into this conversation on completion (squash semantics). The tool accepts the
 same knobs as `/agent`: `isolate` (blank context), `squash` (default on), `model`, and
 `thinking`.
+
+## Plan mode (fork addition)
+
+This fork also adds the extension-owned `-P`/`--plan` flag, which wraps the task in the same
+plan prompt that `pi-companion`'s `/plan` command builds ([Requirement] / [Objective] / [Rules]),
+and dispatches it as a background agent — planning happens off the main conversation.
+
+```
+/agent -s -P add streaming support to the web chat endpoint
+```
+
+The requirement text replaces `{{requirement}}` in the template at `~/.pi/agent/plan-prompt.md`
+if that file exists; otherwise a built-in skeleton identical to `/plan`'s is used. The flag
+composes freely with the others (as above, `-s` squashes the finished plan back into the main
+conversation). A template file that is empty or lacks `{{requirement}}` aborts the dispatch
+with an error instead of sending a malformed prompt. Lowercase `-p` stays blocked (it is pi's
+`--print`), which is why the short form is uppercase `-P`.

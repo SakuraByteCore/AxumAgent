@@ -1,10 +1,18 @@
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   buildDispatchArgs,
   buildDispatchPrompt,
   registerDispatch,
 } from "../plugin/pi-agent/dispatch.ts";
+import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
+import {
+  AGENT_OPTIONS,
+  parseAgentCommand,
+} from "../plugin/pi-agent/command-line.ts";
 
 function createPi() {
   const commands = new Map();
@@ -166,4 +174,97 @@ test("session lifecycle: shutdown latches agents cleanup, start resets the latch
   handlers.get("session_start")({ reason: "new" }, nextCtx);
   assert.equal(shuttingDown, false);
   assert.equal(mainCtx, nextCtx);
+});
+
+// ── -P/--plan option: declaration ─────────────────────────────────────────
+
+test("AGENT_OPTIONS declares the -P/--plan extension option with autocomplete", () => {
+  const option = AGENT_OPTIONS.find((entry) => entry.semanticId === "plan");
+  assert.ok(option);
+  assert.deepEqual(option.names, ["-P", "--plan"]);
+  assert.equal(option.role, "extension");
+  assert.equal(option.arity, "boolean");
+  assert.equal(option.autocomplete, true);
+});
+
+// ── -P/--plan option: parsing ─────────────────────────────────────────────
+
+test("parseAgentCommand consumes -P and --plan as the plan flag", () => {
+  const short = parseAgentCommand("-P fix the login flow", "agent");
+  assert.equal(short.plan, true);
+  assert.equal(short.task, "fix the login flow");
+  const long = parseAgentCommand("--plan fix the login flow", "agent");
+  assert.equal(long.plan, true);
+  assert.equal(long.task, "fix the login flow");
+  assert.equal(parseAgentCommand("fix it", "agent").plan, false);
+});
+
+test("parseAgentCommand combines -P with isolate, squash, model, and thinking", () => {
+  const parsed = parseAgentCommand(
+    "-s -P -i -m gpt-5 --thinking high design the retry layer",
+    "agent",
+  );
+  assert.equal(parsed.plan, true);
+  assert.equal(parsed.isolate, true);
+  assert.equal(parsed.squash, true);
+  assert.deepEqual(parsed.forwardedArgs, ["--model", "gpt-5", "--thinking", "high"]);
+  assert.equal(parsed.task, "design the retry layer");
+});
+
+test("parseAgentCommand with -P but no task fails with the usage error", () => {
+  assert.throws(
+    () => parseAgentCommand("-P", "agent"),
+    /Usage: \/agent .*\[-P\|--plan\].*"<task>"/,
+  );
+});
+
+test("parseAgentCommand keeps lowercase -p blocked (plan uses uppercase -P)", () => {
+  assert.throws(
+    () => parseAgentCommand("-p do the thing", "agent"),
+    /does not support -p/,
+  );
+});
+
+// ── plan prompt assembly ──────────────────────────────────────────────────
+
+async function withTemplate(content, fn) {
+  const dir = await mkdtemp(join(tmpdir(), "pi-agent-plan-"));
+  const templatePath = content === null ? join(dir, "missing.md") : join(dir, "plan-prompt.md");
+  if (content !== null) await writeFile(templatePath, content);
+  return fn(templatePath);
+}
+
+test("buildPlanPrompt falls back to the built-in skeleton when no template exists", async () => {
+  await withTemplate(null, async (missing) => {
+    const prompt = await buildPlanPrompt("ship webhooks", missing);
+    assert.ok(prompt.startsWith("[Requirement] ship webhooks"));
+    assert.ok(prompt.includes("[Objective]"));
+    assert.ok(prompt.includes("[Rules]"));
+    assert.ok(prompt.includes("do not write code"));
+  });
+});
+
+test("buildPlanPrompt substitutes {{requirement}} in the template file", async () => {
+  await withTemplate("Header\n{{requirement}}\nFooter", async (templatePath) => {
+    const prompt = await buildPlanPrompt("add dark mode", templatePath);
+    assert.equal(prompt, "Header\nadd dark mode\nFooter");
+  });
+});
+
+test("buildPlanPrompt rejects an empty template", async () => {
+  await withTemplate("   \n", async (templatePath) => {
+    await assert.rejects(
+      buildPlanPrompt("x", templatePath),
+      /Plan prompt template is empty/,
+    );
+  });
+});
+
+test("buildPlanPrompt rejects a template without the placeholder", async () => {
+  await withTemplate("no placeholder here", async (templatePath) => {
+    await assert.rejects(
+      buildPlanPrompt("x", templatePath),
+      /must include \{\{requirement\}\}/,
+    );
+  });
 });
