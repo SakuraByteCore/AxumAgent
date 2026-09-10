@@ -26,6 +26,7 @@ import {
 	REBASED_ENTRY_TYPE,
 	truncatePlain,
 } from "./shared.js";
+import { planResultDirectiveLines } from "./result-message.js";
 
 export function reportCommandError(
 	pi: ExtensionAPI,
@@ -115,10 +116,12 @@ export function buildAgentResultMessage(
 const SQUASHED_CONVERSATION_PREFACE =
 	"The user has dispatched a background sub-agent with a task. The sub-agent is done. The following is the back and forth between them:";
 
+
 export function formatResultMessage(agent: RunningAgent): string {
 	const messages = selectSquashedMessages(agent.conversationMessages);
 	const lines = [
 		SQUASHED_CONVERSATION_PREFACE,
+		...(planResultDirectiveLines(agent.planMode)),
 		`<user_agent model="${escapeAttribute(agent.model)}" inherited_context="${agent.inheritedContext}">`,
 	];
 	let firstUserMessage = true;

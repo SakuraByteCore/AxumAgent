@@ -176,6 +176,7 @@ function createRunningAgent(
 		task: parsed.task,
 		invocation,
 		notifyMainAgent: parsed.squash,
+		planMode: parsed.plan,
 		dispatchBaseFingerprint,
 		mainContextState: parsed.squash ? "will-squash" : "separate",
 		status: "starting",

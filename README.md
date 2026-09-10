@@ -201,7 +201,7 @@ Three preset commands bake in the common `/agent` flag combinations, so dispatch
 
 - `/spawn <task>` — inherits the current conversation and delivers the finished result back automatically.
 - `/scout <task>` — starts isolated, with a blank context and no session inheritance.
-- `/blueprint <task>` — runs in plan mode in the background and delivers the finished plan back.
+- `/blueprint <task>` — runs in plan mode in the background and delivers the finished plan back verbatim.
 
 Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is just a prefix over the shared `/agent` parser, widget, and lifecycle. The original `/agent [options] <task>` command is unchanged.
 

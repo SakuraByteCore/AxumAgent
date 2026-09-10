@@ -15,6 +15,10 @@ import {
   registerPresets,
 } from "../plugin/pi-agent/presets.ts";
 import {
+  PLAN_RESULT_DIRECTIVE,
+  planResultDirectiveLines,
+} from "../plugin/pi-agent/result-message.ts";
+import {
   AGENT_OPTIONS,
   parseAgentCommand,
 } from "../plugin/pi-agent/command-line.ts";
@@ -355,4 +359,10 @@ test("buildPresetArgs preserves user-supplied flags after the preset prefix", ()
 test("buildPresetArgs emits flags only for a blank task", () => {
   const blueprint = AGENT_PRESETS.find((preset) => preset.name === "blueprint");
   assert.equal(buildPresetArgs(blueprint, "   "), "-P -s");
+});
+
+test("planResultDirectiveLines emits the directive only for plan mode", () => {
+  assert.deepEqual(planResultDirectiveLines(true), [PLAN_RESULT_DIRECTIVE]);
+  assert.deepEqual(planResultDirectiveLines(false), []);
+  assert.ok(PLAN_RESULT_DIRECTIVE.includes("present it to the user verbatim"));
 });

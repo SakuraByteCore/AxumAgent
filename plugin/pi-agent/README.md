@@ -252,3 +252,7 @@ dispatching a background agent takes zero flag decisions:
 `/scout` starts from a blank context; `/blueprint` runs plan mode in the background and returns
 the plan. Extra flags still compose — `/spawn -m gpt-5 …` works, the preset is just a prefix
 over the shared `/agent` parser, widget, and lifecycle.
+
+A plan-mode result (`/blueprint`, or `/agent -P -s`) is annotated with a relay directive that
+tells the main agent to present the finished plan verbatim rather than summarizing it, so its
+output stays close to what `/plan` produces even though it was answered by a background agent.

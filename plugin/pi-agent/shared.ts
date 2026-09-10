@@ -104,6 +104,8 @@ export type RunningAgent = {
 	invocation: string;
 	/** -s/--squash: post invocation+result to the main agent and trigger its turn, instead of waiting quietly for the next user prompt. */
 	notifyMainAgent: boolean;
+	/** Whether this agent was dispatched in plan mode (-P/--plan). */
+	planMode: boolean;
 	/** Fingerprint of the main context the child was dispatched from ("[]" for -i); the rebase fast-forward base. */
 	dispatchBaseFingerprint: string;
 	mainContextState: MainContextState;
