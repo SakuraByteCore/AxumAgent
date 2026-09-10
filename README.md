@@ -189,6 +189,22 @@ Discuss and finalize the technical solution: clarify the solution's details and 
 Focus solely on researching and discussing the solution; do not write code or generate code snippets. I will only begin generating code if you explicitly instruct me to do so. Please state the current expected outcome in plain, simple language.
 ```
 
+## One-Keystroke Background Agents
+
+Three preset commands bake in the common `/agent` flag combinations, so dispatching a background agent takes zero flag decisions:
+
+```text
+/spawn fix the login bug        # = /agent -s fix the login bug
+/scout why does the build fail  # = /agent -i why does the build fail
+/blueprint add dark mode        # = /agent -P -s add dark mode
+```
+
+- `/spawn <task>` — inherits the current conversation and delivers the finished result back automatically.
+- `/scout <task>` — starts isolated, with a blank context and no session inheritance.
+- `/blueprint <task>` — runs in plan mode in the background and delivers the finished plan back.
+
+Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is just a prefix over the shared `/agent` parser, widget, and lifecycle. The original `/agent [options] <task>` command is unchanged.
+
 ## Doctor
 
 ```bash

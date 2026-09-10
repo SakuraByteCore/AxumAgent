@@ -155,6 +155,22 @@ axum code
 
 保存前に diff を表示します。ファイルが外部で変更されていた場合は保存を拒否します。
 
+## ワンキー・バックグラウンドエージェント
+
+3 つのプリセットコマンドが `/agent` のよく使うフラグ組み合わせを内蔵しており、バックグラウンド起動時のフラグ判断は不要です:
+
+```text
+/spawn fix the login bug        # = /agent -s fix the login bug
+/scout why does the build fail  # = /agent -i why does the build fail
+/blueprint add dark mode        # = /agent -P -s add dark mode
+```
+
+- `/spawn <タスク>` —— 現在の会話コンテキストを継承し、完了時に結果を自動でこの会話へ返します。
+- `/scout <タスク>` —— 空白コンテキストで隔離起動し、セッションを継承しません。
+- `/blueprint <タスク>` —— バックグラウンドでプランモードを実行し、完成したプランを自動で返します。
+
+追加フラグも併用可能です（例: `/spawn -m gpt-5 …`）。プリセットは共通の `/agent` パーサ・ウィジェット・ライフサイクルへの接頭辞にすぎず、従来の `/agent [options] <タスク>` の挙動は変わりません。
+
 ## Doctor
 
 ```bash

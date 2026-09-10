@@ -183,6 +183,22 @@ axum code
 只专注于调研和讨论方案；不要写代码或生成代码片段。只有在你明确要求时，我才会开始生成代码。请用简明平实的语言说明当前预期结果。
 ```
 
+## 一键后台 Agent
+
+三条预设命令固化了 `/agent` 的高频参数组合，发起后台任务零参数决策：
+
+```text
+/spawn fix the login bug        # 等价 /agent -s fix the login bug
+/scout why does the build fail  # 等价 /agent -i why does the build fail
+/blueprint add dark mode        # 等价 /agent -P -s add dark mode
+```
+
+- `/spawn <任务>` —— 继承当前会话上下文，完成后结果自动回投主会话。
+- `/scout <任务>` —— 以空白上下文隔离启动，不继承会话。
+- `/blueprint <任务>` —— 以后台计划模式运行，完成后自动回投成稿方案。
+
+追加参数仍可组合：`/spawn -m gpt-5 …` 有效，因为预设只是共享 `/agent` 解析器、挂件与生命周期之上的参数前缀。原有 `/agent [options] <任务>` 命令行为不变。
+
 ## Doctor
 
 ```bash
