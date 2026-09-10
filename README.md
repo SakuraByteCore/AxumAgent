@@ -97,7 +97,7 @@ The distribution ships these packages, all in one install:
 - `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool` (structured todo tracking: the `todo` tool maintains a plan checklist rendered as a live HUD above the editor, plus the `/todo` and `/todos-configure` commands)
-- `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, `-P/--plan` for plan-mode background dispatch, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
+- `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, `-P/--plan` for plan-mode background dispatch, one-keystroke `/spawn` `/scout` `/blueprint` presets, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 - `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
 - `@zzxb/pi-notify` (Windows only: Toast notifications with terminal focus, result icons, and BEL reminders)

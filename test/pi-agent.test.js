@@ -10,6 +10,11 @@ import {
 } from "../plugin/pi-agent/dispatch.ts";
 import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
 import {
+  AGENT_PRESETS,
+  buildPresetArgs,
+  registerPresets,
+} from "../plugin/pi-agent/presets.ts";
+import {
   AGENT_OPTIONS,
   parseAgentCommand,
 } from "../plugin/pi-agent/command-line.ts";
@@ -267,4 +272,87 @@ test("buildPlanPrompt rejects a template without the placeholder", async () => {
       /must include \{\{requirement\}\}/,
     );
   });
+});
+
+function createPresetDeps(overrides = {}) {
+  const runs = [];
+  return {
+    runs,
+    deps: {
+      async run(presetArgs, invocation, _ctx) {
+        runs.push({ presetArgs, invocation });
+      },
+      ...overrides,
+    },
+  };
+}
+
+test("registerPresets registers spawn, scout, and blueprint", () => {
+  const pi = createPi();
+  registerPresets(pi, createPresetDeps().deps);
+  for (const preset of AGENT_PRESETS) {
+    assert.ok(pi.commands.has(preset.name), `missing command /${preset.name}`);
+  }
+  assert.deepEqual(
+    AGENT_PRESETS.map((preset) => preset.name),
+    ["spawn", "scout", "blueprint"],
+  );
+});
+
+test("preset command with empty args warns and does not launch", async () => {
+  const pi = createPi();
+  const { runs, deps } = createPresetDeps();
+  registerPresets(pi, deps);
+  const { ctx, notifications } = createCtx();
+  await pi.commands.get("spawn").handler("   ", ctx);
+  assert.equal(runs.length, 0);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].level, "warning");
+  assert.ok(notifications[0].message.includes("/spawn <task>"));
+});
+
+test("/spawn prefixes -s so the result is delivered back automatically", async () => {
+  const pi = createPi();
+  const { runs, deps } = createPresetDeps();
+  registerPresets(pi, deps);
+  const { ctx } = createCtx();
+  await pi.commands.get("spawn").handler("fix the login bug", ctx);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].presetArgs, "-s fix the login bug");
+  assert.equal(runs[0].invocation, "/spawn fix the login bug");
+});
+
+test("/scout prefixes -i so the agent starts without session context", async () => {
+  const pi = createPi();
+  const { runs, deps } = createPresetDeps();
+  registerPresets(pi, deps);
+  const { ctx } = createCtx();
+  await pi.commands.get("scout").handler("isolate the crash cause", ctx);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].presetArgs, "-i isolate the crash cause");
+});
+
+test("/blueprint prefixes -P -s so the plan comes back automatically", async () => {
+  const pi = createPi();
+  const { runs, deps } = createPresetDeps();
+  registerPresets(pi, deps);
+  const { ctx } = createCtx();
+  await pi.commands.get("blueprint").handler("redesign the settings page", ctx);
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].presetArgs, "-P -s redesign the settings page");
+});
+
+test("buildPresetArgs preserves user-supplied flags after the preset prefix", () => {
+  const spawn = AGENT_PRESETS.find((preset) => preset.name === "spawn");
+  assert.equal(buildPresetArgs(spawn, "-m gpt-5 fix the bug"), "-s -m gpt-5 fix the bug");
+  const parsed = parseAgentCommand(buildPresetArgs(spawn, "-m gpt-5 fix the bug"), "agent");
+  assert.equal(parsed.squash, true);
+  assert.equal(parsed.isolate, false);
+  assert.equal(parsed.task, "fix the bug");
+  assert.deepEqual(parsed.forwardedArgs, ["--model", "gpt-5"]);
+});
+
+test("buildPresetArgs emits flags only for a blank task", () => {
+  const blueprint = AGENT_PRESETS.find((preset) => preset.name === "blueprint");
+  assert.equal(buildPresetArgs(blueprint, "   "), "-P -s");
 });

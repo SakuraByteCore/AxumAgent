@@ -154,7 +154,7 @@ Each row carries the agent's own footer gauge: it fills `▁▂▃▄▅▆▇�
 
 ## Reference
 
-Everything goes through one command: `/agent [options] <task>`.
+The general form is one command: `/agent [options] <task>`. Three one-keystroke front doors bake in the common combinations — `/spawn <task>` (`-s`: on this conversation, result delivered back automatically), `/scout <task>` (`-i`: isolated, blank context), `/blueprint <task>` (`-P -s`: plan mode, finished plan delivered back).
 
 | Flag | Effect |
 |---|---|
@@ -236,3 +236,19 @@ composes freely with the others (as above, `-s` squashes the finished plan back 
 conversation). A template file that is empty or lacks `{{requirement}}` aborts the dispatch
 with an error instead of sending a malformed prompt. Lowercase `-p` stays blocked (it is pi's
 `--print`), which is why the short form is uppercase `-P`.
+
+## One-keystroke presets (fork addition)
+
+This fork also adds three commands that bake in the common `/agent` flag combinations, so
+dispatching a background agent takes zero flag decisions:
+
+```
+/spawn fix the login bug        # = /agent -s fix the login bug
+/scout why does the build fail  # = /agent -i why does the build fail
+/blueprint add dark mode        # = /agent -P -s add dark mode
+```
+
+`/spawn` inherits the conversation and delivers the finished result back into it automatically;
+`/scout` starts from a blank context; `/blueprint` runs plan mode in the background and returns
+the plan. Extra flags still compose — `/spawn -m gpt-5 …` works, the preset is just a prefix
+over the shared `/agent` parser, widget, and lifecycle.

@@ -1,4 +1,5 @@
 import { registerDispatch } from "./dispatch.js";
+import { registerPresets } from "./presets.js";
 import { registerSessionLifecycle } from "./session-lifecycle.js";
 import type {
 	MessageEndEvent,
@@ -49,6 +50,25 @@ export default function userAgent(pi: ExtensionAPI): void {
 				"agent",
 				args,
 				`/agent ${args}`.trim(),
+				ctx,
+			);
+		},
+	});
+
+	// ── /spawn, /scout, /blueprint: one-keystroke flag presets over /agent ────
+
+	registerPresets(pi, {
+		run: (presetArgs, invocation, ctx) => {
+			mainSessionContext = ctx;
+			return handleAgentCommand(
+				pi,
+				runningAgents,
+				widget,
+				() => shuttingDown,
+				() => ++nextAgentNumber,
+				"agent",
+				presetArgs,
+				invocation,
 				ctx,
 			);
 		},
