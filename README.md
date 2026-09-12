@@ -205,6 +205,24 @@ Three preset commands bake in the common `/agent` flag combinations, so dispatch
 
 Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is just a prefix over the shared `/agent` parser, widget, and lifecycle. The original `/agent [options] <task>` command is unchanged.
 
+## Switch Models with `/usemodel`
+
+`/usemodel` switches the active model and persists it as the default, so the next launch continues where you left off:
+
+```text
+/usemodel            # list the current model and configured aliases
+/usemodel fast       # switch to the alias `fast`
+/usemodel anthropic/claude-sonnet  # switch to a literal provider/model
+```
+
+Aliases live in `~/.pi/agent/model-switch.json` and only reference models from your existing providers (nothing is auto-registered):
+
+```json
+{ "aliases": { "fast": { "provider": "openai", "model": "gpt-5" } } }
+```
+
+The selection is written to `defaultProvider`/`defaultModel` in `~/.pi/agent/settings.json`, so `axum` passes it as `--provider`/`--model` on the next launch.
+
 ## Doctor
 
 ```bash

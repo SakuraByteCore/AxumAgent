@@ -171,6 +171,24 @@ axum code
 
 追加フラグも併用可能です（例: `/spawn -m gpt-5 …`）。プリセットは共通の `/agent` パーサ・ウィジェット・ライフサイクルへの接頭辞にすぎず、従来の `/agent [options] <タスク>` の挙動は変わりません。
 
+## `/usemodel` でモデルを切り替える
+
+`/usemodel` は現在のモデルを切り替え、それをデフォルトとして永続化するため、次回起動時にそのまま引き継がれます：
+
+```text
+/usemodel            # 現在のモデルと設定済みエイリアスを表示
+/usemodel fast       # エイリアス `fast` に切り替え
+/usemodel anthropic/claude-sonnet  # provider/model リテラルで直接指定
+```
+
+エイリアスは `~/.pi/agent/model-switch.json` に置き、既存プロバイダのモデルを参照するだけです（プロバイダの自動登録は行いません）：
+
+```json
+{ "aliases": { "fast": { "provider": "openai", "model": "gpt-5" } } }
+```
+
+選択は `~/.pi/agent/settings.json` の `defaultProvider`/`defaultModel` に書き込まれ、次回起動時に `axum` が `--provider`/`--model` として渡します。
+
 ## Doctor
 
 ```bash

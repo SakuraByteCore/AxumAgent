@@ -199,6 +199,24 @@ axum code
 
 追加参数仍可组合：`/spawn -m gpt-5 …` 有效，因为预设只是共享 `/agent` 解析器、挂件与生命周期之上的参数前缀。原有 `/agent [options] <任务>` 命令行为不变。
 
+## 用 `/usemodel` 切换模型
+
+`/usemodel` 切换当前模型并持久化为默认，下次启动直接沿用：
+
+```text
+/usemodel            # 列出当前模型与已配置别名
+/usemodel fast       # 切换到别名 `fast`
+/usemodel anthropic/claude-sonnet  # 直接用 provider/model 字面量
+```
+
+别名存于 `~/.pi/agent/model-switch.json`，仅引用既有 provider 的模型（不会自动注册新 provider）：
+
+```json
+{ "aliases": { "fast": { "provider": "openai", "model": "gpt-5" } } }
+```
+
+选择会写入 `~/.pi/agent/settings.json` 的 `defaultProvider`/`defaultModel`，下次启动 `axum` 会将其作为 `--provider`/`--model` 传入。
+
 ## Doctor
 
 ```bash
