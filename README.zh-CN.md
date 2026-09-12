@@ -201,20 +201,13 @@ axum code
 
 ## 用 `/usemodel` 切换模型
 
-`/usemodel` 切换当前模型并持久化为默认，下次启动直接沿用：
+`/usemodel` 读取 `~/.pi/agent/models.json` 中配置的模型，打开交互式选择器，列出所有 provider 的所有模型并标注当前默认：
 
 ```text
-/usemodel            # 列出当前模型与已配置别名
-/usemodel fast       # 切换到别名 `fast`
-/usemodel anthropic/claude-sonnet  # 直接用 provider/model 字面量
+/usemodel            # 打开模型选择器
 ```
 
-别名存于 `~/.pi/agent/model-switch.json`，仅引用既有 provider 的模型（不会自动注册新 provider）：
-
-```json
-{ "aliases": { "fast": { "provider": "openai", "model": "gpt-5" } } }
-```
-
+每一项以 `provider/model` 显示，默认模型带 `  (default)` 标记。任选一个模型即可立即切换。
 选择会写入 `~/.pi/agent/settings.json` 的 `defaultProvider`/`defaultModel`，下次启动 `axum` 会将其作为 `--provider`/`--model` 传入。
 
 ## Doctor

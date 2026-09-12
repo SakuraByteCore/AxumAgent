@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import shortcuts from "../plugin/pi-companion/index.ts";
-import { applyDefaultSelection, parseModelSwitchConfig, resolveModelSwitchArg } from "../plugin/pi-companion/model-switch.ts";
+import { applyDefaultSelection, buildModelOptions, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
 
 function createContext() {
   const notifications = [];
@@ -774,46 +774,71 @@ test("session_start clears deferred auto-continue state from the previous sessio
 
 // ── /usemodel ─────────────────────────────────────────────────────────────
 
-function createModelSwitchContext(models = [], current = undefined, hasAuth = true) {
+function createModelSwitchContext({ models = [], selectResult } = {}) {
   const notifications = [];
+  const selectCalls = [];
   const ctx = {
     notifications,
-    model: current,
+    model: undefined,
     ui: {
       notify(message, level) { notifications.push({ message, level }); },
+      select(title, options) {
+        selectCalls.push({ title, options });
+        return Promise.resolve(typeof selectResult === "function" ? selectResult(options) : selectResult);
+      },
     },
     modelRegistry: {
       find(provider, modelId) {
         return models.find((m) => m.provider === provider && m.id === modelId);
       },
-      hasConfiguredAuth(_model) { return hasAuth; },
+      hasConfiguredAuth(_model) { return true; },
     },
     cwd: process.cwd(),
   };
-  return { ctx, notifications };
+  return { ctx, notifications, selectCalls };
 }
 
-test("resolveModelSwitchArg resolves alias then literal provider/model", () => {
-  const aliases = { fast: { provider: "openai", model: "gpt-5" } };
-  assert.deepEqual(resolveModelSwitchArg(aliases, "fast"), { provider: "openai", model: "gpt-5" });
-  assert.deepEqual(resolveModelSwitchArg(aliases, "anthropic/claude-sonnet"), { provider: "anthropic", model: "claude-sonnet" });
-  assert.equal(resolveModelSwitchArg(aliases, "unknown"), null);
-  assert.equal(resolveModelSwitchArg(aliases, "   "), null);
-  assert.equal(resolveModelSwitchArg(aliases, ""), null);
-});
-
-test("parseModelSwitchConfig drops invalid entries", () => {
-  const config = parseModelSwitchConfig({
-    aliases: {
-      ok: { provider: "openai", model: "gpt-5" },
-      missingModel: { provider: "openai" },
-      notObject: "nope",
-      blank: { provider: "  ", model: "x" },
+test("parseModelManifest flattens providers/models and marks defaults", () => {
+  const entries = parseModelManifest({
+    providers: {
+      openai: { models: [{ id: "gpt-5", default: true }, { id: "gpt-4" }] },
+      anthropic: { models: [{ id: "claude-sonnet" }] },
     },
   });
-  assert.deepEqual(config.aliases, { ok: { provider: "openai", model: "gpt-5" } });
-  assert.deepEqual(parseModelSwitchConfig(null).aliases, {});
-  assert.deepEqual(parseModelSwitchConfig([1, 2]).aliases, {});
+  assert.deepEqual(entries, [
+    { provider: "openai", model: "gpt-5", isDefault: true },
+    { provider: "openai", model: "gpt-4", isDefault: false },
+    { provider: "anthropic", model: "claude-sonnet", isDefault: false },
+  ]);
+});
+
+test("parseModelManifest drops malformed entries", () => {
+  assert.deepEqual(parseModelManifest(null), []);
+  assert.deepEqual(parseModelManifest({}), []);
+  assert.deepEqual(parseModelManifest({
+    providers: {
+      ok: { models: [{ id: "a" }] },
+      noModels: { baseUrl: "x" },
+      junk: "nope",
+      missingId: { models: [{ name: "no-id" }] },
+    },
+  }), [{ provider: "ok", model: "a", isDefault: false }]);
+});
+
+test("buildModelOptions annotates the default entry", () => {
+  const options = buildModelOptions([
+    { provider: "openai", model: "gpt-5", isDefault: true },
+    { provider: "openai", model: "gpt-4", isDefault: false },
+  ]);
+  assert.deepEqual(options, ["openai/gpt-5  (default)", "openai/gpt-4"]);
+});
+
+test("resolveModelSelection parses plain and default-annotated labels", () => {
+  assert.deepEqual(resolveModelSelection("openai/gpt-5  (default)"), { provider: "openai", model: "gpt-5" });
+  assert.deepEqual(resolveModelSelection("anthropic/claude-sonnet"), { provider: "anthropic", model: "claude-sonnet" });
+  assert.equal(resolveModelSelection(""), null);
+  assert.equal(resolveModelSelection("no-slash"), null);
+  assert.equal(resolveModelSelection("   "), null);
 });
 
 test("applyDefaultSelection preserves existing settings keys", () => {
@@ -825,97 +850,18 @@ test("applyDefaultSelection preserves existing settings keys", () => {
   assert.equal(next.other, 1);
 });
 
-test("/usemodel with no args lists current model and aliases", async () => {
+test("/usemodel warns when no models are configured", async () => {
   const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-list-"));
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-empty-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({}), "utf8");
   const previousHome = process.env.HOME;
   process.env.HOME = tmpHome;
-  const { ctx, notifications } = createModelSwitchContext(
-    [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
-    { provider: "openai", id: "gpt-4", name: "gpt-4" },
-  );
-
+  const { ctx, notifications } = createModelSwitchContext();
   try {
     await pi.commands.get("usemodel").handler("", ctx);
-    assert.ok(notifications.some((n) => /Current model: openai\/gpt-4/.test(n.message)));
-    assert.ok(notifications.some((n) => /No aliases configured/.test(n.message)));
-  } finally {
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
-
-test("/usemodel alias switches model and persists default", async () => {
-  const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-persist-"));
-  const agentDir = path.join(tmpHome, ".pi", "agent");
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "model-switch.json"), JSON.stringify({ aliases: { fast: { provider: "openai", model: "gpt-5" } } }), "utf8");
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultThinkingLevel: "high" }), "utf8");
-  const { ctx, notifications } = createModelSwitchContext([{ provider: "openai", id: "gpt-5", name: "gpt-5" }]);
-  const previousHome = process.env.HOME;
-  process.env.HOME = tmpHome;
-
-  try {
-    await pi.commands.get("usemodel").handler("fast", ctx);
-
-    assert.equal(pi.setModelCalls.length, 1);
-    assert.equal(pi.setModelCalls[0].provider, "openai");
-    assert.equal(pi.setModelCalls[0].id, "gpt-5");
-    assert.ok(notifications.some((n) => n.level === "info" && /persisted as default/.test(n.message)));
-
-    const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
-    assert.equal(settings.defaultProvider, "openai");
-    assert.equal(settings.defaultModel, "gpt-5");
-    assert.equal(settings.defaultThinkingLevel, "high");
-  } finally {
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
-
-test("/usemodel <provider/model> resolves a literal reference", async () => {
-  const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-literal-"));
-  const previousHome = process.env.HOME;
-  process.env.HOME = tmpHome;
-  const { ctx } = createModelSwitchContext([{ provider: "anthropic", id: "claude-sonnet", name: "claude-sonnet" }]);
-
-  try {
-    await pi.commands.get("usemodel").handler("anthropic/claude-sonnet", ctx);
-    assert.equal(pi.setModelCalls.length, 1);
-    assert.equal(pi.setModelCalls[0].provider, "anthropic");
-    assert.equal(pi.setModelCalls[0].id, "claude-sonnet");
-  } finally {
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
-
-test("/usemodel unknown arg notifies error", async () => {
-  const pi = createPi();
-  const { ctx, notifications } = createModelSwitchContext([]);
-  await pi.commands.get("usemodel").handler("bogus", ctx);
-  assert.ok(notifications.some((n) => n.level === "error" && /Unknown model/.test(n.message)));
-  assert.equal(pi.setModelCalls.length, 0);
-});
-
-test("/usemodel alias with missing model notifies error", async () => {
-  const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-missing-"));
-  const agentDir = path.join(tmpHome, ".pi", "agent");
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "model-switch.json"), JSON.stringify({ aliases: { ghost: { provider: "openai", model: "no-such-model" } } }), "utf8");
-  const previousHome = process.env.HOME;
-  process.env.HOME = tmpHome;
-  const { ctx, notifications } = createModelSwitchContext([{ provider: "openai", id: "gpt-5", name: "gpt-5" }]);
-
-  try {
-    await pi.commands.get("usemodel").handler("ghost", ctx);
-    assert.ok(notifications.some((n) => n.level === "error" && /not found in the registry/.test(n.message)));
+    assert.ok(notifications.some((n) => n.level === "warning" && /No models configured/.test(n.message)));
     assert.equal(pi.setModelCalls.length, 0);
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
@@ -924,23 +870,121 @@ test("/usemodel alias with missing model notifies error", async () => {
   }
 });
 
-test("/usemodel alias without credentials notifies error", async () => {
+test("/usemodel lists all models and switches on selection", async () => {
   const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-noauth-"));
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-select-"));
   const agentDir = path.join(tmpHome, ".pi", "agent");
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "model-switch.json"), JSON.stringify({ aliases: { fast: { provider: "openai", model: "gpt-5" } } }), "utf8");
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      openai: { models: [{ id: "gpt-5", default: true }, { id: "gpt-4" }] },
+      anthropic: { models: [{ id: "claude-sonnet" }] },
+    },
+  }), "utf8");
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultThinkingLevel: "high" }), "utf8");
+  const { ctx, notifications, selectCalls } = createModelSwitchContext({
+    models: [
+      { provider: "openai", id: "gpt-5", name: "gpt-5" },
+      { provider: "openai", id: "gpt-4", name: "gpt-4" },
+      { provider: "anthropic", id: "claude-sonnet", name: "claude-sonnet" },
+    ],
+    selectResult: (options) => options.find((o) => o.startsWith("openai/gpt-4")),
+  });
   const previousHome = process.env.HOME;
   process.env.HOME = tmpHome;
-  const { ctx, notifications } = createModelSwitchContext(
-    [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
-    undefined,
-    false,
-  );
-
   try {
-    await pi.commands.get("usemodel").handler("fast", ctx);
-    assert.ok(notifications.some((n) => n.level === "error" && /No credentials configured/.test(n.message)));
+    await pi.commands.get("usemodel").handler("", ctx);
+
+    assert.equal(selectCalls.length, 1, "should open the selector");
+    assert.deepEqual(selectCalls[0].options, [
+      "openai/gpt-5  (default)",
+      "openai/gpt-4",
+      "anthropic/claude-sonnet",
+    ]);
+
+    assert.equal(pi.setModelCalls.length, 1);
+    assert.equal(pi.setModelCalls[0].provider, "openai");
+    assert.equal(pi.setModelCalls[0].id, "gpt-4");
+    assert.ok(notifications.some((n) => n.level === "info" && /persisted as default/.test(n.message)));
+
+    const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settings.defaultProvider, "openai");
+    assert.equal(settings.defaultModel, "gpt-4");
+    assert.equal(settings.defaultThinkingLevel, "high");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel selects the default-annotated model", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-default-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
+  }), "utf8");
+  const { ctx } = createModelSwitchContext({
+    models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
+    selectResult: (options) => options[0],
+  });
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.equal(pi.setModelCalls.length, 1);
+    assert.equal(pi.setModelCalls[0].id, "gpt-5");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel cancels cleanly when the selector is dismissed", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-cancel-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { openai: { models: [{ id: "gpt-5" }] } },
+  }), "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  const { ctx, notifications } = createModelSwitchContext({
+    models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
+    selectResult: undefined,
+  });
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.ok(notifications.some((n) => n.level === "info" && /cancelled/.test(n.message)));
+    assert.equal(pi.setModelCalls.length, 0);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel errors when the selected model is missing from the registry", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-missing-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { openai: { models: [{ id: "ghost" }] } },
+  }), "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  const { ctx, notifications } = createModelSwitchContext({
+    models: [],
+    selectResult: (options) => options[0],
+  });
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.ok(notifications.some((n) => n.level === "error" && /not found in the registry/.test(n.message)));
     assert.equal(pi.setModelCalls.length, 0);
   } finally {
     if (previousHome === undefined) delete process.env.HOME;

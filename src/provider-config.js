@@ -101,30 +101,50 @@ function thinkingLevelMap() {
   };
 }
 
-export function buildOpenAICompatibleProvider(options) {
-  const model = String(options.model || "").trim();
-  if (!model) throw new Error("Model is required");
-  const reasoningEffort = normalizeThinkingLevel(options.reasoningEffort ?? options.thinkingLevel);
-  const reasoningEnabled = reasoningEffort !== "off" || Boolean(options.reasoning);
+export function buildModelConfig(spec, providerReasoningEffort) {
+  const id = String(spec.id ?? spec.model ?? "").trim();
+  if (!id) throw new Error("Model is required");
+  const reasoningEffort = normalizeThinkingLevel(spec.reasoningEffort ?? spec.thinkingLevel ?? providerReasoningEffort);
+  const reasoningEnabled = reasoningEffort !== "off" || Boolean(spec.reasoning);
   const modelConfig = {
-    id: model,
-    name: options.modelName || model,
+    id,
+    name: String(spec.name || id),
     reasoning: reasoningEnabled,
-    contextWindow: positiveNumber(options.contextWindow, 128000, "Context window"),
-    maxTokens: positiveNumber(options.maxTokens, 32000, "Max output tokens"),
+    contextWindow: positiveNumber(spec.contextWindow, 128000, "Context window"),
+    maxTokens: positiveNumber(spec.maxTokens, 32000, "Max output tokens"),
   };
   if (reasoningEnabled) modelConfig.thinkingLevelMap = thinkingLevelMap();
+  if (spec.default) modelConfig.default = true;
+  return modelConfig;
+}
 
+export function buildModelConfigs(options, providerReasoningEffort) {
+  if (Array.isArray(options.models) && options.models.length) {
+    return options.models.map((spec) => buildModelConfig(spec || {}, providerReasoningEffort));
+  }
+  return [buildModelConfig({
+    id: options.model,
+    name: options.modelName,
+    contextWindow: options.contextWindow,
+    maxTokens: options.maxTokens,
+    reasoning: options.reasoning,
+  }, providerReasoningEffort)];
+}
+
+export function buildOpenAICompatibleProvider(options) {
+  const providerReasoningEffort = normalizeThinkingLevel(options.reasoningEffort ?? options.thinkingLevel);
+  const modelConfigs = buildModelConfigs(options, providerReasoningEffort);
   const provider = {
     baseUrl: normalizeBaseUrl(options.baseUrl),
     api: "openai-completions",
-    models: [modelConfig],
+    models: modelConfigs,
   };
 
   if (options.apiKeyEnv) provider.apiKey = `$${options.apiKeyEnv}`;
   else if (String(options.apiKey || "").trim()) provider.apiKey = String(options.apiKey).trim();
   else throw new Error("API Key is required");
 
+  const reasoningEnabled = modelConfigs.some((model) => model.reasoning);
   const supportsReasoningEffort = options.supportsReasoningEffort ?? reasoningEnabled;
   if (!options.supportsDeveloperRole || !supportsReasoningEffort) {
     provider.compat = {};
@@ -147,17 +167,20 @@ export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) 
 export function listProviders(file = getModelsPath(), options = {}) {
   const config = loadModelsConfig(file);
   return Object.entries(config.providers).map(([id, provider]) => {
+    const models = Array.isArray(provider.models) ? provider.models : [];
     const item = {
       id,
       api: provider.api || "",
       baseUrl: provider.baseUrl || "",
-      models: Array.isArray(provider.models) ? provider.models.map((model) => model.id) : [],
-      modelConfigs: Array.isArray(provider.models) ? provider.models.map((model) => ({
+      models: models.map((model) => model.id),
+      modelConfigs: models.map((model) => ({
         id: model.id,
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
         reasoning: Boolean(model.reasoning),
-      })) : [],
+        default: Boolean(model.default),
+      })),
+      defaultModel: models.find((model) => model.default)?.id ?? models[0]?.id ?? "",
       hasApiKey: Boolean(provider.apiKey),
     };
     if (options.includeSecrets) item.apiKey = provider.apiKey || "";

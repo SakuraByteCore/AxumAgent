@@ -173,20 +173,13 @@ axum code
 
 ## `/usemodel` でモデルを切り替える
 
-`/usemodel` は現在のモデルを切り替え、それをデフォルトとして永続化するため、次回起動時にそのまま引き継がれます：
+`/usemodel` は `~/.pi/agent/models.json` に設定されたモデルを読み取り、全プロバイダの全モデルを一覧する対話型セレクタを開き、現在のデフォルトに印を付けます：
 
 ```text
-/usemodel            # 現在のモデルと設定済みエイリアスを表示
-/usemodel fast       # エイリアス `fast` に切り替え
-/usemodel anthropic/claude-sonnet  # provider/model リテラルで直接指定
+/usemodel            # モデルセレクタを開く
 ```
 
-エイリアスは `~/.pi/agent/model-switch.json` に置き、既存プロバイダのモデルを参照するだけです（プロバイダの自動登録は行いません）：
-
-```json
-{ "aliases": { "fast": { "provider": "openai", "model": "gpt-5" } } }
-```
-
+各エントリは `provider/model` の形式で表示され、デフォルトには `  (default)` が付きます。任意のモデルを選ぶと即座に切り替わります。
 選択は `~/.pi/agent/settings.json` の `defaultProvider`/`defaultModel` に書き込まれ、次回起動時に `axum` が `--provider`/`--model` として渡します。
 
 ## Doctor

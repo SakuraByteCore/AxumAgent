@@ -27,6 +27,33 @@ test("writes OpenAI-compatible provider config", () => {
   assert.equal(listProviders(file, { includeSecrets: true })[0].apiKey, "$KIMI_API_KEY");
 });
 
+test("writes multiple models with a default marker", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-multi-"));
+  const file = path.join(dir, "models.json");
+  upsertOpenAICompatibleProvider({
+    name: "multimock",
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "test-key",
+    models: [
+      { id: "mock-a", default: false },
+      { id: "mock-b", default: true },
+    ],
+  }, file);
+
+  const json = JSON.parse(fs.readFileSync(file, "utf8"));
+  const models = json.providers.multimock.models;
+  assert.equal(models.length, 2);
+  assert.equal(models[0].id, "mock-a");
+  assert.equal(models[0].default, undefined);
+  assert.equal(models[1].id, "mock-b");
+  assert.equal(models[1].default, true);
+
+  const listed = listProviders(file)[0];
+  assert.deepEqual(listed.models, ["mock-a", "mock-b"]);
+  assert.equal(listed.defaultModel, "mock-b");
+  assert.deepEqual(listed.modelConfigs.map((m) => m.default), [false, true]);
+});
+
 test("writes reasoning-capable provider config and default thinking level", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-reasoning-"));
   const file = path.join(dir, "models.json");

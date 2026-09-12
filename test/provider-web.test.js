@@ -58,7 +58,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(configJson.defaultModel, "mock-b");
     assert.equal(configJson.defaultThinkingLevel, "medium");
     assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
-    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 256000, maxTokens: 64000, reasoning: true }]);
+    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 256000, maxTokens: 64000, reasoning: true, default: true }]);
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 
@@ -132,6 +132,73 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(settingsPreviewJson.json.defaultModel, "mock-a");
     assert.equal(settingsPreviewJson.json.defaultThinkingLevel, "high");
     assert.ok(settingsPreviewJson.content.includes("\"defaultProvider\": \"localmock\""));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => mock.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("provider web saves multiple models with a default marker", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-multi-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+
+  const mock = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "mock-a" }, { id: "mock-b" }] }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  const mockPort = mock.address().port;
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+        apiKey: "test-key",
+        name: "multimock",
+        models: [
+          { id: "mock-a", default: false },
+          { id: "mock-b", default: true },
+        ],
+        defaultModel: "mock-b",
+        contextWindow: 128000,
+        maxTokens: 32000,
+        reasoningEffort: "medium",
+      }),
+    });
+    assert.equal(saveRes.status, 200);
+
+    const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    const saved = modelsJson.providers.multimock.models;
+    assert.equal(saved.length, 2);
+    assert.equal(saved[0].id, "mock-a");
+    assert.equal(saved[0].default, undefined);
+    assert.equal(saved[1].id, "mock-b");
+    assert.equal(saved[1].default, true);
+
+    const settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settingsJson.defaultProvider, "multimock");
+    assert.equal(settingsJson.defaultModel, "mock-b");
+
+    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    assert.equal(configRes.status, 200);
+    const configJson = await configRes.json();
+    assert.equal(configJson.defaultModel, "mock-b");
+    assert.deepEqual(configJson.providers[0].models, ["mock-a", "mock-b"]);
+    assert.deepEqual(configJson.providers[0].modelConfigs.map((m) => m.id), ["mock-a", "mock-b"]);
+    assert.deepEqual(configJson.providers[0].modelConfigs.map((m) => m.default), [false, true]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => mock.close(resolve));

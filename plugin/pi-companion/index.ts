@@ -4,7 +4,7 @@ import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, unlinkSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
-import { applyDefaultSelection, parseModelSwitchConfig, resolveModelSwitchArg } from "./model-switch.ts";
+import { applyDefaultSelection, buildModelOptions, parseModelManifest } from "./model-switch.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -980,66 +980,57 @@ pi.registerCommand("plan", {
 	};
 
 	pi.registerCommand("usemodel", {
-		description: "Switch the current model and persist it as the default: /usemodel (<alias> | <provider/model>)",
+		description: "Interactively switch the current model and persist it as the default",
 		getArgumentCompletions: () => null,
-		async handler(args: string, ctx) {
+		async handler(_args: string, ctx) {
 			const agentDir = modelSwitchAgentDir();
-			const switchPath = join(agentDir, "model-switch.json");
+			const modelsPath = join(agentDir, "models.json");
 			const settingsPath = join(agentDir, "settings.json");
-			const aliases = parseModelSwitchConfig(await readJsonObject(switchPath)).aliases;
 
-			const arg = args.trim();
-			if (!arg) {
-				const current = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : "(none)";
-				const lines = [`Current model: ${current}`];
-				const keys = Object.keys(aliases);
-				if (keys.length) {
-					for (const key of keys) {
-						lines.push(`${key} -> ${aliases[key].provider}/${aliases[key].model}`);
-					}
-				} else {
-					lines.push(`No aliases configured (${switchPath}).`);
-				}
-				lines.push("Usage: /usemodel <alias> or /usemodel <provider/model>");
-				ctx.ui.notify(lines.join("\n"), "info");
+			const manifest = parseModelManifest(await readJsonObject(modelsPath));
+			if (!manifest.length) {
+				ctx.ui.notify(`No models configured (${modelsPath}). Use /provider to add a model first.`, "warning");
 				return;
 			}
 
-			const selection = resolveModelSwitchArg(aliases, arg);
-			if (!selection) {
-				ctx.ui.notify(`Unknown model "${arg}". Use /usemodel <alias> or /usemodel <provider/model>.`, "error");
+			const options = buildModelOptions(manifest);
+			const chosen = await ctx.ui.select("Select a model", options);
+			if (!chosen) {
+				ctx.ui.notify("Model selection cancelled.", "info");
 				return;
 			}
 
-			const model = ctx.modelRegistry.find(selection.provider, selection.model);
+			const index = options.indexOf(chosen);
+			if (index < 0) {
+				ctx.ui.notify(`Could not resolve model selection "${chosen}".`, "error");
+				return;
+			}
+			const entry = manifest[index];
+
+			const model = ctx.modelRegistry.find(entry.provider, entry.model);
 			if (!model) {
-				ctx.ui.notify(`Model ${selection.provider}/${selection.model} not found in the registry.`, "error");
-				return;
-			}
-
-			if (!ctx.modelRegistry.hasConfiguredAuth(model)) {
-				ctx.ui.notify(`No credentials configured for ${selection.provider}/${selection.model}.`, "error");
+				ctx.ui.notify(`Model ${entry.provider}/${entry.model} not found in the registry.`, "error");
 				return;
 			}
 
 			const applied = await pi.setModel(model);
 			if (!applied) {
-				ctx.ui.notify(`Failed to switch to ${selection.provider}/${selection.model} (no API key available).`, "error");
+				ctx.ui.notify(`Failed to switch to ${entry.provider}/${entry.model} (no API key available).`, "error");
 				return;
 			}
 
 			try {
 				const settings = await readJsonObject(settingsPath);
-				const next = applyDefaultSelection(settings, selection);
+				const next = applyDefaultSelection(settings, { provider: entry.provider, model: entry.model });
 				await mkdir(dirname(settingsPath), { recursive: true });
 				await writeFile(settingsPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Model switched to ${selection.provider}/${selection.model} but failed to persist default: ${message}`, "warning");
+				ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} but failed to persist default: ${message}`, "warning");
 				return;
 			}
 
-			ctx.ui.notify(`Model switched to ${selection.provider}/${selection.model} and persisted as default.`, "info");
+			ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} and persisted as default.`, "info");
 		},
 	});
 
