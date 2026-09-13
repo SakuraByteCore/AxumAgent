@@ -39,6 +39,7 @@
     "premature close",
     "stream closed",
     "stream interrupted",
+    "stream ended",
     "unexpected end",
     "upstream connect",
     "upstream request timeout",

@@ -328,6 +328,7 @@ test("stress.errorPatterns: transient patterns auto-recover, non-transient error
   var transientMessages = [
     "429 Too Many Requests", "rate_limit exceeded", "ECONNRESET",
     "stream interrupted", "socket hang up", "upstream request timeout",
+    "Upstream response stream ended before completion",
     "service unavailable", "server error",
     "premature close", "fetch failed", "connection refused",
   ];
