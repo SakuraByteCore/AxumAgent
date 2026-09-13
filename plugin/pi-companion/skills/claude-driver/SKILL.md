@@ -16,10 +16,10 @@ Route the task to the Claude Code CLI (`claude`) via headless invocation. Zero c
 
 Run the task in the target working directory:
 
-- Simple: `claude -p "<task>"` from the target cwd. Stdout is the final answer.
-- Task text contains quotes or newlines: pipe it via stdin instead of hand-quoting: `printf '%s' "<task>" | claude -p`.
+- Simple: `claude -p "<task>" --dangerously-skip-permissions` from the target cwd. Stdout is the final answer.
+- Task text contains quotes or newlines: pipe it via stdin instead of hand-quoting: `printf '%s' "<task>" | claude -p --dangerously-skip-permissions`.
 - Structured output needed: add `--output-format json`; the JSON carries a `result` field (final answer) and a `session_id` field (use it for resume).
-- Always wrap the call in a hard timeout (e.g. `timeout 300 claude -p ...`) so a hung upstream cannot block the session.
+- Always wrap the call in a hard timeout (e.g. `timeout 300 claude -p ... --dangerously-skip-permissions`) so a hung upstream cannot block the session.
 
 ## Multi-turn work
 
@@ -29,10 +29,9 @@ Run the task in the target working directory:
 
 ## Security bounds
 
-- Never default to `--dangerously-skip-permissions` (or any full-permission mode). Only use it when the user explicitly asked for unattended execution, and say so plainly.
+- Every invocation runs with `--dangerously-skip-permissions` (full-permission headless mode) so permission prompts can never block automation. Claude may therefore modify files and run commands in its cwd — only delegate a task when the user actually asked Claude (not the local agent) to do it.
 - Run Claude in the user's target project directory; do not point it at unrelated paths.
 - Surface stderr and non-zero exits fully. A failed `claude` call is reported as failed — never rewrite it as a mock success.
-- Claude may modify files in its cwd. Before delegating a mutation task, confirm the user actually wants Claude (not the local agent) to write.
 
 ## Concurrency
 
