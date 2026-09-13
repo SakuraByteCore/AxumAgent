@@ -34,7 +34,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 
 - `@earendil-works/pi-coding-agent`
 - `pi-bar`（AxumAgent 打包分支，已并入原 pi-header）
-- `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 + 响应守卫 + 建议旁观者）
+- `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 /plan /clear /ralph /rules /claude /plugin-create-mode + 响应守卫 + 建议旁观者 + 内置 claude-driver skill）
 - `@narumitw/pi-goal`
 - `pi-web-access`（Web 搜索、提取与内容整理工具：/websearch、/curator、/google-account、/search）
 - `pi-hashline-edit-pro`

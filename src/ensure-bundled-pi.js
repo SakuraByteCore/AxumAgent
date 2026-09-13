@@ -355,7 +355,10 @@ export function ensureBundledSkills(cacheRoot, options) {
   const skillsRoot = path.join(home, ".agents", "skills");
   for (const { packageName, skillPath } of supportedBundledPiSkills(options)) {
     const srcDir = path.join(cacheRoot, "node_modules", ...packageName.split("/"), skillPath);
-    if (!fs.existsSync(srcDir)) continue;
+    if (!fs.existsSync(srcDir)) {
+      console.error(`Axum bundled skill missing: ${packageName}/${skillPath} not found in node_modules; sync skipped.`);
+      continue;
+    }
     const skillName = path.basename(skillPath);
     const destDir = path.join(skillsRoot, skillName);
     fs.mkdirSync(path.dirname(destDir), { recursive: true });

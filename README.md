@@ -92,7 +92,7 @@ The distribution ships these packages, all in one install:
 
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent bundled fork, absorbs the former pi-header)
-- `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts, response guard, advisory watcher)
+- `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts /plan /clear /ralph /rules /claude /plugin-create-mode, response guard, advisory watcher, bundled claude-driver skill)
 - `@narumitw/pi-goal`
 - `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`

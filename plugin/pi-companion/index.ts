@@ -786,8 +786,8 @@ function claudeDriverSkillPath(): string {
 	return resolve(dirname(fileURLToPath(import.meta.url)), ...CLAUDE_DRIVER_SKILL_RELATIVE_PATH);
 }
 
-async function readClaudeDriverSkill(): Promise<string> {
-	return readFile(claudeDriverSkillPath(), "utf-8");
+async function readClaudeDriverSkill(skillPath: string = claudeDriverSkillPath()): Promise<string> {
+	return readFile(skillPath, "utf-8");
 }
 
 function buildClaudePrompt(requirement: string, skill: string): string {
@@ -911,7 +911,7 @@ pi.registerCommand("plan", {
 pi.registerCommand("claude", {
   description: "Delegate the requirement to the Claude Code CLI via the claude-driver skill: /claude <requirement>",
   getArgumentCompletions: () => null,
-  async handler(args: string, ctx) {
+  async handler(args: string, ctx, skillPath?: string) {
     const requirement = args.trim();
     if (!requirement) {
       ctx.ui.notify("Please provide a requirement: /claude <requirement>", "warning");
@@ -920,7 +920,7 @@ pi.registerCommand("claude", {
 
     let skill: string;
     try {
-      skill = await readClaudeDriverSkill();
+      skill = await readClaudeDriverSkill(skillPath);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       ctx.ui.notify(`Failed to load claude-driver skill: ${message}`, "error");

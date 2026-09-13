@@ -34,7 +34,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 
 - `@earendil-works/pi-coding-agent`
 - `pi-bar`（AxumAgent 同梱フォーク、旧 pi-header を統合）
-- `pi-companion`（pi-shortcuts + pi-guard を統合: ショートカット + レスポンスガード + アドバイザリウォッチャー）
+- `pi-companion`（pi-shortcuts + pi-guard を統合: ショートカット /plan /clear /ralph /rules /claude /plugin-create-mode + レスポンスガード + アドバイザリウォッチャー + 同梱 claude-driver スキル）
 - `@narumitw/pi-goal`
 - `pi-web-access`（Web 検索・抽出・キュレーションツール: /websearch, /curator, /google-account, /search）
 - `pi-hashline-edit-pro`

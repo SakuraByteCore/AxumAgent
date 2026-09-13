@@ -23,8 +23,8 @@ Run the task in the target working directory:
 
 ## Multi-turn work
 
-- Continue the most recent session in the same cwd: `claude -c -p "<follow-up>"`.
-- Resume a specific session: `claude --resume <session-id> -p "<follow-up>"` (session_id comes from a previous `--output-format json` run).
+- Continue the most recent session in the same cwd: `claude -c -p "<follow-up>" --dangerously-skip-permissions`.
+- Resume a specific session: `claude --resume <session-id> -p "<follow-up>" --dangerously-skip-permissions` (session_id comes from a previous `--output-format json` run).
 - Keep one session per repository or task; do not mix unrelated work into one session.
 
 ## Security bounds

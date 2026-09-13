@@ -227,14 +227,9 @@ test("claude command requires a requirement", async () => {
 test("claude command notifies when the skill file is missing", async () => {
   const pi = createPi();
   const { ctx, notifications } = createContext();
-  const skillPath = path.resolve("plugin", "pi-companion", "skills", "claude-driver", "SKILL.md");
-  const backup = fs.readFileSync(skillPath, "utf8");
-  fs.rmSync(skillPath);
-  try {
-    await pi.commands.get("claude").handler("add login", ctx);
-  } finally {
-    fs.writeFileSync(skillPath, backup, "utf8");
-  }
+  const missingPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "axum-claude-skill-")), "SKILL.md");
+
+  await pi.commands.get("claude").handler("add login", ctx, missingPath);
 
   assert.equal(pi.messages.length, 0);
   assert.ok(notifications.some((n) => n.level === "error" && /Failed to load claude-driver skill/.test(n.message)));

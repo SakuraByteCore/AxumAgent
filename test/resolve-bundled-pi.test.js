@@ -600,6 +600,24 @@ test("ensureBundledSkills syncs bundled skills to agent skills root", async () =
 });
 
 
+test("ensureBundledSkills logs a warning when the bundled skill is missing", async () => {
+  const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-skills-missing-"));
+  const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), "axum-home-"));
+  const originalHomedir = os.homedir;
+  os.homedir = () => fakeHome;
+  const errors = [];
+  const originalError = console.error;
+  console.error = (...args) => errors.push(args.join(" "));
+  try {
+    ensureBundledSkills(cache, { platform: "linux", env: {} });
+    assert.ok(errors.some((m) => /bundled skill missing/.test(m) && /pi-companion/.test(m)));
+    assert.equal(fs.existsSync(path.join(fakeHome, ".agents", "skills")), false);
+  } finally {
+    os.homedir = originalHomedir;
+    console.error = originalError;
+  }
+});
+
 test("windows-published TS packages stay excluded when runtime compile would miss dependencies", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.equal(packages.includes("pi-web-access@0.24.2"), false);
