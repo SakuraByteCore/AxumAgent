@@ -8,10 +8,13 @@ import { join } from "node:path";
 const PLAN_PROMPT_PREFIX = `[Requirement] `;
 const PLAN_PROMPT_MIDDLE = `
 
-[Objective] Discuss and finalize the technical solution: clarify the solution's details and implementation method, and formulate an actionable plan.`;
+[Objective]
+To thoroughly discuss and finalize the technical solution: clarify the details of the solution, explain how it will be implemented, and ultimately develop a concrete plan that can be executed step by step.`;
 const PLAN_PROMPT_SUFFIX = `
-
-[Rules] Focus solely on researching and discussing the solution; do not write code or generate code snippets. I will only begin generating code if you explicitly instruct me to do so. Please state the current expected outcome in plain, simple language.`;
+[Rules]
+1. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets.
+2. Do not write code unless I explicitly say, "Start writing code."
+3. Please use simple, straightforward language to clearly explain the specific results you hope to achieve at this stage.`;
 
 const PLAN_PROMPT_TEMPLATE_SEGMENTS = [".pi", "agent", "plan-prompt.md"] as const;
 const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";

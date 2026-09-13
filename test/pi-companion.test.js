@@ -108,9 +108,10 @@ test("plan command still sends the plan-first prompt", async () => {
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
-  assert.match(pi.messages[0].message, /\[Objective\] Discuss and finalize the technical solution: clarify the solution's details and implementation method, and formulate an actionable plan/);
-  assert.match(pi.messages[0].message, /\[Rules\] Focus solely on researching and discussing the solution; do not write code or generate code snippets/);
-  assert.match(pi.messages[0].message, /Please state the current expected outcome in plain, simple language/);
+  assert.match(pi.messages[0].message, /\[Objective\]\s*To thoroughly discuss and finalize the technical solution/);
+  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets/);
+  assert.match(pi.messages[0].message, /2\. Do not write code unless I explicitly say, "Start writing code\."/);
+  assert.match(pi.messages[0].message, /3\. Please use simple, straightforward language to clearly explain the specific results you hope to achieve at this stage/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
@@ -191,9 +192,9 @@ test("plan command applies the same no-code rules for CJK input", async () => {
   // CJK input gets the identical built-in template:
   // research/discuss only, no code, and an expected outcome in plain language.
   assert.match(pi.messages[0].message, /\[Requirement\] 实现登录功能/);
-  assert.match(pi.messages[0].message, /\[Objective\] Discuss and finalize the technical solution/);
-  assert.match(pi.messages[0].message, /\[Rules\].*do not write code or generate code snippets/);
-  assert.match(pi.messages[0].message, /Please state the current expected outcome in plain, simple language/);
+  assert.match(pi.messages[0].message, /\[Objective\]\s*To thoroughly discuss and finalize the technical solution/);
+  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets/);
+  assert.match(pi.messages[0].message, /clearly explain the specific results you hope to achieve at this stage/);
 });
 
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
