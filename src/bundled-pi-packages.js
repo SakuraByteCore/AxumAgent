@@ -29,7 +29,7 @@ export const bundledPiPackages = [
   // pi-companion: bundled companion extension (merged from pi-shortcuts + pi-guard).
   // Slash shortcuts (/plan /clear /ralph /rules /plugin-create-mode), response
   // guard auto-continue, and the read-only advisory watcher. Single-file, zero native deps.
-  { name: "pi-companion@file:plugin/pi-companion", packageName: "pi-companion", extensionPath: "index.ts", android: true },
+  { name: "pi-companion@file:plugin/pi-companion", packageName: "pi-companion", extensionPath: "index.ts", skills: ["skills/claude-driver"], android: true },
   // pi-web-access: web search, extraction, and curation tools. Provides /websearch,
   // /curator, /google-account, /search slash commands. Pure TS, zero native deps.
   // Windows cannot runtime-strip TS sources under node_modules, so keep it off

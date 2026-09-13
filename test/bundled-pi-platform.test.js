@@ -88,10 +88,10 @@ test("every local plugin name has a matching plugin/ subdir", () => {
 test("supportedBundledPiSkills exposes bundled package skills", () => {
   assert.deepEqual(
     supportedBundledPiSkills({ platform: "android", env: {} }),
-    []
+    [{ packageName: "pi-companion", skillPath: "skills/claude-driver" }]
   );
-  assert.equal(supportedBundledPiSkills({ platform: "linux", env: {} }).length, 0);
-  assert.equal(supportedBundledPiSkills({ platform: "win32", env: {} }).length, 0);
+  assert.equal(supportedBundledPiSkills({ platform: "linux", env: {} }).length, 1);
+  assert.equal(supportedBundledPiSkills({ platform: "win32", env: {} }).length, 1);
 });
 
 test("supportedBundledPiSkills filters packages without skills", () => {

@@ -1,13 +1,14 @@
 {
   "name": "pi-companion",
   "version": "0.2.0",
-  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan, /clear, /ralph, /rules, /plugin-create-mode), auto-continue response guard, and advisory watcher in one single-file extension, zero native deps",
+  "description": "Bundled companion plugin for pi-coding-agent \u2014 slash shortcuts (/plan, /clear, /ralph, /rules, /plugin-create-mode), auto-continue response guard, and advisory watcher in one single-file extension, zero native deps",
   "type": "module",
   "main": "index.ts",
   "files": [
     "index.ts",
     "LICENSE",
-    "config.json"
+    "config.json",
+    "skills"
   ],
   "pi": {
     "extensions": [

@@ -588,8 +588,11 @@ test("ensureBundledSkills syncs bundled skills to agent skills root", async () =
   try {
     ensureBundledSkills(cache, { platform: "linux", env: {} });
     assert.equal(
-      fs.existsSync(path.join(fakeHome, ".agents", "skills")),
-      false
+      fs.readFileSync(
+        path.join(fakeHome, ".agents", "skills", "claude-driver", "SKILL.md"),
+        "utf8"
+      ),
+      "SKILL:pi-companion:claude-driver"
     );
   } finally {
     os.homedir = originalHomedir;
