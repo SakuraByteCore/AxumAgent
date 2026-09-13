@@ -780,6 +780,27 @@ async function buildPlanPrompt(requirement: string): Promise<string> {
 	return template.replaceAll(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER, requirement);
 }
 
+const CLAUDE_DRIVER_SKILL_RELATIVE_PATH = ["skills", "claude-driver", "SKILL.md"];
+
+function claudeDriverSkillPath(): string {
+	return resolve(dirname(fileURLToPath(import.meta.url)), ...CLAUDE_DRIVER_SKILL_RELATIVE_PATH);
+}
+
+async function readClaudeDriverSkill(): Promise<string> {
+	return readFile(claudeDriverSkillPath(), "utf-8");
+}
+
+function buildClaudePrompt(requirement: string, skill: string): string {
+	return [
+		"Follow the claude-driver skill below to delegate this requirement to the Claude Code CLI via a headless call (`claude -p --dangerously-skip-permissions` in the target working directory):",
+		"",
+		"=== claude-driver skill ===",
+		skill.trim(),
+		"=== requirement ===",
+		requirement,
+	].join("\n");
+}
+
 // ── /clear ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
@@ -884,6 +905,30 @@ pi.registerCommand("plan", {
     const streamingBehavior = isFirst ? "new" : "followUp";
 
     await pi.sendUserMessage(prompt, { streamingBehavior });
+  },
+});
+
+pi.registerCommand("claude", {
+  description: "Delegate the requirement to the Claude Code CLI via the claude-driver skill: /claude <requirement>",
+  getArgumentCompletions: () => null,
+  async handler(args: string, ctx) {
+    const requirement = args.trim();
+    if (!requirement) {
+      ctx.ui.notify("Please provide a requirement: /claude <requirement>", "warning");
+      return;
+    }
+
+    let skill: string;
+    try {
+      skill = await readClaudeDriverSkill();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Failed to load claude-driver skill: ${message}`, "error");
+      return;
+    }
+
+    ctx.ui.notify("Requirement sent to Claude, waiting for Agent…", "info");
+    await pi.sendUserMessage(buildClaudePrompt(requirement, skill), { streamingBehavior: "new" });
   },
 });
 

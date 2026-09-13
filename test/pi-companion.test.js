@@ -197,6 +197,49 @@ test("plan command applies the same no-code rules for CJK input", async () => {
   assert.match(pi.messages[0].message, /clearly explain the specific results you hope to achieve at this stage/);
 });
 
+test("claude command sends the claude-driver skill prompt", async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+
+  await pi.commands.get("claude").handler("add login", ctx);
+
+  assert.equal(pi.messages.length, 1);
+  assert.match(pi.messages[0].message, /=== claude-driver skill ===/);
+  assert.match(pi.messages[0].message, /=== requirement ===\nadd login/);
+  assert.match(pi.messages[0].message, /dangerously-skip-permissions/);
+  assert.match(pi.messages[0].message, /Preflight \(always first\)/);
+});
+
+test("claude command requires a requirement", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+
+  await pi.commands.get("claude").handler("", ctx);
+
+  assert.equal(pi.messages.length, 0);
+  assert.ok(
+    notifications.some(
+      (n) => n.level === "warning" && /Please provide a requirement: \/claude <requirement>/.test(n.message)
+    )
+  );
+});
+
+test("claude command notifies when the skill file is missing", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const skillPath = path.resolve("plugin", "pi-companion", "skills", "claude-driver", "SKILL.md");
+  const backup = fs.readFileSync(skillPath, "utf8");
+  fs.rmSync(skillPath);
+  try {
+    await pi.commands.get("claude").handler("add login", ctx);
+  } finally {
+    fs.writeFileSync(skillPath, backup, "utf8");
+  }
+
+  assert.equal(pi.messages.length, 0);
+  assert.ok(notifications.some((n) => n.level === "error" && /Failed to load claude-driver skill/.test(n.message)));
+});
+
 test("pi-response-guard defers thinking-only auto-continue until agent_settled", async () => {
   const pi = createPi();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-settled-"));
