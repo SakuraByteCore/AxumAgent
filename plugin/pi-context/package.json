@@ -1,0 +1,14 @@
+{
+	"name": "pi-context",
+	"version": "0.1.1",
+	"description": "Long-session context engine for pi: background historian compression, archived tool-output drops, cross-session project memory, and FTS search. Pure TS + node:sqlite, zero native deps.",
+	"type": "module",
+	"main": "index.ts",
+	"files": ["index.ts", "lib", "LICENSE"],
+	"pi": { "extensions": ["./index.ts"] },
+	"keywords": ["pi-package", "pi", "coding-agent", "extension", "context", "memory", "historian", "android", "termux"],
+	"license": "FSL-1.1-ALv2",
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.74.0"
+	}
+}
