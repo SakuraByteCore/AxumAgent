@@ -264,12 +264,15 @@ function detectSkills(cwd: string | undefined): string[] {
  * extension commands, prompt templates, skills, and namespaced helper
  * commands (e.g. "pi-companion:setup") are excluded from the header.
  */
+const HIDDEN_COMMANDS = new Set<string>(["todo", "todos-configure"]);
+
 function getBundledCommands(pi: ExtensionAPI): string[] {
   const seen = new Set<string>();
   for (const cmd of pi.getCommands()) {
     if (cmd.source !== "extension") continue;
     if (cmd.sourceInfo.scope !== "temporary") continue;
     if (cmd.name.includes(":")) continue;
+    if (HIDDEN_COMMANDS.has(cmd.name)) continue;
     if (!seen.has(cmd.name)) seen.add(cmd.name);
   }
   const folded = [...seen].filter((name) => {

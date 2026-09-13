@@ -34,12 +34,19 @@ MOCK_COMMANDS.push(
   { name: "subagent-cost", description: "cost report", source: "extension", sourceInfo: { path: "/mock/bundled/pi-subagents/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
 );
 
+MOCK_COMMANDS.push(
+  { name: "todo", description: "todo list", source: "extension", sourceInfo: { path: "/mock/bundled/todos-tool/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+  { name: "todos-configure", description: "configure todos", source: "extension", sourceInfo: { path: "/mock/bundled/todos-tool/index.js", source: "cli", scope: "temporary", origin: "top-level" } },
+);
+
 const BUNDLED_NAMES = new Set(
   MOCK_COMMANDS.filter(
     (c) => c.source === "extension" && c.sourceInfo.scope === "temporary" && !c.name.includes(":"),
   ).map((c) => c.name),
 );
+const HIDDEN_HEADER_COMMANDS = new Set(["todo", "todos-configure"]);
 const EXPECTED_COMMANDS = [...BUNDLED_NAMES].filter((name) => {
+  if (HIDDEN_HEADER_COMMANDS.has(name)) return false;
   const dash = name.indexOf("-");
   return dash === -1 || !BUNDLED_NAMES.has(name.slice(0, dash));
 }).map((name) => `/${name}`);
@@ -215,6 +222,8 @@ test("pi-header shows bundled commands instead of extensions", () => {
   assert.ok(!allCmdText.includes("subagents-stop"), "folded child /subagents-stop hidden");
   assert.ok(!allCmdText.includes("subagents-steer"), "folded child /subagents-steer hidden");
   assert.ok(allCmdText.includes("/subagent-cost"), "unrelated /subagent-cost kept");
+  assert.ok(!allCmdText.includes("/todo"), "hidden /todo excluded from header");
+  assert.ok(!allCmdText.includes("/todos-configure"), "hidden /todos-configure excluded from header");
 
   const sortedExpected = [...EXPECTED_COMMANDS].sort();
   let lastIndex = -1;
