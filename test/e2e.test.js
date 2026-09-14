@@ -79,9 +79,9 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
   // Inline the /plan handler exactly as registered by pi-companion so the
   // verification does not depend on loading TypeScript source.
   const PLAN_OBJECTIVE =
-    "To thoroughly discuss and finalize the technical solution: clarify the details of the solution, explain how it will be implemented, and ultimately develop a concrete plan that can be executed step by step.";
+    "Talk the technical solution through and finalize it: make the details clear, make the implementation clear, and put together a concrete plan we can actually follow, with a one-sentence plain-English explanation of what to expect.";
   const PLAN_RULES =
-    "1. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets.\n2. Do not write code unless I explicitly say, \"Start writing code.\"\n3. Please use simple, straightforward language to clearly explain the specific results you hope to achieve at this stage.";
+    "1. Only research and discuss the solution; do not write code or give code snippets.\n2. Unless I explicitly say \"start writing code,\" do not write code.\n3. Please say clearly, in plain and simple language, what result you are trying to achieve right now.";
   mockPi.registerCommand("plan", {
     description: "Plan first: research the requirement, re-confirm the approach, and discuss before writing code: /plan <requirement>",
     getArgumentCompletions: () => null,
@@ -91,7 +91,7 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
         ctx.ui.notify("Please provide a requirement: /plan <requirement>", "warning");
         return;
       }
-      const prompt = `[Requirement] ${requirement}\n\n[Objective]\n${PLAN_OBJECTIVE}\n\n[Rules]\n${PLAN_RULES}`;
+      const prompt = `[Requirement] ${requirement}\n\n[Objective]\n${PLAN_OBJECTIVE}\n\n[Rules]\n\n${PLAN_RULES}`;
       mockPi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
     },
   });
@@ -102,6 +102,6 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
 
   assert.equal(sentMessages.length, 1);
   assert.ok(sentMessages[0].message.includes("[Requirement] add user login"));
-  assert.ok(sentMessages[0].message.includes("do not write code or provide code snippets"));
+  assert.ok(sentMessages[0].message.includes("do not write code or give code snippets"));
   assert.equal(sentMessages[0].options?.streamingBehavior, "followUp");
 });

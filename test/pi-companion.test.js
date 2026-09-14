@@ -108,10 +108,10 @@ test("plan command still sends the plan-first prompt", async () => {
 
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
-  assert.match(pi.messages[0].message, /\[Objective\]\s*To thoroughly discuss and finalize the technical solution/);
-  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets/);
-  assert.match(pi.messages[0].message, /2\. Do not write code unless I explicitly say, "Start writing code\."/);
-  assert.match(pi.messages[0].message, /3\. Please use simple, straightforward language to clearly explain the specific results you hope to achieve at this stage/);
+  assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
+  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Only research and discuss the solution; do not write code or give code snippets/);
+  assert.match(pi.messages[0].message, /2\. Unless I explicitly say "start writing code," do not write code\./);
+  assert.match(pi.messages[0].message, /3\. Please say clearly, in plain and simple language, what result you are trying to achieve right now/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 });
@@ -192,9 +192,9 @@ test("plan command applies the same no-code rules for CJK input", async () => {
   // CJK input gets the identical built-in template:
   // research/discuss only, no code, and an expected outcome in plain language.
   assert.match(pi.messages[0].message, /\[Requirement\] 实现登录功能/);
-  assert.match(pi.messages[0].message, /\[Objective\]\s*To thoroughly discuss and finalize the technical solution/);
-  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets/);
-  assert.match(pi.messages[0].message, /clearly explain the specific results you hope to achieve at this stage/);
+  assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
+  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Only research and discuss the solution; do not write code or give code snippets/);
+  assert.match(pi.messages[0].message, /what result you are trying to achieve right now/);
 });
 
 test("claude command sends the claude-driver skill prompt", async () => {

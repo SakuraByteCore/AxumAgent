@@ -184,12 +184,13 @@ Example:
 {{requirement}}
 
 [Objective]
-To thoroughly discuss and finalize the technical solution: clarify the details of the solution, explain how it will be implemented, and ultimately develop a concrete plan that can be executed step by step.
+Talk the technical solution through and finalize it: make the details clear, make the implementation clear, and put together a concrete plan we can actually follow, with a one-sentence plain-English explanation of what to expect.
 
 [Rules]
-1. Please focus solely on analyzing and discussing the solution; do not write code or provide code snippets.
-2. Do not write code unless I explicitly say, "Start writing code."
-3. Please use simple, straightforward language to clearly explain the specific results you hope to achieve at this stage.
+
+1. Only research and discuss the solution; do not write code or give code snippets.
+2. Unless I explicitly say "start writing code," do not write code.
+3. Please say clearly, in plain and simple language, what result you are trying to achieve right now.
 ```
 
 ## One-Keystroke Background Agents
