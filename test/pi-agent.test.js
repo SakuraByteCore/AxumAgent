@@ -249,7 +249,7 @@ test("buildPlanPrompt falls back to the built-in skeleton when no template exist
     assert.ok(prompt.startsWith("[Requirement] ship webhooks"));
     assert.ok(prompt.includes("[Objective]"));
     assert.ok(prompt.includes("[Rules]"));
-    assert.ok(prompt.includes("do not write code"));
+    assert.ok(prompt.includes("do not modify files"));
   });
 });
 

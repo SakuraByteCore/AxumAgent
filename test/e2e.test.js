@@ -81,7 +81,7 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
   const PLAN_OBJECTIVE =
     "Talk the technical solution through and finalize it: make the details clear, make the implementation clear, and put together a concrete plan we can actually follow, with a one-sentence plain-English explanation of what to expect.";
   const PLAN_RULES =
-    "1. Only research and discuss the solution; do not write code or give code snippets.\n2. Unless I explicitly say \"start writing code,\" do not write code.\n3. Please say clearly, in plain and simple language, what result you are trying to achieve right now.";
+    "1. Do read-only research only; do not modify files, write code, or provide code snippets.\n2. Only when I explicitly say \"generate\" should you carry out the implementation; otherwise, stay in research and discussion mode.\n3. Please say clearly, in plain and simple language, what result you are trying to achieve right now.";
   mockPi.registerCommand("plan", {
     description: "Plan first: research the requirement, re-confirm the approach, and discuss before writing code: /plan <requirement>",
     getArgumentCompletions: () => null,
@@ -102,6 +102,6 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
 
   assert.equal(sentMessages.length, 1);
   assert.ok(sentMessages[0].message.includes("[Requirement] add user login"));
-  assert.ok(sentMessages[0].message.includes("do not write code or give code snippets"));
+  assert.ok(sentMessages[0].message.includes("do not modify files, write code, or provide code snippets"));
   assert.equal(sentMessages[0].options?.streamingBehavior, "followUp");
 });

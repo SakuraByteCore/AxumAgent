@@ -109,8 +109,8 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.equal(pi.messages.length, 1);
   assert.match(pi.messages[0].message, /\[Requirement\] add login/);
   assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
-  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Only research and discuss the solution; do not write code or give code snippets/);
-  assert.match(pi.messages[0].message, /2\. Unless I explicitly say "start writing code," do not write code\./);
+  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Do read-only research only; do not modify files, write code, or provide code snippets/);
+  assert.match(pi.messages[0].message, /2\. Only when I explicitly say "generate" should you carry out the implementation/);
   assert.match(pi.messages[0].message, /3\. Please say clearly, in plain and simple language, what result you are trying to achieve right now/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
@@ -193,7 +193,7 @@ test("plan command applies the same no-code rules for CJK input", async () => {
   // research/discuss only, no code, and an expected outcome in plain language.
   assert.match(pi.messages[0].message, /\[Requirement\] 实现登录功能/);
   assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
-  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Only research and discuss the solution; do not write code or give code snippets/);
+  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Do read-only research only; do not modify files, write code, or provide code snippets/);
   assert.match(pi.messages[0].message, /what result you are trying to achieve right now/);
 });
 

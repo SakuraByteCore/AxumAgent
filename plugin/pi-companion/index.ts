@@ -18,8 +18,8 @@ const PLAN_PROMPT_SUFFIX = `
 
 [Rules]
 
-1. Only research and discuss the solution; do not write code or give code snippets.
-2. Unless I explicitly say "start writing code," do not write code.
+1. Do read-only research only; do not modify files, write code, or provide code snippets.
+2. Only when I explicitly say "generate" should you carry out the implementation; otherwise, stay in research and discussion mode.
 3. Please say clearly, in plain and simple language, what result you are trying to achieve right now.`;
 const PLAN_PROMPT_TEMPLATE_RELATIVE_PATH = [".pi", "agent", "plan-prompt.md"];
 const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
