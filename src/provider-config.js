@@ -164,6 +164,27 @@ export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) 
   return { file, name, provider: config.providers[name] };
 }
 
+export function deleteProvider(name, file = getModelsPath()) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) return { file, name: "", deleted: false };
+  const config = loadModelsConfig(file);
+  const existed = config.providers[trimmed] !== undefined;
+  if (!existed) return { file, name: trimmed, deleted: false };
+  delete config.providers[trimmed];
+  saveModelsConfig(config, file);
+  const settingsPath = getSettingsPath();
+  const settings = readJsonFile(settingsPath);
+  let cleanedDefault = false;
+  if (settings.defaultProvider === trimmed) {
+    delete settings.defaultProvider;
+    if (settings.defaultModel !== undefined) delete settings.defaultModel;
+    if (settings.defaultThinkingLevel !== undefined) delete settings.defaultThinkingLevel;
+    cleanedDefault = true;
+    writeJsonFile(settingsPath, settings);
+  }
+  return { file, name: trimmed, deleted: true, cleanedDefault };
+}
+
 export function listProviders(file = getModelsPath(), options = {}) {
   const config = loadModelsConfig(file);
   return Object.entries(config.providers).map(([id, provider]) => {

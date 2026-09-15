@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -302,3 +302,35 @@ test("ensureWebSearchWorkflowDefault leaves malformed JSON untouched", () => {
   assert.equal(fs.readFileSync(file, "utf8"), broken);
 });
 
+
+test("deleteProvider removes a provider and cleans default pointers", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-del-"));
+  const modelsFile = path.join(dir, "models.json");
+  const settingsFile = path.join(dir, "settings.json");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try { upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+  upsertOpenAICompatibleProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
+  saveDefaultProviderSelection({ provider: "alpha", model: "a-1", thinkingLevel: "high" }, settingsFile);
+
+  const result = deleteProvider("alpha", modelsFile);
+  assert.equal(result.deleted, true);
+  const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+  assert.equal(models.providers.alpha, undefined);
+  assert.ok(models.providers.beta);
+  const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+  assert.equal(settings.defaultProvider, undefined);
+  assert.equal(settings.defaultModel, undefined);
+  assert.equal(settings.defaultThinkingLevel, undefined);
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("deleteProvider returns deleted false for missing provider", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-del-missing-"));
+  const modelsFile = path.join(dir, "models.json");
+  const result = deleteProvider("ghost", modelsFile);
+  assert.equal(result.deleted, false);
+});

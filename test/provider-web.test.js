@@ -237,3 +237,77 @@ test("provider web browser auto-open can be disabled for non-interactive runs", 
   const { openBrowser } = await import("../src/provider-web.js");
   assert.equal(openBrowser("http://127.0.0.1:1", { env: { AXUM_PROVIDER_WEB_NO_OPEN: "1" } }), false);
 });
+
+test("provider web deletes a provider and switches the default", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-manage-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+
+  const mock = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "mock-a" }] }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  const mockPort = mock.address().port;
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const baseUrl = `http://127.0.0.1:${mockPort}/v1`;
+
+    const saveA = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl, apiKey: "test-key", name: "alpha", model: "mock-a", reasoningEffort: "high" }),
+    });
+    assert.equal(saveA.status, 200);
+    const saveB = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ baseUrl, apiKey: "test-key", name: "beta", model: "mock-a", reasoningEffort: "medium" }),
+    });
+    assert.equal(saveB.status, 200);
+
+    const defaultRes = await fetch(`${base}/api/providers/default?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "alpha", model: "mock-a", thinkingLevel: "low" }),
+    });
+    assert.equal(defaultRes.status, 200);
+    let settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settingsJson.defaultProvider, "alpha");
+    assert.equal(settingsJson.defaultThinkingLevel, "low");
+
+    const deleteRes = await fetch(`${base}/api/providers/delete?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "alpha" }),
+    });
+    assert.equal(deleteRes.status, 200);
+    assert.equal((await deleteRes.json()).deleted, true);
+
+    const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(modelsJson.providers.alpha, undefined);
+    assert.ok(modelsJson.providers.beta);
+    settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settingsJson.defaultProvider, undefined);
+
+    const missingRes = await fetch(`${base}/api/providers/delete?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "ghost" }),
+    });
+    assert.equal(missingRes.status, 200);
+    assert.equal((await missingRes.json()).deleted, false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => mock.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
