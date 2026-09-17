@@ -17,6 +17,12 @@ import {
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { type AgentValueValidator, parseAgentCommand } from "./command-line.js";
+import {
+	assistantText,
+	EmptyAgentTextError,
+	getFinalAssistantText,
+	NO_TEXT_RESPONSE_NUDGE,
+} from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
 import type {
@@ -532,7 +538,19 @@ export async function runChildTurns(
 			continue;
 		}
 
-		const response = getFinalAssistantText(session);
+		let response: string;
+		try {
+			response = getFinalAssistantText(session, turnMessageStart, runningAgent);
+		} catch (error) {
+			if (!(error instanceof EmptyAgentTextError) || instruction === NO_TEXT_RESPONSE_NUDGE) {
+				throw error;
+			}
+			logSteering(runningAgent.id, "empty-text-nudge", {
+				messageCount: session.agent.state.messages.length,
+			});
+			instruction = NO_TEXT_RESPONSE_NUDGE;
+			continue;
+		}
 		logSteering(runningAgent.id, "turn-prompt-resolved", {
 			responseLength: response.length,
 			messageCount: session.agent.state.messages.length,
@@ -749,26 +767,4 @@ export function subscribeToChildSession(
 		if (event.type === "message_update" && !finalizedMessageUpdate) return;
 		widget.update();
 	});
-}
-
-function assistantText(message: Extract<AgentMessage, { role: "assistant" }>): string {
-	return message.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
-}
-
-function getFinalAssistantText(session: AgentSession): string {
-	const assistantMessages = session.agent.state.messages.filter(
-		(message) => message.role === "assistant",
-	);
-	const lastMessage = assistantMessages.at(-1);
-	if (!lastMessage) throw new Error("User agent finished without an assistant message");
-	if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
-		throw new Error(lastMessage.errorMessage ?? `User agent ${lastMessage.stopReason}`);
-	}
-
-	const text = assistantText(lastMessage).trim();
-	if (!text) throw new Error("User agent returned no text response");
-	return text;
 }

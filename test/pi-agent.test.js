@@ -10,6 +10,12 @@ import {
 } from "../plugin/pi-agent/dispatch.ts";
 import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
 import {
+	assistantText,
+	EmptyAgentTextError,
+	getFinalAssistantText,
+	NO_TEXT_RESPONSE_NUDGE,
+} from "../plugin/pi-agent/final-response.ts";
+import {
   AGENT_PRESETS,
   buildPresetArgs,
   registerPresets,
@@ -365,4 +371,85 @@ test("planResultDirectiveLines emits the directive only for plan mode", () => {
   assert.deepEqual(planResultDirectiveLines(true), [PLAN_RESULT_DIRECTIVE]);
   assert.deepEqual(planResultDirectiveLines(false), []);
   assert.ok(PLAN_RESULT_DIRECTIVE.includes("present it to the user verbatim"));
+});
+
+function assistantMessage(parts, stopReason = "stop", errorMessage = undefined) {
+  return { role: "assistant", content: parts, stopReason, errorMessage };
+}
+
+function fakeSession(messages) {
+  return { agent: { state: { messages } } };
+}
+
+const TEXT_PART = (text) => ({ type: "text", text });
+const THINKING_PART = { type: "thinking", text: "reasoning silently" };
+const TOOL_PART = { type: "tool_use", id: "tool-1", name: "read" };
+
+test("assistantText joins only text parts", () => {
+  const text = assistantText(assistantMessage([THINKING_PART, TEXT_PART("plan body"), TOOL_PART]));
+  assert.equal(text, "plan body");
+});
+
+test("getFinalAssistantText returns the final message text when present", () => {
+  const session = fakeSession([
+    { role: "user", content: [TEXT_PART("task")] },
+    assistantMessage([TEXT_PART("  finished plan  ")]),
+  ]);
+  assert.equal(getFinalAssistantText(session, 0, { sessionId: "s1" }), "finished plan");
+});
+
+test("getFinalAssistantText falls back to the last non-empty text in the turn", () => {
+  const session = fakeSession([
+    assistantMessage([TEXT_PART("earlier turn answer")]),
+    { role: "user", content: [TEXT_PART("next instruction")] },
+    assistantMessage([TEXT_PART("research notes")]),
+    { role: "tool", content: [] },
+    assistantMessage([THINKING_PART, TEXT_PART("   ")]),
+  ]);
+  assert.equal(getFinalAssistantText(session, 2, { sessionId: "s1" }), "research notes");
+});
+
+test("getFinalAssistantText does not reach into a previous turn", () => {
+  const session = fakeSession([
+    assistantMessage([TEXT_PART("stale answer from the previous turn")]),
+    assistantMessage([THINKING_PART]),
+  ]);
+  assert.throws(() => getFinalAssistantText(session, 1, { sessionId: "s1" }), EmptyAgentTextError);
+});
+
+test("getFinalAssistantText throws a diagnosable error when the turn has no text", () => {
+  const session = fakeSession([
+    { role: "user", content: [TEXT_PART("task")] },
+    assistantMessage([THINKING_PART, TOOL_PART]),
+  ]);
+  assert.throws(
+    () => getFinalAssistantText(session, 0, { sessionId: "session-9" }),
+    (error) => {
+      assert.ok(error instanceof EmptyAgentTextError);
+      assert.match(error.message, /no text response/);
+      assert.match(error.message, /1 assistant messages this turn/);
+      assert.match(error.message, /\/resume session-9/);
+      return true;
+    },
+  );
+});
+
+test("getFinalAssistantText surfaces error and abort stop reasons", () => {
+  const errored = fakeSession([assistantMessage([TEXT_PART("partial")], "error", "boom")]);
+  assert.throws(() => getFinalAssistantText(errored, 0, { sessionId: "s1" }), /boom/);
+  const aborted = fakeSession([assistantMessage([TEXT_PART("partial")], "aborted")]);
+  assert.throws(() => getFinalAssistantText(aborted, 0, { sessionId: "s1" }), /User agent aborted/);
+});
+
+test("getFinalAssistantText throws when the turn produced no assistant message", () => {
+  const session = fakeSession([{ role: "user", content: [TEXT_PART("task")] }]);
+  assert.throws(
+    () => getFinalAssistantText(session, 0, { sessionId: "s1" }),
+    /finished without an assistant message/,
+  );
+});
+
+test("NO_TEXT_RESPONSE_NUDGE asks for a plain-text final answer", () => {
+  assert.ok(NO_TEXT_RESPONSE_NUDGE.length > 0);
+  assert.match(NO_TEXT_RESPONSE_NUDGE, /plain text/);
 });

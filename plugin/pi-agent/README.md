@@ -256,3 +256,8 @@ over the shared `/agent` parser, widget, and lifecycle.
 A plan-mode result (`/blueprint`, or `/agent -P -s`) is annotated with a relay directive that
 tells the main agent to present the finished plan verbatim rather than summarizing it, so its
 output stays close to what `/plan` produces even though it was answered by a background agent.
+
+A finished turn does not fail just because its final assistant message carries only thinking
+or tool parts: the delivered result falls back to the last non-empty text from the same turn,
+and a turn that produced no text at all receives exactly one follow-up instruction asking for a
+plain-text final answer before the agent reports an error.
