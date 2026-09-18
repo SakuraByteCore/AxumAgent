@@ -42,6 +42,22 @@ type UserAgentWidgetEntry =
 	| { kind: "running"; startedAt: number; agent: RunningAgent }
 	| { kind: "completed"; startedAt: number; agent: CompletedAgent };
 
+const AGENT_ID_PREFIX_LENGTH = "user-".length;
+
+function agentDispatchSequence(id: string): number {
+	const parsed = Number.parseInt(id.slice(AGENT_ID_PREFIX_LENGTH), 36);
+	return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** Newest dispatched agent first; id sequence breaks same-millisecond ties. */
+function compareAgentEntriesNewestFirst(
+	left: UserAgentWidgetEntry,
+	right: UserAgentWidgetEntry,
+): number {
+	if (left.startedAt !== right.startedAt) return right.startedAt - left.startedAt;
+	return agentDispatchSequence(right.agent.id) - agentDispatchSequence(left.agent.id);
+}
+
 export class UserAgentWidget {
 	private ui: UIContext | undefined;
 	private frame = 0;
@@ -197,7 +213,7 @@ export class UserAgentWidget {
 			...this.completedAgentsForWidget().map(
 				(agent): UserAgentWidgetEntry => ({ kind: "completed", startedAt: agent.startedAt, agent }),
 			),
-		].sort((left, right) => left.startedAt - right.startedAt);
+		].sort(compareAgentEntriesNewestFirst);
 	}
 
 	private handleKey(data: string): { consume?: boolean; data?: string } | undefined {
