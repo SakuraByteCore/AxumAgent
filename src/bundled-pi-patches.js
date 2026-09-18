@@ -16,6 +16,7 @@ const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSI
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 const PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER = "AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBMIT";
+const PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN";
 const PI_SUBAGENTS_PACKAGE = "pi-subagents";
 const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
@@ -291,6 +292,39 @@ function patchPiAltScreenScrollOnSubmit(content) {
     "            // " + PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER + ": Enter re-anchors the fullscreen transcript to the latest message.\n" +
     "            if (this.renderer instanceof TuiAltScreen) this.renderer.scrollToBottom();\n";
   return content.replace(needle, needle + injection);
+}
+
+// The bundled pi-subagents extension registers ~19 slash commands (/subagents,
+// /run, /prompt-workflow, ...). They stay manually invocable through the
+// extension runner's getCommand() path, but the `/` autocomplete list should
+// not advertise them: filter them out of createBaseAutocompleteProvider()'s
+// extensionCommands by their sourceInfo path, so upstream renames or additions
+// need no maintained command-name list.
+function patchPiSubagentsCommandsAutocompleteHide(content) {
+  if (content.includes(PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER)) return content;
+
+  const needle = [
+    "        const extensionCommands = this.session.extensionRunner",
+    "            .getRegisteredCommands()",
+    "            .filter((cmd) => !builtinCommandNames.has(cmd.name))",
+    "            .map((cmd) => ({",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    // Upstream interactive-mode may restructure the extensionCommands block in
+    // a future release. Hiding is a UX preference, not a correctness need, so
+    // skip it instead of hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  const replacement = [
+    "        const extensionCommands = this.session.extensionRunner",
+    "            .getRegisteredCommands()",
+    "            .filter((cmd) => !builtinCommandNames.has(cmd.name))",
+    "            // " + PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER + ": pi-subagents commands stay invocable but hidden from `/` autocomplete.",
+    "            .filter((cmd) => !String(cmd.sourceInfo?.path ?? \"\").includes(\"pi-subagents\"))",
+    "            .map((cmd) => ({",
+  ].join("\n");
+  return content.replace(needle, replacement);
 }
 
 function patchPiVersionNotificationSuppress(content) {
@@ -1325,7 +1359,7 @@ export function applyBundledPiPatches(options) {
     results.push(patchFileInPlace(piExtensionLoaderPath, patchPiJitiLazyLoader));
   }
   results.push(fs.existsSync(piInteractiveModePath)
-    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit)
+    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit, patchPiSubagentsCommandsAutocompleteHide)
     : { patched: false, file: piInteractiveModePath });
 
   for (const ext of [".ts", ".js"]) {
@@ -1341,4 +1375,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide };
