@@ -311,3 +311,74 @@ test("provider web deletes a provider and switches the default", async () => {
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web exposes new-provider entry and keeps both providers after a second save", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-new-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+
+  const mock = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "mock-a" }] }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  const mockPort = mock.address().port;
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const pageRes = await fetch(`${base}/?token=${token}`);
+    assert.equal(pageRes.status, 200);
+    const pageHtml = await pageRes.text();
+    assert.ok(pageHtml.includes('id="newProvider"'));
+    assert.ok(pageHtml.includes('data-i18n="provNew"'));
+    assert.ok(pageHtml.includes("newProviderForm"));
+    assert.ok(pageHtml.includes("refreshProvidersList"));
+
+    const saveBody = {
+      baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+      apiKey: "test-key",
+      name: "firstmock",
+      models: [{ id: "mock-a", default: true }],
+      defaultModel: "mock-a",
+      contextWindow: 128000,
+      maxTokens: 32000,
+      reasoningEffort: "high",
+    };
+    const firstRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(saveBody),
+    });
+    assert.equal(firstRes.status, 200);
+
+    const secondRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...saveBody, name: "secondmock" }),
+    });
+    assert.equal(secondRes.status, 200);
+
+    const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.ok(modelsJson.providers.firstmock);
+    assert.ok(modelsJson.providers.secondmock);
+    assert.deepEqual(modelsJson.providers.secondmock.models.map((m) => m.id), ["mock-a"]);
+
+    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    assert.equal(configRes.status, 200);
+    const configJson = await configRes.json();
+    assert.equal(configJson.providers.length, 2);
+    assert.equal(configJson.defaultProvider, "secondmock");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => mock.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
