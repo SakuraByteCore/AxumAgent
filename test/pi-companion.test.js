@@ -827,6 +827,8 @@ function createModelSwitchContext({ models = [], selectResult } = {}) {
       },
     },
     modelRegistry: {
+      refreshCalls: [],
+      async refresh(options) { this.refreshCalls.push(options ?? {}); },
       find(provider, modelId) {
         return models.find((m) => m.provider === provider && m.id === modelId);
       },
@@ -1024,6 +1026,69 @@ test("/usemodel errors when the selected model is missing from the registry", as
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.ok(notifications.some((n) => n.level === "error" && /not found in the registry/.test(n.message)));
+    assert.equal(pi.setModelCalls.length, 0);
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel reloads models.json so providers added by other processes become visible", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-stale-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { maxx: { models: [{ id: "grok-4.6", default: true }] } },
+  }), "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  // registry holds the startup snapshot: the provider is still unknown until refresh lands
+  const deferred = [{ provider: "maxx", id: "grok-4.6", name: "grok-4.6" }];
+  const { ctx, notifications } = createModelSwitchContext({
+    models: [],
+    selectResult: (options) => options[0],
+  });
+  ctx.modelRegistry.find = (provider, modelId) =>
+    deferred.length > 1
+      ? deferred.find((m) => m.provider === provider && m.id === modelId)
+      : undefined;
+  ctx.modelRegistry.refresh = async () => { deferred.push(deferred[0]); ctx.modelRegistry.refreshCalls.push({ allowNetwork: false }); return { aborted: false, errors: new Map() }; };
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+
+    assert.equal(ctx.modelRegistry.refreshCalls.length, 1, "must reload models.json before the lookup");
+    assert.deepEqual(ctx.modelRegistry.refreshCalls[0], { allowNetwork: false });
+    assert.equal(pi.setModelCalls.length, 1);
+    assert.equal(pi.setModelCalls[0].provider, "maxx");
+    assert.equal(pi.setModelCalls[0].id, "grok-4.6");
+    assert.ok(notifications.some((n) => n.level === "info" && /persisted as default/.test(n.message)));
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel surfaces registry reload failures instead of silently proceeding", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-refresh-error-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
+  }), "utf8");
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  const { ctx, notifications } = createModelSwitchContext({
+    models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
+    selectResult: (options) => options[0],
+  });
+  ctx.modelRegistry.refresh = async () => { throw new Error("disk on fire"); };
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.ok(notifications.some((n) => n.level === "error" && /Failed to reload provider config: disk on fire/.test(n.message)));
     assert.equal(pi.setModelCalls.length, 0);
   } finally {
     if (previousHome === undefined) delete process.env.HOME;

@@ -1058,6 +1058,16 @@ pi.registerCommand("claude", {
 			}
 			const entry = manifest[index];
 
+			// providers added through other processes (e.g. `axum web`) only exist on disk;
+			// reload models.json so the live registry can see them before we look the model up.
+			try {
+				await ctx.modelRegistry.refresh({ allowNetwork: false });
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Failed to reload provider config: ${message}`, "error");
+				return;
+			}
+
 			const model = ctx.modelRegistry.find(entry.provider, entry.model);
 			if (!model) {
 				ctx.ui.notify(`Model ${entry.provider}/${entry.model} not found in the registry.`, "error");
