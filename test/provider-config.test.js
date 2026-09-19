@@ -334,3 +334,57 @@ test("deleteProvider returns deleted false for missing provider", () => {
   const result = deleteProvider("ghost", modelsFile);
   assert.equal(result.deleted, false);
 });
+
+test("upsert renames in place instead of cloning when originalName differs", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-rename-"));
+  const modelsFile = path.join(dir, "models.json");
+  const settingsFile = path.join(dir, "settings.json");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+    upsertOpenAICompatibleProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
+    saveDefaultProviderSelection({ provider: "alpha", model: "a-1", thinkingLevel: "high" }, settingsFile);
+
+    const result = upsertOpenAICompatibleProvider({ originalName: "alpha", name: "gamma", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, modelsFile);
+    assert.equal(result.renamed, true);
+    assert.equal(result.renamedDefault, true);
+
+    const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    assert.equal(models.providers.alpha, undefined, "old key must be removed");
+    assert.equal(models.providers.gamma.models[0].id, "a-2", "renamed key holds the updated config");
+    assert.ok(models.providers.beta, "unrelated provider untouched");
+
+    const settings = JSON.parse(fs.readFileSync(settingsFile, "utf8"));
+    assert.equal(settings.defaultProvider, "gamma", "default pointer follows the rename");
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("upsert rename onto an existing provider name throws", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-rename-conflict-"));
+  const modelsFile = path.join(dir, "models.json");
+  upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+  upsertOpenAICompatibleProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
+
+  assert.throws(
+    () => upsertOpenAICompatibleProvider({ originalName: "alpha", name: "beta", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile),
+    /already exists/,
+  );
+  const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+  assert.ok(models.providers.alpha, "failed rename must not delete the original");
+  assert.equal(models.providers.beta.models[0].id, "b-1", "target must not be clobbered");
+});
+
+test("upsert with matching originalName is a plain update", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-same-name-"));
+  const modelsFile = path.join(dir, "models.json");
+  upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+  const result = upsertOpenAICompatibleProvider({ originalName: "alpha", name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k" }, modelsFile);
+  assert.equal(result.renamed, false);
+  const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+  assert.equal(Object.keys(models.providers).length, 1);
+  assert.equal(models.providers.alpha.models[0].id, "a-2");
+});

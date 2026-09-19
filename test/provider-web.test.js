@@ -442,3 +442,48 @@ test("provider web page emits a parseable inline script", async () => {
     await new Promise((resolve) => server.close(resolve));
   }
 });
+
+test("provider web save renames the provider instead of cloning", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-rename-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const modelsFile = path.join(agentDir, "models.json");
+  const mk = (name) => ({
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "test-key",
+    models: [{ id: "m-1", default: true }],
+    name,
+  });
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const save = async (body) => {
+      const res = await fetch(`${base}/api/save?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text(); // drain so keep-alive sockets close
+      return { status: res.status, body: text };
+    };
+
+    assert.equal((await save(mk("alpha"))).status, 200);
+    const renamed = await save({ ...mk("beta"), originalName: "alpha" });
+    assert.equal(renamed.status, 200);
+    assert.equal(JSON.parse(renamed.body).provider, "beta");
+    assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(modelsFile, "utf8")).providers), ["beta"]);
+
+    // renaming onto an unrelated existing provider must not silently overwrite
+    await save(mk("gamma"));
+    const conflict = await save({ ...mk("beta"), originalName: "gamma" });
+    assert.equal(conflict.status, 400);
+    assert.match(conflict.body, /already exists/);
+    const modelsAfter = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    assert.deepEqual(Object.keys(modelsAfter.providers).sort(), ["beta", "gamma"]);
+  } finally {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    delete process.env.PI_CODING_AGENT_DIR;
+    if (previous !== undefined) process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});

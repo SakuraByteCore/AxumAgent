@@ -159,9 +159,24 @@ export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) 
   const provider = buildOpenAICompatibleProvider(options);
   const name = options.name || providerNameFromBaseUrl(provider.baseUrl);
   const config = loadModelsConfig(file);
+  const originalName = String(options.originalName || "").trim();
+  const renaming = Boolean(originalName) && originalName !== name;
+  if (renaming) {
+    if (config.providers[name] !== undefined) throw new Error(`Provider "${name}" already exists`);
+    delete config.providers[originalName];
+  }
   config.providers[name] = provider;
   saveModelsConfig(config, file);
-  return { file, name, provider: config.providers[name] };
+  let renamedDefault = false;
+  if (renaming) {
+    const settings = readJsonFile(getSettingsPath());
+    if (settings.defaultProvider === originalName) {
+      settings.defaultProvider = name;
+      renamedDefault = true;
+      writeJsonFile(getSettingsPath(), settings);
+    }
+  }
+  return { file, name, provider: config.providers[name], renamed: renaming, renamedDefault };
 }
 
 export function deleteProvider(name, file = getModelsPath()) {
