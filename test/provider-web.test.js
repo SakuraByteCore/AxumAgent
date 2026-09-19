@@ -382,3 +382,45 @@ test("provider web exposes new-provider entry and keeps both providers after a s
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web session read endpoint paginates and exposes structured tool parts", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-sessions-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const sessDir = path.join(agentDir, "sessions", "proj");
+  fs.mkdirSync(sessDir, { recursive: true });
+  const lines = [
+    JSON.stringify({ type: "session", id: "s1", timestamp: "2024-01-02T03:04:05Z", cwd: "/work/proj", version: 2 }),
+    JSON.stringify({ type: "message", id: "m1", message: { role: "assistant", content: [{ type: "tool_use", name: "bash", input: { command: "pwd" } }] } }),
+    JSON.stringify({ type: "message", id: "m2", message: { role: "user", content: [{ type: "tool_result", content: "out" }] } }),
+  ];
+  fs.writeFileSync(path.join(sessDir, "a.jsonl"), lines.join("\n") + "\n");
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const listRes = await fetch(`${base}/api/sessions?token=${token}`);
+    assert.equal(listRes.status, 200);
+    assert.equal((await listRes.json()).projects[0].sessions[0].id, "s1");
+
+    const fullRes = await fetch(`${base}/api/sessions/read?token=${token}&file=${encodeURIComponent("proj/a.jsonl")}`);
+    assert.equal(fullRes.status, 200);
+    const fullJson = await fullRes.json();
+    assert.equal(fullJson.total, 2);
+    assert.equal(fullJson.messages[0].toolUse, "bash");
+
+    const pagedRes = await fetch(`${base}/api/sessions/read?token=${token}&file=${encodeURIComponent("proj/a.jsonl")}&skip=1`);
+    assert.equal(pagedRes.status, 200);
+    const pagedJson = await pagedRes.json();
+    assert.equal(pagedJson.skip, 1);
+    assert.equal(pagedJson.total, 2);
+    assert.equal(pagedJson.messages[0].toolResult, true);
+    assert.equal(pagedJson.messages[0].text, "out");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});

@@ -144,7 +144,18 @@ export function listSessions({ env = process.env, maxSummaryChars = 200, limitPe
 }
 
 
-export function readSession({ file, env = process.env, maxMessages = 500, maxContentChars = 2000 } = {}) {
+function toolResultText(part) {
+  const content = part.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((p) => (p && p.type === "text" ? p.text || "" : ""))
+      .join("\n");
+  }
+  return "";
+}
+
+export function readSession({ file, env = process.env, skip = 0, maxMessages = 500, maxContentChars = 2000 } = {}) {
   if (!file) throw new Error("file is required");
   const sessionsDir = getSessionsDir(env);
   const filePath = path.join(sessionsDir, file);
@@ -158,6 +169,7 @@ export function readSession({ file, env = process.env, maxMessages = 500, maxCon
   if (!fs.existsSync(filePath)) throw new Error("Session file not found");
 
   const messages = [];
+  let totalMessages = 0;
   let sessionMeta = null;
   try {
     const fd = fs.openSync(filePath, "r");
@@ -180,31 +192,53 @@ export function readSession({ file, env = process.env, maxMessages = 500, maxCon
             sessionMeta = { id: obj.id, timestamp: obj.timestamp, cwd: obj.cwd, version: obj.version };
           }
           if (obj.type !== "message") continue;
+          totalMessages += 1;
+          if (totalMessages <= skip) continue;
           if (messages.length >= maxMessages) continue;
           const msg = obj.message || {};
           const role = msg.role || "unknown";
           let text = "";
+          let thinking = "";
+          let toolUse = null;
+          let toolInput = "";
+          let toolResult = false;
           if (typeof msg.content === "string") {
             text = msg.content;
           } else if (Array.isArray(msg.content)) {
-            text = msg.content
-              .map((part) => {
-                if (!part) return "";
-                if (part.type === "text") return part.text || "";
-                if (part.type === "tool_use") return `[tool_use: ${part.name || ""}]`;
-                if (part.type === "tool_result") return `[tool_result]`;
-                return part.type ? `[${part.type}]` : "";
-              })
-              .join("\n");
+            for (const part of msg.content) {
+              if (!part) continue;
+              if (part.type === "text") {
+                text += (text ? "\n" : "") + (part.text || "");
+              } else if (part.type === "thinking") {
+                thinking += (thinking ? "\n" : "") + (part.thinking || part.text || "");
+              } else if (part.type === "tool_use") {
+                toolUse = part.name || "tool";
+                toolInput = JSON.stringify(part.input ?? {});
+              } else if (part.type === "tool_result") {
+                toolResult = true;
+                text += (text ? "\n" : "") + toolResultText(part);
+              }
+            }
           }
-          messages.push({
+          const message = {
             id: obj.id || "",
             role,
             timestamp: obj.timestamp || "",
             parentId: obj.parentId || null,
             text: text.slice(0, maxContentChars),
             truncated: text.length > maxContentChars,
-          });
+          };
+          if (thinking) {
+            message.thinking = thinking.slice(0, maxContentChars);
+            message.thinkingTruncated = thinking.length > maxContentChars;
+          }
+          if (toolUse) {
+            message.toolUse = toolUse;
+            message.toolInput = toolInput.slice(0, maxContentChars);
+            message.toolInputTruncated = toolInput.length > maxContentChars;
+          }
+          if (toolResult) message.toolResult = true;
+          messages.push(message);
         }
       }
     } finally {
@@ -213,7 +247,7 @@ export function readSession({ file, env = process.env, maxMessages = 500, maxCon
   } catch (error) {
     throw new Error(`Failed to read session: ${error.message}`);
   }
-  return { file, session: sessionMeta, messages, count: messages.length };
+  return { file, session: sessionMeta, messages, count: messages.length, total: totalMessages, skip };
 }
 
 export function deleteSession({ file, env = process.env } = {}) {

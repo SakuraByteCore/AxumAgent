@@ -22,6 +22,12 @@ function writeSession(env, project, name, lines) {
 const SESSION_LINE = JSON.stringify({ type: "session", id: "s1", timestamp: "2024-01-02T03:04:05Z", cwd: "/work/proj", version: 2 });
 const USER_MSG = JSON.stringify({ type: "message", id: "m1", timestamp: "2024-01-02T03:04:06Z", message: { role: "user", content: "fix the flaky test" } });
 const ASSISTANT_MSG = JSON.stringify({ type: "message", id: "m2", timestamp: "2024-01-02T03:04:07Z", message: { role: "assistant", content: [{ type: "text", text: "on it" }] } });
+const TOOL_MSG = JSON.stringify({ type: "message", id: "m3", timestamp: "2024-01-02T03:04:08Z", message: { role: "assistant", content: [
+  { type: "thinking", thinking: "planning the fix" },
+  { type: "text", text: "running it" },
+  { type: "tool_use", name: "bash", input: { command: "ls" } },
+] } });
+const TOOL_RESULT_MSG = JSON.stringify({ type: "message", id: "m4", timestamp: "2024-01-02T03:04:09Z", message: { role: "user", content: [{ type: "tool_result", content: [{ type: "text", text: "a.txt" }] }] } });
 
 test("listSessions returns empty projects when sessions dir is missing", (t) => {
   const env = makeEnv(t);
@@ -90,6 +96,35 @@ test("readSession caps message content at maxContentChars", (t) => {
   const result = readSession({ file, env, maxContentChars: 5 });
   assert.equal(result.messages[0].text, "yyyyy");
   assert.equal(result.messages[0].truncated, true);
+});
+
+test("readSession exposes thinking, tool_use and tool_result parts", (t) => {
+  const env = makeEnv(t);
+  const file = writeSession(env, "p", "a.jsonl", [SESSION_LINE, USER_MSG, TOOL_MSG, TOOL_RESULT_MSG]);
+  const result = readSession({ file, env });
+  const assistant = result.messages.find((m) => m.id === "m3");
+  assert.equal(assistant.text, "running it");
+  assert.equal(assistant.thinking, "planning the fix");
+  assert.equal(assistant.toolUse, "bash");
+  assert.equal(assistant.toolInput, JSON.stringify({ command: "ls" }));
+  const toolResult = result.messages.find((m) => m.id === "m4");
+  assert.equal(toolResult.toolResult, true);
+  assert.equal(toolResult.text, "a.txt");
+});
+
+test("readSession paginates messages with skip and reports total", (t) => {
+  const env = makeEnv(t);
+  const extra = [3, 4, 5].map((n) => JSON.stringify({ type: "message", id: "m" + n, message: { role: "user", content: "extra " + n } }));
+  const file = writeSession(env, "p", "a.jsonl", [SESSION_LINE, USER_MSG, ASSISTANT_MSG, ...extra]);
+  const first = readSession({ file, env, maxMessages: 2 });
+  assert.equal(first.count, 2);
+  assert.equal(first.total, 5);
+  assert.equal(first.skip, 0);
+  const second = readSession({ file, env, skip: 2, maxMessages: 2 });
+  assert.equal(second.count, 2);
+  assert.equal(second.total, 5);
+  assert.equal(second.skip, 2);
+  assert.deepEqual(second.messages.map((m) => m.id), ["m3", "m4"]);
 });
 
 test("deleteSession removes the file and prunes empty project dir", (t) => {
