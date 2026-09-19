@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
+import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, cloneProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveModelsConfig, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -333,6 +333,87 @@ test("deleteProvider returns deleted false for missing provider", () => {
   const modelsFile = path.join(dir, "models.json");
   const result = deleteProvider("ghost", modelsFile);
   assert.equal(result.deleted, false);
+});
+
+test("cloneProvider deep-copies a provider under a fresh name and leaves the source untouched", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-clone-"));
+  const modelsFile = path.join(dir, "models.json");
+  fs.writeFileSync(modelsFile, JSON.stringify({
+    providers: {
+      alpha: {
+        baseUrl: "https://alpha.example.com/v1",
+        apiKey: "key-alpha",
+        api: "anthropic-messages",
+        models: [{ id: "m-1", default: true, contextWindow: 200000, maxTokens: 8000 }],
+      },
+    },
+  }));
+
+  const result = cloneProvider("alpha", modelsFile);
+  assert.equal(result.source, "alpha");
+  assert.equal(result.name, "alpha-copy");
+  assert.equal(result.provider.apiKey, "key-alpha");
+  assert.equal(result.provider.models[0].contextWindow, 200000);
+
+  // mutating the clone (nested model config included) must never touch the source record
+  const loaded = loadModelsConfig(modelsFile);
+  loaded.providers["alpha-copy"].models[0].contextWindow = 1000;
+  loaded.providers["alpha-copy"].apiKey = "key-clone";
+  saveModelsConfig(loaded, modelsFile);
+
+  const after = loadModelsConfig(modelsFile);
+  assert.deepEqual(Object.keys(after.providers), ["alpha", "alpha-copy"]);
+  assert.equal(after.providers.alpha.apiKey, "key-alpha");
+  assert.equal(after.providers.alpha.models[0].contextWindow, 200000);
+  assert.equal(after.providers["alpha-copy"].models[0].contextWindow, 1000);
+});
+
+test("cloneProvider generates unique names on repeated clones", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-clone-unique-"));
+  const modelsFile = path.join(dir, "models.json");
+  upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+
+  const first = cloneProvider("alpha", modelsFile);
+  const second = cloneProvider("alpha", modelsFile);
+  const third = cloneProvider("alpha", modelsFile);
+  assert.equal(first.name, "alpha-copy");
+  assert.equal(second.name, "alpha-copy-2");
+  assert.equal(third.name, "alpha-copy-3");
+
+  const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+  assert.deepEqual(Object.keys(models.providers), ["alpha", "alpha-copy", "alpha-copy-2", "alpha-copy-3"]);
+});
+
+test("cloneProvider throws for a missing provider", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-clone-missing-"));
+  const modelsFile = path.join(dir, "models.json");
+  fs.writeFileSync(modelsFile, JSON.stringify({ providers: {} }));
+
+  assert.throws(() => cloneProvider("ghost", modelsFile), /does not exist/);
+  assert.throws(() => cloneProvider("", modelsFile), /Provider name is required/);
+});
+
+test("cloneProvider leaves the default selection untouched", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-clone-default-"));
+  const modelsFile = path.join(dir, "models.json");
+  const settingsFile = path.join(dir, "settings.json");
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  try {
+    upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+    saveDefaultProviderSelection({ provider: "alpha", model: "a-1", thinkingLevel: "high" }, settingsFile);
+
+    const result = cloneProvider("alpha", modelsFile);
+    assert.equal(result.name, "alpha-copy");
+
+    assert.deepEqual(
+      getDefaultProviderSelection(settingsFile),
+      { provider: "alpha", model: "a-1", thinkingLevel: "high" },
+    );
+  } finally {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
 });
 
 test("upsert renames in place instead of cloning when originalName differs", () => {

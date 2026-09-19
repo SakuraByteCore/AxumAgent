@@ -658,3 +658,72 @@ test("provider web export/import round-trip migrates providers and the default s
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web clones a provider under a fresh name without touching the source", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-clone-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const modelsFile = path.join(agentDir, "models.json");
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        api: "anthropic-messages",
+        baseUrl: "https://api.anthropic.com",
+        apiKey: "test-key",
+        name: "alpha",
+        models: [{ id: "claude-sonnet-5", default: true }],
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        reasoningEffort: "high",
+      }),
+    });
+    assert.equal(saveRes.status, 200);
+
+    const pageRes = await fetch(`${base}/?token=${token}`);
+    const pageHtml = await pageRes.text();
+    assert.ok(pageHtml.includes("\"provClone\":\"Clone\""), "page must ship the clone button label");
+    assert.ok(pageHtml.includes("cloneProviderAction"), "page must ship the clone handler");
+    assert.ok(pageHtml.includes("/api/providers/clone"), "page must call the clone endpoint");
+
+    const cloneRes = await fetch(`${base}/api/providers/clone?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "alpha" }),
+    });
+    assert.equal(cloneRes.status, 200);
+    const cloneJson = await cloneRes.json();
+    assert.equal(cloneJson.source, "alpha");
+    assert.equal(cloneJson.name, "alpha-copy");
+    assert.equal(cloneJson.provider.api, "anthropic-messages");
+    assert.equal(cloneJson.provider.apiKey, "test-key");
+    assert.equal(cloneJson.provider.models[0].id, "claude-sonnet-5");
+
+    const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    assert.deepEqual(Object.keys(models.providers), ["alpha", "alpha-copy"]);
+    assert.equal(models.providers.alpha.apiKey, "test-key");
+    assert.equal(models.providers["alpha-copy"].models[0].contextWindow, 1000000);
+
+    // the default pointer must stay on the source provider
+    const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
+    assert.equal(settings.defaultProvider, "alpha");
+
+    const missingRes = await fetch(`${base}/api/providers/clone?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "ghost" }),
+    });
+    assert.equal(missingRes.status, 400);
+    assert.match((await missingRes.json()).error, /does not exist/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});

@@ -236,6 +236,28 @@ export function upsertProvider(options, file = getModelsPath()) {
 /** Kept for backward compatibility with earlier callers of this module. */
 export const upsertOpenAICompatibleProvider = upsertProvider;
 
+function uniqueCloneName(providers, base) {
+  let candidate = `${base}-copy`;
+  let counter = 2;
+  while (Object.prototype.hasOwnProperty.call(providers, candidate)) {
+    candidate = `${base}-copy-${counter++}`;
+  }
+  return candidate;
+}
+
+/** Duplicates a provider record under a fresh name, leaving the source untouched. */
+export function cloneProvider(name, file = getModelsPath()) {
+  const trimmed = String(name || "").trim();
+  if (!trimmed) throw new Error("Provider name is required");
+  const config = loadModelsConfig(file);
+  const source = config.providers[trimmed];
+  if (!source) throw new Error(`Provider "${trimmed}" does not exist`);
+  const cloneName = uniqueCloneName(config.providers, trimmed);
+  config.providers[cloneName] = structuredClone(source);
+  saveModelsConfig(config, file);
+  return { file, name: cloneName, source: trimmed, provider: config.providers[cloneName] };
+}
+
 export function deleteProvider(name, file = getModelsPath()) {
   const trimmed = String(name || "").trim();
   if (!trimmed) return { file, name: "", deleted: false };
