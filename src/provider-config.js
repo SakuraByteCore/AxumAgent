@@ -77,6 +77,32 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 
 export const DEFAULT_THINKING_LEVEL = "high";
 
+/** Reference templates for the `axum web` Provider tab: one click fills baseUrl/name/token
+ * defaults and model candidates. Models stay editable suggestions — the Fetch button and
+ * `/models` remain the authoritative source, and no preset ever ships an API key. */
+export const PROVIDER_PRESETS = [
+  {
+    id: "anthropic",
+    labelKey: "presetAnthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    name: "anthropic",
+    contextWindow: 1000000,
+    maxTokens: 128000,
+    reasoningEffort: "high",
+    suggestedModels: ["claude-sonnet-5", "claude-opus-5"],
+  },
+  {
+    id: "openai-chat",
+    labelKey: "presetOpenAIChat",
+    baseUrl: "https://api.openai.com/v1",
+    name: "openai",
+    contextWindow: 128000,
+    maxTokens: 16384,
+    reasoningEffort: "off",
+    suggestedModels: ["gpt-4o", "gpt-4.1"],
+  },
+];
+
 function positiveNumber(value, fallback, name) {
   if (value === undefined || value === null || value === "") return fallback;
   const number = Number(value);

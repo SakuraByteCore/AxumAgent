@@ -340,6 +340,13 @@ test("provider web exposes new-provider entry and keeps both providers after a s
     assert.ok(pageHtml.includes('data-i18n="provNew"'));
     assert.ok(pageHtml.includes("newProviderForm"));
     assert.ok(pageHtml.includes("refreshProvidersList"));
+    assert.ok(pageHtml.includes('id="preset-anthropic"'));
+    assert.ok(pageHtml.includes('id="preset-openai-chat"'));
+    assert.ok(pageHtml.includes('data-i18n="presetAnthropic"'));
+    assert.ok(pageHtml.includes('data-i18n="presetOpenAIChat"'));
+    assert.ok(pageHtml.includes("applyPreset"));
+    assert.ok(pageHtml.includes("https://api.anthropic.com/v1"));
+    assert.ok(pageHtml.includes("https://api.openai.com/v1"));
 
     const saveBody = {
       baseUrl: `http://127.0.0.1:${mockPort}/v1`,

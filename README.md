@@ -112,6 +112,7 @@ Fields:
 - **Base URL**, e.g. `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**. Providers without `/models` can be entered manually.
+- **Presets** (optional). One-click templates for Anthropic (`https://api.anthropic.com/v1`) and OpenAI Chat (`https://api.openai.com/v1`) that fill base URL, provider name, token defaults and model candidates. Add your API key and pick a model to save.
 
 Saved to:
 

@@ -107,6 +107,7 @@ axum doctor
 - **Base URL**，例如 `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**，没有 `/models` 端点的 provider 可手动输入。
+- **参考预设**（可选）。Anthropic（`https://api.anthropic.com/v1`）与 OpenAI Chat（`https://api.openai.com/v1`）一键模板，按厂商默认值填好 base URL、提供商名、token 上限与模型候选，补上 API Key 并选择模型即可保存。
 
 保存位置:
 

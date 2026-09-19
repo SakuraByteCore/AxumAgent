@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -406,4 +406,22 @@ test("upsert refuses to create a provider that duplicates an existing name", () 
   assert.deepEqual(Object.keys(json.providers), ["alpha"]);
   assert.equal(json.providers.alpha.models[0].id, "a-2");
   assert.equal(json.providers.alpha.apiKey, "k2");
+});
+
+test("PROVIDER_PRESETS ships a valid anthropic and openai-chat reference template", () => {
+  assert.deepEqual(PROVIDER_PRESETS.map((p) => p.id), ["anthropic", "openai-chat"]);
+  for (const preset of PROVIDER_PRESETS) {
+    assert.equal(normalizeBaseUrl(preset.baseUrl), preset.baseUrl);
+    assert.equal(normalizeThinkingLevel(preset.reasoningEffort), preset.reasoningEffort);
+    assert.ok(preset.contextWindow > 0, "contextWindow must be positive");
+    assert.ok(preset.maxTokens > 0, "maxTokens must be positive");
+    assert.ok(Array.isArray(preset.suggestedModels) && preset.suggestedModels.length > 0);
+    assert.ok(!("apiKey" in preset), "presets must never ship credentials");
+  }
+  const anthropic = PROVIDER_PRESETS[0];
+  assert.equal(anthropic.baseUrl, "https://api.anthropic.com/v1");
+  assert.deepEqual(anthropic.suggestedModels, ["claude-sonnet-5", "claude-opus-5"]);
+  const openaiChat = PROVIDER_PRESETS[1];
+  assert.equal(openaiChat.baseUrl, "https://api.openai.com/v1");
+  assert.deepEqual(openaiChat.suggestedModels, ["gpt-4o", "gpt-4.1"]);
 });

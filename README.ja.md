@@ -107,6 +107,7 @@ axum doctor
 - **Base URL**。例: `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**。`/models` がない provider は手入力できます。
+- **プリセット**（任意）。Anthropic（`https://api.anthropic.com/v1`）と OpenAI Chat（`https://api.openai.com/v1`）のワンクリック テンプレート。base URL・provider 名・トークン上限・モデル候補をベンダー既定値で埋めます。API キーを入力し、モデルを選択すれば保存できます。
 
 保存先:
 
