@@ -1,0 +1,50 @@
+--- a/node_modules/@earendil-works/pi-tui/dist/components/select-list.js
++++ b/node_modules/@earendil-works/pi-tui/dist/components/select-list.js
+@@ -105,18 +105,30 @@ export class SelectList {
+     handleInput(keyData) {
+         const kb = getKeybindings();
++        // Debug logging for key detection (can be removed after testing)
++        if (process.env.PI_TUI_DEBUG) {
++            console.error(`[SelectList] Key received: ${JSON.stringify(keyData)}, hex: ${Buffer.from(keyData).toString('hex')}`);
++        }
++        
+         // Up arrow - wrap to bottom when at top
+         if (kb.matches(keyData, "tui.select.up")) {
++            const prevIndex = this.selectedIndex;
+             this.selectedIndex = this.selectedIndex === 0 ? this.filteredItems.length - 1 : this.selectedIndex - 1;
+             this.notifySelectionChange();
++            if (process.env.PI_TUI_DEBUG) {
++                console.error(`[SelectList] Up arrow: ${prevIndex} -> ${this.selectedIndex} (total: ${this.filteredItems.length})`);
++            }
++            return true; // Signal that input was handled
+         }
+         // Down arrow - wrap to top when at bottom
+         else if (kb.matches(keyData, "tui.select.down")) {
++            const prevIndex = this.selectedIndex;
+             this.selectedIndex = this.selectedIndex === this.filteredItems.length - 1 ? 0 : this.selectedIndex + 1;
+             this.notifySelectionChange();
++            if (process.env.PI_TUI_DEBUG) {
++                console.error(`[SelectList] Down arrow: ${prevIndex} -> ${this.selectedIndex} (total: ${this.filteredItems.length})`);
++            }
++            return true;
+         }
+         // Enter
+         else if (kb.matches(keyData, "tui.select.confirm")) {
+@@ -124,12 +136,18 @@ export class SelectList {
+             if (selectedItem && this.onSelect) {
+                 this.onSelect(selectedItem);
+             }
++            return true;
+         }
+         // Escape or Ctrl+C
+         else if (kb.matches(keyData, "tui.select.cancel")) {
+             if (this.onCancel) {
+                 this.onCancel();
+             }
++            return true;
+         }
++        
++        // Return false if no keybinding matched
++        return false;
+     }
+     getVisibleRange() {
