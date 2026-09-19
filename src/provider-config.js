@@ -394,23 +394,67 @@ export function saveSteeringMode(mode, file = getSettingsPath()) {
   return { file, mode: mode, available: STEERING_MODES };
 }
 
-export function exportProviders(file = getModelsPath()) {
-  return loadModelsConfig(file);
+export function exportProviders(file = getModelsPath(), settingsFile = getSettingsPath()) {
+  const config = loadModelsConfig(file);
+  const selection = getDefaultProviderSelection(settingsFile) || {};
+  return {
+    ...config,
+    defaultProvider: selection.provider || "",
+    defaultModel: selection.model || "",
+    defaultThinkingLevel: selection.thinkingLevel || DEFAULT_THINKING_LEVEL,
+  };
 }
 
-export function importProviders({ config = {}, overwrite = false } = {}, file = getModelsPath()) {
+function isValidImportedProvider(provider) {
+  return Boolean(
+    provider && typeof provider === "object" && !Array.isArray(provider)
+    && String(provider.baseUrl || "").trim(),
+  );
+}
+
+function normalizeImportedProvider(provider) {
+  const normalized = { ...provider };
+  if (!normalized.api) normalized.api = DEFAULT_API_FORM;
+  return normalized;
+}
+
+function safeThinkingLevel(value, fallback) {
+  const level = String(value ?? "").trim().toLowerCase();
+  return THINKING_LEVELS.includes(level) ? level : fallback;
+}
+
+function restoreImportedDefault({ config, current, overwrite, settingsFile }) {
+  const provider = String(config.defaultProvider || "").trim();
+  const model = String(config.defaultModel || "").trim();
+  if (!provider || !model) return false;
+  if (!Object.prototype.hasOwnProperty.call(current.providers, provider)) return false;
+  const record = current.providers[provider];
+  const models = Array.isArray(record.models) ? record.models : [];
+  if (!models.some((entry) => entry && (entry.id === model || entry.name === model))) return false;
+  const existing = getDefaultProviderSelection(settingsFile) || {};
+  if (existing.provider && !overwrite) return false;
+  saveDefaultProviderSelection(
+    { provider, model, thinkingLevel: safeThinkingLevel(config.defaultThinkingLevel, DEFAULT_THINKING_LEVEL) },
+    settingsFile,
+  );
+  return true;
+}
+
+export function importProviders({ config = {}, overwrite = false } = {}, file = getModelsPath(), settingsFile = getSettingsPath()) {
   if (!config || typeof config !== "object" || Array.isArray(config)) throw new Error("Invalid config: expected an object");
   if (!config.providers || typeof config.providers !== "object" || Array.isArray(config.providers)) throw new Error("Invalid config: missing providers object");
   const current = loadModelsConfig(file);
-  let added = 0, skipped = 0, replaced = 0;
+  let added = 0, skipped = 0, replaced = 0, rejected = 0;
   for (const [name, provider] of Object.entries(config.providers)) {
     if (current.providers[name] && !overwrite) { skipped += 1; continue; }
+    if (!isValidImportedProvider(provider)) { rejected += 1; continue; }
     if (current.providers[name]) replaced += 1;
     else added += 1;
-    current.providers[name] = provider;
+    current.providers[name] = normalizeImportedProvider(provider);
   }
   saveModelsConfig(current, file);
-  return { added, skipped, replaced, total: Object.keys(current.providers).length };
+  const defaultRestored = restoreImportedDefault({ config, current, overwrite, settingsFile });
+  return { added, skipped, replaced, rejected, total: Object.keys(current.providers).length, defaultRestored };
 }
 
 function extractModelIds(json) {

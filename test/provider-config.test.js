@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
+import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -448,4 +448,164 @@ test("buildProvider writes the requested API form and only emits OpenAI compat f
     () => buildProvider({ baseUrl: "https://api.example.com/v1", api: "not-a-form", model: "m", apiKey: "k" }),
     /Unsupported API form: not-a-form/
   );
+});
+
+test("exportProviders includes the current default provider selection", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-export-default-"));
+  const models = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+  upsertProvider({
+    name: "alpha",
+    baseUrl: "https://api.example.com/v1",
+    apiKey: "key-alpha",
+    models: [{ id: "m-1", default: true }],
+  }, models);
+  saveDefaultProviderSelection({ provider: "alpha", model: "m-1", thinkingLevel: "medium" }, settings);
+
+  const exported = exportProviders(models, settings);
+  assert.deepEqual(Object.keys(exported.providers), ["alpha"]);
+  assert.equal(exported.providers.alpha.api, "openai-completions");
+  assert.equal(exported.providers.alpha.apiKey, "key-alpha");
+  assert.equal(exported.defaultProvider, "alpha");
+  assert.equal(exported.defaultModel, "m-1");
+  assert.equal(exported.defaultThinkingLevel, "medium");
+});
+
+test("export/import round-trip restores providers and the default selection", () => {
+  const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-roundtrip-src-"));
+  const srcModels = path.join(srcDir, "models.json");
+  const srcSettings = path.join(srcDir, "settings.json");
+  upsertProvider({
+    name: "alpha",
+    api: "anthropic-messages",
+    baseUrl: "https://api.anthropic.com",
+    apiKey: "key-alpha",
+    models: [{ id: "claude-sonnet-5", default: true }],
+    reasoningEffort: "high",
+  }, srcModels);
+  saveDefaultProviderSelection({ provider: "alpha", model: "claude-sonnet-5", thinkingLevel: "high" }, srcSettings);
+  const exported = exportProviders(srcModels, srcSettings);
+
+  const dstDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-roundtrip-dst-"));
+  const dstModels = path.join(dstDir, "models.json");
+  const dstSettings = path.join(dstDir, "settings.json");
+
+  const result = importProviders({ config: exported, overwrite: true }, dstModels, dstSettings);
+  assert.equal(result.added, 1);
+  assert.equal(result.replaced, 0);
+  assert.equal(result.rejected, 0);
+  assert.equal(result.total, 1);
+  assert.equal(result.defaultRestored, true);
+
+  const dstConfig = loadModelsConfig(dstModels);
+  assert.deepEqual(Object.keys(dstConfig.providers), ["alpha"]);
+  assert.equal(dstConfig.providers.alpha.api, "anthropic-messages");
+  assert.equal(dstConfig.providers.alpha.apiKey, "key-alpha");
+  assert.equal(dstConfig.providers.alpha.models[0].id, "claude-sonnet-5");
+  assert.deepEqual(
+    getDefaultProviderSelection(dstSettings),
+    { provider: "alpha", model: "claude-sonnet-5", thinkingLevel: "high" },
+  );
+});
+
+test("importProviders skips invalid records but imports the valid ones", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-import-mixed-"));
+  const models = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+
+  const result = importProviders({
+    config: {
+      providers: {
+        good: { baseUrl: "https://api.example.com/v1", apiKey: "k", api: "anthropic-messages", models: [{ id: "m-1", default: true }] },
+        broken: { models: [{ id: "m-2" }] },
+        notAnObject: "nope",
+      },
+    },
+    overwrite: true,
+  }, models, settings);
+
+  assert.equal(result.added, 1);
+  assert.equal(result.rejected, 2);
+  assert.equal(result.total, 1);
+  assert.equal(result.defaultRestored, false);
+
+  const config = loadModelsConfig(models);
+  assert.deepEqual(Object.keys(config.providers), ["good"]);
+  assert.equal(config.providers.good.api, "anthropic-messages");
+});
+
+test("importProviders normalizes legacy exports that lack an api field", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-import-legacy-"));
+  const models = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+
+  const result = importProviders({
+    config: {
+      providers: {
+        legacy: { baseUrl: "https://api.example.com/v1", apiKey: "k", models: [{ id: "m-1", default: true }] },
+      },
+      defaultProvider: "legacy",
+      defaultModel: "m-1",
+      defaultThinkingLevel: "garbage-value",
+    },
+    overwrite: true,
+  }, models, settings);
+
+  assert.equal(result.added, 1);
+  assert.equal(result.defaultRestored, true);
+  assert.equal(loadModelsConfig(models).providers.legacy.api, "openai-completions");
+  assert.equal(getDefaultProviderSelection(settings).thinkingLevel, "high");
+});
+
+test("importProviders refuses to clobber an existing default without overwrite", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-import-nodefault-"));
+  const models = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+  saveDefaultProviderSelection({ provider: "local", model: "m-local", thinkingLevel: "high" }, settings);
+
+  const result = importProviders({
+    config: {
+      providers: { incoming: { baseUrl: "https://api.example.com/v1", apiKey: "k", models: [{ id: "m-1", default: true }] } },
+      defaultProvider: "incoming",
+      defaultModel: "m-1",
+    },
+    overwrite: false,
+  }, models, settings);
+
+  assert.equal(result.added, 1);
+  assert.equal(result.defaultRestored, false, "existing default must be preserved without overwrite");
+  assert.deepEqual(getDefaultProviderSelection(settings), { provider: "local", model: "m-local", thinkingLevel: "high" });
+});
+
+test("importProviders skips a default selection that does not match imported providers", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-import-stale-default-"));
+  const models = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+
+  const result = importProviders({
+    config: {
+      providers: { alpha: { baseUrl: "https://api.example.com/v1", apiKey: "k", models: [{ id: "m-1", default: true }] } },
+      defaultProvider: "missing-provider",
+      defaultModel: "m-1",
+    },
+    overwrite: true,
+  }, models, settings);
+
+  assert.equal(result.defaultRestored, false);
+  assert.equal(getDefaultProviderSelection(settings), undefined);
+});
+
+test("importProviders without overwrite skips existing providers", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-import-skip-"));
+  const models = path.join(dir, "models.json");
+  const settings = path.join(dir, "settings.json");
+  upsertProvider({ name: "alpha", baseUrl: "https://api.example.com/v1", apiKey: "orig", models: [{ id: "m-1", default: true }] }, models);
+
+  const result = importProviders({
+    config: { providers: { alpha: { baseUrl: "https://api.example.com/v1", apiKey: "new", models: [{ id: "m-2" }] } } },
+    overwrite: false,
+  }, models, settings);
+
+  assert.equal(result.skipped, 1);
+  assert.equal(loadModelsConfig(models).providers.alpha.apiKey, "orig");
 });

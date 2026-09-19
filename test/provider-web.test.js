@@ -588,3 +588,73 @@ test("provider web saves the selected API form and refuses model listing for nat
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web export/import round-trip migrates providers and the default selection", async () => {
+  const srcDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-export-src-"));
+  const dstDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-export-dst-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+
+  process.env.PI_CODING_AGENT_DIR = srcDir;
+  const srcServer = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(srcServer.url).searchParams.get("token");
+    const base = `http://127.0.0.1:${srcServer.server.address().port}`;
+    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        api: "anthropic-messages",
+        baseUrl: "https://api.anthropic.com",
+        apiKey: "test-key",
+        name: "anthropic-native",
+        models: [{ id: "claude-sonnet-5", default: true }],
+        reasoningEffort: "high",
+      }),
+    });
+    assert.equal(saveRes.status, 200);
+    const defaultRes = await fetch(`${base}/api/providers/default?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ provider: "anthropic-native", model: "claude-sonnet-5", thinkingLevel: "high" }),
+    });
+    assert.equal(defaultRes.status, 200);
+
+    const exportRes = await fetch(`${base}/api/providers/export?token=${token}`);
+    assert.equal(exportRes.status, 200);
+    const exported = await exportRes.json();
+    assert.equal(exported.providers["anthropic-native"].api, "anthropic-messages");
+    assert.equal(exported.defaultProvider, "anthropic-native");
+    assert.equal(exported.defaultModel, "claude-sonnet-5");
+
+    // import into a fresh target agent dir via its own server instance
+    process.env.PI_CODING_AGENT_DIR = dstDir;
+    const dstServer = await startProviderWeb({ openBrowser: false });
+    try {
+      const dstToken = new URL(dstServer.url).searchParams.get("token");
+      const dstBase = `http://127.0.0.1:${dstServer.server.address().port}`;
+      const importRes = await fetch(`${dstBase}/api/providers/import?token=${dstToken}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ config: exported, overwrite: true }),
+      });
+      assert.equal(importRes.status, 200);
+      const importJson = await importRes.json();
+      assert.equal(importJson.added, 1);
+      assert.equal(importJson.defaultRestored, true);
+
+      const dstModels = JSON.parse(fs.readFileSync(path.join(dstDir, "models.json"), "utf8"));
+      assert.deepEqual(Object.keys(dstModels.providers), ["anthropic-native"]);
+      assert.equal(dstModels.providers["anthropic-native"].apiKey, "test-key");
+      const dstSettings = JSON.parse(fs.readFileSync(path.join(dstDir, "settings.json"), "utf8"));
+      assert.equal(dstSettings.defaultProvider, "anthropic-native");
+      assert.equal(dstSettings.defaultModel, "claude-sonnet-5");
+      assert.equal(dstSettings.defaultThinkingLevel, "high");
+    } finally {
+      await new Promise((resolve) => dstServer.server.close(resolve));
+    }
+  } finally {
+    await new Promise((resolve) => srcServer.server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
