@@ -11,6 +11,8 @@ import {
   patchPiAgentSessionRateLimitRetry,
   patchPiHttpIdleTimeoutDefault,
   patchPiTuiStdinBuffer,
+  patchPiExtensionTerminalInputFocusGate,
+  PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER,
 } from "../src/bundled-pi-patches.js";
 
 test("429 pattern matches strict provider throttle shapes only", () => {
@@ -195,4 +197,26 @@ test("patchPiHttpIdleTimeoutDefault upgrade does not duplicate the headers cap c
   assert.equal(patched.split("const HTTP_HEADERS_TIMEOUT_CAP_MS =").length - 1, 1);
   assert.ok(patched.includes("export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 0;"));
   assert.equal(patchPiHttpIdleTimeoutDefault(patched), patched);
+});
+
+test("patchPiExtensionTerminalInputFocusGate gates raw input on the focused editor and is idempotent", () => {
+  const sample = [
+    "    addExtensionTerminalInputListener(handler) {",
+    "        const subscription = { handler, unsubscribe: this.ui.addInputListener(handler) };",
+    "        this.extensionTerminalInputSubscriptions.add(subscription);",
+    "    }",
+  ].join("\n");
+
+  const once = patchPiExtensionTerminalInputFocusGate(sample);
+  assert.ok(once.includes(PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER));
+  assert.ok(once.includes("this.ui.getFocusedComponent() === this.editor ? handler(data) : undefined"));
+  assert.ok(!once.includes("unsubscribe: this.ui.addInputListener(handler)"));
+  // Rebind reuses subscription.handler, so it must carry the gate as well.
+  assert.ok(once.includes("handler: gated, unsubscribe: this.ui.addInputListener(gated)"));
+
+  const twice = patchPiExtensionTerminalInputFocusGate(once);
+  assert.equal(twice, once);
+
+  const drifted = sample.replace("const subscription = { handler,", "const subscription = { restructured,");
+  assert.equal(patchPiExtensionTerminalInputFocusGate(drifted), drifted);
 });

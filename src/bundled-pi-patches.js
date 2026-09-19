@@ -19,6 +19,7 @@ const PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER = "AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBM
 const PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN";
 const PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN";
 const PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN";
+const PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER = "AXUM_PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE";
 const PI_SUBAGENTS_PACKAGE = "pi-subagents";
 const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
@@ -393,6 +394,32 @@ function patchPiModelTodoCommandsAutocompleteHide(content) {
   // restructure) is skipped instead of hard-failing startup.
 
   return patched;
+}
+
+function patchPiExtensionTerminalInputFocusGate(content) {
+  if (content.includes(PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER)) return content;
+
+  // pi-tui dispatches extension raw-input listeners (ui.onTerminalInput) before
+  // the focused component, so a listener can consume keys meant for a modal.
+  // Every modal path (extension selector/input/editor/custom plus the built-in
+  // pickers) clears the editor container and calls setFocus on the modal, so the
+  // reliable WYSIWYG signal is: while focus is not on the main editor, raw-input
+  // hooks pass through untouched and keys reach whatever is on screen.
+  const needle = "        const subscription = { handler, unsubscribe: this.ui.addInputListener(handler) };";
+  if (!content.includes(needle)) {
+    // Upstream restructured subscription creation; gating is a UX guard, not a
+    // startup requirement, so a miss is skipped instead of hard-failing.
+    return content;
+  }
+
+  return content.replace(
+    needle,
+    [
+      "        // " + PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER + ": extension raw-input hooks must not steal keys while a modal owns focus (selector/input/editor/custom or built-in picker). Rebind reuses subscription.handler, so wrapping at creation covers it too.",
+      "        const gated = (data) => (this.ui.getFocusedComponent() === this.editor ? handler(data) : undefined);",
+      "        const subscription = { handler: gated, unsubscribe: this.ui.addInputListener(gated) };",
+    ].join("\n"),
+  );
 }
 
 function patchPiVersionNotificationSuppress(content) {
@@ -1427,7 +1454,7 @@ export function applyBundledPiPatches(options) {
     results.push(patchFileInPlace(piExtensionLoaderPath, patchPiJitiLazyLoader));
   }
   results.push(fs.existsSync(piInteractiveModePath)
-    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide)
+    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate)
     : { patched: false, file: piInteractiveModePath });
 
   for (const ext of [".ts", ".js"]) {
@@ -1443,4 +1470,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER };
