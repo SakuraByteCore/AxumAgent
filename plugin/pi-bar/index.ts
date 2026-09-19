@@ -282,8 +282,6 @@ function getBundledCommands(pi: ExtensionAPI): string[] {
   return folded.map((name) => `/${name}`).sort();
 }
 
-const HEADER_ART_TARGET = 34;
-const HEADER_BOX_MAX = 60;
 const WELCOME_GLYPHS: readonly string[] = ["\u273b", "\u273d", "\u2736", "\u2733"];
 const DEFAULT_WELCOME_GLYPH = "\u273b";
 let welcomeGlyph: string | undefined;
@@ -372,9 +370,9 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
   const sky: RGB = [159, 211, 242];
   const dim: RGB = [199, 184, 245];
 
-  const boxWidth = Math.max(10, Math.min(width, HEADER_BOX_MAX + 2));
+  const boxWidth = Math.max(10, width);
   const inner = Math.max(0, boxWidth - 2);
-  const artTarget = Math.min(HEADER_ART_TARGET, Math.max(0, inner - 2));
+  const artTarget = Math.max(0, inner - 2);
 
   const artRows = scaleArt(artTarget);
   const artWidth = artRows.length > 0 ? [...artRows[0]].length : 0;

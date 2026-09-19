@@ -158,8 +158,22 @@ test("pi-header renders the scaled ASCII art inside the sakura frame", () => {
 
   assert.doesNotMatch(headerSource, /ART_SCALE|resizeAsciiArt|SCALED_ANIME_ART/);
   assert.equal(renderedArt.length, artRows.length);
-  assert.ok(renderedArt.every((line) => [...line].length <= 62));
+  assert.ok(renderedArt.every((line) => [...line].length === 120), "art rows span the full 120-column terminal width");
   assert.ok(renderedArt.every((line) => line.startsWith("│") && line.endsWith("│")));
+});
+
+test("pi-header stretches the frame to the full terminal width", () => {
+  const width = 120;
+  const lines = renderHeaderLines(width);
+  const visible = lines.filter(Boolean);
+
+  assert.ok(visible.length > 0);
+  assert.ok(
+    visible.every((line) => [...line].length === width),
+    "every rendered line spans the full terminal width",
+  );
+  assert.ok(lines.some((line) => line.includes("╭─ Axum ─")));
+  assert.ok(lines.some((line) => line.includes("╰")));
 });
 
 test("pi-header downsamples the art to a compact target on every width", () => {
