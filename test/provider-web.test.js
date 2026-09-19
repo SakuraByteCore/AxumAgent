@@ -424,3 +424,21 @@ test("provider web session read endpoint paginates and exposes structured tool p
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web page emits a parseable inline script", async () => {
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const res = await fetch(`${base}/?token=${token}`);
+    assert.equal(res.status, 200);
+    const html = await res.text();
+    const match = /<script>([\s\S]*?)<\/script>/.exec(html);
+    assert.ok(match, "page must embed an inline script");
+    // Compiling (not executing) the emitted script catches template-literal
+    // escape leaks that turn into real newlines inside string literals.
+    assert.doesNotThrow(() => new Function(match[1]), "inline script must parse");
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+});
