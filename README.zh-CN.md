@@ -20,7 +20,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - [打包运行时](#打包运行时)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
-- [配置 OpenAI 兼容 Provider](#配置-openai-兼容-provider)
+- [配置 Provider](#配置-provider)
 - [重试设置](#重试设置)
 - [编辑 System Prompt](#编辑-system-prompt)
 - [Doctor](#doctor)
@@ -98,16 +98,17 @@ axum code --safe
 axum doctor
 ```
 
-## 配置 OpenAI 兼容 Provider
+## 配置 Provider
 
 从「快速开始」中的 `axum web` 的 Provider 标签页保存。
 
 输入项:
 
+- **API 协议**。`openai-completions`（默认）为 OpenAI 兼容协议，可用于任意兼容端点。`anthropic-messages` 走 Anthropic 原生协议（base URL 填不带 `/v1` 的 `https://api.anthropic.com`）；该端点不提供模型列表，请从预设候选选择或手动输入模型 ID。
 - **Base URL**，例如 `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**，没有 `/models` 端点的 provider 可手动输入。
-- **参考预设**（可选）。Anthropic（`https://api.anthropic.com/v1`）与 OpenAI Chat（`https://api.openai.com/v1`）一键模板，按厂商默认值填好 base URL、提供商名、token 上限与模型候选，补上 API Key 并选择模型即可保存。
+- **参考预设**（可选）。Anthropic（`https://api.anthropic.com`，原生协议）与 OpenAI Chat（`https://api.openai.com/v1`）一键模板，按厂商默认值填好 API 协议、base URL、提供商名、token 上限与模型候选，补上 API Key 并选择模型即可保存。
 
 保存位置:
 
@@ -120,7 +121,7 @@ axum doctor
 axum code
 ```
 
-为兼容性考虑，OpenAI 兼容 provider 默认 `supportsDeveloperRole=false` / `supportsReasoningEffort=false`。
+为兼容性考虑，`openai-completions` 形态的 provider 默认 `supportsDeveloperRole=false` / `supportsReasoningEffort=false`（`anthropic-messages` 形态的兼容性交给 pi-ai 处理）。
 
 ## 重试设置
 

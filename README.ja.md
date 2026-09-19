@@ -20,7 +20,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - [同梱ランタイム](#同梱ランタイム)
 - [要件](#要件)
 - [クイックスタート](#クイックスタート)
-- [OpenAI 互換 provider の設定](#openai-互換-provider-の設定)
+- [provider の設定](#provider-の設定)
 - [リトライ設定](#リトライ設定)
 - [System Prompt の編集](#system-prompt-の編集)
 - [Doctor](#doctor)
@@ -98,16 +98,17 @@ axum code --safe
 axum doctor
 ```
 
-## OpenAI 互換 provider の設定
+## provider の設定
 
 「クイックスタート」の `axum web` から Provider tab で保存します。
 
 入力項目:
 
+- **API 形式**。`openai-completions`（既定）は OpenAI 互換プロトコルで、該当するエンドポイントならどこでも使えます。`anthropic-messages` は Anthropic ネイティブプロトコルです（base URL は `/v1` のない `https://api.anthropic.com`）。この形態にはモデル一覧エンドポイントがないため、プリセット候補から選ぶかモデル ID を手動入力してください。
 - **Base URL**。例: `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**。`/models` がない provider は手入力できます。
-- **プリセット**（任意）。Anthropic（`https://api.anthropic.com/v1`）と OpenAI Chat（`https://api.openai.com/v1`）のワンクリック テンプレート。base URL・provider 名・トークン上限・モデル候補をベンダー既定値で埋めます。API キーを入力し、モデルを選択すれば保存できます。
+- **プリセット**（任意）。Anthropic（`https://api.anthropic.com`、ネイティブ形式）と OpenAI Chat（`https://api.openai.com/v1`）のワンクリック テンプレート。API 形式・base URL・provider 名・トークン上限・モデル候補をベンダー既定値で埋めます。API キーを入力し、モデルを選択すれば保存できます。
 
 保存先:
 
@@ -120,7 +121,7 @@ axum doctor
 axum code
 ```
 
-互換性のため、OpenAI 互換 provider は `supportsDeveloperRole=false` / `supportsReasoningEffort=false` を既定にします。
+互換性のため、`openai-completions` 形式の provider は `supportsDeveloperRole=false` / `supportsReasoningEffort=false` を既定にします（`anthropic-messages` 形式の互換性は pi-ai に委ねます）。
 
 ## リトライ設定
 

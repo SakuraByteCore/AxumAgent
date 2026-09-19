@@ -103,16 +103,17 @@ The distribution ships these packages, all in one install:
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
 - `@zzxb/pi-notify` (Windows only: Toast notifications with terminal focus, result icons, and BEL reminders)
 
-## Configure an OpenAI-compatible Provider
+## Configure a Provider
 
 Save it from the Provider tab in `axum web` (see [Quick Start](#quick-start) for how to launch).
 
 Fields:
 
+- **API form**. `openai-completions` (default) speaks the OpenAI-compatible protocol and works with any such endpoint. `anthropic-messages` speaks the native Anthropic protocol; its base URL is `https://api.anthropic.com` without `/v1`, and since that endpoint exposes no model list you pick a model from a preset or enter the ID manually.
 - **Base URL**, e.g. `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**. Providers without `/models` can be entered manually.
-- **Presets** (optional). One-click templates for Anthropic (`https://api.anthropic.com/v1`) and OpenAI Chat (`https://api.openai.com/v1`) that fill base URL, provider name, token defaults and model candidates. Add your API key and pick a model to save.
+- **Presets** (optional). One-click templates for Anthropic (`https://api.anthropic.com`, native form) and OpenAI Chat (`https://api.openai.com/v1`) that fill API form, base URL, provider name, token defaults and model candidates. Add your API key and pick a model to save.
 
 Saved to:
 
@@ -125,7 +126,7 @@ After saving, launch the agent again:
 axum code
 ```
 
-For compatibility, OpenAI-compatible providers default to `supportsDeveloperRole=false` / `supportsReasoningEffort=false`.
+Providers on the `openai-completions` form default to `supportsDeveloperRole=false` / `supportsReasoningEffort=false`; the `anthropic-messages` form carries no compat block and defers to pi-ai.
 
 ## Retry Settings
 

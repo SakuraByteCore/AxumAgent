@@ -3,12 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertOpenAICompatibleProvider } from "../src/provider-config.js";
+import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
   const file = path.join(dir, "models.json");
-  const result = upsertOpenAICompatibleProvider({
+  const result = upsertProvider({
     name: "kimi",
     baseUrl: "https://api.moonshot.cn/v1",
     model: "kimi-k2",
@@ -30,7 +30,7 @@ test("writes OpenAI-compatible provider config", () => {
 test("writes multiple models with a default marker", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-multi-"));
   const file = path.join(dir, "models.json");
-  upsertOpenAICompatibleProvider({
+  upsertProvider({
     name: "multimock",
     baseUrl: "https://api.example.com/v1",
     apiKey: "test-key",
@@ -58,7 +58,7 @@ test("writes reasoning-capable provider config and default thinking level", () =
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-reasoning-"));
   const file = path.join(dir, "models.json");
   const settings = path.join(dir, "settings.json");
-  const result = upsertOpenAICompatibleProvider({
+  const result = upsertProvider({
     name: "reasoner",
     baseUrl: "https://api.example.com/v1",
     model: "reasoner-a",
@@ -84,7 +84,7 @@ test("upsert with an unparseable base URL surfaces a friendly error, not Invalid
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-badurl-"));
   const file = path.join(dir, "models.json");
   assert.throws(
-    () => upsertOpenAICompatibleProvider({ baseUrl: "not a url", model: "m", apiKey: "k" }, file),
+    () => upsertProvider({ baseUrl: "not a url", model: "m", apiKey: "k" }, file),
     (error) => /Invalid base URL|Base URL/.test(error.message) && !/^Invalid URL$/.test(error.message),
   );
 });
@@ -154,7 +154,7 @@ test("upgrades legacy default model config for high thinking", () => {
 test("rejects blank API key", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-blank-key-"));
   const file = path.join(dir, "models.json");
-  assert.throws(() => upsertOpenAICompatibleProvider({
+  assert.throws(() => upsertProvider({
     name: "localmock",
     baseUrl: "https://api.example.com/v1",
     model: "model-a",
@@ -309,8 +309,8 @@ test("deleteProvider removes a provider and cleans default pointers", () => {
   const settingsFile = path.join(dir, "settings.json");
   const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = dir;
-  try { upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
-  upsertOpenAICompatibleProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
+  try { upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+  upsertProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
   saveDefaultProviderSelection({ provider: "alpha", model: "a-1", thinkingLevel: "high" }, settingsFile);
 
   const result = deleteProvider("alpha", modelsFile);
@@ -342,11 +342,11 @@ test("upsert renames in place instead of cloning when originalName differs", () 
   const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = dir;
   try {
-    upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
-    upsertOpenAICompatibleProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
+    upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+    upsertProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
     saveDefaultProviderSelection({ provider: "alpha", model: "a-1", thinkingLevel: "high" }, settingsFile);
 
-    const result = upsertOpenAICompatibleProvider({ originalName: "alpha", name: "gamma", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, modelsFile);
+    const result = upsertProvider({ originalName: "alpha", name: "gamma", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, modelsFile);
     assert.equal(result.renamed, true);
     assert.equal(result.renamedDefault, true);
 
@@ -366,11 +366,11 @@ test("upsert renames in place instead of cloning when originalName differs", () 
 test("upsert rename onto an existing provider name throws", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-rename-conflict-"));
   const modelsFile = path.join(dir, "models.json");
-  upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
-  upsertOpenAICompatibleProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
+  upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+  upsertProvider({ name: "beta", baseUrl: "https://beta.example.com/v1", model: "b-1", apiKey: "k" }, modelsFile);
 
   assert.throws(
-    () => upsertOpenAICompatibleProvider({ originalName: "alpha", name: "beta", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile),
+    () => upsertProvider({ originalName: "alpha", name: "beta", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile),
     /already exists/,
   );
   const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
@@ -381,8 +381,8 @@ test("upsert rename onto an existing provider name throws", () => {
 test("upsert with matching originalName is a plain update", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-same-name-"));
   const modelsFile = path.join(dir, "models.json");
-  upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
-  const result = upsertOpenAICompatibleProvider({ originalName: "alpha", name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k" }, modelsFile);
+  upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, modelsFile);
+  const result = upsertProvider({ originalName: "alpha", name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k" }, modelsFile);
   assert.equal(result.renamed, false);
   const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
   assert.equal(Object.keys(models.providers).length, 1);
@@ -392,24 +392,24 @@ test("upsert with matching originalName is a plain update", () => {
 test("upsert refuses to create a provider that duplicates an existing name", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-dup-"));
   const file = path.join(dir, "models.json");
-  upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, file);
+  upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, file);
 
   assert.throws(
-    () => upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, file),
+    () => upsertProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, file),
     /already exists/,
   );
 
   // the same call with originalName is an update and must succeed
-  const result = upsertOpenAICompatibleProvider({ originalName: "alpha", name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, file);
+  const result = upsertProvider({ originalName: "alpha", name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, file);
   assert.equal(result.renamed, false);
   const json = JSON.parse(fs.readFileSync(file, "utf8"));
   assert.deepEqual(Object.keys(json.providers), ["alpha"]);
   assert.equal(json.providers.alpha.models[0].id, "a-2");
   assert.equal(json.providers.alpha.apiKey, "k2");
 });
-
 test("PROVIDER_PRESETS ships a valid anthropic and openai-chat reference template", () => {
   assert.deepEqual(PROVIDER_PRESETS.map((p) => p.id), ["anthropic", "openai-chat"]);
+  const knownApiForms = new Set(API_FORMS.map((form) => form.id));
   for (const preset of PROVIDER_PRESETS) {
     assert.equal(normalizeBaseUrl(preset.baseUrl), preset.baseUrl);
     assert.equal(normalizeThinkingLevel(preset.reasoningEffort), preset.reasoningEffort);
@@ -417,11 +417,35 @@ test("PROVIDER_PRESETS ships a valid anthropic and openai-chat reference templat
     assert.ok(preset.maxTokens > 0, "maxTokens must be positive");
     assert.ok(Array.isArray(preset.suggestedModels) && preset.suggestedModels.length > 0);
     assert.ok(!("apiKey" in preset), "presets must never ship credentials");
+    assert.ok(knownApiForms.has(preset.api), `preset ${preset.id} must declare a known API form`);
   }
   const anthropic = PROVIDER_PRESETS[0];
-  assert.equal(anthropic.baseUrl, "https://api.anthropic.com/v1");
+  assert.equal(anthropic.api, "anthropic-messages");
+  assert.equal(anthropic.baseUrl, "https://api.anthropic.com");
   assert.deepEqual(anthropic.suggestedModels, ["claude-sonnet-5", "claude-opus-5"]);
   const openaiChat = PROVIDER_PRESETS[1];
+  assert.equal(openaiChat.api, "openai-completions");
   assert.equal(openaiChat.baseUrl, "https://api.openai.com/v1");
   assert.deepEqual(openaiChat.suggestedModels, ["gpt-4o", "gpt-4.1"]);
+});
+
+test("buildProvider writes the requested API form and only emits OpenAI compat for openai-completions", () => {
+  const anthropic = buildProvider({
+    baseUrl: "https://api.anthropic.com",
+    api: "anthropic-messages",
+    model: "claude-sonnet-5",
+    apiKey: "k",
+    reasoningEffort: "high",
+  });
+  assert.equal(anthropic.api, "anthropic-messages");
+  assert.ok(!("compat" in anthropic), "native anthropic-messages defers compat to pi-ai");
+
+  const defaulted = buildProvider({ baseUrl: "https://api.example.com/v1", model: "m", apiKey: "k" });
+  assert.equal(defaulted.api, "openai-completions");
+  assert.equal(defaulted.compat.supportsDeveloperRole, false);
+
+  assert.throws(
+    () => buildProvider({ baseUrl: "https://api.example.com/v1", api: "not-a-form", model: "m", apiKey: "k" }),
+    /Unsupported API form: not-a-form/
+  );
 });

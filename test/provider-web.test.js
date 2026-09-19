@@ -345,7 +345,11 @@ test("provider web exposes new-provider entry and keeps both providers after a s
     assert.ok(pageHtml.includes('data-i18n="presetAnthropic"'));
     assert.ok(pageHtml.includes('data-i18n="presetOpenAIChat"'));
     assert.ok(pageHtml.includes("applyPreset"));
-    assert.ok(pageHtml.includes("https://api.anthropic.com/v1"));
+    assert.ok(pageHtml.includes('"baseUrl":"https://api.anthropic.com"'));
+    assert.ok(pageHtml.includes('id="apiShape"'));
+    assert.ok(pageHtml.includes('value="anthropic-messages"'));
+    assert.ok(pageHtml.includes('data-i18n="apiShapeLabel"'));
+    assert.ok(pageHtml.includes('"apiShapeNoFetch":"This API form has no model list endpoint'));
     assert.ok(pageHtml.includes("https://api.openai.com/v1"));
 
     const saveBody = {
@@ -533,5 +537,54 @@ test("provider web save refuses to clobber an existing provider on creation", as
     if (server) await new Promise((resolve) => server.close(resolve));
     delete process.env.PI_CODING_AGENT_DIR;
     if (previous !== undefined) process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("provider web saves the selected API form and refuses model listing for native forms", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-api-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        api: "anthropic-messages",
+        baseUrl: "https://api.anthropic.com",
+        apiKey: "test-key",
+        name: "anthropic-native",
+        models: [{ id: "claude-sonnet-5", default: true }],
+        defaultModel: "claude-sonnet-5",
+        contextWindow: 1000000,
+        maxTokens: 128000,
+        reasoningEffort: "high",
+      }),
+    });
+    assert.equal(saveRes.status, 200);
+
+    const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.equal(modelsJson.providers["anthropic-native"].api, "anthropic-messages");
+    assert.ok(!("compat" in modelsJson.providers["anthropic-native"]), "native form defers compat to pi-ai");
+
+    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    const configJson = await configRes.json();
+    assert.equal(configJson.providers[0].api, "anthropic-messages");
+
+    const listRes = await fetch(`${base}/api/models?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ api: "anthropic-messages", baseUrl: "https://api.anthropic.com", apiKey: "test-key" }),
+    });
+    assert.equal(listRes.status, 400);
+    assert.match((await listRes.json()).error, /OpenAI-compatible API form/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });

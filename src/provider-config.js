@@ -77,14 +77,15 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 
 export const DEFAULT_THINKING_LEVEL = "high";
 
-/** Reference templates for the `axum web` Provider tab: one click fills baseUrl/name/token
+/** Reference templates for the `axum web` Provider tab: one click fills API form, baseUrl/name/token
  * defaults and model candidates. Models stay editable suggestions — the Fetch button and
  * `/models` remain the authoritative source, and no preset ever ships an API key. */
 export const PROVIDER_PRESETS = [
   {
     id: "anthropic",
     labelKey: "presetAnthropic",
-    baseUrl: "https://api.anthropic.com/v1",
+    api: "anthropic-messages",
+    baseUrl: "https://api.anthropic.com",
     name: "anthropic",
     contextWindow: 1000000,
     maxTokens: 128000,
@@ -94,6 +95,7 @@ export const PROVIDER_PRESETS = [
   {
     id: "openai-chat",
     labelKey: "presetOpenAIChat",
+    api: "openai-completions",
     baseUrl: "https://api.openai.com/v1",
     name: "openai",
     contextWindow: 128000,
@@ -102,6 +104,16 @@ export const PROVIDER_PRESETS = [
     suggestedModels: ["gpt-4o", "gpt-4.1"],
   },
 ];
+
+/** API forms selectable on the Provider tab. `fetchable` marks whether `/models` can list
+ * models for this form — Anthropic's native Messages API exposes no list endpoint, so its
+ * candidates come only from preset suggestions. */
+export const API_FORMS = [
+  { id: "openai-completions", labelKey: "apiShapeOpenAI", fetchable: true },
+  { id: "anthropic-messages", labelKey: "apiShapeAnthropic", fetchable: false },
+];
+
+export const DEFAULT_API_FORM = "openai-completions";
 
 function positiveNumber(value, fallback, name) {
   if (value === undefined || value === null || value === "") return fallback;
@@ -157,12 +169,22 @@ export function buildModelConfigs(options, providerReasoningEffort) {
   }, providerReasoningEffort)];
 }
 
-export function buildOpenAICompatibleProvider(options) {
+const KNOWN_API_FORMS = new Set(API_FORMS.map((form) => form.id));
+
+function normalizeApiForm(value) {
+  const id = String(value || "").trim();
+  if (!id) return DEFAULT_API_FORM;
+  if (!KNOWN_API_FORMS.has(id)) throw new Error(`Unsupported API form: ${id}`);
+  return id;
+}
+
+export function buildProvider(options) {
+  const api = normalizeApiForm(options.api);
   const providerReasoningEffort = normalizeThinkingLevel(options.reasoningEffort ?? options.thinkingLevel);
   const modelConfigs = buildModelConfigs(options, providerReasoningEffort);
   const provider = {
     baseUrl: normalizeBaseUrl(options.baseUrl),
-    api: "openai-completions",
+    api,
     models: modelConfigs,
   };
 
@@ -172,7 +194,7 @@ export function buildOpenAICompatibleProvider(options) {
 
   const reasoningEnabled = modelConfigs.some((model) => model.reasoning);
   const supportsReasoningEffort = options.supportsReasoningEffort ?? reasoningEnabled;
-  if (!options.supportsDeveloperRole || !supportsReasoningEffort) {
+  if (api === "openai-completions" && (!options.supportsDeveloperRole || !supportsReasoningEffort)) {
     provider.compat = {};
     if (!options.supportsDeveloperRole) provider.compat.supportsDeveloperRole = false;
     if (!supportsReasoningEffort) provider.compat.supportsReasoningEffort = false;
@@ -181,8 +203,11 @@ export function buildOpenAICompatibleProvider(options) {
   return provider;
 }
 
-export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) {
-  const provider = buildOpenAICompatibleProvider(options);
+/** Kept for backward compatibility with earlier callers of this module. */
+export const buildOpenAICompatibleProvider = buildProvider;
+
+export function upsertProvider(options, file = getModelsPath()) {
+  const provider = buildProvider(options);
   const name = options.name || providerNameFromBaseUrl(provider.baseUrl);
   const config = loadModelsConfig(file);
   const originalName = String(options.originalName || "").trim();
@@ -207,6 +232,9 @@ export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) 
   }
   return { file, name, provider: config.providers[name], renamed: renaming, renamedDefault };
 }
+
+/** Kept for backward compatibility with earlier callers of this module. */
+export const upsertOpenAICompatibleProvider = upsertProvider;
 
 export function deleteProvider(name, file = getModelsPath()) {
   const trimmed = String(name || "").trim();
