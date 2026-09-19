@@ -388,3 +388,22 @@ test("upsert with matching originalName is a plain update", () => {
   assert.equal(Object.keys(models.providers).length, 1);
   assert.equal(models.providers.alpha.models[0].id, "a-2");
 });
+
+test("upsert refuses to create a provider that duplicates an existing name", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-dup-"));
+  const file = path.join(dir, "models.json");
+  upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-1", apiKey: "k" }, file);
+
+  assert.throws(
+    () => upsertOpenAICompatibleProvider({ name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, file),
+    /already exists/,
+  );
+
+  // the same call with originalName is an update and must succeed
+  const result = upsertOpenAICompatibleProvider({ originalName: "alpha", name: "alpha", baseUrl: "https://alpha.example.com/v1", model: "a-2", apiKey: "k2" }, file);
+  assert.equal(result.renamed, false);
+  const json = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.deepEqual(Object.keys(json.providers), ["alpha"]);
+  assert.equal(json.providers.alpha.models[0].id, "a-2");
+  assert.equal(json.providers.alpha.apiKey, "k2");
+});

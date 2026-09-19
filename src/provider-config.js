@@ -164,6 +164,9 @@ export function upsertOpenAICompatibleProvider(options, file = getModelsPath()) 
   if (renaming) {
     if (config.providers[name] !== undefined) throw new Error(`Provider "${name}" already exists`);
     delete config.providers[originalName];
+  } else if (!originalName && config.providers[name] !== undefined) {
+    // No originalName means creation, not update: refuse to clobber an existing provider.
+    throw new Error(`Provider "${name}" already exists`);
   }
   config.providers[name] = provider;
   saveModelsConfig(config, file);

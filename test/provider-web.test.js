@@ -65,7 +65,7 @@ test("provider web fetches models and saves default config", async () => {
     const defaultHighSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", contextWindow: 128000, maxTokens: 32000 }),
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", originalName: "localmock", contextWindow: 128000, maxTokens: 32000 }),
     });
     assert.equal(defaultHighSaveRes.status, 200);
     const defaultHighSettingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
@@ -481,6 +481,47 @@ test("provider web save renames the provider instead of cloning", async () => {
     assert.match(conflict.body, /already exists/);
     const modelsAfter = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
     assert.deepEqual(Object.keys(modelsAfter.providers).sort(), ["beta", "gamma"]);
+  } finally {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    delete process.env.PI_CODING_AGENT_DIR;
+    if (previous !== undefined) process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("provider web save refuses to clobber an existing provider on creation", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-dup-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const modelsFile = path.join(agentDir, "models.json");
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const save = async (body) => {
+      const res = await fetch(`${base}/api/save?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      return { status: res.status, body: text };
+    };
+    const mk = (apiKey, model) => ({
+      baseUrl: "https://api.example.com/v1",
+      apiKey,
+      models: [{ id: model, default: true }],
+      name: "alpha",
+    });
+
+    assert.equal((await save(mk("key-1", "m-1"))).status, 200);
+    const dup = await save(mk("key-2", "m-2"));
+    assert.equal(dup.status, 400);
+    assert.match(dup.body, /already exists/);
+
+    const models = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    assert.deepEqual(Object.keys(models.providers), ["alpha"]);
+    assert.equal(models.providers.alpha.apiKey, "key-1", "existing provider must not be clobbered");
+    assert.equal(models.providers.alpha.models[0].id, "m-1");
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     delete process.env.PI_CODING_AGENT_DIR;
