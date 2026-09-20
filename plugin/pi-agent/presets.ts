@@ -35,6 +35,7 @@ export function buildPresetArgs(preset: AgentPreset, task: string): string {
 }
 
 export type PresetDeps = {
+	disabledCommands: Set<string>;
 	run: (presetArgs: string, invocation: string, ctx: ExtensionCommandContext) => Promise<void>;
 };
 
@@ -44,6 +45,13 @@ export function registerPresets(pi: ExtensionAPI, deps: PresetDeps): void {
 			description: preset.description,
 			getArgumentCompletions: () => null,
 			async handler(args: string, ctx) {
+				if (deps.disabledCommands.has(preset.name)) {
+					ctx.ui.notify(
+						`Command /${preset.name} has completed and been removed. Re-enable via Settings → "Retain temporary commands".`,
+						"info",
+					);
+					return;
+				}
 				if (!args.trim()) {
 					ctx.ui.notify(`Please provide a task: /${preset.name} <task>`, "warning");
 					return;

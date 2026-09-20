@@ -60,6 +60,7 @@ export async function handleAgentCommand(
 	pi: ExtensionAPI,
 	runningAgents: Set<RunningAgent>,
 	widget: UserAgentWidget,
+	disabledCommands: Set<string>,
 	isShuttingDown: () => boolean,
 	nextAgentNumber: () => number,
 	command: AgentCommandName,
@@ -72,6 +73,7 @@ export async function handleAgentCommand(
 			pi,
 			runningAgents,
 			widget,
+			disabledCommands,
 			isShuttingDown,
 			nextAgentNumber,
 			command,
@@ -88,6 +90,7 @@ export async function startUserAgent(
 	pi: ExtensionAPI,
 	runningAgents: Set<RunningAgent>,
 	widget: UserAgentWidget,
+	disabledCommands: Set<string>,
 	isShuttingDown: () => boolean,
 	nextAgentNumber: () => number,
 	command: AgentCommandName,
@@ -158,6 +161,20 @@ export async function startUserAgent(
 		logSteering(runningAgent.id, "agent-disposed", { status: runningAgent.status });
 		runningAgent.session?.dispose();
 		runningAgents.delete(runningAgent);
+		
+		// Check if this command should be auto-disabled
+		if (command !== "agent" && runningAgent.status === "delivered") {
+			const { getCommandRetentionSettings } = require("../../src/provider-config.js");
+			const settings = getCommandRetentionSettings();
+			if (!settings.retainTemporaryCommands) {
+				disabledCommands.add(command);
+				pi.ui?.notify(
+					`✓ /${command} completed and auto-removed. Enable retention in Settings to keep it.`,
+					"info",
+				);
+			}
+		}
+		
 		widget.update();
 	});
 	return runningAgent;

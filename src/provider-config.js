@@ -550,6 +550,20 @@ export function saveTuiMode(mode, file = getSettingsPath()) {
   return { file, mode };
 }
 
+export function getCommandRetentionSettings(file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  return {
+    retainTemporaryCommands: config.retainTemporaryCommands === true,
+  };
+}
+
+export function saveCommandRetentionSettings(enabled, file = getSettingsPath()) {
+  const config = readJsonFile(file);
+  config.retainTemporaryCommands = Boolean(enabled);
+  writeJsonFile(file, config);
+  return { file, retainTemporaryCommands: Boolean(enabled) };
+}
+
 export function ensureTuiModeDefault(file = getSettingsPath()) {
   const config = readJsonFile(file);
   if (!config.tuiMode) {

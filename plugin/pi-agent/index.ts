@@ -20,6 +20,7 @@ import { UserAgentWidget } from "./widget.js";
 
 export default function userAgent(pi: ExtensionAPI): void {
 	const runningAgents = new Set<RunningAgent>();
+	const disabledCommands = new Set<string>();
 	// The session every agent was dispatched from; rebase fast-forwards onto it.
 	let mainSessionContext: ExtensionCommandContext | undefined;
 	const widget = new UserAgentWidget(
@@ -45,6 +46,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 				pi,
 				runningAgents,
 				widget,
+				disabledCommands,
 				() => shuttingDown,
 				() => ++nextAgentNumber,
 				"agent",
@@ -58,12 +60,14 @@ export default function userAgent(pi: ExtensionAPI): void {
 	// ── /spawn, /scout, /blueprint: one-keystroke flag presets over /agent ────
 
 	registerPresets(pi, {
+		disabledCommands,
 		run: (presetArgs, invocation, ctx) => {
 			mainSessionContext = ctx;
 			return handleAgentCommand(
 				pi,
 				runningAgents,
 				widget,
+				disabledCommands,
 				() => shuttingDown,
 				() => ++nextAgentNumber,
 				"agent",
@@ -83,6 +87,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 				pi,
 				runningAgents,
 				widget,
+				disabledCommands,
 				() => shuttingDown,
 				() => ++nextAgentNumber,
 				"agent",
