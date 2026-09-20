@@ -941,8 +941,27 @@ pi.registerCommand("claude", {
 		description: "Switch User-Agent for API requests: /ua",
 		getArgumentCompletions: () => null,
 		async handler(_args: string, ctx) {
-			const { getUserAgent, saveUserAgent } = await import("../../src/provider-config.js");
 			const prompts = (await import("prompts")).default;
+			const { readFile, writeFile, mkdir } = await import("node:fs/promises");
+			const { existsSync } = await import("node:fs");
+
+			const configPath = join(homedir(), ".pi", "agent", "axum.json");
+
+			const readConfig = async () => {
+				if (!existsSync(configPath)) return {};
+				try {
+					const raw = await readFile(configPath, "utf8");
+					return JSON.parse(raw);
+				} catch {
+					return {};
+				}
+			};
+
+			const writeConfig = async (config: Record<string, unknown>) => {
+				const dir = dirname(configPath);
+				if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+				await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+			};
 
 			const UA_PRESETS = [
 				{ title: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
@@ -982,7 +1001,9 @@ pi.registerCommand("claude", {
 
 			// 保存 UA
 			try {
-				saveUserAgent(selectedUA);
+				const config = await readConfig();
+				config.userAgent = selectedUA;
+				await writeConfig(config);
 				if (selectedUA === null) {
 					ctx.ui.notify("✓ UA 已恢复默认", "info");
 				} else {
