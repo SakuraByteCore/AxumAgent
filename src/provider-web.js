@@ -1,7 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
-import { cloneProvider, deleteProvider, exportProviders, fetchOpenAICompatibleModels, getDefaultProviderSelection, getLanguagePreference, getRetrySettings, getSteeringMode, importProviders, listProviders, readSettingsRaw, saveDefaultProviderSelection, saveLanguagePreference, saveRetrySettings, saveSteeringMode, upsertProvider, DEFAULT_THINKING_LEVEL, DEFAULT_API_FORM, PROVIDER_PRESETS, API_FORMS } from "./provider-config.js";
+import { cloneProvider, deleteProvider, exportProviders, fetchOpenAICompatibleModels, getDefaultProviderSelection, getLanguagePreference, getRetrySettings, getSteeringMode, importProviders, listProviders, readSettingsRaw, saveDefaultProviderSelection, saveLanguagePreference, saveRetrySettings, saveSteeringMode, upsertProvider, getUserAgent, DEFAULT_THINKING_LEVEL, DEFAULT_API_FORM, PROVIDER_PRESETS, API_FORMS } from "./provider-config.js";
 import { diffSystemPromptFile, readSystemPromptFile, saveSystemPromptFile } from "./system-prompt-config.js";
 import { listSessions, readSession, deleteSession, deleteAllSessions } from "./session-store.js";
 
@@ -28,11 +28,16 @@ async function readJson(req) {
 async function testModelAvailability(baseUrl, apiKey, model, timeoutMs = 20000) {
   const start = Date.now();
   const normalized = String(baseUrl || "").trim().replace(/\/+$/, "");
+  const customUA = getUserAgent();
   const doFetch = async (path, init) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      return await fetch(path, { ...init, signal: controller.signal });
+      const headers = { ...(init?.headers || {}) };
+      if (customUA) {
+        headers["User-Agent"] = customUA;
+      }
+      return await fetch(path, { ...init, headers, signal: controller.signal });
     } finally {
       clearTimeout(timer);
     }

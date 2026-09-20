@@ -581,3 +581,14 @@ export function ensureWebSearchWorkflowDefault(file = getWebSearchConfigPath()) 
   return { file, seeded: true };
 }
 
+export function getUserAgent(file = getAxumConfigPath()) {
+  const config = readJsonFile(file);
+  return config.userAgent || null;
+}
+
+export function saveUserAgent(userAgent, file = getAxumConfigPath()) {
+  const config = readJsonFile(file);
+  config.userAgent = userAgent || null;
+  writeJsonFile(file, config);
+}
+

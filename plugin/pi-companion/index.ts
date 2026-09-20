@@ -934,6 +934,68 @@ pi.registerCommand("claude", {
   },
 });
 
+
+	// ── /ua ────────────────────────────────────────────────────────────────
+
+	pi.registerCommand("ua", {
+		description: "Switch User-Agent for API requests: /ua",
+		getArgumentCompletions: () => null,
+		async handler(_args: string, ctx) {
+			const { getUserAgent, saveUserAgent } = await import("../../src/provider-config.js");
+			const prompts = (await import("prompts")).default;
+
+			const UA_PRESETS = [
+				{ title: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
+				{ title: "Claude Code", value: "claude-code-cli/1.0.0" },
+				{ title: "Custom (手动输入)", value: "__custom__" },
+				{ title: "Reset (恢复默认)", value: null },
+			];
+
+			const response = await prompts({
+				type: "select",
+				name: "ua",
+				message: "选择 User-Agent",
+				choices: UA_PRESETS,
+			});
+
+			if (response.ua === undefined) {
+				ctx.ui.notify("UA 选择已取消", "warning");
+				return;
+			}
+
+			let selectedUA = response.ua;
+
+			// 处理 Custom 选项
+			if (selectedUA === "__custom__") {
+				const custom = await prompts({
+					type: "text",
+					name: "value",
+					message: "输入自定义 User-Agent",
+					validate: (value: string) => value.trim().length > 0 || "不能为空",
+				});
+				if (!custom.value) {
+					ctx.ui.notify("UA 输入已取消", "warning");
+					return;
+				}
+				selectedUA = custom.value;
+			}
+
+			// 保存 UA
+			try {
+				saveUserAgent(selectedUA);
+				if (selectedUA === null) {
+					ctx.ui.notify("✓ UA 已恢复默认", "info");
+				} else {
+					const presetName = UA_PRESETS.find(p => p.value === selectedUA)?.title;
+					ctx.ui.notify(`✓ UA 已切换: ${presetName || "自定义"}`, "info");
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Failed to save UA: ${message}`, "error");
+			}
+		},
+	});
+
 	// ── /ralph ──────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ralph", {
