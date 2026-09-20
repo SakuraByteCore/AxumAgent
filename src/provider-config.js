@@ -592,3 +592,51 @@ export function saveUserAgent(userAgent, file = getAxumConfigPath()) {
   writeJsonFile(file, config);
 }
 
+/**
+ * Get User-Agent presets from config file
+ * @param {string} [file] - Optional config file path
+ * @returns {Array} Array of preset objects with key, name, and value
+ */
+export function getUAPresets(file = getAxumConfigPath()) {
+  const config = readJsonFile(file);
+  if (!config.presets || !Array.isArray(config.presets) || config.presets.length === 0) {
+    return getDefaultUAPresets();
+  }
+  return config.presets;
+}
+
+/**
+ * Get default UA presets
+ * @returns {Array} Default preset list
+ */
+function getDefaultUAPresets() {
+  return [
+    { key: "codex", name: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
+    { key: "claude", name: "Claude Code", value: "claude-code-cli/1.0.0" },
+  ];
+}
+
+/**
+ * Add a new UA preset to config file
+ * @param {string} key - Preset key (e.g., 'myapp')
+ * @param {string} name - Display name (e.g., 'My App')
+ * @param {string} value - User-Agent string
+ * @param {string} [file] - Optional config file path
+ */
+export function addUAPreset(key, name, value, file = getAxumConfigPath()) {
+  const config = readJsonFile(file);
+  if (!config.presets || !Array.isArray(config.presets)) {
+    config.presets = getDefaultUAPresets();
+  }
+  // Check if key already exists
+  const existingIndex = config.presets.findIndex(p => p.key === key);
+  if (existingIndex >= 0) {
+    // Update existing preset
+    config.presets[existingIndex] = { key, name, value };
+  } else {
+    // Add new preset
+    config.presets.push({ key, name, value });
+  }
+  writeJsonFile(file, config);
+}
+

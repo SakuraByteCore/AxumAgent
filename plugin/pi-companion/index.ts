@@ -938,7 +938,7 @@ pi.registerCommand("claude", {
 	// ── /ua ────────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ua", {
-		description: "Switch User-Agent for API requests: /ua [1|2|3|4|codex|claude|custom|reset]",
+		description: "Switch User-Agent for API requests: /ua [key]",
 		getArgumentCompletions: () => null,
 		async handler(args: string, ctx) {
 			const { readFile, writeFile, mkdir } = await import("node:fs/promises");
@@ -946,13 +946,22 @@ pi.registerCommand("claude", {
 
 			const configPath = join(homedir(), ".pi", "agent", "axum.json");
 
+			const getDefaultPresets = () => [
+				{ key: "codex", name: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
+				{ key: "claude", name: "Claude Code", value: "claude-code-cli/1.0.0" },
+			];
+
 			const readConfig = async () => {
-				if (!existsSync(configPath)) return {};
+				if (!existsSync(configPath)) return { presets: getDefaultPresets() };
 				try {
 					const raw = await readFile(configPath, "utf8");
-					return JSON.parse(raw);
+					const config = JSON.parse(raw);
+					if (!config.presets || !Array.isArray(config.presets) || config.presets.length === 0) {
+						config.presets = getDefaultPresets();
+					}
+					return config;
 				} catch {
-					return {};
+					return { presets: getDefaultPresets() };
 				}
 			};
 
@@ -962,67 +971,44 @@ pi.registerCommand("claude", {
 				await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 			};
 
-			const UA_PRESETS: Record<string, { name: string; value: string | null }> = {
-				"1": { name: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
-				"codex": { name: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
-				"2": { name: "Claude Code", value: "claude-code-cli/1.0.0" },
-				"claude": { name: "Claude Code", value: "claude-code-cli/1.0.0" },
-				"3": { name: "Custom", value: "__custom__" },
-				"custom": { name: "Custom", value: "__custom__" },
-				"4": { name: "Reset", value: null },
-				"reset": { name: "Reset", value: null },
-			};
-
 			const trimmed = args.trim().toLowerCase();
 
 			// 显示帮助
 			if (!trimmed) {
-				const current = (await readConfig()).userAgent;
+				const config = await readConfig();
+				const current = config.userAgent;
 				const status = current ? `Current: ${current}` : "Current: default (Node.js)";
-				ctx.ui.notify(`${status}\n\nUsage: /ua [option]\n  1 or codex  - Codex CLI\n  2 or claude - Claude Code\n  3 or custom - Custom (prompt for input)\n  4 or reset  - Reset to default`, "info");
+				const presetList = config.presets.map((p: any, i: number) => `  ${i + 1} or ${p.key}  - ${p.name}`).join("\n");
+				ctx.ui.notify(`${status}\n\nUsage: /ua [key]\nAvailable presets:\n${presetList}`, "info");
 				return;
 			}
 
-			// 处理 custom 选项
-			if (trimmed === "3" || trimmed === "custom") {
-				ctx.ui.notify("Please provide custom User-Agent after 'custom': /ua custom <your-user-agent>", "warning");
-				return;
-			}
-
-			// 处理 custom 输入
-			if (trimmed.startsWith("custom ")) {
-				const customUA = args.trim().slice(7).trim();
-				if (!customUA) {
-					ctx.ui.notify("Custom User-Agent cannot be empty", "warning");
-					return;
-				}
-				try {
-					const config = await readConfig();
-					config.userAgent = customUA;
-					await writeConfig(config);
-					ctx.ui.notify(`✓ UA switched to custom: ${customUA}`, "info");
-				} catch (error) {
-					const message = error instanceof Error ? error.message : String(error);
-					ctx.ui.notify(`Failed to save UA: ${message}`, "error");
-				}
-				return;
-			}
-
-			// 处理预设选项
-			const preset = UA_PRESETS[trimmed];
-			if (!preset) {
-				ctx.ui.notify(`Unknown option: ${args.trim()}\n\nValid options: 1, 2, 3, 4, codex, claude, custom, reset\nType /ua for help`, "warning");
-				return;
-			}
-
+			// 处理选项
 			try {
 				const config = await readConfig();
-				config.userAgent = preset.value;
+				let selectedPreset = null;
+
+				// 尝试按数字索引查找
+				const numIndex = parseInt(trimmed, 10);
+				if (!isNaN(numIndex) && numIndex >= 1 && numIndex <= config.presets.length) {
+					selectedPreset = config.presets[numIndex - 1];
+				} else {
+					// 按 key 查找
+					selectedPreset = config.presets.find((p: any) => p.key === trimmed);
+				}
+
+				if (!selectedPreset) {
+					const keys = config.presets.map((p: any) => p.key).join(", ");
+					ctx.ui.notify(`Unknown option: ${args.trim()}\n\nValid options: 1-${config.presets.length}, ${keys}\nType /ua for help`, "warning");
+					return;
+				}
+
+				config.userAgent = selectedPreset.value;
 				await writeConfig(config);
-				ctx.ui.notify(`✓ UA switched to ${preset.name}`, "info");
+				ctx.ui.notify(`✓ UA switched to ${selectedPreset.name}`, "info");
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Failed to save UA: ${message}`, "error");
+				ctx.ui.notify(`Failed to switch UA: ${message}`, "error");
 			}
 		},
 	});
