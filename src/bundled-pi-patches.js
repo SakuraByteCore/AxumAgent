@@ -624,6 +624,10 @@ function buildRateLimitRetryHelpers() {
 }
 
 function patchPiAiRateLimitRetry(content) {
+  // Skip if upstream already implemented 429 rate-limit handling
+  if (content.includes("isRateLimit429Error") && content.includes("rateLimitAttempt")) {
+    return content;
+  }
   if (content.includes(PI_RATE_LIMIT_RETRY_EXEMPT_MARKER)) return content;
 
   const helperAnchor = "class RetrySleepAbortError extends Error {\n";
