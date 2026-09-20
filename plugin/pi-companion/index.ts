@@ -938,10 +938,9 @@ pi.registerCommand("claude", {
 	// ── /ua ────────────────────────────────────────────────────────────────
 
 	pi.registerCommand("ua", {
-		description: "Switch User-Agent for API requests: /ua",
+		description: "Switch User-Agent for API requests: /ua [1|2|3|4|codex|claude|custom|reset]",
 		getArgumentCompletions: () => null,
-		async handler(_args: string, ctx) {
-			const prompts = (await import("prompts")).default;
+		async handler(args: string, ctx) {
 			const { readFile, writeFile, mkdir } = await import("node:fs/promises");
 			const { existsSync } = await import("node:fs");
 
@@ -963,53 +962,64 @@ pi.registerCommand("claude", {
 				await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 			};
 
-			const UA_PRESETS = [
-				{ title: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
-				{ title: "Claude Code", value: "claude-code-cli/1.0.0" },
-				{ title: "Custom (手动输入)", value: "__custom__" },
-				{ title: "Reset (恢复默认)", value: null },
-			];
+			const UA_PRESETS: Record<string, { name: string; value: string | null }> = {
+				"1": { name: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
+				"codex": { name: "Codex CLI", value: "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color" },
+				"2": { name: "Claude Code", value: "claude-code-cli/1.0.0" },
+				"claude": { name: "Claude Code", value: "claude-code-cli/1.0.0" },
+				"3": { name: "Custom", value: "__custom__" },
+				"custom": { name: "Custom", value: "__custom__" },
+				"4": { name: "Reset", value: null },
+				"reset": { name: "Reset", value: null },
+			};
 
-			const response = await prompts({
-				type: "select",
-				name: "ua",
-				message: "选择 User-Agent",
-				choices: UA_PRESETS,
-			});
+			const trimmed = args.trim().toLowerCase();
 
-			if (response.ua === undefined) {
-				ctx.ui.notify("UA 选择已取消", "warning");
+			// 显示帮助
+			if (!trimmed) {
+				const current = (await readConfig()).userAgent;
+				const status = current ? `Current: ${current}` : "Current: default (Node.js)";
+				ctx.ui.notify(`${status}\n\nUsage: /ua [option]\n  1 or codex  - Codex CLI\n  2 or claude - Claude Code\n  3 or custom - Custom (prompt for input)\n  4 or reset  - Reset to default`, "info");
 				return;
 			}
 
-			let selectedUA = response.ua;
-
-			// 处理 Custom 选项
-			if (selectedUA === "__custom__") {
-				const custom = await prompts({
-					type: "text",
-					name: "value",
-					message: "输入自定义 User-Agent",
-					validate: (value: string) => value.trim().length > 0 || "不能为空",
-				});
-				if (!custom.value) {
-					ctx.ui.notify("UA 输入已取消", "warning");
-					return;
-				}
-				selectedUA = custom.value;
+			// 处理 custom 选项
+			if (trimmed === "3" || trimmed === "custom") {
+				ctx.ui.notify("Please provide custom User-Agent after 'custom': /ua custom <your-user-agent>", "warning");
+				return;
 			}
 
-			// 保存 UA
+			// 处理 custom 输入
+			if (trimmed.startsWith("custom ")) {
+				const customUA = args.trim().slice(7).trim();
+				if (!customUA) {
+					ctx.ui.notify("Custom User-Agent cannot be empty", "warning");
+					return;
+				}
+				try {
+					const config = await readConfig();
+					config.userAgent = customUA;
+					await writeConfig(config);
+					ctx.ui.notify(`✓ UA switched to custom: ${customUA}`, "info");
+				} catch (error) {
+					const message = error instanceof Error ? error.message : String(error);
+					ctx.ui.notify(`Failed to save UA: ${message}`, "error");
+				}
+				return;
+			}
+
+			// 处理预设选项
+			const preset = UA_PRESETS[trimmed];
+			if (!preset) {
+				ctx.ui.notify(`Unknown option: ${args.trim()}\n\nValid options: 1, 2, 3, 4, codex, claude, custom, reset\nType /ua for help`, "warning");
+				return;
+			}
+
 			try {
 				const config = await readConfig();
-				config.userAgent = selectedUA;
+				config.userAgent = preset.value;
 				await writeConfig(config);
-				if (selectedUA === null) {
-					ctx.ui.notify("✓ UA 已恢复默认", "info");
-				} else {
-					const presetName = UA_PRESETS.find(p => p.value === selectedUA)?.title;
-					ctx.ui.notify(`✓ UA 已切换: ${presetName || "自定义"}`, "info");
-				}
+				ctx.ui.notify(`✓ UA switched to ${preset.name}`, "info");
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`Failed to save UA: ${message}`, "error");

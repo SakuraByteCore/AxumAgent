@@ -30,7 +30,7 @@
     "termux"
   ],
   "license": "MIT",
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": ">=0.74.0"
-  }
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.74.0"
+	}
 }
