@@ -642,7 +642,8 @@ function patchPiAiRateLimitRetry(content) {
   }
   patched = patched.replace(stateNeedle, stateNeedle + "    let rateLimitAttempt = 0;\n");
 
-  const decisionNeedle = [
+  // Try old-style anchor first (inline calculation)
+  const decisionNeedleOld = [
     "        // Non-retryable, or budget exhausted: return the final error message.",
     "        if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {",
     "            if (lastRetry)",
@@ -654,9 +655,29 @@ function patchPiAiRateLimitRetry(content) {
     "        const delayMs = policy.baseDelayMs * 2 ** (attempt - 1);",
     "        await callbacks?.onRetryScheduled?.(attempt, maxAttempts, delayMs, lastRetry.errorMessage);",
   ].join("\n");
-  if (!patched.includes(decisionNeedle)) {
+  
+  // Try new-style anchor (retryDelayMs function)
+  const decisionNeedleNew = [
+    "        // Non-retryable, or budget exhausted: return the final error message.",
+    "        if (attempt >= maxAttempts || !isRetryableAssistantError(response)) {",
+    "            if (lastRetry)",
+    "                await callbacks?.onRetryFinished?.(false, lastRetry.attempt, response.errorMessage);",
+    "            return response;",
+    "        }",
+    "        attempt++;",
+    "        lastRetry = { attempt, errorMessage: response.errorMessage || \"Unknown error\" };",
+    "        const delayMs = retryDelayMs(policy, attempt);",
+    "        await callbacks?.onRetryScheduled?.(attempt, maxAttempts, delayMs, lastRetry.errorMessage);",
+  ].join("\n");
+  
+  const hasOldAnchor = patched.includes(decisionNeedleOld);
+  const hasNewAnchor = patched.includes(decisionNeedleNew);
+  
+  if (!hasOldAnchor && !hasNewAnchor) {
     throw new Error("unable to patch bundled pi-ai retry loop: retry decision anchor not found");
   }
+
+  const decisionNeedle = hasOldAnchor ? decisionNeedleOld : decisionNeedleNew;
   const decisionReplacement = [
     "        // Non-retryable, or budget exhausted: return the final error message.",
     "        if (!isRetryableAssistantError(response)) {",
