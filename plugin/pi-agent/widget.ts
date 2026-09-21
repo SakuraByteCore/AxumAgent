@@ -379,8 +379,14 @@ export class UserAgentWidget {
 		completedAgent.pendingSquashMessage = undefined;
 		completedAgent.mainContextState = "will-squash";
 		message.details.mainContextState = "will-squash";
-		this.sendSquashedResult(message);
-		logSteering(agentId, "squashed-main-context", { display: message.display });
+		
+		// Apply compression if needed
+		const finalMessage = this.shouldCompress(completedAgent, message)
+			? this.compressMessage(completedAgent, message)
+			: message;
+		
+		this.sendSquashedResult(finalMessage);
+		logSteering(agentId, "squashed-main-context", { display: finalMessage.display });
 		this.update();
 	}
 
@@ -448,10 +454,16 @@ export class UserAgentWidget {
 		agent.mainContextState = "will-squash";
 		message.details.mainContextState = "will-squash";
 		agent.status = "posted";
-		this.addCompleted(agent, message, { squashable: false });
-		this.sendSquashedResult(message);
+		
+		// Apply compression if needed
+		const finalMessage = this.shouldCompress(agent, message)
+			? this.compressMessage(agent, message)
+			: message;
+		
+		this.addCompleted(agent, finalMessage, { squashable: false });
+		this.sendSquashedResult(finalMessage);
 		agent.retire?.();
-		logSteering(agent.id, "squashed-main-context", { display: message.display, live: true });
+		logSteering(agent.id, "squashed-main-context", { display: finalMessage.display, live: true });
 		this.update();
 	}
 
@@ -605,6 +617,45 @@ export class UserAgentWidget {
 		const activity = `${theme.fg("dim", indent)}   ${theme.fg("dim", "⎿  ")}${activityText}`;
 		return [truncateToWidth(header, width), truncateToWidth(activity, width)];
 	}
+
+	/** Check if compression should be applied to the squashed message. */
+	private shouldCompress(agent: RunningAgent | CompletedAgent, message: AgentResultMessage): boolean {
+		const invocation = isRunningAgent(agent) ? agent.invocation : agent.invocation;
+		return invocation.startsWith('/spawn ') && message.content.length > 1000;
+	}
+
+	/** Extract file paths from the agent output. */
+	private extractFiles(content: string): string[] {
+		const filePattern = /(?:^|\s)([a-zA-Z0-9_-]+\/[a-zA-Z0-9_.\/-]+\.[a-z]{2,4})/gm;
+		const matches = [...content.matchAll(filePattern)];
+		const files = [...new Set(matches.map(m => m[1]))];
+		return files.slice(0, 10);
+	}
+
+	/** Compress the result message for /spawn commands. */
+	private compressMessage(agent: RunningAgent | CompletedAgent, message: AgentResultMessage): AgentResultMessage {
+		const files = this.extractFiles(message.content);
+		const task = isRunningAgent(agent) ? agent.task : agent.task;
+		const sessionId = isRunningAgent(agent) ? agent.sessionId : agent.sessionId;
+		
+		const compressed = `
+涉及文件：
+${files.length > 0 ? files.map(f => `- ${f}`).join('\n') : '（无文件变更）'}
+
+${task}
+		`.trim();
+		
+		return {
+			...message,
+			content: compressed,
+			details: {
+				...message.details,
+				compressionApplied: true,
+				fullContentReference: sessionId,
+			}
+		};
+	}
+
 }
 
 function clampWindowStart(selected: number, visibleCount: number, total: number): number {

@@ -89,6 +89,10 @@ export type AgentCommandDetails = {
 	/** Retained for completed entries written before responseText was persisted. */
 	responsePreview?: string;
 	error?: string;
+	/** Whether compression was applied to the squashed message. */
+	compressionApplied?: boolean;
+	/** Reference to full content (sessionId) when compression is applied. */
+	fullContentReference?: string;
 };
 
 export type RunningAgent = {
@@ -142,6 +146,8 @@ export type CompletedAgent = {
 	command: AgentCommandName;
 	modelLabel: string;
 	task: string;
+	/** The slash command line as the user typed it, e.g. `/spawn fix the bug`. */
+	invocation: string;
 	dispatchBaseFingerprint: string;
 	mainContextState: MainContextState;
 	pendingSquashMessage?: AgentResultMessage;
