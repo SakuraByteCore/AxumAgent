@@ -20,6 +20,7 @@ import { type AgentValueValidator, parseAgentCommand } from "./command-line.js";
 import {
 	assistantText,
 	EmptyAgentTextError,
+	NoAssistantMessageError,
 	getFinalAssistantText,
 	NO_TEXT_RESPONSE_NUDGE,
 } from "./final-response.js";
@@ -559,10 +560,13 @@ export async function runChildTurns(
 		try {
 			response = getFinalAssistantText(session, turnMessageStart, runningAgent);
 		} catch (error) {
-			if (!(error instanceof EmptyAgentTextError) || instruction === NO_TEXT_RESPONSE_NUDGE) {
+			const isRetryable =
+				error instanceof EmptyAgentTextError || error instanceof NoAssistantMessageError;
+			if (!isRetryable || instruction === NO_TEXT_RESPONSE_NUDGE) {
 				throw error;
 			}
 			logSteering(runningAgent.id, "empty-text-nudge", {
+				errorType: error.name,
 				messageCount: session.agent.state.messages.length,
 			});
 			instruction = NO_TEXT_RESPONSE_NUDGE;

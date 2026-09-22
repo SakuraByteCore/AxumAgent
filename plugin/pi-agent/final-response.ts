@@ -14,6 +14,16 @@ export class EmptyAgentTextError extends Error {
 	}
 }
 
+/** Thrown when a turn finishes without any assistant message at all. */
+export class NoAssistantMessageError extends Error {
+	constructor(detail: { sessionId: string }) {
+		super(
+			`User agent finished without an assistant message (full transcript resumable via /resume ${detail.sessionId})`,
+		);
+		this.name = "NoAssistantMessageError";
+	}
+}
+
 export function assistantText(message: Extract<AgentMessage, { role: "assistant" }>): string {
 	return message.content
 		.filter((part) => part.type === "text")
@@ -34,7 +44,7 @@ export function getFinalAssistantText(
 		.slice(turnMessageStart)
 		.filter((message) => message.role === "assistant");
 	const lastMessage = assistantMessages.at(-1);
-	if (!lastMessage) throw new Error("User agent finished without an assistant message");
+	if (!lastMessage) throw new NoAssistantMessageError({ sessionId: agent.sessionId });
 	if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
 		throw new Error(lastMessage.errorMessage ?? `User agent ${lastMessage.stopReason}`);
 	}
