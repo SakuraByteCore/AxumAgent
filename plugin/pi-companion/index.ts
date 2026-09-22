@@ -1230,7 +1230,7 @@ export default function (pi: ExtensionAPI): void {
 		description: "Example tool from ${name} plugin",
 		inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
 		async execute(input: { message: string }) {
-			return { content: [{ type: "text", text: `Hello from ${name}: ${input.message}` }] };
+			return { content: [{ type: "text", text: \`Hello from ${name}: \${input.message}\` }] };
 		},
 	});
 }
