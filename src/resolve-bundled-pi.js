@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { readCompileManifest } from "./compile-bundled-extensions.js";
-import { supportedBundledPiExtensions } from "./bundled-pi-platform.js";
+import { supportedBundledPiExtensions, getAllPluginExtensions } from "./bundled-pi-platform.js";
 
 function packageRoot(packageName, options) {
   const packageDir = packageDirName(packageName);
@@ -26,7 +26,13 @@ function compiledExtensionPath(extensionEntryPath, packageRoot) {
 }
 
 export function resolveBundledExtensions(options) {
-  return supportedBundledPiExtensions(options).map((extension) => {
+  return getAllPluginExtensions(options).map((extension) => {
+    // User plugins have absolute paths already
+    if (extension.userPlugin) {
+      return extension.extensionPath;
+    }
+    
+    // Bundled plugins need package root resolution
     const pkgRoot = packageRoot(extension.packageName, options);
     const entryPath = path.join(pkgRoot, extension.extensionPath);
     try {

@@ -1193,6 +1193,69 @@ pi.registerCommand("claude", {
 		},
 	});
 
+
+	// ── /plugin: User plugin management ────────────────────────────────────────
+
+	pi.registerCommand("plugin", {
+		description: "Manage user plugins: /plugin list | /plugin create <name> | /plugin create-project <name>",
+		getArgumentCompletions: () => null,
+		handler: async (args, ctx) => {
+			const parts = args.trim().split(/\s+/);
+			const subcommand = parts[0]?.toLowerCase();
+			
+			try {
+				// Dynamically import to avoid bundling issues
+				const { createPluginTemplate, listAllPlugins, formatPluginList, getUserPluginsDir, getProjectPluginsDir } = 
+					await import(resolve(dirname(fileURLToPath(import.meta.url)), "../../src/user-plugin-manager.js"));
+				
+				if (subcommand === "list" || !subcommand) {
+					// List all plugins
+					const plugins = listAllPlugins();
+					const formatted = formatPluginList(plugins);
+					ctx.ui.writeLine("");
+					ctx.ui.writeLine(formatted);
+					ctx.ui.writeLine("");
+					ctx.ui.writeLine("Create a new plugin:");
+					ctx.ui.writeLine("  /plugin create <name>         - Create in ~/.axum/plugins/");
+					ctx.ui.writeLine("  /plugin create-project <name> - Create in ./axum-plugins/");
+					return;
+				}
+				
+				if (subcommand === "create" || subcommand === "create-project") {
+					const name = parts.slice(1).join("-");
+					if (!name) {
+						ctx.ui.writeLine("Error: Plugin name required");
+						ctx.ui.writeLine("Usage: /plugin create <name>");
+						return;
+					}
+					
+					const isProject = subcommand === "create-project";
+					const pluginDir = createPluginTemplate(name, { project: isProject });
+					
+					ctx.ui.writeLine("");
+					ctx.ui.writeLine(`✓ Created plugin: ${name}`);
+					ctx.ui.writeLine(`  Location: ${pluginDir}`);
+					ctx.ui.writeLine("");
+					ctx.ui.writeLine("Next steps:");
+					ctx.ui.writeLine(`  1. Edit ${pluginDir}/index.ts`);
+					ctx.ui.writeLine("  2. Restart Axum to load the plugin");
+					ctx.ui.writeLine("  3. Use /plugin list to verify it loaded");
+					ctx.ui.writeLine("");
+					return;
+				}
+				
+				ctx.ui.writeLine("Unknown subcommand. Usage:");
+				ctx.ui.writeLine("  /plugin list");
+				ctx.ui.writeLine("  /plugin create <name>");
+				ctx.ui.writeLine("  /plugin create-project <name>");
+				
+			} catch (error) {
+				ctx.ui.writeLine(`Error: ${error.message}`);
+			}
+		},
+	});
+
+
 	pi.registerCommand(`${EXTENSION_NAME}:setup`, {
 		description: `Copy the default config to ${GLOBAL_CONFIG_PATH}`,
 		handler: async (_args, ctx) => {

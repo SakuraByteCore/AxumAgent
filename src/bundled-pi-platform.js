@@ -1,4 +1,7 @@
 import { bundledPiPackages } from "./bundled-pi-packages.js";
+import fs from "fs";
+import path from "path";
+import os from "os";
 
 export function isAndroidLike({ platform, env = process.env } = {}) {
   return resolvedPlatform({ platform, env }) === "android" || Boolean(env.TERMUX_VERSION || env.PREFIX?.includes("/com.termux/"));
@@ -63,4 +66,88 @@ export function supportedBundledPiSkills(options) {
 
 export function expectedBundledExtensionCount(options) {
   return supportedBundledPiExtensions(options).length;
+}
+
+// User plugin discovery: scan ~/.axum/plugins/ for user-defined extensions.
+// Each plugin directory must contain an index.ts entry point.
+// Returns plugin metadata compatible with bundled plugin format.
+export function getUserPluginPaths(options = {}) {
+  const homeDir = process.env.HOME || os.homedir();
+  const userPluginsDir = path.join(homeDir, ".axum", "plugins");
+  
+  if (!fs.existsSync(userPluginsDir)) {
+    return [];
+  }
+  
+  try {
+    return fs.readdirSync(userPluginsDir)
+      .filter((name) => {
+        const pluginDir = path.join(userPluginsDir, name);
+        const stat = fs.statSync(pluginDir);
+        const hasIndex = fs.existsSync(path.join(pluginDir, "index.ts")) || fs.existsSync(path.join(pluginDir, "index.js"));
+        return stat.isDirectory() && hasIndex;
+      })
+      .map((name) => {
+        const pluginDir = path.join(userPluginsDir, name);
+        const indexPath = fs.existsSync(path.join(pluginDir, "index.ts")) ? "index.ts" : "index.js";
+        return {
+          name: `user-plugin:${name}`,
+          packageName: name,
+          extensionPath: path.join(pluginDir, indexPath),
+          source: "user",
+          userPlugin: true,
+        };
+      });
+  } catch (err) {
+    console.warn(`Warning: failed to scan user plugins at ${userPluginsDir}:`, err.message);
+    return [];
+  }
+}
+
+// Project plugin discovery: scan ./axum-plugins/ for project-local extensions.
+// Each plugin directory must contain an index.ts entry point.
+// Returns plugin metadata compatible with bundled plugin format.
+export function getProjectPluginPaths(options = {}) {
+  const cwd = options.cwd || process.cwd();
+  const projectPluginsDir = path.join(cwd, "axum-plugins");
+  
+  if (!fs.existsSync(projectPluginsDir)) {
+    return [];
+  }
+  
+  try {
+    return fs.readdirSync(projectPluginsDir)
+      .filter((name) => {
+        const pluginDir = path.join(projectPluginsDir, name);
+        const stat = fs.statSync(pluginDir);
+        const hasIndex = fs.existsSync(path.join(pluginDir, "index.ts")) || fs.existsSync(path.join(pluginDir, "index.js"));
+        return stat.isDirectory() && hasIndex;
+      })
+      .map((name) => {
+        const pluginDir = path.join(projectPluginsDir, name);
+        const indexPath = fs.existsSync(path.join(pluginDir, "index.ts")) ? "index.ts" : "index.js";
+        return {
+          name: `project-plugin:${name}`,
+          packageName: name,
+          extensionPath: path.join(pluginDir, indexPath),
+          source: "project",
+          userPlugin: true,
+        };
+      });
+  } catch (err) {
+    console.warn(`Warning: failed to scan project plugins at ${projectPluginsDir}:`, err.message);
+    return [];
+  }
+}
+
+// Unified plugin discovery: returns all plugins in priority order:
+// 1. Project plugins (./axum-plugins/)
+// 2. User plugins (~/.axum/plugins/)
+// 3. Bundled plugins (from bundled-pi-packages.js)
+export function getAllPluginExtensions(options = {}) {
+  const project = getProjectPluginPaths(options);
+  const user = getUserPluginPaths(options);
+  const bundled = supportedBundledPiExtensions(options);
+  
+  return [...project, ...user, ...bundled];
 }
