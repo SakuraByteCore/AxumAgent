@@ -34,6 +34,7 @@ const PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN = /\/\/ AXUM_PI_HTTP_IDLE_TIMEOUT_[A-Z0
 const PI_HTTP_IDLE_TIMEOUT_HEADERS_ANCHOR = "headersTimeout: normalizedTimeoutMs,";
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
 const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
+const PI_USER_AGENT_CUSTOM_MARKER = "AXUM_PI_USER_AGENT_CUSTOM";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
@@ -1390,6 +1391,32 @@ function patchPiSubagentsProactiveDelegation(content) {
   patched = patched.replace(legacyLine, "");
   return "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n" + patched;
 }
+
+function patchPiUserAgent(content) {
+  if (content.includes(PI_USER_AGENT_CUSTOM_MARKER)) return content;
+  
+  const needle = 'export function getPiUserAgent(version) {\n    const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;\n    return `pi/${version} (${process.platform}; ${runtime}; ${process.arch})`;\n}';
+  
+  if (!content.includes(needle)) {
+    // Pi 的 getPiUserAgent 函数可能已经改变，跳过 patch
+    return content;
+  }
+  
+  const replacement = [
+    '// ' + PI_USER_AGENT_CUSTOM_MARKER + ': Use AXUM_USER_AGENT env var if set (Axum)',
+    'export function getPiUserAgent(version) {',
+    '    // 优先使用 Axum 传递的自定义 User-Agent',
+    '    if (process.env.AXUM_USER_AGENT) {',
+    '        return process.env.AXUM_USER_AGENT;',
+    '    }',
+    '    const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;',
+    '    return `pi/${version} (${process.platform}; ${runtime}; ${process.arch})`;',
+    '}',
+  ].join('\n');
+  
+  return content.replace(needle, replacement);
+}
+
 function patchFileInPlace(filePath, ...patchers) {
   const original = fs.readFileSync(filePath, "utf8");
   const patched = patchers.reduce((content, apply) => apply(content), original);
@@ -1411,6 +1438,12 @@ export function applyBundledPiPatches(options) {
   const undiciWebidlPath = path.join(piRoot, "node_modules", "undici", "lib", "web", "webidl", "index.js");
   if (fs.existsSync(undiciWebidlPath)) {
     results.push(patchFileInPlace(undiciWebidlPath, patchUndiciMarkAsUncloneableFallback));
+  }
+
+  // Patch User-Agent to use AXUM_USER_AGENT env var if set
+  const piUserAgentPath = path.join(piRoot, "dist", "utils", "pi-user-agent.js");
+  if (fs.existsSync(piUserAgentPath)) {
+    results.push(patchFileInPlace(piUserAgentPath, patchPiUserAgent));
   }
 
   // Lower the stock 300s HTTP idle timeout so upstream-cancelled streams that

@@ -500,8 +500,16 @@ export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs =
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const normalized = normalizeBaseUrl(baseUrl);
+    const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+    
+    // 读取用户配置的 User-Agent
+    const customUserAgent = getUserAgent();
+    if (customUserAgent) {
+      headers["User-Agent"] = customUserAgent;
+    }
+    
     const response = await fetch(`${normalized}/models`, {
-      headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
+      headers,
       signal: controller.signal,
     });
     const text = await response.text();
