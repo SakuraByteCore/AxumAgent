@@ -44,5 +44,15 @@ export function resolveBundledExtensions(options) {
 }
 
 export function existingBundledExtensions(options) {
-  return resolveBundledExtensions(options).filter((file) => fs.existsSync(file));
+  // Only check bundled extensions, not user plugins (which may not exist yet)
+  const bundledOnly = supportedBundledPiExtensions(options).map((extension) => {
+    const pkgRoot = packageRoot(extension.packageName, options);
+    const entryPath = path.join(pkgRoot, extension.extensionPath);
+    try {
+      const compiled = compiledExtensionPath(entryPath, pkgRoot);
+      if (compiled) return compiled;
+    } catch { /* fall back to the TS source */ }
+    return entryPath;
+  });
+  return bundledOnly.filter((file) => fs.existsSync(file));
 }
