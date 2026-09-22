@@ -138,6 +138,8 @@ export type RunningAgent = {
 	aborted?: boolean;
 	/** Set when the user interrupts only the active turn, leaving the child session alive. */
 	interruptRequested?: boolean;
+	/** Retry count for the current turn (reset on success). */
+	retryCount?: number;
 };
 
 export type CompletedAgent = {

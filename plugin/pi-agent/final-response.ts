@@ -24,6 +24,19 @@ export class NoAssistantMessageError extends Error {
 	}
 }
 
+/** Thrown when the agent stops with an error or aborted status. */
+export class AgentStopError extends Error {
+	public readonly stopReason: "error" | "aborted";
+	constructor(detail: { stopReason: "error" | "aborted"; errorMessage?: string; sessionId: string }) {
+		super(
+			detail.errorMessage ||
+				`User agent ${detail.stopReason} (full transcript resumable via /resume ${detail.sessionId})`,
+		);
+		this.name = "AgentStopError";
+		this.stopReason = detail.stopReason;
+	}
+}
+
 export function assistantText(message: Extract<AgentMessage, { role: "assistant" }>): string {
 	return message.content
 		.filter((part) => part.type === "text")
@@ -46,7 +59,11 @@ export function getFinalAssistantText(
 	const lastMessage = assistantMessages.at(-1);
 	if (!lastMessage) throw new NoAssistantMessageError({ sessionId: agent.sessionId });
 	if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
-		throw new Error(lastMessage.errorMessage ?? `User agent ${lastMessage.stopReason}`);
+		throw new AgentStopError({
+			stopReason: lastMessage.stopReason,
+			errorMessage: lastMessage.errorMessage,
+			sessionId: agent.sessionId,
+		});
 	}
 	const text = assistantMessages
 		.map((message) => assistantText(message).trim())

@@ -19,6 +19,7 @@ import {
 import { type AgentValueValidator, parseAgentCommand } from "./command-line.js";
 import {
 	assistantText,
+	AgentStopError,
 	EmptyAgentTextError,
 	NoAssistantMessageError,
 	getFinalAssistantText,
@@ -559,18 +560,36 @@ export async function runChildTurns(
 		let response: string;
 		try {
 			response = getFinalAssistantText(session, turnMessageStart, runningAgent);
+			// 成功获取响应后重置重试计数
+			runningAgent.retryCount = 0;
 		} catch (error) {
-			const isRetryable =
-				error instanceof EmptyAgentTextError || error instanceof NoAssistantMessageError;
-			if (!isRetryable || instruction === NO_TEXT_RESPONSE_NUDGE) {
-				throw error;
+			// 初始化重试计数
+			if (runningAgent.retryCount === undefined) {
+				runningAgent.retryCount = 0;
 			}
-			logSteering(runningAgent.id, "empty-text-nudge", {
-				errorType: error.name,
-				messageCount: session.agent.state.messages.length,
+			
+			// 最多重试 3 次
+			const MAX_RETRIES = 3;
+			if (runningAgent.retryCount < MAX_RETRIES) {
+				runningAgent.retryCount++;
+				logSteering(runningAgent.id, "agent-retry", {
+					errorType: error instanceof Error ? error.name : "unknown",
+					errorMessage: error instanceof Error ? error.message : String(error),
+					retryCount: runningAgent.retryCount,
+					maxRetries: MAX_RETRIES,
+					messageCount: session.agent.state.messages.length,
+				});
+				instruction = NO_TEXT_RESPONSE_NUDGE;
+				continue;
+			}
+			
+			// 达到重试上限，抛出错误
+			logSteering(runningAgent.id, "agent-retry-exhausted", {
+				errorType: error instanceof Error ? error.name : "unknown",
+				retryCount: runningAgent.retryCount,
+				maxRetries: MAX_RETRIES,
 			});
-			instruction = NO_TEXT_RESPONSE_NUDGE;
-			continue;
+			throw error;
 		}
 		logSteering(runningAgent.id, "turn-prompt-resolved", {
 			responseLength: response.length,
