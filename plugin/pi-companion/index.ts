@@ -1225,7 +1225,7 @@ pi.registerCommand("claude", {
 		writeFileSync(join(dir, "index.ts"), `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 export default function (pi: ExtensionAPI): void {
-	pi.tool({
+	pi.registerTool({
 		name: "${toolName}_hello",
 		description: "Example tool from ${name} plugin",
 		inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
