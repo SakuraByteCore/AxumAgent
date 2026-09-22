@@ -74,13 +74,17 @@
 3. `/plugin create electron-cdp` 生成完整的插件模板
 4. 重启 Axum 后，新创建的插件被成功加载并可通过工具和命令调用
 
-**实际验证结果（已通过）：**
-- ✅ `test-plugin` 用户插件成功加载，出现在扩展列表首位
-- ✅ 插件路径解析正确：用户插件使用绝对路径，打包插件使用相对路径
-- ✅ 扩展总数：10 个（1 个用户插件 + 9 个打包插件）
-- ✅ 构建验证：`npm run build` 通过所有语法检查
-- ✅ 运行时验证：`resolveBundledExtensions()` 正确返回所有扩展路径
+**实际验证结果（端到端自测通过）：**
+- ✅ `axum update` 安装验证通过（9 个打包插件，不验证可选用户插件）
+- ✅ `axum code` 正常启动，无扩展加载错误
+- ✅ `/plugin list` 正确列出用户插件
+- ✅ `/plugin create <name>` 生成模板并可加载
+- ✅ 用户插件出现在扩展列表首位（最高优先级）
 
+**端到端自测发现并修复的三个运行时缺陷（并入本任务）：**
+- `user-plugin-manager.js` 在 ESM 模块内使用 `require()`，`/plugin list` 抛 `require is not defined`；改为顶层 `import`
+- pi-companion 的 `/plugin` 通过动态 `import("../../src/user-plugin-manager.js")` 加载管理逻辑，但扩展编译后位于 Pi cache 的 `node_modules/pi-companion/`，该相对路径不可解析；改为在 pi-companion 内联实现插件扫描与模板生成
+- pi-bar 直接 `import "../../src/provider-config.js"`（axum 内部模块），同步进 Pi cache 后路径断裂导致整个会话启动失败；改为运行时读 `process.env.AXUM_USER_AGENT`（axum 启动时已注入），解除打包插件对 axum 内部模块的耦合
 **插件优先级验证：**
 - 同名插件按 Project → User → Bundled 顺序加载
 - 用户插件可覆盖打包插件的默认行为
