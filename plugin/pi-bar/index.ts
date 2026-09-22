@@ -58,6 +58,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
+import { getUserAgent } from "../../src/provider-config.js";
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
@@ -1636,11 +1637,15 @@ export default function (pi: ExtensionAPI): void {
 		if (dirty) refresh();
 	}
 
-	function hideFooter(ctx: ExtensionContext): void {
+	function renderUserAgentFooter(ctx: ExtensionContext, userAgent: string): void {
 		if (!ctx.hasUI) return;
-		ctx.ui.setFooter((_tui, _theme, _footerData) => ({
+		ctx.ui.setFooter((tui, theme, _footerData) => ({
 			render(): string[] {
-				return [];
+				const width = tui.width || 80;
+				const ua = userAgent || "unknown";
+				const label = `UA: ${ua}`;
+				const padding = " ".repeat(Math.max(0, width - visibleWidth(label)));
+				return [theme.fg("dim", padding + label)];
 			},
 			invalidate(): void {},
 		}));
@@ -1655,7 +1660,8 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
 			promptHistoryError = undefined;
 		}
-		hideFooter(ctx);
+		const userAgent = getUserAgent() || "unknown";
+		renderUserAgentFooter(ctx, userAgent);
 		installHeader(ctx);
 		runEmitGit(ctx);
 		emitTokens(ctx);
