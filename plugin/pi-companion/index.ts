@@ -1253,57 +1253,59 @@ export default extension;
 			const subcommand = parts[0]?.toLowerCase();
 
 			try {
+				const lines: string[] = [];
+				const push = (s: string) => lines.push(s);
+
 				if (subcommand === "list" || !subcommand) {
 					const plugins = [
 						...scanPlugins(projectPluginsRoot, "project"),
 						...scanPlugins(userPluginsRoot, "user"),
 					];
-					ctx.ui.writeLine("");
+					push("");
 					if (plugins.length === 0) {
-						ctx.ui.writeLine("No user or project plugins installed.");
+						push("No user or project plugins installed.");
 					} else {
 						for (const p of plugins) {
 							const tag = p.source === "project" ? "./axum-plugins/" : "~/.axum/plugins/";
-							ctx.ui.writeLine(`  - ${p.name} ✓  (${tag})`);
+							push(`  - ${p.name} ✓  (${tag})`);
 						}
 					}
-					ctx.ui.writeLine("");
-					ctx.ui.writeLine("Create a new plugin:");
-					ctx.ui.writeLine("  /plugin create <name>         - Create in ~/.axum/plugins/");
-					ctx.ui.writeLine("  /plugin create-project <name> - Create in ./axum-plugins/");
-					return;
-				}
-
-				if (subcommand === "create" || subcommand === "create-project") {
+					push("");
+					push("Create a new plugin:");
+					push("  /plugin create <name>         - Create in ~/.axum/plugins/");
+					push("  /plugin create-project <name> - Create in ./axum-plugins/");
+				} else if (subcommand === "create" || subcommand === "create-project") {
 					const name = parts.slice(1).join("-");
 					if (!name) {
-						ctx.ui.writeLine("Error: Plugin name required");
-						ctx.ui.writeLine("Usage: /plugin create <name>");
+						ctx.ui.notify("Error: Plugin name required. Usage: /plugin create <name>", "error");
 						return;
 					}
 
-					const isProject = subcommand === "create-project";
-					const pluginDir = createPlugin(name, isProject);
-
-					ctx.ui.writeLine("");
-					ctx.ui.writeLine(`✓ Created plugin: ${name}`);
-					ctx.ui.writeLine(`  Location: ${pluginDir}`);
-					ctx.ui.writeLine("");
-					ctx.ui.writeLine("Next steps:");
-					ctx.ui.writeLine(`  1. Edit ${pluginDir}/index.ts`);
-					ctx.ui.writeLine("  2. Restart Axum to load the plugin");
-					ctx.ui.writeLine("  3. Use /plugin list to verify it loaded");
-					ctx.ui.writeLine("");
-					return;
+					try {
+						const isProject = subcommand === "create-project";
+						const pluginDir = createPlugin(name, isProject);
+						push("");
+						push(`✓ Created plugin: ${name}`);
+						push(`  Location: ${pluginDir}`);
+						push("");
+						push("Next steps:");
+						push(`  1. Edit ${pluginDir}/index.ts`);
+						push("  2. Restart Axum to load the plugin");
+						push("  3. Use /plugin list to verify it loaded");
+					} catch (error) {
+						ctx.ui.notify(`Error: ${error instanceof Error ? error.message : String(error)}`, "error");
+						return;
+					}
+				} else {
+					push("Unknown subcommand. Usage:");
+					push("  /plugin list");
+					push("  /plugin create <name>");
+					push("  /plugin create-project <name>");
 				}
-				
-				ctx.ui.writeLine("Unknown subcommand. Usage:");
-				ctx.ui.writeLine("  /plugin list");
-				ctx.ui.writeLine("  /plugin create <name>");
-				ctx.ui.writeLine("  /plugin create-project <name>");
-				
+
+				if (lines.length) ctx.ui.notify(lines.join("\n"), "info");
 			} catch (error) {
-				ctx.ui.writeLine(`Error: ${error.message}`);
+				ctx.ui.notify(`Error: ${error instanceof Error ? error.message : String(error)}`, "error");
 			}
 		},
 	});
