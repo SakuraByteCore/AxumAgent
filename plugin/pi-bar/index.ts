@@ -58,7 +58,12 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
-import { getUserAgent } from "../../src/provider-config.js";
+// User-Agent is injected by Axum via AXUM_USER_AGENT env var at spawn time;
+// do not import axum-internal modules here (this file is synced into the Pi
+// cache where ../../src/provider-config.js does not exist).
+function getUserAgent(): string {
+  return process.env.AXUM_USER_AGENT || "";
+}
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed

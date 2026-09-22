@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { getUserPluginPaths, getProjectPluginPaths, supportedBundledPiExtensions } from "./bundled-pi-platform.js";
 
 /**
  * User Plugin Manager
@@ -152,9 +153,6 @@ See [@earendil-works/pi-coding-agent](https://www.npmjs.com/package/@earendil-wo
  * @returns {Array} - Plugin list with metadata
  */
 export function listAllPlugins(options = {}) {
-  const { getUserPluginPaths, getProjectPluginPaths, supportedBundledPiExtensions } = 
-    require("./bundled-pi-platform.js");
-  
   const userPlugins = getUserPluginPaths(options).map((p) => ({
     name: p.packageName,
     source: "user",

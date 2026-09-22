@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 import { applyDefaultSelection, buildModelOptions, parseModelManifest } from "./model-switch.ts";
@@ -1194,7 +1194,56 @@ pi.registerCommand("claude", {
 	});
 
 
+
 	// ── /plugin: User plugin management ────────────────────────────────────────
+
+	const userPluginsRoot = join(homedir(), ".axum", "plugins");
+	const projectPluginsRoot = join(process.cwd(), "axum-plugins");
+
+	function scanPlugins(root: string, source: "user" | "project") {
+		if (!existsSync(root)) return [];
+		try {
+			return readdirSync(root)
+				.filter((name) => {
+					const dir = join(root, name);
+					return statSync(dir).isDirectory()
+						&& (existsSync(join(dir, "index.ts")) || existsSync(join(dir, "index.js")));
+				})
+				.map((name) => ({ name, source, path: join(root, name) }));
+		} catch { return []; }
+	}
+
+	function createPlugin(name: string, project: boolean): string {
+		const root = project ? projectPluginsRoot : userPluginsRoot;
+		const dir = join(root, name);
+		if (existsSync(dir)) throw new Error(`Plugin already exists: ${dir}`);
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, "package.json"), JSON.stringify({
+			name: `axum-plugin-${name}`, version: "0.1.0", type: "module", main: "index.ts",
+		}, null, 2) + "\n");
+		const toolName = name.replace(/[^a-z0-9]/gi, "_").replace(/^_|_$/g, "");
+		writeFileSync(join(dir, "index.ts"), `import type { Extension } from "@earendil-works/pi-coding-agent";
+
+export const extension: Extension = {
+	name: "${name}",
+	version: "0.1.0",
+	activate(ctx) {
+		ctx.tool({
+			name: "${toolName}_hello",
+			description: "Example tool from ${name} plugin",
+			inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+			async execute(input: { message: string }) {
+				return { content: [{ type: "text", text: \`Hello from ${name}: \${input.message}\` }] };
+			},
+		});
+	},
+	deactivate() {}
+};
+
+export default extension;
+`);
+		return dir;
+	}
 
 	pi.registerCommand("plugin", {
 		description: "Manage user plugins: /plugin list | /plugin create <name> | /plugin create-project <name>",
@@ -1202,25 +1251,29 @@ pi.registerCommand("claude", {
 		handler: async (args, ctx) => {
 			const parts = args.trim().split(/\s+/);
 			const subcommand = parts[0]?.toLowerCase();
-			
+
 			try {
-				// Dynamically import to avoid bundling issues
-				const { createPluginTemplate, listAllPlugins, formatPluginList, getUserPluginsDir, getProjectPluginsDir } = 
-					await import(resolve(dirname(fileURLToPath(import.meta.url)), "../../src/user-plugin-manager.js"));
-				
 				if (subcommand === "list" || !subcommand) {
-					// List all plugins
-					const plugins = listAllPlugins();
-					const formatted = formatPluginList(plugins);
+					const plugins = [
+						...scanPlugins(projectPluginsRoot, "project"),
+						...scanPlugins(userPluginsRoot, "user"),
+					];
 					ctx.ui.writeLine("");
-					ctx.ui.writeLine(formatted);
+					if (plugins.length === 0) {
+						ctx.ui.writeLine("No user or project plugins installed.");
+					} else {
+						for (const p of plugins) {
+							const tag = p.source === "project" ? "./axum-plugins/" : "~/.axum/plugins/";
+							ctx.ui.writeLine(`  - ${p.name} ✓  (${tag})`);
+						}
+					}
 					ctx.ui.writeLine("");
 					ctx.ui.writeLine("Create a new plugin:");
 					ctx.ui.writeLine("  /plugin create <name>         - Create in ~/.axum/plugins/");
 					ctx.ui.writeLine("  /plugin create-project <name> - Create in ./axum-plugins/");
 					return;
 				}
-				
+
 				if (subcommand === "create" || subcommand === "create-project") {
 					const name = parts.slice(1).join("-");
 					if (!name) {
@@ -1228,10 +1281,10 @@ pi.registerCommand("claude", {
 						ctx.ui.writeLine("Usage: /plugin create <name>");
 						return;
 					}
-					
+
 					const isProject = subcommand === "create-project";
-					const pluginDir = createPluginTemplate(name, { project: isProject });
-					
+					const pluginDir = createPlugin(name, isProject);
+
 					ctx.ui.writeLine("");
 					ctx.ui.writeLine(`✓ Created plugin: ${name}`);
 					ctx.ui.writeLine(`  Location: ${pluginDir}`);
