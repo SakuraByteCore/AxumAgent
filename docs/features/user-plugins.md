@@ -81,10 +81,12 @@
 - ✅ `/plugin create <name>` 生成模板并可加载
 - ✅ 用户插件出现在扩展列表首位（最高优先级）
 
-**端到端自测发现并修复的三个运行时缺陷（并入本任务）：**
-- `user-plugin-manager.js` 在 ESM 模块内使用 `require()`，`/plugin list` 抛 `require is not defined`；改为顶层 `import`
-- pi-companion 的 `/plugin` 通过动态 `import("../../src/user-plugin-manager.js")` 加载管理逻辑，但扩展编译后位于 Pi cache 的 `node_modules/pi-companion/`，该相对路径不可解析；改为在 pi-companion 内联实现插件扫描与模板生成
+**端到端自测发现并修复的运行时缺陷（全部并入本任务）：**
 - pi-bar 直接 `import "../../src/provider-config.js"`（axum 内部模块），同步进 Pi cache 后路径断裂导致整个会话启动失败；改为运行时读 `process.env.AXUM_USER_AGENT`（axum 启动时已注入），解除打包插件对 axum 内部模块的耦合
+- pi-companion 的 `/plugin` 通过动态 `import("../../src/user-plugin-manager.js")` 加载管理逻辑，但扩展编译后位于 Pi cache 的 `node_modules/pi-companion/`，该相对路径不可解析；改为在 pi-companion 内联实现插件扫描与模板生成
+- `user-plugin-manager.js` 在 ESM 模块内使用 `require()`，`/plugin list` 抛 `require is not defined`；改为顶层 `import`
+- `/plugin` handler 调用不存在的 `ctx.ui.writeLine`；改用 `ctx.ui.notify(msg, "info")` 并将多行输出合并为单次通知
+- 生成的插件模板采用 `export const extension = { activate(ctx) {...} }` 对象格式，Pi 要求工厂函数 `export default function (pi) {...}`；已改为工厂函数并在其中调用 `pi.registerTool(...)`（Pi 的工具注册 API 为 `registerTool`，非 `tool`）；模板内层反引号与 `${}` 插值做了转义，确保生成代码中 `input.message` 保持字面量、`name` 在创建时被替换
 **插件优先级验证：**
 - 同名插件按 Project → User → Bundled 顺序加载
 - 用户插件可覆盖打包插件的默认行为
