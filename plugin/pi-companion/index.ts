@@ -1222,25 +1222,18 @@ pi.registerCommand("claude", {
 			name: `axum-plugin-${name}`, version: "0.1.0", type: "module", main: "index.ts",
 		}, null, 2) + "\n");
 		const toolName = name.replace(/[^a-z0-9]/gi, "_").replace(/^_|_$/g, "");
-		writeFileSync(join(dir, "index.ts"), `import type { Extension } from "@earendil-works/pi-coding-agent";
+		writeFileSync(join(dir, "index.ts"), `import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-export const extension: Extension = {
-	name: "${name}",
-	version: "0.1.0",
-	activate(ctx) {
-		ctx.tool({
-			name: "${toolName}_hello",
-			description: "Example tool from ${name} plugin",
-			inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
-			async execute(input: { message: string }) {
-				return { content: [{ type: "text", text: \`Hello from ${name}: \${input.message}\` }] };
-			},
-		});
-	},
-	deactivate() {}
-};
-
-export default extension;
+export default function (pi: ExtensionAPI): void {
+	pi.tool({
+		name: "${toolName}_hello",
+		description: "Example tool from ${name} plugin",
+		inputSchema: { type: "object", properties: { message: { type: "string" } }, required: ["message"] },
+		async execute(input: { message: string }) {
+			return { content: [{ type: "text", text: `Hello from ${name}: ${input.message}` }] };
+		},
+	});
+}
 `);
 		return dir;
 	}
