@@ -1,6 +1,6 @@
 {
   "name": "pi-memory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Bundled memory plugin for pi-coding-agent — persistent cross-session memory (/memory save|list|find|remove|recall|clear) stored in a single JSON file, zero native deps. Vendored locally because the upstream npm package (@amaster.ai/pi-memory-mem0) pulls mem0ai → better-sqlite3 (native, no android-arm64 prebuild) and cannot install on Android/Termux.",
   "type": "module",
   "main": "index.ts",

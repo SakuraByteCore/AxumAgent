@@ -1,6 +1,6 @@
 {
 	"name": "pi-context",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Long-session context engine for pi: background historian compression, archived tool-output drops, cross-session project memory, and FTS search. Pure TS + node:sqlite, zero native deps.",
 	"type": "module",
 	"main": "index.ts",
