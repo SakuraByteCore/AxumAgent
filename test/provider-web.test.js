@@ -727,3 +727,93 @@ test("provider web clones a provider under a fresh name without touching the sou
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web batch-deletes sessions and round-trips them through provider export/import", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-batch-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  fs.mkdirSync(path.join(agentDir, "sessions", "proj"), { recursive: true });
+  fs.mkdirSync(path.join(agentDir, "sessions", "other"), { recursive: true });
+  const bodyA = JSON.stringify({ type: "session", id: "s1", timestamp: "2024-01-02T03:04:05Z", cwd: "/p", version: 2 }) + "\n"
+    + JSON.stringify({ type: "message", id: "m1", message: { role: "user", content: "batch delete me" } }) + "\n";
+  const bodyB = JSON.stringify({ type: "session", id: "s2", timestamp: "2024-01-03T03:04:05Z", cwd: "/p", version: 2 }) + "\n"
+    + JSON.stringify({ type: "message", id: "m2", message: { role: "user", content: "keep and export me" } }) + "\n";
+  const bodyC = bodyA.replace("s1", "s3").replace("m1", "m3");
+  fs.writeFileSync(path.join(agentDir, "sessions", "proj", "a.jsonl"), bodyA);
+  fs.writeFileSync(path.join(agentDir, "sessions", "proj", "b.jsonl"), bodyB);
+  fs.writeFileSync(path.join(agentDir, "sessions", "other", "c.jsonl"), bodyC);
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const batchRes = await fetch(`${base}/api/sessions/delete-batch?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ files: ["proj/a.jsonl", "other/c.jsonl", "proj/missing.jsonl"] }),
+    });
+    assert.equal(batchRes.status, 200);
+    const batch = await batchRes.json();
+    assert.equal(batch.deleted, 2);
+    assert.equal(batch.total, 3);
+    assert.deepEqual(batch.failed, [{ file: "proj/missing.jsonl", reason: "not found" }]);
+    assert.equal(fs.existsSync(path.join(agentDir, "sessions", "proj", "a.jsonl")), false);
+    assert.equal(fs.existsSync(path.join(agentDir, "sessions", "other", "c.jsonl")), false);
+    assert.equal(fs.existsSync(path.join(agentDir, "sessions", "other")), false);
+    assert.equal(fs.existsSync(path.join(agentDir, "sessions", "proj", "b.jsonl")), true);
+
+    const exportRes = await fetch(`${base}/api/providers/export?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ files: ["proj/b.jsonl"] }),
+    });
+    assert.equal(exportRes.status, 200);
+    const exported = await exportRes.json();
+    assert.ok(exported.providers, "export still carries providers");
+    assert.equal(exported.sessions.length, 1);
+    assert.equal(exported.sessions[0].file, "proj/b.jsonl");
+    assert.equal(exported.sessions[0].content, bodyB);
+
+    const dstDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-batch-dst-"));
+    process.env.PI_CODING_AGENT_DIR = dstDir;
+    const importRes = await fetch(`${base}/api/providers/import?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ config: exported, overwrite: true }),
+    });
+    assert.equal(importRes.status, 200);
+    const imported = await importRes.json();
+    assert.ok(imported.sessions, "import result must report session restore");
+    assert.equal(imported.sessions.added, 1);
+    assert.equal(imported.sessions.failed.length, 0);
+    assert.equal(fs.readFileSync(path.join(dstDir, "sessions", "proj", "b.jsonl"), "utf8"), bodyB);
+    fs.rmSync(dstDir, { recursive: true, force: true });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("provider web batch delete rejects an empty file list", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-batch-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const res = await fetch(`${base}/api/sessions/delete-batch?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ files: [] }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /files must be a non-empty array/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});

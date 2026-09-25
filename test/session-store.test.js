@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { deleteAllSessions, deleteSession, getSessionsDir, listSessions, readSession } from "../src/session-store.js";
+import { deleteAllSessions, deleteSession, deleteSessions, exportSessions, getSessionsDir, importSessions, listSessions, readSession } from "../src/session-store.js";
 
 function makeEnv(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "axum-sessions-"));
@@ -166,4 +166,76 @@ test("deleteAllSessions clears every project", (t) => {
 test("deleteAllSessions on missing dir is a no-op", (t) => {
   const env = makeEnv(t);
   assert.deepEqual(deleteAllSessions({ env }), { deleted: 0, total: 0, failed: [] });
+});
+
+test("deleteSessions removes the listed files and reports failures", (t) => {
+  const env = makeEnv(t);
+  writeSession(env, "p1", "a.jsonl", [SESSION_LINE]);
+  writeSession(env, "p1", "b.jsonl", [SESSION_LINE]);
+  writeSession(env, "p2", "c.jsonl", [SESSION_LINE]);
+  const result = deleteSessions({ files: ["p1/a.jsonl", "p2/c.jsonl", "p1/gone.jsonl", "../escape.jsonl", ""], env });
+  assert.equal(result.deleted, 2);
+  assert.equal(result.total, 5);
+  assert.equal(result.failed.length, 3);
+  assert.deepEqual(
+    result.failed.map((f) => f.reason),
+    ["not found", "Invalid session file path", "empty path"],
+  );
+  assert.equal(fs.existsSync(path.join(getSessionsDir(env), "p1", "b.jsonl")), true);
+  assert.equal(fs.existsSync(path.join(getSessionsDir(env), "p2")), false);
+});
+
+test("deleteSessions rejects a non-array files argument", () => {
+  assert.throws(() => deleteSessions({ files: "p/a.jsonl" }), /files must be an array/);
+});
+
+test("exportSessions returns raw content for the listed files", (t) => {
+  const env = makeEnv(t);
+  const file = writeSession(env, "p", "a.jsonl", [SESSION_LINE, USER_MSG]);
+  const { sessions, totalBytes } = exportSessions({ files: [file], env });
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].file, file);
+  assert.equal(sessions[0].content, SESSION_LINE + "\n" + USER_MSG + "\n");
+  assert.equal(sessions[0].bytes, Buffer.byteLength(sessions[0].content, "utf8"));
+  assert.equal(totalBytes, sessions[0].bytes);
+});
+
+test("exportSessions rejects missing files and traversal", (t) => {
+  const env = makeEnv(t);
+  assert.throws(() => exportSessions({ files: ["p/nope.jsonl"], env }), /Session not found: p\/nope\.jsonl/);
+  assert.throws(() => exportSessions({ files: ["../escape.jsonl"], env }), /Invalid session file path/);
+});
+
+test("exportSessions refuses oversized payloads instead of truncating", (t) => {
+  const env = makeEnv(t);
+  const file = writeSession(env, "p", "big.jsonl", [SESSION_LINE, JSON.stringify({ type: "message", id: "m", message: { role: "user", content: "x".repeat(200000) } })]);
+  assert.throws(() => exportSessions({ files: [file], env, maxBytes: 1024 }), /too large to embed/);
+});
+
+test("importSessions restores exported records verbatim and respects overwrite", (t) => {
+  const src = makeEnv(t);
+  const dst = makeEnv(t);
+  const file = writeSession(src, "p", "a.jsonl", [SESSION_LINE, USER_MSG]);
+  const { sessions } = exportSessions({ files: [file], env: src });
+
+  const first = importSessions({ sessions, env: dst });
+  assert.equal(first.added, 1);
+  assert.equal(first.replaced, 0);
+  assert.equal(first.skipped, 0);
+  assert.equal(fs.readFileSync(path.join(getSessionsDir(dst), "p", "a.jsonl"), "utf8"), sessions[0].content);
+
+  const skipped = importSessions({ sessions, env: dst });
+  assert.equal(skipped.skipped, 1);
+  assert.equal(skipped.added, 0);
+
+  const replaced = importSessions({ sessions, env: dst, overwrite: true });
+  assert.equal(replaced.replaced, 1);
+});
+
+test("importSessions reports traversal failures per entry", (t) => {
+  const env = makeEnv(t);
+  const result = importSessions({ sessions: [{ file: "../escape.jsonl", content: "x" }], env });
+  assert.equal(result.added, 0);
+  assert.equal(result.failed.length, 1);
+  assert.equal(result.failed[0].reason, "Invalid session file path");
 });

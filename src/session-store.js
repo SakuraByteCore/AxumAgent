@@ -6,6 +6,19 @@ export function getSessionsDir(env = process.env) {
   return path.join(getAgentDir(env), "sessions");
 }
 
+const MAX_SESSION_EXPORT_BYTES = 3 * 1024 * 1024;
+
+// Resolve a "project/file.jsonl" relative path under sessionsDir, rejecting traversal.
+function resolveSessionFile(file, sessionsDir) {
+  if (!file || typeof file !== "string") throw new Error("Invalid session file path");
+  const resolved = path.resolve(path.join(sessionsDir, file));
+  const resolvedBase = path.resolve(sessionsDir);
+  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
+    throw new Error("Invalid session file path");
+  }
+  return resolved;
+}
+
 function readSessionText(filePath) {
   try {
     return fs.readFileSync(filePath, "utf8");
@@ -158,14 +171,7 @@ function toolResultText(part) {
 export function readSession({ file, env = process.env, skip = 0, maxMessages = 500, maxContentChars = 2000 } = {}) {
   if (!file) throw new Error("file is required");
   const sessionsDir = getSessionsDir(env);
-  const filePath = path.join(sessionsDir, file);
-
-  // Prevent path traversal: resolved path must stay under sessionsDir.
-  const resolved = path.resolve(filePath);
-  const resolvedBase = path.resolve(sessionsDir);
-  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
-    throw new Error("Invalid session file path");
-  }
+  const filePath = resolveSessionFile(file, sessionsDir);
   if (!fs.existsSync(filePath)) throw new Error("Session file not found");
 
   const messages = [];
@@ -253,14 +259,7 @@ export function readSession({ file, env = process.env, skip = 0, maxMessages = 5
 export function deleteSession({ file, env = process.env } = {}) {
   if (!file) throw new Error("file is required");
   const sessionsDir = getSessionsDir(env);
-  const filePath = path.join(sessionsDir, file);
-
-  const resolved = path.resolve(filePath);
-  const resolvedBase = path.resolve(sessionsDir);
-  if (!resolved.startsWith(resolvedBase + path.sep) && resolved !== resolvedBase) {
-    throw new Error("Invalid session file path");
-  }
-
+  const filePath = resolveSessionFile(file, sessionsDir);
   if (!fs.existsSync(filePath)) {
     return { deleted: false, file, reason: "not found" };
   }
@@ -316,4 +315,108 @@ export function deleteAllSessions({ env = process.env } = {}) {
   }
 
   return { deleted, total, failed };
+}
+
+function pruneEmptyProjectDirs(dirs) {
+  for (const dir of dirs) {
+    try {
+      if (fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+    } catch {
+      // Best-effort cleanup; ignore errors.
+    }
+  }
+}
+
+export function deleteSessions({ files, env = process.env } = {}) {
+  if (!Array.isArray(files)) throw new Error("files must be an array");
+  const sessionsDir = getSessionsDir(env);
+  const failed = [];
+  const touchedDirs = new Set();
+  let deleted = 0;
+
+  for (const raw of files) {
+    const file = String(raw ?? "");
+    if (!file) {
+      failed.push({ file: "", reason: "empty path" });
+      continue;
+    }
+    try {
+      const filePath = resolveSessionFile(file, sessionsDir);
+      if (!fs.existsSync(filePath)) {
+        failed.push({ file, reason: "not found" });
+        continue;
+      }
+      fs.unlinkSync(filePath);
+      deleted += 1;
+      touchedDirs.add(path.dirname(filePath));
+    } catch (err) {
+      failed.push({ file, reason: err.message });
+    }
+  }
+
+  pruneEmptyProjectDirs(touchedDirs);
+  return { deleted, total: files.length, failed };
+}
+
+export function exportSessions({ files, env = process.env, maxBytes = MAX_SESSION_EXPORT_BYTES } = {}) {
+  if (!Array.isArray(files)) throw new Error("files must be an array");
+  const sessionsDir = getSessionsDir(env);
+  const sessions = [];
+  let totalBytes = 0;
+
+  for (const raw of files) {
+    const file = String(raw ?? "").trim();
+    if (!file) continue;
+    const filePath = resolveSessionFile(file, sessionsDir);
+    if (!fs.existsSync(filePath)) throw new Error(`Session not found: ${file}`);
+    const content = fs.readFileSync(filePath, "utf8");
+    const bytes = Buffer.byteLength(content, "utf8");
+    totalBytes += bytes;
+    sessions.push({ file, bytes, content });
+  }
+
+  // Guard the round-trip: the import endpoint rejects bodies over 4 MB, and the
+  // JSON envelope inflates CJK/control characters, so measure encoded bytes.
+  const encodedBytes = Buffer.byteLength(JSON.stringify(sessions), "utf8");
+  if (encodedBytes > maxBytes) {
+    throw new Error(
+      `Selected sessions are too large to embed in an export (${(encodedBytes / 1048576).toFixed(1)} MB encoded, limit ${(maxBytes / 1048576).toFixed(1)} MB); select fewer records`,
+    );
+  }
+
+  return { sessions, totalBytes };
+}
+
+export function importSessions({ sessions, env = process.env, overwrite = false } = {}) {
+  if (!Array.isArray(sessions)) throw new Error("sessions must be an array");
+  const sessionsDir = getSessionsDir(env);
+  let added = 0;
+  let replaced = 0;
+  let skipped = 0;
+  const failed = [];
+
+  for (const entry of sessions) {
+    const file = String(entry?.file ?? "").trim();
+    const content = String(entry?.content ?? "");
+    if (!file) {
+      failed.push({ file: "", reason: "empty path" });
+      continue;
+    }
+    try {
+      const filePath = resolveSessionFile(file, sessionsDir);
+      const exists = fs.existsSync(filePath);
+      if (exists && !overwrite) {
+        skipped += 1;
+        continue;
+      }
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, content, { mode: 0o600 });
+      if (exists) replaced += 1;
+      else added += 1;
+    } catch (err) {
+      failed.push({ file, reason: err.message });
+    }
+  }
+
+  return { added, replaced, skipped, failed, total: sessions.length };
 }
