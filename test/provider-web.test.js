@@ -817,3 +817,135 @@ test("provider web batch delete rejects an empty file list", async () => {
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web lists, deletes and round-trips prompt history through export/import", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-history-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  fs.mkdirSync(path.join(agentDir, "sessions", "--test-proj--"), { recursive: true });
+  fs.mkdirSync(path.join(agentDir, "sessions", "--other-proj--"), { recursive: true });
+  fs.writeFileSync(
+    path.join(agentDir, "sessions", "--test-proj--", "prompt-history"),
+    JSON.stringify("keep me") + "\n" + JSON.stringify("delete me") + "\n" + JSON.stringify("delete me") + "\n",
+  );
+  fs.writeFileSync(
+    path.join(agentDir, "sessions", "--other-proj--", "prompt-history"),
+    JSON.stringify("other prompt") + "\n",
+  );
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+
+    const listRes = await fetch(`${base}/api/prompt-history?token=${token}`);
+    assert.equal(listRes.status, 200);
+    const listed = await listRes.json();
+    assert.equal(listed.totalEntries, 3);
+    const proj = listed.projects.find((p) => p.dir === "--test-proj--");
+    assert.ok(proj, "test-proj must be listed");
+    // duplicates collapse: 3 raw lines -> 2 entries + 1 duplicate
+    assert.equal(proj.entries.length, 2);
+    assert.equal(proj.duplicates, 1);
+    assert.equal(proj.entries[0].text, "delete me");
+    assert.equal(proj.entries[1].text, "keep me");
+    const delIdx = proj.entries[0].index;
+
+    const batchRes = await fetch(`${base}/api/prompt-history/delete-batch?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project: "--test-proj--", indexes: [delIdx, 99] }),
+    });
+    assert.equal(batchRes.status, 200);
+    const batch = await batchRes.json();
+    assert.equal(batch.deleted, 1);
+    assert.equal(batch.failed.length, 1);
+    assert.match(batch.failed[0].reason, /out of range|invalid|not found/i);
+
+    const afterList = await (await fetch(`${base}/api/prompt-history?token=${token}`)).json();
+    const afterProj = afterList.projects.find((p) => p.dir === "--test-proj--");
+    assert.equal(afterProj.entries.length, 1);
+    assert.equal(afterProj.entries[0].text, "keep me");
+
+    // export must carry prompt history alongside providers/sessions
+    const exportRes = await fetch(`${base}/api/providers/export?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(exportRes.status, 200);
+    const exported = await exportRes.json();
+    assert.ok(Array.isArray(exported.promptHistory), "export must carry promptHistory");
+    assert.equal(exported.promptHistory.length, 2);
+    const exportedProj = exported.promptHistory.find((p) => p.project === "--test-proj--");
+    assert.deepEqual(exportedProj.entries, ["keep me"]);
+
+    // import into a fresh agent dir restores history
+    const dstDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-history-dst-"));
+    process.env.PI_CODING_AGENT_DIR = dstDir;
+    const importRes = await fetch(`${base}/api/providers/import?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ config: exported, overwrite: true }),
+    });
+    assert.equal(importRes.status, 200);
+    const imported = await importRes.json();
+    assert.ok(imported.promptHistory, "import result must report prompt history restore");
+    assert.equal(imported.promptHistory.added, 2);
+    assert.equal(imported.promptHistory.failed.length, 0);
+    const restored = fs.readFileSync(path.join(dstDir, "sessions", "--test-proj--", "prompt-history"), "utf8");
+    assert.deepEqual(restored.trim().split("\n").map((l) => JSON.parse(l)), ["keep me"]);
+
+    // delete-all clears every project
+    const delAllRes = await fetch(`${base}/api/prompt-history/delete-all?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    });
+    assert.equal(delAllRes.status, 200);
+    const delAll = await delAllRes.json();
+    assert.equal(delAll.deleted, 2);
+    assert.equal(fs.existsSync(path.join(dstDir, "sessions", "--test-proj--", "prompt-history")), false);
+    fs.rmSync(dstDir, { recursive: true, force: true });
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("provider web prompt history delete rejects traversal and missing project", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-history-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    for (const project of ["../evil", "a/b", ".."]) {
+      const res = await fetch(`${base}/api/prompt-history/delete?token=${token}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project, index: 0 }),
+      });
+      assert.equal(res.status, 400);
+      assert.match((await res.json()).error, /Invalid project/);
+    }
+    const noProject = await fetch(`${base}/api/prompt-history/delete?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ index: 0 }),
+    });
+    assert.equal(noProject.status, 400);
+    const emptyBatch = await fetch(`${base}/api/prompt-history/delete-batch?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ project: "--p--", indexes: [] }),
+    });
+    assert.equal(emptyBatch.status, 400);
+    assert.match((await emptyBatch.json()).error, /indexes must be a non-empty array/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
