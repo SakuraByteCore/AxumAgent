@@ -244,13 +244,15 @@ blocked.
 `-p`/`--plan-relay` turns a finished plan into work without retyping it. After `/blueprint
 <task>` delivers a plan, dispatch `/spawn -p` (optionally with a short note: `/spawn -p use
 Postgres`) and the spawned agent receives the plan verbatim as its first instruction, with a
-directive to implement it exactly and not re-plan. If the blueprint is still running when you
-dispatch, the spawn waits for it to finish before starting. `-p=<agentId>` (or
+directive to implement it exactly and not re-plan. If the blueprint is still mid-turn when you
+dispatch, the spawn waits for that turn to settle — whether the blueprint then retires with the
+plan delivered back (`/blueprint`) or parks idle as an interactive plan agent (`/agent -P`) — and
+relays the finished plan. `-p=<agentId>` (or
 `--plan-relay=<agentId>`) targets a specific blueprint instead of the most recent one. Plans
 that failed, were interrupted, or never finished are rejected with an error — nothing is
 silently improvised. Without `-p`, dispatching while a blueprint is still running shows a
-non-blocking warning suggesting `-p`. The delivered result notes which blueprint session the plan
-came from.
+non-blocking warning suggesting `-p`. The spawned agent's transcript details carry the source
+blueprint's session id for traceability.
 
 ## One-keystroke presets (fork addition)
 

@@ -14,16 +14,24 @@ const RELAY_DIRECTIVE =
 /** Marker an interrupted turn's response starts with (see interruptedTurnResponse). */
 const INTERRUPTED_RESPONSE_PREFIX = "Interrupted by user.";
 
-/** A plan-mode agent seen as a relay source; live ones carry a `finished` promise. */
+/** How often the relay re-checks a live blueprint while waiting for its plan. */
+const WAIT_POLL_MS = 250;
+
+const DEFAULT_SLEEP = (ms: number): Promise<void> =>
+	new Promise((resolve) => {
+		setTimeout(resolve, ms);
+	});
+
+/** A plan-mode agent seen as a relay source; `live` means its plan is not final yet. */
 export type PlanRelayCandidate = {
 	id: string;
 	sessionId: string;
 	task: string;
 	startedAt: number;
-	/** The finished plan text; absent while the agent is still live. */
+	/** Set while the source agent is mid-turn (starting/running): the relay must wait. */
+	live?: boolean;
+	/** The finished plan text; absent while live. */
 	planText?: string;
-	/** Resolves when a live agent's run ends; absent for completed sources. */
-	finished?: Promise<void>;
 	/** Whether the source's turn ended successfully; absent while live. */
 	ok?: boolean;
 };
@@ -41,9 +49,11 @@ export type PlanRelayLookup = {
 	running: () => PlanRelayCandidate[];
 	completed: () => PlanRelayCandidate[];
 	notify?: (message: string) => void;
+	/** Sleep between re-checks while waiting for a live blueprint (tests inject an instant tick). */
+	sleep?: (ms: number) => Promise<void>;
 };
 
-/** Map a live RunningAgent to a relay candidate; only mid-turn agents stay awaitable. */
+/** Map a live RunningAgent to a relay candidate; only mid-turn agents stay live. */
 export function runningPlanCandidate(agent: RunningAgent): PlanRelayCandidate {
 	const base = {
 		id: agent.id,
@@ -52,7 +62,7 @@ export function runningPlanCandidate(agent: RunningAgent): PlanRelayCandidate {
 		startedAt: agent.startedAt,
 	};
 	const live = agent.status === "starting" || agent.status === "running";
-	if (live) return { ...base, finished: agent.finished };
+	if (live) return { ...base, live: true };
 	return {
 		...base,
 		planText: agent.responseText,
@@ -93,8 +103,13 @@ export function selectPlanCandidate(
 }
 
 /**
- * Resolve the -p reference to a validated plan source: a live plan agent is awaited first,
- * then re-read from the completed pool; anything without usable plan text is a hard error.
+ * Resolve the -p reference to a validated plan source: a live candidate is polled until its
+ * turn settles — retiring into the completed pool, or parking idle with the plan as its final
+ * response — and anything without usable plan text is a hard error.
+ *
+ * The RunningAgent `finished` promise is deliberately not awaited: it settles on retirement,
+ * and an interrupted or interactive (`/agent -P`) plan agent parks idle while staying alive,
+ * which would hang the relay forever. The published `status` is the only turn-settlement signal.
  */
 export async function resolvePlanRelay(ref: string, lookup: PlanRelayLookup): Promise<PlanRelaySource> {
 	const candidate = selectPlanCandidate(ref, lookup.running(), lookup.completed());
@@ -105,15 +120,29 @@ export async function resolvePlanRelay(ref: string, lookup: PlanRelayLookup): Pr
 				: `No plan-mode agent with id ${ref} to relay.`,
 		);
 	}
-	if (candidate.finished) {
-		lookup.notify?.(
-			`Blueprint ${candidate.id} is still running — waiting for its plan before dispatching.`,
-		);
-		await candidate.finished;
-		const settled = selectPlanCandidate(candidate.id, [], lookup.completed());
-		return requirePlanText(settled, candidate.id);
+	if (!candidate.live) return requirePlanText(candidate, candidate.id);
+	lookup.notify?.(
+		`Blueprint ${candidate.id} is still running — waiting for its plan before dispatching.`,
+	);
+	const settled = await waitUntilSettled(ref, candidate, lookup);
+	return requirePlanText(settled, settled.id);
+}
+
+async function waitUntilSettled(
+	ref: string,
+	last: PlanRelayCandidate,
+	lookup: PlanRelayLookup,
+): Promise<PlanRelayCandidate> {
+	const sleep = lookup.sleep ?? DEFAULT_SLEEP;
+	while (true) {
+		await sleep(WAIT_POLL_MS);
+		const again = selectPlanCandidate(ref, lookup.running(), lookup.completed());
+		// Vanished from both pools: retired without a completed entry (aborted/closed). Fall
+		// through with the stale live candidate so requirePlanText reports the unusable plan.
+		if (!again) return last;
+		if (!again.live) return again;
+		last = again;
 	}
-	return requirePlanText(candidate, candidate.id);
 }
 
 /** Compose the dispatched agent's first instruction: directive + verbatim plan + optional supplement. */

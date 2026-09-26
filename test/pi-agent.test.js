@@ -501,19 +501,17 @@ test("selectPlanCandidate pins by id and picks the newest blueprint for latest",
 });
 
 test("resolvePlanRelay waits for a live blueprint, then relays the finished plan", async () => {
-  let resolveFinished;
-  const finished = new Promise((resolve) => {
-    resolveFinished = resolve;
-  });
-  const live = { id: "agent-1", sessionId: "s-bp", task: "plan the migration", startedAt: 5, finished };
+  const runningList = [{ id: "agent-1", sessionId: "s-bp", task: "plan the migration", startedAt: 5, live: true }];
   const completedList = [];
   const notified = [];
   const lookup = {
-    running: () => [live],
+    running: () => runningList,
     completed: () => completedList,
     notify: (message) => notified.push(message),
+    sleep: async () => {},
   };
   const relay = resolvePlanRelay(PLAN_REF_LATEST, lookup);
+  runningList.length = 0;
   completedList.push({
     id: "agent-1",
     sessionId: "s-bp",
@@ -522,7 +520,6 @@ test("resolvePlanRelay waits for a live blueprint, then relays the finished plan
     planText: "# Migration plan\n1. first step",
     ok: true,
   });
-  resolveFinished();
   const source = await relay;
   assert.equal(source.id, "agent-1");
   assert.equal(source.sessionId, "s-bp");
@@ -530,6 +527,45 @@ test("resolvePlanRelay waits for a live blueprint, then relays the finished plan
   assert.equal(source.task, "plan the migration");
   assert.equal(notified.length, 1);
   assert.match(notified[0], /still running/);
+});
+
+test("resolvePlanRelay relays a blueprint that parks idle after its turn", async () => {
+  const runningList = [{ id: "bp", sessionId: "s-bp", task: "plan it", startedAt: 1, live: true }];
+  const lookup = { running: () => runningList, completed: () => [], sleep: async () => {} };
+  const relay = resolvePlanRelay("bp", lookup);
+  runningList[0] = {
+    id: "bp",
+    sessionId: "s-bp",
+    task: "plan it",
+    startedAt: 1,
+    planText: "# parked plan",
+    ok: true,
+  };
+  const source = await relay;
+  assert.equal(source.planText, "# parked plan");
+});
+
+test("resolvePlanRelay rejects a blueprint whose turn ends interrupted", async () => {
+  const runningList = [{ id: "bp", sessionId: "s", task: "t", startedAt: 1, live: true }];
+  const lookup = { running: () => runningList, completed: () => [], sleep: async () => {} };
+  const relay = resolvePlanRelay(PLAN_REF_LATEST, lookup);
+  runningList[0] = {
+    id: "bp",
+    sessionId: "s",
+    task: "t",
+    startedAt: 1,
+    planText: "Interrupted by user.\npartial",
+    ok: false,
+  };
+  await assert.rejects(relay, /did not finish with a usable plan/);
+});
+
+test("resolvePlanRelay rejects a blueprint that vanishes without finishing", async () => {
+  const runningList = [{ id: "bp", sessionId: "s", task: "t", startedAt: 1, live: true }];
+  const lookup = { running: () => runningList, completed: () => [], sleep: async () => {} };
+  const relay = resolvePlanRelay(PLAN_REF_LATEST, lookup);
+  runningList.length = 0;
+  await assert.rejects(relay, /did not finish with a usable plan/);
 });
 
 test("resolvePlanRelay rejects sources without a usable plan", async () => {
@@ -545,11 +581,6 @@ test("resolvePlanRelay rejects sources without a usable plan", async () => {
   const interrupted = { id: "a", sessionId: "s", task: "t", startedAt: 1, planText: "Interrupted by user.\npartial", ok: false };
   await assert.rejects(
     resolvePlanRelay(PLAN_REF_LATEST, { running: () => [interrupted], completed: () => [] }),
-    /did not finish with a usable plan/,
-  );
-  const neverCompleted = { id: "a", sessionId: "s", task: "t", startedAt: 1, finished: Promise.resolve() };
-  await assert.rejects(
-    resolvePlanRelay(PLAN_REF_LATEST, { running: () => [neverCompleted], completed: () => [] }),
     /did not finish with a usable plan/,
   );
 });

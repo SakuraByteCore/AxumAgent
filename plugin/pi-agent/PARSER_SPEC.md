@@ -56,8 +56,8 @@ leading whitespace (unchanged from today).
 path. A preceding `--provider` scopes either spelling. `-s` is the extension's squash option.
 `-P` is the extension's plan option: when set, the runner wraps `task` in the plan prompt
 template (`~/.pi/agent/plan-prompt.md`, with a built-in fallback matching pi-companion's `/plan`)
-before dispatching. `-p/--plan-relay` relays a finished plan-mode agent's plan verbatim instead
-of a new task: the runner waits for a live blueprint, then injects the plan as the first
+of a new task: the runner waits for a live blueprint's current turn to settle (delivered back,
+parked idle, or rejected when interrupted/failed), then injects the plan as the first
 instruction (skipping the plan-prompt wrap) and adopts the blueprint's task as the label when
 the task prose is empty. `plan` and `planRef` are mutually exclusive (combining `-P` with `-p`
 is an error). The attached form `-p=<agentId>` (or `--plan-relay=<agentId>`) selects a specific
