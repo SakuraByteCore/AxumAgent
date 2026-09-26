@@ -61,12 +61,6 @@ export const bundledPiPackages = [
   // pulls mem0ai → better-sqlite3 (native, no android-arm64 prebuild) and
   // cannot install on Android/Termux. Single-file, zero native deps.
   { name: "pi-memory@file:plugin/pi-memory", packageName: "pi-memory", extensionPath: "index.ts", android: true },
-  // pi-cc-extensions: Claude Code-style TUI output (tool summaries, fold/expand,
-  // rich edit/write diffs, /ccstyle config panel, context inspection, mermaid
-  // box-drawing render). Pure TS + WASM shiki (jiti/@shikijs/cli/grok-mermaid),
-  // zero native deps; strip-safe TS (no enums/parameter properties),
-  // loads on all platforms including Android/Termux.
-  { name: "pi-cc-extensions@0.9.5", packageName: "pi-cc-extensions", extensionPath: "extensions/index.ts", android: true },
 
   // pi-notify: Windows Toast notifications with terminal focus + BEL fallback.
   // Ships Windows-only helper binaries/scripts (activate.exe, *.ps1, *.vbs) and
