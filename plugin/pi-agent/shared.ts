@@ -30,6 +30,8 @@ export type ParsedAgentCommand = {
 	squash: boolean;
 	/** Wrap the task in the plan prompt template before dispatching (extension-owned -P/--plan). */
 	plan: boolean;
+	/** -p/--plan-relay reference: "latest" or an agent id; absent when -p was not passed. */
+	planRef?: string;
 	/** Leading pi CLI tokens (minus the extension's own options) to forward to the child, e.g. ["--thinking", "high"]. */
 	forwardedArgs: string[];
 	task: string;
@@ -93,6 +95,8 @@ export type AgentCommandDetails = {
 	compressionApplied?: boolean;
 	/** Reference to full content (sessionId) when compression is applied. */
 	fullContentReference?: string;
+	/** Blueprint session whose plan this agent relayed via -p, when applicable. */
+	planSourceSessionId?: string;
 };
 
 export type RunningAgent = {
@@ -110,6 +114,8 @@ export type RunningAgent = {
 	notifyMainAgent: boolean;
 	/** Whether this agent was dispatched in plan mode (-P/--plan). */
 	planMode: boolean;
+	/** Blueprint session the -p relay consumed; carried into result details for traceability. */
+	planSourceSessionId?: string;
 	/** Fingerprint of the main context the child was dispatched from ("[]" for -i); the rebase fast-forward base. */
 	dispatchBaseFingerprint: string;
 	mainContextState: MainContextState;
@@ -150,6 +156,8 @@ export type CompletedAgent = {
 	task: string;
 	/** The slash command line as the user typed it, e.g. `/spawn fix the bug`. */
 	invocation: string;
+	/** Whether this agent ran in plan mode (-P/--plan), i.e. a relayable blueprint. */
+	planMode: boolean;
 	dispatchBaseFingerprint: string;
 	mainContextState: MainContextState;
 	pendingSquashMessage?: AgentResultMessage;

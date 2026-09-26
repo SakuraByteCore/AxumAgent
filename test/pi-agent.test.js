@@ -29,6 +29,12 @@ import {
   parseAgentCommand,
 } from "../plugin/pi-agent/command-line.ts";
 
+import {
+	PLAN_REF_LATEST,
+	composeRelayInstruction,
+	resolvePlanRelay,
+	selectPlanCandidate,
+} from "../plugin/pi-agent/plan-relay.ts";
 function createPi() {
   const commands = new Map();
   const tools = new Map();
@@ -233,11 +239,12 @@ test("parseAgentCommand with -P but no task fails with the usage error", () => {
   );
 });
 
-test("parseAgentCommand keeps lowercase -p blocked (plan uses uppercase -P)", () => {
-  assert.throws(
-    () => parseAgentCommand("-p do the thing", "agent"),
-    /does not support -p/,
-  );
+test("parseAgentCommand consumes lowercase -p as plan-relay (latest blueprint)", () => {
+  const parsed = parseAgentCommand("-p do the thing", "agent");
+  assert.equal(parsed.planRef, "latest");
+  assert.equal(parsed.plan, false);
+  assert.equal(parsed.task, "do the thing");
+  assert.throws(() => parseAgentCommand("--print now", "agent"), /does not support --print/);
 });
 
 // ── plan prompt assembly ──────────────────────────────────────────────────
@@ -452,4 +459,109 @@ test("getFinalAssistantText throws when the turn produced no assistant message",
 test("NO_TEXT_RESPONSE_NUDGE asks for a plain-text final answer", () => {
   assert.ok(NO_TEXT_RESPONSE_NUDGE.length > 0);
   assert.match(NO_TEXT_RESPONSE_NUDGE, /plain text/);
+});
+
+test("parser: -p/--plan-relay parses latest, attached ids, and keeps task optional", () => {
+  const bare = parseAgentCommand("-p", "spawn");
+  assert.equal(bare.planRef, "latest");
+  assert.equal(bare.plan, false);
+  assert.equal(bare.task, "");
+  const withFlags = parseAgentCommand("-s -p", "spawn");
+  assert.equal(withFlags.planRef, "latest");
+  assert.equal(withFlags.squash, true);
+  assert.equal(withFlags.task, "");
+  const pinned = parseAgentCommand("-p=user-3 -s do it with Postgres", "spawn");
+  assert.equal(pinned.planRef, "user-3");
+  assert.equal(pinned.squash, true);
+  assert.equal(pinned.task, "do it with Postgres");
+  const long = parseAgentCommand("--plan-relay=agent-9", "spawn");
+  assert.equal(long.planRef, "agent-9");
+  const prose = parseAgentCommand("deploy with -p flag on", "spawn");
+  assert.equal(prose.planRef, undefined);
+  assert.equal(prose.task, "deploy with -p flag on");
+});
+
+test("parser: -p gates empty-task usage and rejects -P/-p combination", () => {
+  assert.throws(() => parseAgentCommand("-s", "spawn"), /Usage:/);
+  assert.throws(() => parseAgentCommand("-P", "spawn"), /Usage:/);
+  assert.throws(() => parseAgentCommand("-P -p fix it", "spawn"), /cannot combine -P/);
+  assert.throws(() => parseAgentCommand("--print", "spawn"), /does not support --print/);
+  const relayOnly = parseAgentCommand("-p", "spawn");
+  assert.equal(relayOnly.plan, false);
+  assert.equal(relayOnly.planRef, "latest");
+});
+
+test("selectPlanCandidate pins by id and picks the newest blueprint for latest", () => {
+  const older = { id: "agent-1", sessionId: "s1", task: "t1", startedAt: 1, planText: "p1", ok: true };
+  const newer = { id: "agent-2", sessionId: "s2", task: "t2", startedAt: 2, planText: "p2", ok: true };
+  assert.equal(selectPlanCandidate("agent-1", [], [older, newer]).id, "agent-1");
+  assert.equal(selectPlanCandidate(PLAN_REF_LATEST, [], [older, newer]).id, "agent-2");
+  assert.equal(selectPlanCandidate(PLAN_REF_LATEST, [older], [newer]).id, "agent-2");
+  assert.equal(selectPlanCandidate("agent-9", [older], [newer]), undefined);
+});
+
+test("resolvePlanRelay waits for a live blueprint, then relays the finished plan", async () => {
+  let resolveFinished;
+  const finished = new Promise((resolve) => {
+    resolveFinished = resolve;
+  });
+  const live = { id: "agent-1", sessionId: "s-bp", task: "plan the migration", startedAt: 5, finished };
+  const completedList = [];
+  const notified = [];
+  const lookup = {
+    running: () => [live],
+    completed: () => completedList,
+    notify: (message) => notified.push(message),
+  };
+  const relay = resolvePlanRelay(PLAN_REF_LATEST, lookup);
+  completedList.push({
+    id: "agent-1",
+    sessionId: "s-bp",
+    task: "plan the migration",
+    startedAt: 5,
+    planText: "# Migration plan\n1. first step",
+    ok: true,
+  });
+  resolveFinished();
+  const source = await relay;
+  assert.equal(source.id, "agent-1");
+  assert.equal(source.sessionId, "s-bp");
+  assert.equal(source.planText, "# Migration plan\n1. first step");
+  assert.equal(source.task, "plan the migration");
+  assert.equal(notified.length, 1);
+  assert.match(notified[0], /still running/);
+});
+
+test("resolvePlanRelay rejects sources without a usable plan", async () => {
+  const emptyLookup = { running: () => [], completed: () => [] };
+  await assert.rejects(resolvePlanRelay(PLAN_REF_LATEST, emptyLookup), /No plan-mode agent to relay/);
+  await assert.rejects(resolvePlanRelay("agent-7", emptyLookup), /No plan-mode agent with id agent-7/);
+  const failed = { id: "a", sessionId: "s", task: "t", startedAt: 1, planText: "", ok: false };
+  await assert.rejects(
+    resolvePlanRelay(PLAN_REF_LATEST, { running: () => [failed], completed: () => [] }),
+    /did not finish with a usable plan/,
+  );
+  // ok:false mirrors what runningPlanCandidate/completedPlanCandidate compute for interrupted text.
+  const interrupted = { id: "a", sessionId: "s", task: "t", startedAt: 1, planText: "Interrupted by user.\npartial", ok: false };
+  await assert.rejects(
+    resolvePlanRelay(PLAN_REF_LATEST, { running: () => [interrupted], completed: () => [] }),
+    /did not finish with a usable plan/,
+  );
+  const neverCompleted = { id: "a", sessionId: "s", task: "t", startedAt: 1, finished: Promise.resolve() };
+  await assert.rejects(
+    resolvePlanRelay(PLAN_REF_LATEST, { running: () => [neverCompleted], completed: () => [] }),
+    /did not finish with a usable plan/,
+  );
+});
+
+test("composeRelayInstruction embeds the plan verbatim with an optional supplement", () => {
+  const source = { id: "agent-1", sessionId: "s-bp", task: "plan it", planText: "PLAN BODY" };
+  const bare = composeRelayInstruction(source, "");
+  assert.match(bare, /do not re-plan/);
+  assert.match(bare, /verbatim, from blueprint agent-1/);
+  assert.ok(bare.includes("PLAN BODY"));
+  assert.ok(!bare.includes("Additional instruction"));
+  const withNote = composeRelayInstruction(source, "use Postgres");
+  assert.match(withNote, /Additional instruction from the user: use Postgres/);
+  assert.ok(withNote.includes("PLAN BODY"));
 });

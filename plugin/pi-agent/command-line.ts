@@ -1,4 +1,7 @@
 import type { AgentCommandName, ParsedAgentCommand } from "./shared.js";
+// Kept as a local literal so command-line.ts stays a leaf module (Node's strip-types runs the
+// tests without pi's jiti loader); plan-relay.ts exports the same value as PLAN_REF_LATEST.
+const PLAN_REF_LATEST = "latest";
 
 export type ValueCompletionDomain = "model" | "path" | "provider" | "thinking" | "tool";
 export type AgentOptionRole = "extension" | "forwarded" | "blocked";
@@ -59,6 +62,8 @@ export type AgentArgumentScan = {
 	isolate: boolean;
 	squash: boolean;
 	plan: boolean;
+	/** -p/--plan-relay reference: "latest" or an agent id; present only when -p was passed. */
+	planRef?: string;
 	forwardedArgs: string[];
 	/** Ordered, non-overlapping semantic tokens over the argument text. Prose stays untokenized. */
 	tokens: AgentSemanticToken[];
@@ -130,6 +135,14 @@ export const AGENT_OPTIONS: readonly AgentOptionDefinition[] = [
 		arity: "boolean",
 		autocomplete: true,
 		description: "Wrap the task in the plan prompt template",
+	},
+	{
+		semanticId: "plan-relay",
+		names: ["-p", "--plan-relay"],
+		role: "extension",
+		arity: "boolean",
+		autocomplete: true,
+		description: "Relay a finished plan-mode agent's plan instead of a new task (-p or -p=<agentId>)",
 	},
 	{
 		semanticId: "provider",
@@ -273,6 +286,10 @@ export const AGENT_OPTIONS: readonly AgentOptionDefinition[] = [
 const OPTION_BY_NAME = new Map(
 	AGENT_OPTIONS.flatMap((option) => option.names.map((name) => [name, option] as const)),
 );
+/** The plan-relay option definition, for tokens synthesized from the attached `-p=<agentId>` form. */
+const PLAN_RELAY_OPTION = AGENT_OPTIONS.find((option) => option.semanticId === "plan-relay");
+/** Attached-value form accepted for the relay reference, e.g. `-p=user-3` or `--plan-relay=user-3`. */
+const PLAN_RELAY_ATTACHED = /^(?:-p|--plan-relay)=(.*)$/;
 const QUOTE_PAIRS: Readonly<Record<string, string>> = {
 	'"': '"',
 	"'": "'",
@@ -307,7 +324,7 @@ function booleanOptionsWithoutChildEffect(): AgentOptionDefinition[] {
 function blockedOptions(): AgentOptionDefinition[] {
 	return [
 		blockedOption("continue", ["-c", "--continue"]),
-		blockedOption("print", ["-p", "--print"]),
+		blockedOption("print", ["--print"]),
 		blockedOption("theme", ["--theme"], "value"),
 		blockedOption("models", ["--models"]),
 		blockedOption("export", ["--export"]),
@@ -371,6 +388,7 @@ export function scanAgentArguments(
 	let isolate = false;
 	let squash = false;
 	let plan = false;
+	let planRef: string | undefined;
 	let blocked: AgentSemanticToken | undefined;
 	let consumedOption = false;
 	let position = 0;
@@ -382,6 +400,14 @@ export function scanAgentArguments(
 		let tokenEnd = tokenStart;
 		while (tokenEnd < args.length && !/\s/.test(args[tokenEnd] ?? "")) tokenEnd += 1;
 		const token = args.slice(tokenStart, tokenEnd);
+		const attachedRelay = PLAN_RELAY_ATTACHED.exec(token);
+		if (attachedRelay !== null && PLAN_RELAY_OPTION) {
+			planRef ??= attachedRelay[1]?.trim() || PLAN_REF_LATEST;
+			tokens.push({ semantic: "option", start: tokenStart, end: tokenEnd, option: PLAN_RELAY_OPTION });
+			position = tokenEnd;
+			consumedOption = true;
+			continue;
+		}
 		const option = token === "" ? undefined : OPTION_BY_NAME.get(token);
 		if (token === "" || option === undefined) {
 			proseStart = consumedOption ? tokenStart : 0;
@@ -407,6 +433,8 @@ export function scanAgentArguments(
 			squash = true;
 		} else if (option.semanticId === "plan") {
 			plan = true;
+		} else if (option.semanticId === "plan-relay") {
+			planRef ??= PLAN_REF_LATEST;
 		} else if (option.arity === "value") {
 			forwardedArgs.push(option.forwardName ?? token);
 			const read = readValueSpan(args, position);
@@ -441,6 +469,7 @@ export function scanAgentArguments(
 		isolate,
 		squash,
 		plan,
+		planRef,
 		forwardedArgs,
 		tokens,
 		proseStart,
@@ -498,11 +527,16 @@ export function parseAgentCommand(args: string, command: AgentCommandName): Pars
 			`/${command} does not support ${token}; it would disrupt the background agent run.`,
 		);
 	}
-	if (!scan.prose.trim())
+	if (scan.plan && scan.planRef)
 		throw new Error(
-			`Usage: /${command} [pi options] [-m MODELNAME] [-i|--isolate] [-s|--squash] [-P|--plan] "<task>"`,
+			`/${command} cannot combine -P (plan a new task) with -p (relay a finished plan); pick one.`,
+		);
+	if (!scan.prose.trim() && !scan.planRef)
+		throw new Error(
+			`Usage: /${command} [pi options] [-m MODELNAME] [-i|--isolate] [-s|--squash] [-P|--plan] [-p|--plan-relay] "<task>"`,
 		);
 	return {
+		planRef: scan.planRef,
 		isolate: scan.isolate,
 		squash: scan.squash,
 		plan: scan.plan,

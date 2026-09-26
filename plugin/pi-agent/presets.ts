@@ -12,7 +12,7 @@ export const AGENT_PRESETS: readonly AgentPreset[] = [
 		name: "spawn",
 		flags: ["-s"],
 		description:
-			"Run a background agent on this conversation's context and deliver its result back automatically: /spawn <task>",
+			"Run a background agent on this conversation's context and deliver its result back automatically: /spawn <task>. Add -p to relay the latest /blueprint plan instead of writing a new task: /spawn -p [note]",
 	},
 	{
 		name: "scout",

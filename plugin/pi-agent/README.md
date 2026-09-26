@@ -161,6 +161,7 @@ The general form is one command: `/agent [options] <task>`. Three one-keystroke 
 | `-i`, `--isolate` | Start without the conversation snapshot |
 | `-s`, `--squash` | Deliver the result into the main context on completion |
 | `-P`, `--plan` | Wrap the task in the plan prompt template (see *Plan mode* below) |
+| `-p`, `--plan-relay` | Relay the latest finished blueprint's plan verbatim instead of a new task; add a short note to append extra instruction (`-p=<agentId>` picks a specific blueprint) |
 | `-m MODEL` | Model for this agent (alias of Pi's `--model`) |
 | *pi CLI options* | Forwarded to the agent — `--thinking`, `--tools`, `--system-prompt`, … |
 
@@ -234,8 +235,22 @@ The requirement text replaces `{{requirement}}` in the template at `~/.pi/agent/
 if that file exists; otherwise a built-in skeleton identical to `/plan`'s is used. The flag
 composes freely with the others (as above, `-s` squashes the finished plan back into the main
 conversation). A template file that is empty or lacks `{{requirement}}` aborts the dispatch
-with an error instead of sending a malformed prompt. Lowercase `-p` stays blocked (it is pi's
-`--print`), which is why the short form is uppercase `-P`.
+with an error instead of sending a malformed prompt. Lowercase `-p` used to be blocked (it is pi's
+`--print`); it now belongs to plan-relay — see *Plan relay* below — and only `--print` stays
+blocked.
+
+## Plan relay (fork addition)
+
+`-p`/`--plan-relay` turns a finished plan into work without retyping it. After `/blueprint
+<task>` delivers a plan, dispatch `/spawn -p` (optionally with a short note: `/spawn -p use
+Postgres`) and the spawned agent receives the plan verbatim as its first instruction, with a
+directive to implement it exactly and not re-plan. If the blueprint is still running when you
+dispatch, the spawn waits for it to finish before starting. `-p=<agentId>` (or
+`--plan-relay=<agentId>`) targets a specific blueprint instead of the most recent one. Plans
+that failed, were interrupted, or never finished are rejected with an error — nothing is
+silently improvised. Without `-p`, dispatching while a blueprint is still running shows a
+non-blocking warning suggesting `-p`. The delivered result notes which blueprint session the plan
+came from.
 
 ## One-keystroke presets (fork addition)
 

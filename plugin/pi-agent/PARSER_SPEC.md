@@ -12,6 +12,7 @@ type ParsedAgentCommand = {
   isolate: boolean;          // -i / --isolate
   squash: boolean;           // -s / --squash
   plan: boolean;             // -P / --plan (wraps the task in the plan prompt template at dispatch time)
+  planRef?: string;           // -p / --plan-relay ("latest" or an agent id; set only when -p was passed)
   forwardedArgs: string[];   // recognized pi option tokens (+values) in input order, e.g. ["--thinking","high"]
   task: string;              // the prose prompt (backslash escapes applied, quotes kept). Never empty.
   warnings: string[];        // advisory messages (see §5). May be empty.
@@ -33,7 +34,9 @@ Read whitespace-delimited tokens from the front. Start in **args mode**.
 - **Prose** is the remainder of the original input starting at the flip token, kept verbatim
   except for backslash-escape processing (§6). Whitespace and quotes are preserved exactly.
 
-If options are consumed and nothing is left, that is a usage error (a task is required).
+If options are consumed and nothing is left, that is a usage error (a task is required) — unless
+`-p/--plan-relay` is present, in which case an empty task is allowed and the runner adopts the
+source plan agent's task as the label.
 When the very first token is prose, the entire original input is the task, including any
 leading whitespace (unchanged from today).
 
@@ -46,13 +49,21 @@ leading whitespace (unchanged from today).
 | `-i`, `--isolate` | boolean | Consumed here; `isolate = true` |
 | `-s`, `--squash` | boolean | Consumed here; `squash = true` |
 | `-P`, `--plan` | boolean | Consumed here; `plan = true` |
+| `-p`, `--plan-relay` | boolean | Consumed here; `planRef` = `"latest"`, or an agent id via the attached form `-p=<agentId>` / `--plan-relay=<agentId>` |
 
 `-m` and `--model` are one semantic option. Both require an exact live model ID, canonical
 `provider/id` reference, or user-defined alias before resolving through Pi's `resolveCliModel()`
 path. A preceding `--provider` scopes either spelling. `-s` is the extension's squash option.
 `-P` is the extension's plan option: when set, the runner wraps `task` in the plan prompt
 template (`~/.pi/agent/plan-prompt.md`, with a built-in fallback matching pi-companion's `/plan`)
-before dispatching. A lowercase `-p` stays blocked as `--print`, so plan uses uppercase `-P`.
+before dispatching. `-p/--plan-relay` relays a finished plan-mode agent's plan verbatim instead
+of a new task: the runner waits for a live blueprint, then injects the plan as the first
+instruction (skipping the plan-prompt wrap) and adopts the blueprint's task as the label when
+the task prose is empty. `plan` and `planRef` are mutually exclusive (combining `-P` with `-p`
+is an error). The attached form `-p=<agentId>` (or `--plan-relay=<agentId>`) selects a specific
+blueprint by agent id; `-p` alone targets the most recently dispatched plan-mode agent. A
+lowercase `-p` used to be blocked as `--print`; it now belongs to plan-relay, and `--print`
+remains blocked.
 A model option with no value and no remaining task ends in the normal
 **usage error**.
 
@@ -90,7 +101,7 @@ Value examples:
 - `-m "gpt56s"` → `forwardedArgs` contains `--model`, `gpt56s`.
 
 ### 3c. Blocked pi options — rejected
-`-c`/`--continue`, `-p`/`--print`, `--theme <path>`, `--models`, `--export`, `--list-models`,
+`-c`/`--continue`, `--print`, `--theme <path>`, `--models`, `--export`, `--list-models`,
 `-h`/`--help`, `-v`/`--version`.
 Appearing in **args mode** (leading) → hard **error**:
 `"/agent does not support <opt>; it would disrupt the background agent run."`

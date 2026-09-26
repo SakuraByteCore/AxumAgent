@@ -110,6 +110,8 @@ export class UserAgentWidget {
 			command: agent.command,
 			modelLabel: agent.modelLabel,
 			task: agent.task,
+			invocation: agent.invocation,
+			planMode: agent.planMode,
 			dispatchBaseFingerprint: agent.dispatchBaseFingerprint,
 			mainContextState: agent.mainContextState,
 			pendingSquashMessage: options.squashable ? resultMessage : undefined,
@@ -124,6 +126,11 @@ export class UserAgentWidget {
 			contextPercent: agent.session?.getContextUsage()?.percent ?? undefined,
 		});
 		this.update();
+	}
+
+	/** Completed plan-mode agents (newest completion last) — the -p relay's finished-plan pool. */
+	completedPlanAgents(): CompletedAgent[] {
+		return this.completedAgents.filter((agent) => agent.planMode);
 	}
 
 	ensureTimer(): void {

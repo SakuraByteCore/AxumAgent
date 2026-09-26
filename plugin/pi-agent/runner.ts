@@ -54,6 +54,12 @@ import {
 	formatStartNotification,
 	reportCommandError,
 } from "./transcript.js";
+import {
+	completedPlanCandidate,
+	composeRelayInstruction,
+	resolvePlanRelay,
+	runningPlanCandidate,
+} from "./plan-relay.js";
 import type { UserAgentWidget } from "./widget.js";
 
 export { parseAgentCommand };
@@ -88,6 +94,19 @@ export async function handleAgentCommand(
 	}
 }
 
+/** Warn (without blocking) when a dispatch skips -p while a blueprint is still mid-turn. */
+function warnLiveBlueprint(runningAgents: Set<RunningAgent>, ctx: ExtensionCommandContext): void {
+	const live = [...runningAgents].find(
+		(agent) => agent.planMode && (agent.status === "starting" || agent.status === "running"),
+	);
+	if (!live || !ctx.hasUI) return;
+	ctx.ui.notify(
+		`Blueprint ${live.id} is still running and its plan is not in this agent's context yet. ` +
+			"Dispatch again with -p to wait for the plan and relay it verbatim.",
+		"warning",
+	);
+}
+
 export async function startUserAgent(
 	pi: ExtensionAPI,
 	runningAgents: Set<RunningAgent>,
@@ -101,6 +120,23 @@ export async function startUserAgent(
 	ctx: ExtensionCommandContext,
 ): Promise<RunningAgent> {
 	const parsed = parseAgentCommand(args, command);
+	const userSupplement = parsed.task;
+	let relayInstruction: string | undefined;
+	let planSourceSessionId: string | undefined;
+	if (parsed.planRef) {
+		const source = await resolvePlanRelay(parsed.planRef, {
+			running: () => [...runningAgents].filter((agent) => agent.planMode).map(runningPlanCandidate),
+			completed: () => widget.completedPlanAgents().map(completedPlanCandidate),
+			notify: (message) => {
+				if (ctx.hasUI) ctx.ui.notify(message, "info");
+			},
+		});
+		if (!parsed.task) parsed.task = source.task;
+		relayInstruction = composeRelayInstruction(source, userSupplement);
+		planSourceSessionId = source.sessionId;
+	} else if (!parsed.plan) {
+		warnLiveBlueprint(runningAgents, ctx);
+	}
 	if (parsed.plan) {
 		parsed.task = await buildPlanPrompt(parsed.task);
 	}
@@ -134,6 +170,7 @@ export async function startUserAgent(
 		model,
 		parsed,
 		invocation,
+		planSourceSessionId,
 		conversationFingerprint(inheritedMessages),
 	);
 
@@ -150,7 +187,7 @@ export async function startUserAgent(
 	runningAgent.finished = runAgentLifecycle(
 		pi,
 		isShuttingDown,
-		parsed.task,
+		(relayInstruction ?? parsed.task),
 		model,
 		thinkingLevel,
 		forwarded,
@@ -189,6 +226,7 @@ function createRunningAgent(
 	model: Model,
 	parsed: ParsedAgentCommand,
 	invocation: string,
+	planSourceSessionId?: string,
 	dispatchBaseFingerprint: string,
 ): RunningAgent {
 	return {
@@ -202,6 +240,7 @@ function createRunningAgent(
 		invocation,
 		notifyMainAgent: parsed.squash,
 		planMode: parsed.plan,
+		planSourceSessionId,
 		dispatchBaseFingerprint,
 		mainContextState: parsed.squash ? "will-squash" : "separate",
 		status: "starting",

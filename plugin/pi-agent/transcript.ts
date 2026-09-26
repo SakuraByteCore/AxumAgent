@@ -88,6 +88,7 @@ export function buildMessageDetails(agent: RunningAgent, ok: boolean): AgentComm
 		model: agent.model,
 		modelLabel: agent.modelLabel,
 		task: agent.task,
+		planSourceSessionId: agent.planSourceSessionId,
 		ok,
 		durationMs: (agent.completedAt ?? Date.now()) - agent.turnStartedAt,
 		toolUses: agent.toolUses,
