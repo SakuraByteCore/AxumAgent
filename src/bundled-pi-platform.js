@@ -1,4 +1,5 @@
 import { bundledPiPackages } from "./bundled-pi-packages.js";
+import { userPackageExtensionEntries } from "./user-packages.js";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -149,5 +150,5 @@ export function getAllPluginExtensions(options = {}) {
   const user = getUserPluginPaths(options);
   const bundled = supportedBundledPiExtensions(options);
   
-  return [...project, ...user, ...bundled];
+  return [...project, ...user, ...userPackageExtensionEntries(options), ...bundled];
 }

@@ -10,6 +10,10 @@ import { supportedBundledPiPackages, supportedBundledPiSkills } from "../src/bun
 import { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, patchPiJitiLazyLoader, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchUndiciMarkAsUncloneableFallback, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE } from "../src/bundled-pi-patches.js";
 import { resolvePiCli, resolveBundledExtensions, existingBundledExtensions } from "../src/resolve-bundled-pi.js";
 
+// Hermeticity: pin the user packages manifest to a path that never exists so
+// a real ~/.axum/packages.json on the dev machine cannot leak into assertions.
+const NO_USER_PACKAGES = path.join(os.tmpdir(), "axum-test-no-user-packages.json");
+
 function writePackage(root, name, files = {}) {
   const dir = path.join(root, "node_modules", ...name.split("/"));
   fs.mkdirSync(dir, { recursive: true });
@@ -24,7 +28,7 @@ function writePackage(root, name, files = {}) {
 
 test("resolves bundled Pi from Axum cache directory", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-cache-"));
-  const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache } };
+  const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
@@ -48,7 +52,7 @@ test("resolves bundled Pi from Axum cache directory", () => {
 
 test("checks available Pi extensions on Android", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-android-cache-"));
-  const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache } };
+  const options = { platform: "android", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
@@ -76,7 +80,7 @@ test("checks available Pi extensions on Android", () => {
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-win-cache-"));
-  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES } };
   writePackage(cache, "@earendil-works/pi-coding-agent", { "dist/cli.js": "" });
   writePackage(cache, "pi-bar", { "index.ts": "" });
   writePackage(cache, "@narumitw/pi-goal", { "src/index.ts": "" });
@@ -159,7 +163,7 @@ pkg("@zzxb/pi-notify", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
 
-  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES }, npmCommand: fakeNpm };
   ensureBundledPi(options);
   const pluginDir = path.join(cache, "plugin", "pi-bar");
   const before = fs.statSync(pluginDir).mtimeMs;
@@ -173,7 +177,7 @@ pkg("@zzxb/pi-notify", { "index.ts": "" });
 
 test("ensureBundledPi rewrites malformed bundled chalk stubs on ready caches", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-chalk-"));
-  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache } };
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES } };
   const stdinBuffer = `const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
 const BRACKETED_PASTE_END = "\\x1b[201~";
@@ -234,7 +238,7 @@ test("cache root is stable and short outside npm package install directory", () 
 // of embedding every bundled package name in the directory path.
 test("Windows bundled Pi cache root avoids long package-name paths", () => {
   const root = getBundledPiCacheRoot({
-    env: { LOCALAPPDATA: "C:\\Users\\Ymkiux\\AppData\\Local", XDG_CACHE_HOME: "C:\\Users\\Ymkiux\\.cache" },
+    env: { LOCALAPPDATA: "C:\\Users\\Ymkiux\\AppData\\Local", XDG_CACHE_HOME: "C:\\Users\\Ymkiux\\.cache", AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES },
     platform: "win32",
     arch: "x64",
   });
@@ -488,7 +492,7 @@ pkg('pi-memory', { 'index.ts': '' });
 pkg('@zzxb/pi-notify', { 'index.ts': '' });
 `);
   fs.chmodSync(fakeNpm, 0o755);
-  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm };
+  const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES }, npmCommand: fakeNpm };
   ensureBundledPi(options);
   ensureBundledPi(options);
   assert.equal(fs.readFileSync(calls, "utf8").trim().split("\n").length, 1);
@@ -568,7 +572,7 @@ writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
 writePkg("@zzxb/pi-notify", { "index.ts": "" });
 `);
   fs.chmodSync(fakeNpm, 0o755);
-  ensureBundledPi({ env: { AXUM_BUNDLED_PI_DIR: cache }, npmCommand: fakeNpm });
+  ensureBundledPi({ env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES }, npmCommand: fakeNpm });
 
   assert.equal(fs.existsSync(marker), true);
   assert.equal(fs.existsSync(path.join(cache, "node_modules", "@earendil-works", "pi-ai", "dist", "index.js")), true);

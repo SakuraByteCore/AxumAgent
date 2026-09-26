@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { readCompileManifest } from "./compile-bundled-extensions.js";
 import { supportedBundledPiExtensions, getAllPluginExtensions } from "./bundled-pi-platform.js";
+import { userPackageExtensionEntries } from "./user-packages.js";
 
 function packageRoot(packageName, options) {
   const packageDir = packageDirName(packageName);
@@ -44,8 +45,9 @@ export function resolveBundledExtensions(options) {
 }
 
 export function existingBundledExtensions(options) {
-  // Only check bundled extensions, not user plugins (which may not exist yet)
-  const bundledOnly = supportedBundledPiExtensions(options).map((extension) => {
+  // Cache-managed extensions: bundled registry + user-installed packages from
+  // the manifest. Raw user/project plugins are excluded (they may not exist yet).
+  const managed = [...supportedBundledPiExtensions(options), ...userPackageExtensionEntries(options)].map((extension) => {
     const pkgRoot = packageRoot(extension.packageName, options);
     const entryPath = path.join(pkgRoot, extension.extensionPath);
     try {
@@ -54,5 +56,5 @@ export function existingBundledExtensions(options) {
     } catch { /* fall back to the TS source */ }
     return entryPath;
   });
-  return bundledOnly.filter((file) => fs.existsSync(file));
+  return managed.filter((file) => fs.existsSync(file));
 }

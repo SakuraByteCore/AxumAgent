@@ -10,6 +10,10 @@ function run(args) {
   return spawnSync(process.execPath, ["bin/axum.js", ...args], { encoding: "utf8" });
 }
 
+// Hermeticity: pin the user packages manifest to a path that never exists so
+// a real ~/.axum/packages.json on the dev machine cannot leak into child processes.
+const NO_USER_PACKAGES_FILE = path.join(os.tmpdir(), "axum-cli-test-no-user-packages.json");
+
 function writePackage(root, name, files = {}) {
   const dir = path.join(root, "node_modules", ...name.split("/"));
   fs.mkdirSync(dir, { recursive: true });
@@ -69,7 +73,7 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
 
 function writeWin32TestEnv(baseEnv, extra = {}) {
   const { TERMUX_VERSION, PREFIX, NODE_COMPILE_CACHE, ...cleanBase } = baseEnv;
-  return { ...cleanBase, AXUM_BUNDLED_PI_TEST_PLATFORM: "win32", ...extra };
+  return { ...cleanBase, AXUM_BUNDLED_PI_TEST_PLATFORM: "win32", AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES_FILE, ...extra };
 }
 
 function writeModelsConfig(agentDir, providers = {
@@ -499,4 +503,145 @@ test("axum versions prints the installed version", async () => {
   child.stderr.on("data", (chunk) => { output += chunk; });
   await new Promise((resolve) => child.once("exit", resolve));
   assert.match(output, new RegExp(`axum ${getInstalledVersion().replace(/\./g, "\\.")} \\(installed\\)`));
+});
+
+test("axum install <pkg> installs a user extension end to end", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-install-"));
+  const agentDir = path.join(dir, "agent");
+  const cache = path.join(dir, "cache");
+  const manifest = path.join(dir, "packages.json");
+  const argvFile = path.join(dir, "argv.json");
+  const fakeNpm = path.join(dir, "fake-npm.js");
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
+  const cliScript = `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)));`;
+  const stdinBuffer = `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}`;
+  fs.writeFileSync(fakeNpm, `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
+function pkg(name, files, manifest) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0', ...manifest })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
+pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': ${JSON.stringify(cliScript)}, 'dist/utils/tools-manager.js': 'export async function ensureTool() { return undefined; }\\n', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
+pkg('@earendil-works/pi-ai', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(stdinBuffer)} });
+pkg('pi-bar', { 'index.ts': 'export default {};' });
+pkg('@narumitw/pi-goal', { 'src/index.ts': 'export default {};' });
+pkg('pi-companion', { 'index.ts': 'export default {};' });
+pkg('pi-hashline-edit-pro', { 'index.ts': 'export default {};' });
+pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
+pkg('pi-agent', { 'index.ts': 'export default {};' });
+pkg('pi-subagents', { 'index.ts': 'export default {};' });
+pkg('pi-memory', { 'index.ts': 'export default {};' });
+pkg('@zzxb/pi-notify', { 'index.ts': 'export default {};' });
+pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./index.ts'] } });`);
+  fs.chmodSync(fakeNpm, 0o755);
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
+  writeModelsConfig(agentDir);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "install", "npm:pi-foo@1.0.0"], {
+    encoding: "utf8",
+    env: writeWin32TestEnv(process.env, { AXUM_BUNDLED_PI_DIR: cache, AXUM_BUNDLED_PI_NPM: fakeNpm, AXUM_USER_PACKAGES_FILE: manifest }),
+    timeout: 60000,
+  });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+  assert.match(result.stdout, /installed pi-foo@1\.0\.0 -> pi-foo\/index\.ts/);
+  const saved = JSON.parse(fs.readFileSync(manifest, "utf8"));
+  assert.deepEqual(saved.packages, [{ name: "pi-foo@1.0.0", packageName: "pi-foo", extensionPath: "index.ts" }]);
+  assert.equal(fs.existsSync(path.join(cache, "node_modules", "pi-foo", "index.js")), true);
+
+  const codeResult = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
+    encoding: "utf8",
+    env: writeWin32TestEnv(process.env, { AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir, AXUM_USER_PACKAGES_FILE: manifest }),
+    timeout: 60000,
+  });
+  assert.equal(codeResult.status, 0, codeResult.stderr);
+  const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
+  assert.equal(argv[0], "-ne");
+  assert.equal(argv.filter((arg) => arg === "-e").length, 10);
+  const userEntry = argv.filter((arg) => arg.includes("pi-foo"));
+  assert.equal(userEntry.length, 1, `pi-foo missing from argv: ${argv.join(" ")}`);
+  assert.equal(path.basename(userEntry[0]), "index.js");
+});
+
+test("axum install rejects packages managed by the bundled set", () => {
+  const result = spawnSync(process.execPath, ["bin/axum.js", "install", "npm:pi-memory@9.9.9"], {
+    encoding: "utf8",
+    env: writeWin32TestEnv(process.env),
+    timeout: 30000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /already part of Axum's bundled extension set/);
+});
+
+test("axum install rolls back the manifest when the package is not a Pi extension", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-install-rollback-"));
+  const cache = path.join(dir, "cache");
+  const manifest = path.join(dir, "packages.json");
+  const fakeNpm = path.join(dir, "fake-npm.js");
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
+  const cliScript = "";
+  const stdinBuffer = `const ESC = "\\x1b";
+const BRACKETED_PASTE_START = "\\x1b[200~";
+const BRACKETED_PASTE_END = "\\x1b[201~";
+class StdinBuffer {
+  process(data) {
+    let str;
+    if (Buffer.isBuffer(data)) {
+      str = data.toString();
+    } else {
+      str = data;
+    }
+        if (str.length === 0 && this.buffer.length === 0) {
+            this.emitDataSequence("");
+            return;
+        }
+  }
+}`;
+  const fixtures = `#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
+function pkg(name, files, manifest) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0', ...manifest })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
+pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': ${JSON.stringify(cliScript)}, 'dist/utils/tools-manager.js': 'export async function ensureTool() { return undefined; }\\n', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
+pkg('@earendil-works/pi-ai', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(stdinBuffer)} });
+pkg('pi-bar', { 'index.ts': 'export default {};' });
+pkg('@narumitw/pi-goal', { 'src/index.ts': 'export default {};' });
+pkg('pi-companion', { 'index.ts': 'export default {};' });
+pkg('pi-hashline-edit-pro', { 'index.ts': 'export default {};' });
+pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
+pkg('pi-agent', { 'index.ts': 'export default {};' });
+pkg('pi-subagents', { 'index.ts': 'export default {};' });
+pkg('pi-memory', { 'index.ts': 'export default {};' });
+pkg('@zzxb/pi-notify', { 'index.ts': 'export default {};' });
+pkg('pi-foo', { 'index.ts': 'export default {};' });`;
+  fs.writeFileSync(fakeNpm, fixtures);
+  fs.chmodSync(fakeNpm, 0o755);
+
+  const result = spawnSync(process.execPath, ["bin/axum.js", "install", "npm:pi-foo@1.0.0"], {
+    encoding: "utf8",
+    env: writeWin32TestEnv(process.env, { AXUM_BUNDLED_PI_DIR: cache, AXUM_BUNDLED_PI_NPM: fakeNpm, AXUM_USER_PACKAGES_FILE: manifest }),
+    timeout: 60000,
+  });
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stderr, /declares no "pi"\.extensions entry point/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(manifest, "utf8")).packages, []);
 });

@@ -2,11 +2,12 @@ import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { supportedBundledPiPackages } from "./bundled-pi-platform.js";
+import { userPackageNames } from "./user-packages.js";
 
 const cacheVersion = "v4";
 
 function packageSetKey(options) {
-  const packageSpec = supportedBundledPiPackages(options).join("\n");
+  const packageSpec = [...supportedBundledPiPackages(options), ...userPackageNames(options)].join("\n");
   return `pi-${crypto.createHash("sha256").update(packageSpec).digest("hex").slice(0, 12)}`;
 }
 

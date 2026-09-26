@@ -14,7 +14,7 @@ Usage:
   axum doctor
   axum versions
   axum update [version]
-  axum install
+  axum install [pkg...]
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
@@ -28,8 +28,11 @@ Commands:
   versions      List published Axum versions and the currently installed one
   update        Reinstall Axum; without a version argument it pulls the main
                 branch tarball, with a version it pulls that git tag instead
-  install       Force install/reinstall bundled Pi and all extensions
-                (triggers full npm install + TypeScript compilation)
+  install       Without arguments: force reinstall bundled Pi and all
+                bundled extensions (full npm install + TypeScript compilation)
+  install <pkg> Install user extension packages from npm into the shared Pi
+                cache, e.g. axum install npm:pi-cc-extensions
+                (persisted in ~/.axum/packages.json, loaded on every start)
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
 ${supportedBundledPiExtensions().map((ext) => `  - ${ext.packageName}`).join("\n")}
@@ -63,7 +66,7 @@ function resolveArgs(argv) {
   if (argv[0] === "doctor") return { mode: "doctor" };
   if (argv[0] === "versions") return { mode: "versions" };
   if (argv[0] === "update") return { mode: "update", version: argv[1] };
-  if (argv[0] === "install") return { mode: "install" };
+  if (argv[0] === "install") return { mode: "install", argv: argv.slice(1) };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
   return { mode: "help" };
 }
@@ -139,6 +142,57 @@ async function runInstall() {
   console.log(`cache: ${cacheRoot}`);
   console.log(`pi cli: ${piCli}`);
   console.log(`extensions: ${extensions.length}`);
+  return 0;
+}
+
+async function runInstallPackages(specs) {
+  const [{ ensureBundledPi }, { compileBundledExtensions }, { getBundledPiCacheRoot, getBundledPiNodeModules, packageDirName }, { loadUserPackages, saveUserPackages, parsePackageSpec, discoverExtensionPath, getUserPackagesPath }, { bundledPiPackages }, { default: path }] = await Promise.all([
+    import("../src/ensure-bundled-pi.js"),
+    import("../src/compile-bundled-extensions.js"),
+    import("../src/bundled-pi-cache.js"),
+    import("../src/user-packages.js"),
+    import("../src/bundled-pi-packages.js"),
+    import("node:path"),
+  ]);
+
+  const options = { env: process.env };
+  const existing = loadUserPackages(options);
+  const previous = JSON.stringify(existing);
+  const requested = specs.map((spec) => parsePackageSpec(spec));
+  for (const { packageName } of requested) {
+    if (bundledPiPackages.some((pkg) => pkg.packageName === packageName)) {
+      throw new Error(`${packageName} is already part of Axum's bundled extension set; Axum manages its version`);
+    }
+  }
+  const next = existing.filter((entry) => !requested.some((r) => r.packageName === entry.packageName));
+  for (const { name, packageName } of requested) {
+    next.push({ name, packageName });
+  }
+  saveUserPackages(next, options);
+  try {
+    console.log("Axum: installing user extension packages...");
+    ensureBundledPi(options);
+    const nodeModules = getBundledPiNodeModules(options);
+    for (const entry of next) {
+      const pkgRoot = path.join(nodeModules, packageDirName(entry.packageName));
+      const extensionPath = discoverExtensionPath(pkgRoot);
+      if (!extensionPath) {
+        throw new Error(`${entry.name} installed successfully but declares no "pi".extensions entry point in its package.json; not a Pi extension package`);
+      }
+      entry.extensionPath = extensionPath;
+      console.log(`installed ${entry.name} -> ${entry.packageName}/${extensionPath}`);
+    }
+    saveUserPackages(next, options);
+    // The manifest gained extensionPath only after install, so the compile pass
+    // during ensureBundledPi skipped the new entries. Compile them now so .ts
+    // entry points resolve to .js on platforms without runtime TS support.
+    compileBundledExtensions(options);
+  } catch (error) {
+    saveUserPackages(JSON.parse(previous), options);
+    throw error;
+  }
+  console.log(`user packages manifest: ${getUserPackagesPath(options)}`);
+  console.log("Done. Restart axum code to load the installed extensions.");
   return 0;
 }
 
@@ -284,7 +338,9 @@ async function main() {
     return 0;
   }
   if (action.mode === "doctor") return printDoctor();
-  if (action.mode === "install") return runInstall();
+  if (action.mode === "install") {
+    return (action.argv?.length ?? 0) > 0 ? runInstallPackages(action.argv) : runInstall();
+  }
   if (action.mode === "versions") {
     await runVersions();
     return 0;

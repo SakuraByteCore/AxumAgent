@@ -103,6 +103,14 @@ The distribution ships these packages, all in one install:
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
 - `@zzxb/pi-notify` (Windows only: Toast notifications with terminal focus, result icons, and BEL reminders)
 
+## Install Additional Extensions
+
+```bash
+axum install npm:pi-foo@1.0.0
+```
+
+`install` fetches the given npm package through the same cache pipeline as the bundled set, records it in `~/.axum/packages.json` (override with `AXUM_USER_PACKAGES_FILE`), compiles its extension entry points, and loads them on the next `axum code` start. Installing a package name that is already in the bundled set is rejected; Axum manages those versions. If the install fails midway, the manifest is rolled back to its previous state. On Windows prefer extensions that ship strip-safe TypeScript (no decorators, enums, or other syntax the built-in type stripper cannot handle), since Windows relies on the stripper instead of a local `tsc`.
+
 ## Configure a Provider
 
 Save it from the Provider tab in `axum web` (see [Quick Start](#quick-start) for how to launch).

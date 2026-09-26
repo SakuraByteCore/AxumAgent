@@ -4,6 +4,7 @@ import path from "node:path";
 import { stripTypeScriptTypes } from "node:module";
 import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { supportedBundledPiExtensions } from "./bundled-pi-platform.js";
+import { userPackageExtensionEntries } from "./user-packages.js";
 
 /**
  * Rewrite relative TypeScript import specifiers to JavaScript.
@@ -250,7 +251,7 @@ export function compileExtensionPackage({ packageRoot, transform, log = () => {}
 
 export function compileBundledExtensions(options) {
   const results = [];
-  for (const extension of supportedBundledPiExtensions(options)) {
+  for (const extension of [...supportedBundledPiExtensions(options), ...userPackageExtensionEntries(options)]) {
     const packageRoot = path.join(getBundledPiNodeModules(options), packageDirName(extension.packageName));
     if (!fs.existsSync(packageRoot)) continue;
     const entryPath = path.join(packageRoot, extension.extensionPath);

@@ -98,6 +98,14 @@ axum code --safe
 axum doctor
 ```
 
+## 安装额外扩展
+
+```bash
+axum install npm:pi-foo@1.0.0
+```
+
+`install` 复用打包集同一套缓存管线获取指定的 npm 包，记录到 `~/.axum/packages.json`（可用 `AXUM_USER_PACKAGES_FILE` 覆盖），编译其扩展入口，并在下一次 `axum code` 启动时加载。包名与打包集重复会被拒绝，这些版本由 Axum 统一管理；安装中途失败时清单会回滚到先前状态。Windows 下建议选择可安全剥离的 TypeScript 扩展（不含装饰器、enum 等内置剥离器无法处理的语法），因为 Windows 依赖内置剥离器而不是本地 `tsc`。
+
 ## 配置 Provider
 
 从「快速开始」中的 `axum web` 的 Provider 标签页保存。
