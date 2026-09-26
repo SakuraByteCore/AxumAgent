@@ -15,6 +15,7 @@ Usage:
   axum versions
   axum update [version]
   axum install [pkg...]
+  axum mcp [install|add|list|remove] [args...]
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
@@ -33,6 +34,11 @@ Commands:
   install <pkg> Install user extension packages from npm into the shared Pi
                 cache, e.g. axum install npm:pi-cc-extensions
                 (persisted in ~/.axum/packages.json, loaded on every start)
+  mcp          Manage MCP servers for the pi-mcp-adapter extension
+  mcp install  Install the pi-mcp-adapter extension (official MCP support)
+  mcp add      Interactively add an MCP server entry (stdio or http(s))
+  mcp list     List configured MCP servers
+  mcp remove   Remove an MCP server entry
 
 Axum delegates code sessions to Pi and preloads bundled extensions:
 ${supportedBundledPiExtensions().map((ext) => `  - ${ext.packageName}`).join("\n")}
@@ -67,8 +73,143 @@ function resolveArgs(argv) {
   if (argv[0] === "versions") return { mode: "versions" };
   if (argv[0] === "update") return { mode: "update", version: argv[1] };
   if (argv[0] === "install") return { mode: "install", argv: argv.slice(1) };
+  if (argv[0] === "mcp") return { mode: "mcp", argv: argv.slice(1) };
   if (argv.includes("--help") || argv.includes("-h")) return { mode: "help" };
   return { mode: "help" };
+}
+
+function mcpUsage() {
+  return `Usage:
+  axum mcp install            Install the pi-mcp-adapter extension (official MCP support)
+  axum mcp add [name]         Interactively add an MCP server entry (stdio or http(s))
+  axum mcp list               List configured MCP servers
+  axum mcp remove <name>      Remove an MCP server entry
+
+Servers use the standard "mcpServers" JSON format shared with Cursor,
+Claude Code, and Codex. The project .mcp.json is preferred; the global
+~/.config/mcp/mcp.json is the fallback. Flags --project / --global on
+'axum mcp add' force one file explicitly. For stdio servers the command
+line may include arguments; the first token becomes the command and the
+rest are stored as args.
+`;
+}
+
+async function runMcpCommand(argv) {
+  const [sub, ...rest] = argv;
+  const options = { env: process.env, cwd: process.cwd() };
+  if (sub === "install") {
+    const { MCP_ADAPTER_SPEC } = await import("../src/mcp-config.js");
+    return runInstallPackages([MCP_ADAPTER_SPEC]);
+  }
+  if (sub === "add") return runMcpAdd(rest, options);
+  if (sub === "list") return runMcpList(options);
+  if (sub === "remove") return runMcpRemove(rest, options);
+  process.stdout.write(mcpUsage());
+  return sub === undefined ? 0 : 1;
+}
+
+function splitMcpFlags(args) {
+  const flags = { positional: [] };
+  for (const arg of args) {
+    if (arg === "--project" || arg === "--global") flags[arg.slice(2)] = true;
+    else flags.positional.push(arg);
+  }
+  return flags;
+}
+
+// Sequential interactive prompts. node:readline/promises question() hangs on
+// piped stdin in Node 24 once the interface emits close, so drive the event
+// readline manually with a line queue that works for both TTY and pipes.
+function createPrompter(readlineModule, input = process.stdin, output = process.stdout) {
+  const rl = readlineModule.createInterface({ input, output });
+  const queued = [];
+  let waiter = null;
+  let closed = false;
+  rl.on("line", (line) => {
+    if (waiter) {
+      const resolve = waiter;
+      waiter = null;
+      resolve(line);
+    } else {
+      queued.push(line);
+    }
+  });
+  rl.on("close", () => {
+    closed = true;
+    if (waiter) {
+      const resolve = waiter;
+      waiter = null;
+      resolve(undefined);
+    }
+  });
+  return {
+    prompt(question) {
+      output.write(question);
+      if (queued.length > 0) return Promise.resolve(queued.shift());
+      if (closed) return Promise.resolve(undefined);
+      return new Promise((resolve) => { waiter = resolve; });
+    },
+    close() {
+      rl.close();
+    },
+  };
+}
+
+async function runMcpAdd(args, options) {
+  const [readlineModule, mcpConfig] = await Promise.all([
+    import("node:readline"),
+    import("../src/mcp-config.js"),
+  ]);
+  const flags = splitMcpFlags(args);
+  const prompter = createPrompter(readlineModule);
+  try {
+    const name = flags.positional[0] || (await prompter.prompt("MCP server name: ")).trim();
+    if (!name) throw new Error("server name is required");
+    const commandOrUrl = (await prompter.prompt("stdio command (arguments allowed) or http(s) url: ")).trim();
+    const argsString = (await prompter.prompt("arguments, space-separated (empty to skip): ")).trim();
+    const envString = (await prompter.prompt("environment variables, KEY=VALUE comma-separated (empty to skip): ")).trim();
+    if (commandOrUrl.length === 0) throw new Error("a stdio command or http(s) url is required");
+    const entry = mcpConfig.buildServerEntry(
+      commandOrUrl,
+      mcpConfig.parseArgsString(argsString),
+      mcpConfig.parseEnvString(envString),
+    );
+    const file = mcpConfig.addMcpServer(name, entry, { ...options, project: flags.project, global: flags.global });
+    console.log(`added ${name} -> ${file}`);
+    console.log(`  ${entry.url ? "http" : "stdio"}: ${entry.url || [entry.command, ...(entry.args || [])].join(" ")}`);
+    return 0;
+  } finally {
+    prompter.close();
+  }
+}
+
+async function runMcpList(options) {
+  const mcpConfig = await import("../src/mcp-config.js");
+  const files = mcpConfig.existingMcpConfigFiles(options);
+  if (files.length === 0) {
+    console.log("no MCP server config found (project .mcp.json or global ~/.config/mcp/mcp.json)");
+    return 0;
+  }
+  for (const file of files) {
+    const servers = mcpConfig.loadMcpConfig(file);
+    const names = Object.keys(servers);
+    console.log(`${file}${names.length === 0 ? " (no servers)" : ""}`);
+    for (const [name, entry] of Object.entries(servers)) {
+      const kind = entry.url ? "http" : "stdio";
+      const target = entry.url || [entry.command, ...(entry.args || [])].join(" ");
+      console.log(`  ${name} (${kind}): ${target}`);
+    }
+  }
+  return 0;
+}
+
+async function runMcpRemove(args, options) {
+  const mcpConfig = await import("../src/mcp-config.js");
+  const name = splitMcpFlags(args).positional[0];
+  if (!name) throw new Error("usage: axum mcp remove <name>");
+  const file = mcpConfig.removeMcpServer(name, options);
+  console.log(`removed ${name} from ${file}`);
+  return 0;
 }
 
 async function runWebCommand(argv) {
@@ -102,13 +243,71 @@ async function printDoctor() {
   console.log(`cache: ${getBundledPiCacheRoot(options)}`);
   console.log(`pi cli: ${piCli}`);
   for (const extension of extensions) console.log(`extension: ${extension}`);
+  const failed = await reportUserExtensionHealth(options, missing);
   if (missing.length) {
     console.error("missing bundled files:");
     for (const file of missing) console.error(`- ${file}`);
     return 1;
   }
+  if (failed) return 1;
   console.log("ok");
   return 0;
+}
+
+async function reportUserExtensionHealth(options, missing) {
+  const [{ loadUserPackages }, { getBundledPiNodeModules, packageDirName }, mcpConfig, { existsSync }] = await Promise.all([
+    import("../src/user-packages.js"),
+    import("../src/bundled-pi-cache.js"),
+    import("../src/mcp-config.js"),
+    import("node:fs"),
+  ]);
+  let userPackages = [];
+  try {
+    userPackages = loadUserPackages(options);
+  } catch (err) {
+    console.log(`user packages manifest: invalid (${err.message})`);
+    return true;
+  }
+  if (userPackages.length === 0) {
+    console.log("user extensions: none");
+    return false;
+  }
+  let failed = false;
+  for (const entry of userPackages) {
+    const pkgRoot = path.join(getBundledPiNodeModules(options), packageDirName(entry.packageName));
+    if (!entry.extensionPath) {
+      console.log(`user extension: ${entry.name} (no extension entry point recorded)`);
+      failed = true;
+      continue;
+    }
+    const extFile = path.join(pkgRoot, entry.extensionPath);
+    if (existsSync(extFile)) {
+      console.log(`user extension: ${entry.name} (ok)`);
+    } else {
+      console.log(`user extension: ${entry.name} (missing entry: ${extFile})`);
+      failed = true;
+    }
+  }
+  if (userPackages.some((entry) => entry.packageName === mcpConfig.MCP_ADAPTER_PACKAGE)) {
+    reportMcpConfigHealth(options, mcpConfig);
+  }
+  return failed;
+}
+
+function reportMcpConfigHealth(options, mcpConfig) {
+  const files = mcpConfig.existingMcpConfigFiles(options);
+  if (files.length === 0) {
+    console.log(`mcp config: none found — run 'axum mcp add' or the /mcp setup wizard in a session`);
+    return;
+  }
+  for (const file of files) {
+    try {
+      const servers = mcpConfig.loadMcpConfig(file);
+      console.log(`mcp config: ${file} (valid, ${Object.keys(servers).length} server(s))`);
+    } catch (err) {
+      console.log(`mcp config: ${file} (invalid: ${err.message})`);
+    }
+  }
 }
 
 async function runInstall() {
@@ -341,6 +540,7 @@ async function main() {
     return 0;
   }
   if (action.mode === "doctor") return printDoctor();
+  if (action.mode === "mcp") return runMcpCommand(action.argv);
   if (action.mode === "install") {
     return (action.argv?.length ?? 0) > 0 ? runInstallPackages(action.argv) : runInstall();
   }

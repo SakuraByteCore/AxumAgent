@@ -111,6 +111,26 @@ axum install npm:pi-foo@1.0.0
 
 `install` fetches the given npm package through the same cache pipeline as the bundled set, records it in `~/.axum/packages.json` (override with `AXUM_USER_PACKAGES_FILE`), compiles its extension entry points, and loads them on the next `axum code` start. Installing a package name that is already in the bundled set is rejected; Axum manages those versions. If the install fails midway, the manifest is rolled back to its previous state. On Windows prefer extensions that ship strip-safe TypeScript (no decorators, enums, or other syntax the built-in type stripper cannot handle), since Windows relies on the stripper instead of a local `tsc`. Only the first entry in the package's `pi.extensions` list is loaded.
 
+## MCP Servers
+
+MCP support is not built into Pi itself; Axum ships it through the [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) extension. Two steps and you are done:
+
+```bash
+axum mcp install    # one-time: installs the pi-mcp-adapter extension
+```
+
+Then start `axum code` and run the `/mcp` wizard inside the session to discover, import (Cursor / Claude Code / Codex configs), or add servers interactively.
+
+You can also manage server entries from the shell:
+
+```bash
+axum mcp add        # interactive: name, stdio command or http(s) url, args, env
+axum mcp list       # show configured servers
+axum mcp remove <name>
+```
+
+Servers are stored in the standard `mcpServers` JSON format shared with Cursor, Claude Code, and Codex: the project `.mcp.json` first, then the global `~/.config/mcp/mcp.json` as fallback. Flags `--project` / `--global` on `axum mcp add` force one file. Existing configs from those tools work as-is. For stdio servers the command line may include arguments; the first token becomes the command and the rest are stored as `args`. `axum doctor` reports whether the extension is installed and whether your config files are valid JSON.
+
 ## Configure a Provider
 
 Save it from the Provider tab in `axum web` (see [Quick Start](#quick-start) for how to launch).
@@ -237,7 +257,7 @@ The selection is written to `defaultProvider`/`defaultModel` in `~/.pi/agent/set
 axum doctor
 ```
 
-`doctor` checks the bundled Pi cache and entrypoint.
+`doctor` checks the bundled Pi cache and entrypoint, and reports the health of user-installed extensions (including whether the MCP extension is present and whether your MCP config files are valid JSON).
 
 Safe mode (`axum code --safe`) launches the Pi core without loading any of the bundled extensions above.
 

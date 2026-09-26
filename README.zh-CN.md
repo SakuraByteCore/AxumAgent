@@ -20,6 +20,7 @@ Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩�
 - [打包运行时](#打包运行时)
 - [环境要求](#环境要求)
 - [快速开始](#快速开始)
+- [MCP 服务](#mcp-服务)
 - [配置 Provider](#配置-provider)
 - [重试设置](#重试设置)
 - [编辑 System Prompt](#编辑-system-prompt)
@@ -105,6 +106,26 @@ axum install npm:pi-foo@1.0.0
 ```
 
 `install` 复用打包集同一套缓存管线获取指定的 npm 包，记录到 `~/.axum/packages.json`（可用 `AXUM_USER_PACKAGES_FILE` 覆盖），编译其扩展入口，并在下一次 `axum code` 启动时加载。包名与打包集重复会被拒绝，这些版本由 Axum 统一管理；安装中途失败时清单会回滚到先前状态。Windows 下建议选择可安全剥离的 TypeScript 扩展（不含装饰器、enum 等内置剥离器无法处理的语法），因为 Windows 依赖内置剥离器而不是本地 `tsc`。仅加载包 `pi.extensions` 列表中的第一个入口。
+
+## MCP 服务
+
+MCP 支持内置于扩展而非 Pi 本体；Axum 通过 [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) 扩展提供。两步即可用：
+
+```bash
+axum mcp install    # 一次性：安装 pi-mcp-adapter 扩展
+```
+
+然后启动 `axum code`，在会话内运行 `/mcp` 向导，即可自动发现、导入（Cursor / Claude Code / Codex 配置）或交互式新增服务。
+
+也可以在命令行直接管理服务条目：
+
+```bash
+axum mcp add        # 交互式：服务名、stdio 命令或 http(s) url、args、env
+axum mcp list       # 列出已配置的服务
+axum mcp remove <name>
+```
+
+服务配置存于与 Cursor、Claude Code、Codex 通用的标准 `mcpServers` JSON 格式：项目 `.mcp.json` 优先，全局 `~/.config/mcp/mcp.json` 兜底；`axum mcp add` 的 `--project` / `--global` 可强制指定其中一个文件。这些工具的既有配置可直接复用。stdio 服务的命令行可携带参数：首个词作为 `command`，其余存入 `args`。`axum doctor` 会报告该扩展是否安装、配置文件是否为合法 JSON。
 
 ## 配置 Provider
 
@@ -230,7 +251,7 @@ axum code
 axum doctor
 ```
 
-`doctor` 检查打包 Pi 缓存与入口点。
+`doctor` 检查打包 Pi 缓存与入口点，并报告用户自装扩展的健康状态（含 MCP 扩展是否安装、MCP 配置文件是否为合法 JSON）。
 
 安全模式（`axum code --safe`）仅启动 Pi 本体，不加载上述打包扩展。
 
