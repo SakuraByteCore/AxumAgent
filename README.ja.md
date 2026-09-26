@@ -42,6 +42,7 @@ Axum Agent は、Pi ベースのコーディングエージェント配布パッ
 - `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 手動起動のバックグラウンドエージェント + ライブ進捗ウィジェット。`/agent -P/--plan` によるプランモードのバックグラウンド実行、ワンキー起動プリセット `/spawn` `/scout` `/blueprint` に対応。さらに `/dispatch` コマンドと `dispatch_agent` ツールによるエージェント主導のバッチ分散に対応)
 - `pi-subagents`（単一エージェント委譲とスクリプト化されたマルチエージェントワークフロー: タスク委譲・バックグラウンド実行・オーケストレーション）
 - `pi-memory`（単一 JSON ファイルに永続化されるセッション横断メモリ: /memory save|list|find|remove|recall|clear、ネイティブ依存ゼロ）
+- `pi-cc-extensions`（Claude Code 風 TUI 出力: ツール要約の折りたたみ展開、リッチな edit/write diff、/ccstyle 設定パネル、コンテキスト検査。純 TS + WASM shiki、全プラットフォーム対応）
 - `@ff-labs/pi-fff`（デスクトップ限定: フリークエンシー付き FFF ファイル検索。Android と Windows では除外）
 - `@zzxb/pi-notify`（Windows 限定: ターミナルフォーカス・結果アイコン・BEL 通知に対応した Windows Toast 通知）
 

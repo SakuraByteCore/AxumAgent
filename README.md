@@ -100,6 +100,7 @@ The distribution ships these packages, all in one install:
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, `-P/--plan` for plan-mode background dispatch, one-keystroke `/spawn` `/scout` `/blueprint` presets, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 - `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
 - `pi-memory` (persistent cross-session memory in a single JSON file: /memory save|list|find|remove|recall|clear; zero native deps)
+- `pi-cc-extensions` (Claude Code-style TUI output: tool summaries with fold/expand, rich edit/write diffs, `/ccstyle` config panel, context inspection; pure TS + WASM shiki, works on all platforms)
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
 - `@zzxb/pi-notify` (Windows only: Toast notifications with terminal focus, result icons, and BEL reminders)
 

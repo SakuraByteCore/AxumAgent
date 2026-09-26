@@ -25,8 +25,9 @@ test("checks available Pi extensions on Android", () => {
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
     "pi-memory@file:plugin/pi-memory",
+    "pi-cc-extensions@0.9.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 10);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -43,8 +44,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
     "pi-memory@file:plugin/pi-memory",
+    "pi-cc-extensions@0.9.5",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 10);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 11);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -59,9 +61,10 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.66.0",
     "pi-memory@file:plugin/pi-memory",
+    "pi-cc-extensions@0.9.5",
     "@zzxb/pi-notify@0.0.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 10);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
