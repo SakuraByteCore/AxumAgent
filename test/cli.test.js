@@ -7,7 +7,10 @@ import test from "node:test";
 import { getInstalledVersion } from "../src/version-config.js";
 
 function run(args) {
-  return spawnSync(process.execPath, ["bin/axum.js", ...args], { encoding: "utf8" });
+  return spawnSync(process.execPath, ["bin/axum.js", ...args], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES_FILE },
+  });
 }
 
 // Hermeticity: pin the user packages manifest to a path that never exists so
@@ -555,13 +558,16 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "localmock", defaultModel: "mock-a", defaultThinkingLevel: "high" }));
   writeModelsConfig(agentDir);
 
-  const result = spawnSync(process.execPath, ["bin/axum.js", "install", "npm:pi-foo@1.0.0"], {
+  // Pass a duplicate package name with an older version first: the last spec
+  // for a given package name must win and the manifest must stay single-entry.
+  const result = spawnSync(process.execPath, ["bin/axum.js", "install", "npm:pi-foo@0.9.0", "npm:pi-foo@1.0.0"], {
     encoding: "utf8",
     env: writeWin32TestEnv(process.env, { AXUM_BUNDLED_PI_DIR: cache, AXUM_BUNDLED_PI_NPM: fakeNpm, AXUM_USER_PACKAGES_FILE: manifest }),
     timeout: 60000,
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /installed pi-foo@1\.0\.0 -> pi-foo\/index\.ts/);
+  assert.doesNotMatch(result.stdout, /pi-foo@0\.9\.0/);
   const saved = JSON.parse(fs.readFileSync(manifest, "utf8"));
   assert.deepEqual(saved.packages, [{ name: "pi-foo@1.0.0", packageName: "pi-foo", extensionPath: "index.ts" }]);
   assert.equal(fs.existsSync(path.join(cache, "node_modules", "pi-foo", "index.js")), true);

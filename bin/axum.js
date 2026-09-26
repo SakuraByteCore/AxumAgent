@@ -158,7 +158,10 @@ async function runInstallPackages(specs) {
   const options = { env: process.env };
   const existing = loadUserPackages(options);
   const previous = JSON.stringify(existing);
-  const requested = specs.map((spec) => parsePackageSpec(spec));
+  const requested = [...specs
+    .map((spec) => parsePackageSpec(spec))
+    .reduce((byName, spec) => byName.set(spec.packageName, spec), new Map())
+    .values()];
   for (const { packageName } of requested) {
     if (bundledPiPackages.some((pkg) => pkg.packageName === packageName)) {
       throw new Error(`${packageName} is already part of Axum's bundled extension set; Axum manages its version`);

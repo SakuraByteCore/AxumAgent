@@ -104,7 +104,7 @@ axum doctor
 axum install npm:pi-foo@1.0.0
 ```
 
-`install` は bundled set と同じキャッシュパイプラインで指定した npm パッケージを取得し、`~/.axum/packages.json` に記録して（`AXUM_USER_PACKAGES_FILE` で上書き可能）、拡張のエントリポイントをコンパイルします。次回の `axum code` 起動時に読み込まれます。bundled set と同名のパッケージは拒否され、それらのバージョンは Axum が管理します。インストール途中で失敗した場合はマニフェストを以前の状態へ戻します。Windows ではローカルの `tsc` ではなく内蔵ストリッパーを使うため、デコレータや enum などストリッパーが処理できない構文を含まない strip-safe な TypeScript 拡張を推奨します。
+`install` は bundled set と同じキャッシュパイプラインで指定した npm パッケージを取得し、`~/.axum/packages.json` に記録して（`AXUM_USER_PACKAGES_FILE` で上書き可能）、拡張のエントリポイントをコンパイルします。次回の `axum code` 起動時に読み込まれます。bundled set と同名のパッケージは拒否され、それらのバージョンは Axum が管理します。インストール途中で失敗した場合はマニフェストを以前の状態へ戻します。Windows ではローカルの `tsc` ではなく内蔵ストリッパーを使うため、デコレータや enum などストリッパーが処理できない構文を含まない strip-safe な TypeScript 拡張を推奨します。パッケージの `pi.extensions` リストの最初のエントリのみが読み込まれます。
 
 ## provider の設定
 

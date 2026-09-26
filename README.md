@@ -109,7 +109,7 @@ The distribution ships these packages, all in one install:
 axum install npm:pi-foo@1.0.0
 ```
 
-`install` fetches the given npm package through the same cache pipeline as the bundled set, records it in `~/.axum/packages.json` (override with `AXUM_USER_PACKAGES_FILE`), compiles its extension entry points, and loads them on the next `axum code` start. Installing a package name that is already in the bundled set is rejected; Axum manages those versions. If the install fails midway, the manifest is rolled back to its previous state. On Windows prefer extensions that ship strip-safe TypeScript (no decorators, enums, or other syntax the built-in type stripper cannot handle), since Windows relies on the stripper instead of a local `tsc`.
+`install` fetches the given npm package through the same cache pipeline as the bundled set, records it in `~/.axum/packages.json` (override with `AXUM_USER_PACKAGES_FILE`), compiles its extension entry points, and loads them on the next `axum code` start. Installing a package name that is already in the bundled set is rejected; Axum manages those versions. If the install fails midway, the manifest is rolled back to its previous state. On Windows prefer extensions that ship strip-safe TypeScript (no decorators, enums, or other syntax the built-in type stripper cannot handle), since Windows relies on the stripper instead of a local `tsc`. Only the first entry in the package's `pi.extensions` list is loaded.
 
 ## Configure a Provider
 

@@ -1,13 +1,21 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Hermeticity: pin the user packages manifest to a path that never exists so
+// a real ~/.axum/packages.json on the dev machine cannot leak into child processes.
+const NO_USER_PACKAGES_FILE = path.join(os.tmpdir(), "axum-e2e-test-no-user-packages.json");
+
 function run(args) {
-  return spawnSync(process.execPath, ["bin/axum.js", ...args], { encoding: "utf8" });
+  return spawnSync(process.execPath, ["bin/axum.js", ...args], {
+    encoding: "utf8",
+    env: { ...process.env, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES_FILE },
+  });
 }
 
 // ── 1. axum code --help exits cleanly ───────────────────────────────────────
