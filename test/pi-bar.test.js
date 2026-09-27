@@ -286,3 +286,42 @@ test("takeDisplayTail never emits lone surrogates for emoji tails", async () => 
   }
   assert.equal(takeDisplayTail(s, 100), s);
 });
+
+test("user agent embeds into the editor bottom-right border", () => {
+  // UA value: AXUM_USER_AGENT env wins, the pi formula is the fallback, and
+  // the result is cached so render() stays allocation-free per frame.
+  assert.match(statuslineSource, /VERSION: PI_VERSION = "0\.0\.0"/);
+  assert.match(statuslineSource, /const UA_TRUNCATE_WIDTH = 40;/);
+  assert.match(statuslineSource, /const custom = process\.env\.AXUM_USER_AGENT;/);
+  assert.match(statuslineSource, /cachedUserAgent = custom \|\| `pi\/\$\{PI_VERSION\} \(\$\{process\.platform\}; \$\{runtime\}; \$\{process\.arch\}\)`;/);
+  assert.match(statuslineSource, /let cachedUserAgent: string \| undefined;/);
+
+  // Border embedding follows the host's border-status-editor fitBorder
+  // pattern: corners + fill run go through the border colour callback, the
+  // label shrinks right-to-left on narrow terminals, and an empty label
+  // degrades to a plain full-width rule.
+  assert.match(statuslineSource, /const UA_BORDER_MIN_GAP = 1;/);
+  assert.match(statuslineSource, /function fitUserAgentBorder\(label: string, width: number, border: ColorFn\): string \{/);
+  assert.match(statuslineSource, /while \(2 \+ visibleWidth\(text\) \+ UA_BORDER_MIN_GAP > width && visibleWidth\(text\) > 0\)/);
+  assert.match(statuslineSource, /text = truncateToWidth\(text, Math\.max\(0, visibleWidth\(text\) - 1\), ""\);/);
+  assert.match(statuslineSource, /const gap = Math\.max\(0, width - 2 - visibleWidth\(text\)\);/);
+
+  // Only the idle plain bottom rule is rewritten: the top border (index 0)
+  // and the ↑/↓ scroll-indicator borders are left untouched, and
+  // autocomplete rows still pass through after the border line.
+  assert.match(statuslineSource, /override render\(width: number\): string\[\] \{/);
+  assert.match(statuslineSource, /const lines = super\.render\(width\);/);
+  assert.match(statuslineSource, /const ua = truncateToWidth\(getUserAgent\(\), UA_TRUNCATE_WIDTH, "…"\);/);
+  assert.match(statuslineSource, /if \(!ua \|\| width <= 2 \|\| lines\.length < 2\) return lines;/);
+  assert.match(statuslineSource, /const rule = border\("─"\)\.repeat\(width\);/);
+  assert.match(statuslineSource, /const index = lines\.lastIndexOf\(rule\);/);
+  assert.match(statuslineSource, /if \(index <= 0\) return lines;/);
+  assert.match(statuslineSource, /lines\[index\] = fitUserAgentBorder\(border\(` \$\{ua\} `\), width, border\);/);
+
+  // The footer UA row is gone for good, and the status bar carries no UA
+  // segment: UA lives only in the editor border now.
+  assert.doesNotMatch(statuslineSource, /renderUserAgentFooter/);
+  assert.doesNotMatch(statuslineSource, /setFooter\(/);
+  assert.doesNotMatch(statuslineSource, /PALETTE\.ua/);
+  assert.doesNotMatch(statuslineSource, /"ua"/);
+});

@@ -43,7 +43,7 @@ type TUI = any;
 
 type CustomEditorCtor = new (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: unknown) => any;
 
-const { CustomEditor: RuntimeCustomEditor = class {} } = await import("@earendil-works/pi-coding-agent").catch(() => ({})) as { CustomEditor?: CustomEditorCtor };
+const { CustomEditor: RuntimeCustomEditor = class {}, VERSION: PI_VERSION = "0.0.0" } = await import("@earendil-works/pi-coding-agent").catch(() => ({})) as { CustomEditor?: CustomEditorCtor; VERSION?: string };
 const piTui = await import("@earendil-works/pi-tui").catch(() => ({})) as {
   truncateToWidth?: (text: string, width: number, ellipsis?: string) => string;
   visibleWidth?: (text: string) => number;
@@ -58,11 +58,23 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
-// User-Agent is injected by Axum via AXUM_USER_AGENT env var at spawn time;
+// User-Agent: AXUM_USER_AGENT is injected by Axum via env var at spawn time;
 // do not import axum-internal modules here (this file is synced into the Pi
-// cache where ../../src/provider-config.js does not exist).
+// cache where ../../src/provider-config.js does not exist). When the env var
+// is unset, fall back to the pi formula so the border tag always has a value.
+// The value is frozen for the process lifetime (env + VERSION never change
+// mid-session), so it is computed once and cached: render() pulls it on
+// every TUI frame and the steady state stays allocation-free.
+const UA_TRUNCATE_WIDTH = 40;
+let cachedUserAgent: string | undefined;
+
 function getUserAgent(): string {
-  return process.env.AXUM_USER_AGENT || "";
+  if (cachedUserAgent === undefined) {
+    const custom = process.env.AXUM_USER_AGENT;
+    const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
+    cachedUserAgent = custom || `pi/${PI_VERSION} (${process.platform}; ${runtime}; ${process.arch})`;
+  }
+  return cachedUserAgent;
 }
 
 // ---------------------------------------------------------------------------
@@ -420,8 +432,35 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
  * The override rides on every `updateEditorBorderColor()` reassignment that
  * Pi performs per thinking/bash level, so it stays in effect for the lifetime
  * of the editor without extension-side re-hooks.
+ *
+ * Additionally, render() embeds the user-agent string into the bottom border,
+ * right-aligned against the bottom-right corner (see fitUserAgentBorder
+ * below): the UA text replaces the trailing rule segment instead of taking
+ * its own status row or bar segment.
  */
 type ColorFn = (text: string) => string;
+
+// Keep at least this many rule glyphs between the left corner and the UA
+// label; below that the label is shrunk right-to-left, and an empty label
+// degrades to a plain full-width rule.
+const UA_BORDER_MIN_GAP = 1;
+
+/*
+ * Renders the editor bottom border with the UA label embedded at the right
+ * end: the corner glyphs and the fill run go through `border` (which rewrites
+ * ─ to ⌄), while the label keeps the colouring passed in by the caller.
+ * Follows the host's border-status-editor example fitBorder pattern.
+ */
+function fitUserAgentBorder(label: string, width: number, border: ColorFn): string {
+  if (width <= 0) return "";
+  if (width === 1) return border("─");
+  let text = label;
+  while (2 + visibleWidth(text) + UA_BORDER_MIN_GAP > width && visibleWidth(text) > 0) {
+    text = truncateToWidth(text, Math.max(0, visibleWidth(text) - 1), "");
+  }
+  const gap = Math.max(0, width - 2 - visibleWidth(text));
+  return `${border("─")}${border("─".repeat(gap))}${text}${border("─")}`;
+}
 
 class DashedBorderEditor extends RuntimeCustomEditor {
   private dashedBorderFn: ColorFn | undefined;
@@ -457,6 +496,27 @@ class DashedBorderEditor extends RuntimeCustomEditor {
     });
     self.dashedBorderFn = (text: string) =>
       theme.borderColor(text.replaceAll("\u2500", "\u254c"));
+  }
+
+  /*
+   * Embed the UA string into the bottom border. super.render() draws the
+   * idle bottom border as borderColor("─").repeat(width); only that exact
+   * line is rewritten, so the ↑/↓ scroll-indicator borders and the
+   * autocomplete rows pass through untouched (when the host swaps the
+   * bottom rule for a ↓ indicator the only remaining match is the top
+   * border at index 0, and the rewrite is skipped). The label goes through
+   * the same border colour callback so it reads as part of the rule.
+   */
+  override render(width: number): string[] {
+    const lines = super.render(width);
+    const ua = truncateToWidth(getUserAgent(), UA_TRUNCATE_WIDTH, "…");
+    if (!ua || width <= 2 || lines.length < 2) return lines;
+    const border = this.borderColor as ColorFn;
+    const rule = border("─").repeat(width);
+    const index = lines.lastIndexOf(rule);
+    if (index <= 0) return lines;
+    lines[index] = fitUserAgentBorder(border(` ${ua} `), width, border);
+    return lines;
   }
 
   /**
@@ -1642,20 +1702,6 @@ export default function (pi: ExtensionAPI): void {
 		if (dirty) refresh();
 	}
 
-	function renderUserAgentFooter(ctx: ExtensionContext, userAgent: string): void {
-		if (!ctx.hasUI) return;
-		ctx.ui.setFooter((tui, theme, _footerData) => ({
-			render(): string[] {
-				const width = tui.width || 80;
-				const ua = userAgent || "unknown";
-				const label = `UA: ${ua}`;
-				const padding = " ".repeat(Math.max(0, width - visibleWidth(label)));
-				return [theme.fg("dim", padding + label)];
-			},
-			invalidate(): void {},
-		}));
-	}
-
 	// --- Lifecycle ---
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -1665,8 +1711,6 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
 			promptHistoryError = undefined;
 		}
-		const userAgent = getUserAgent() || "unknown";
-		renderUserAgentFooter(ctx, userAgent);
 		installHeader(ctx);
 		runEmitGit(ctx);
 		emitTokens(ctx);
