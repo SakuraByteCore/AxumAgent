@@ -1712,6 +1712,10 @@ export default function (pi: ExtensionAPI): void {
 			promptHistoryError = undefined;
 		}
 		installHeader(ctx);
+		// The status bar already carries cwd/branch/context/model/thinking; the
+		// built-in footer line duplicates all of it, so replace it with an empty
+		// component (same pattern as the host's border-status-editor example).
+		if (ctx.hasUI) ctx.ui.setFooter(() => ({ render: () => [], invalidate: () => {} }));
 		runEmitGit(ctx);
 		emitTokens(ctx);
 		emitContext(ctx);

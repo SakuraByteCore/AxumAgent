@@ -318,10 +318,12 @@ test("user agent embeds into the editor bottom-right border", () => {
   assert.match(statuslineSource, /if \(index <= 0\) return lines;/);
   assert.match(statuslineSource, /lines\[index\] = fitUserAgentBorder\(border\(` \$\{ua\} `\), width, border\);/);
 
-  // The footer UA row is gone for good, and the status bar carries no UA
-  // segment: UA lives only in the editor border now.
+  // The built-in footer row is replaced by an empty component (same pattern
+  // as the host's border-status-editor example): the status bar already
+  // carries everything the footer would show, and the footer UA renderer is
+  // gone for good.
   assert.doesNotMatch(statuslineSource, /renderUserAgentFooter/);
-  assert.doesNotMatch(statuslineSource, /setFooter\(/);
+  assert.match(statuslineSource, /if \(ctx\.hasUI\) ctx\.ui\.setFooter\(\(\) => \(\{ render: \(\) => \[\], invalidate: \(\) => \{\} \}\)\);/);
   assert.doesNotMatch(statuslineSource, /PALETTE\.ua/);
   assert.doesNotMatch(statuslineSource, /"ua"/);
 });
