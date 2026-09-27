@@ -7,6 +7,8 @@ import {
   LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER,
   applyBundledPiPatches,
   patchPiSubagentsProactiveDelegation,
+  patchPiSubagentsLatencyOrchestrator,
+  PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER,
   patchPiAiRateLimitRetry,
   patchPiAgentSessionRateLimitRetry,
   patchPiHttpIdleTimeoutDefault,
@@ -219,4 +221,31 @@ test("patchPiExtensionTerminalInputFocusGate gates raw input on the focused edit
 
   const drifted = sample.replace("const subscription = { handler,", "const subscription = { restructured,");
   assert.equal(patchPiExtensionTerminalInputFocusGate(drifted), drifted);
+});
+
+test("patchPiSubagentsLatencyOrchestrator upgrades the proactive protocol into the latency-first orchestrator", () => {
+  const base = [
+    'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate to subagents; orchestrate in one workflowScript call.";',
+    "const guideline = `Use subagent only when delegation is needed. keep the expert list concise: [dron,..]`",
+    "export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [",
+    "    `Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating. ${guideline}`",
+    '    "Inside workflowScript, use runs.run single key for one child, runs.all parallel children, or runs.lanes for bounded parallel sequential chains."',
+    "    'Keep one writer per cwd/worktree. For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.',",
+    "];",
+  ].join("\n");
+  const proactive = patchPiSubagentsProactiveDelegation(base);
+  assert.ok(proactive.includes(PI_SUBAGENTS_PROACTIVE_MARKER));
+  const patched = patchPiSubagentsLatencyOrchestrator(proactive);
+  assert.ok(patched.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER));
+  assert.ok(patched.includes("Latency-first orchestrator: the main agent decomposes"));
+  assert.ok(!patched.includes("Delegate aggressively to subagents"), "proactive snippet must be replaced, not duplicated");
+  assert.ok(patched.includes("Latency-first budget: derive every lane timeout from one wall-clock budget"));
+  assert.ok(patched.includes("Every lane returns a structured envelope: status (done|partial|blocked|failed)"));
+  assert.equal(patchPiSubagentsLatencyOrchestrator(patched), patched, "idempotent");
+  const commalessBase = base.replace("workflows\" }.',", "workflows\" }.'");
+  const commaless = patchPiSubagentsLatencyOrchestrator(patchPiSubagentsProactiveDelegation(commalessBase));
+  assert.ok(commaless.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER), "compiled .js variant without the trailing comma still matches");
+  assert.equal(patchPiSubagentsLatencyOrchestrator("unrelated content"), "unrelated content", "drifted content is left untouched");
+  const noSnippet = proactive.replace("export const SUBAGENT_TOOL_PROMPT_SNIPPET = \"Delegate aggressively to subagents", "drifted export");
+  assert.equal(patchPiSubagentsLatencyOrchestrator(noSnippet), noSnippet, "snippet drift skips the patch");
 });

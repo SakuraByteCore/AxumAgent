@@ -133,3 +133,17 @@ test("subagent delegation policy: strips v1 even when v2 is already installed ve
   assert.ok(!content.includes("stale v1 guidance"));
   assert.ok(!content.startsWith("\n"), "no leading blank lines left");
 });
+
+test("subagent delegation policy: carries the latency-first orchestration protocol", (t) => {
+  const env = withTempEnv(t);
+  const result = ensureSubagentDelegationPolicy({ env });
+  const content = fs.readFileSync(result.path, "utf8");
+  assert.ok(content.includes("Latency-first orchestration protocol"));
+  assert.ok(content.includes("host-enforced remaining budget"));
+  assert.ok(content.includes("structured envelope: status (done|partial|blocked|failed)"));
+  assert.ok(content.includes("best-of-N races"));
+  assert.ok(
+    content.indexOf("Latency-first orchestration protocol") > content.indexOf("### After dispatch"),
+    "orchestration protocol extends the existing v2 block",
+  );
+});

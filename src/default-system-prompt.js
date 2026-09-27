@@ -65,6 +65,27 @@ every request by asking: what can run concurrently right now?
 
 - Cross-check child reports for conflicts, synthesize one aggregated answer,
   and never forward raw multi-agent dumps to the user.
+
+### Latency-first orchestration protocol
+
+- The main agent is the orchestrator: it decomposes, dispatches, arbitrates, and
+  verifies; subagents do the exploration and the fixes. Do not perform dispatched
+  work inline.
+- Drive every orchestration from one wall-clock budget: pass a single top-level
+  timeoutMs on the orchestration workflow and let children that omit
+  timeoutMs to inherit the host-enforced remaining budget; give a child its own
+  timeoutMs only as a deliberately tighter phase cap.
+- Reserve roughly the last 20% of the budget for verification and synthesis. At
+  ~80% of the budget, steer still-running children to emit their best partial
+  structured result; interrupt redundant lanes once one lane passes an
+  acceptance-checked verifier.
+- Every lane returns a structured envelope: status (done|partial|blocked|failed),
+  changes/findings, evidence, remainingRisks. Arbitrate only from these fields,
+  prefer verified evidence over prose, and report uncovered shards explicitly
+  instead of proceeding as if coverage were complete.
+- High token consumption is allowed by design: redundant scout coverage and
+  best-of-N races for risky fixes are legitimate spends when wall-clock time is
+  the binding constraint.
 ${SUBAGENT_POLICY_END}`;
 
 export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";

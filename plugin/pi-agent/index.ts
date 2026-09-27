@@ -1,4 +1,5 @@
 import { registerDispatch } from "./dispatch.js";
+import { registerOrchestrate } from "./orchestrate.js";
 import { registerPresets } from "./presets.js";
 import { registerSessionLifecycle } from "./session-lifecycle.js";
 import type {
@@ -96,6 +97,10 @@ export default function userAgent(pi: ExtensionAPI): void {
 				ctx,
 			),
 	});
+
+	// ── /orchestrate: latency-first orchestration under a wall-clock budget ──
+
+	registerOrchestrate(pi);
 
 	registerSessionLifecycle(pi, {
 		runningAgents,

@@ -8,6 +8,13 @@ import {
   buildDispatchPrompt,
   registerDispatch,
 } from "../plugin/pi-agent/dispatch.ts";
+import {
+  DEFAULT_ORCHESTRATION_BUDGET_MS,
+  MAX_ORCHESTRATION_BUDGET_MS,
+  buildOrchestrationPrompt,
+  parseOrchestrationArgs,
+  registerOrchestrate,
+} from "../plugin/pi-agent/orchestrate.ts";
 import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
 import {
 	assistantText,
@@ -810,4 +817,43 @@ test("resume subcommand is ordinary prose to the parser (interception happens up
   // bare `resume` word as a task so a quoted first word dispatches normally.
   assert.equal(parseAgentCommand("resume everything", "agent").task, "resume everything");
   assert.equal(parseAgentCommand('"resume everything"', "agent").task, '"resume everything"');
+});
+
+test("parseOrchestrationArgs parses duration forms, bare minutes, defaults, and bounds", () => {
+  assert.deepEqual(parseOrchestrationArgs("10m fix the flaky retry test"), { budgetMs: 600000, task: "fix the flaky retry test" });
+  assert.deepEqual(parseOrchestrationArgs("90s quick sanity sweep"), { budgetMs: 90000, task: "quick sanity sweep" });
+  assert.deepEqual(parseOrchestrationArgs("1h30m large refactor"), { budgetMs: 5400000, task: "large refactor" });
+  assert.deepEqual(parseOrchestrationArgs("7 tidy the test suite"), { budgetMs: 420000, task: "tidy the test suite" });
+  assert.deepEqual(parseOrchestrationArgs("fix the flaky retry test"), { budgetMs: DEFAULT_ORCHESTRATION_BUDGET_MS, task: "fix the flaky retry test" });
+  assert.equal(parseOrchestrationArgs("10x not a duration").task, "10x not a duration", "unknown units fall back to task text");
+  assert.equal(parseOrchestrationArgs(""), undefined);
+  assert.equal(parseOrchestrationArgs("10m"), undefined, "duration without a task is rejected");
+  assert.equal(parseOrchestrationArgs("48h far too long").budgetMs, MAX_ORCHESTRATION_BUDGET_MS, "budget clamped to the pi-subagents timeout ceiling");
+});
+
+test("buildOrchestrationPrompt embeds the budget, absolute deadline, and protocol rules", () => {
+  const prompt = buildOrchestrationPrompt({ budgetMs: 60000, task: "audit the retry paths" }, 1700000000000);
+  assert.ok(prompt.startsWith("[Orchestration Request]\naudit the retry paths"));
+  assert.match(prompt, /Wall-clock budget: 60s/);
+  assert.match(prompt, /absolute deadline: 2023-11-14T22:14:20\.000Z/);
+  assert.match(prompt, /top-level timeoutMs = 60000/);
+  assert.match(prompt, /~80% of the budget/);
+  assert.match(prompt, /status \(done\|partial\|blocked\|failed\)/);
+});
+
+test("registerOrchestrate registers /orchestrate and forwards the protocol prompt", async () => {
+  const pi = createPi();
+  registerOrchestrate(pi);
+  const command = pi.commands.get("orchestrate");
+  assert.ok(command, "orchestrate command must be registered");
+  assert.match(command.description, /wall-clock budget/);
+  const { ctx, notifications } = createCtx();
+  await command.handler("15m fix the login race", ctx);
+  assert.equal(notifications.length, 1);
+  assert.match(notifications[0].message, /900s wall-clock budget/);
+  assert.equal(pi.messages.length, 1);
+  const forwarded = pi.messages[0];
+  assert.match(forwarded.message, /\[Orchestration Request\]\nfix the login race/);
+  assert.match(forwarded.message, /top-level timeoutMs = 900000/);
+  assert.equal(forwarded.options.streamingBehavior, "followUp");
 });
