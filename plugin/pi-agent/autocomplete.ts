@@ -37,6 +37,17 @@ type AutocompleteRuntimeEditor = EditorComponent & {
 
 const DECORATED_EDITOR = Symbol.for("pi-user-agents:autocomplete-editor");
 const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+const RESUME_SUBCOMMAND = "resume";
+
+/** The `/agent resume` subcommand fragment, when the args are exactly one prefix of it (or empty). */
+function matchResumeSubcommand(line: string, cursorCol: number): string | undefined {
+	const match = /^\/agent\s+(\S*)$/.exec(line);
+	if (!match) return undefined;
+	const fragment = match[1] ?? "";
+	if (!RESUME_SUBCOMMAND.startsWith(fragment)) return undefined;
+	if (cursorCol < line.length - fragment.length) return undefined;
+	return fragment;
+}
 // Pi's resolver only calls getAvailable(), but its SDK type requires the internal ModelRuntime unavailable to extensions.
 const resolveExtensionModelScope = resolveModelScopeWithDiagnostics as unknown as (
 	patterns: string[],
@@ -74,6 +85,18 @@ export function createAgentAutocompleteProvider(
 			options,
 		): Promise<AutocompleteSuggestions | null> {
 			if (cursorLine !== 0) return current.getSuggestions(lines, cursorLine, cursorCol, options);
+			const resumeFragment = matchResumeSubcommand(lines[0] ?? "", cursorCol);
+			if (resumeFragment !== undefined)
+				return {
+					items: [
+					{
+						value: RESUME_SUBCOMMAND,
+						label: RESUME_SUBCOMMAND,
+						description: "Restart every failed background agent",
+					},
+				],
+					prefix: resumeFragment,
+				};
 			const expectation = analyzeAgentEditorInput(lines[0] ?? "", cursorCol);
 			if (expectation?.kind === "option") {
 				const items = getOptionItems(expectation);
@@ -119,6 +142,14 @@ export function createAgentAutocompleteProvider(
 		applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
 			if (cursorLine !== 0)
 				return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+			const resumeFragment = matchResumeSubcommand(lines[0] ?? "", cursorCol);
+			if (resumeFragment !== undefined && item.value === RESUME_SUBCOMMAND) {
+				const line = lines[0] ?? "";
+				const start = line.length - resumeFragment.length;
+				const nextLines = [...lines];
+				nextLines[0] = `${line.slice(0, start)}${RESUME_SUBCOMMAND} `;
+				return { lines: nextLines, cursorLine: 0, cursorCol: start + RESUME_SUBCOMMAND.length + 1 };
+			}
 			const expectation = analyzeAgentEditorInput(lines[0] ?? "", cursorCol);
 			if (
 				expectation?.kind === "option" &&

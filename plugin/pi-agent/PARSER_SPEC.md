@@ -276,3 +276,22 @@ The editor coloring layer (`editor-coloring.ts`) maps token semantics onto Pi th
 variables — command `accent`, options `syntaxType`, valid values `syntaxString`, and
 invalid, blocked, or misplaced tokens `error` — by repainting the laid-out chunk text after
 word-wrap layout, so editing, wrapping, cursor behavior, and autocomplete are untouched.
+
+## 12. The `resume` subcommand — intercepted before the parser
+
+`/agent resume` never reaches the parser. `handleAgentCommand` intercepts the arguments
+**before** `parseAgentCommand` runs, on a strict full match:
+
+- `args.trim() === "resume"` → restart every failed background agent of this session
+  (continue each failed agent's own session file when it still exists; re-dispatch from
+  scratch when it does not — see README).
+- First whitespace-delimited token `resume` **plus anything else** → hard usage error:
+  ``/agent resume takes no arguments.`` To dispatch a task whose first word is literally
+  "resume", quote that word — a leading quote flips the parser to prose, so the
+  interception (which only sees the bare token) does not fire.
+- A quoted first token (`/agent "resume it"`) is ordinary prose and dispatches normally.
+
+The interception applies to the `/agent` command only. Presets (`/spawn`, `/scout`,
+`/blueprint`) bake their flags into the args before this layer, so a task word `resume`
+there is unreachable as a bare first token. The autocomplete layer offers `resume` as the
+sole subcommand suggestion while the argument area is a single prefix of it.

@@ -148,13 +148,22 @@ Every dispatch writes a real session file, exactly like the one you're sitting i
 
 Result cards persist across session reloads; the widget doesn't. After a reload you keep every card, and every agent's session is still on disk — but the steerable rows are gone. Reach them with `/resume`.
 
+### ♻️ `/agent resume` — restart every failed agent
+
+When a background agent fails — a model error, an empty final response after retries, a session-creation failure — its failure card stays in the transcript. `/agent resume` restarts **every** failed agent of this session in one shot:
+
+- The agent **keeps its own id** and, whenever its session file is still on disk, **continues that very session**: the agent picks up its prior turns, tool results, and file edits, told only that its last attempt failed and the task is not complete.
+- If the session file is gone (deleted, or the failure predates per-agent session tracking), the agent is **re-dispatched from scratch** from its original command line, with a notice. Plan-relay (`-p`) agents cannot be re-dispatched without their session — those are skipped with a warning, since the relayed plan lives only in the session file.
+
+Resume works across session reloads too: the restart pool is scanned from the session's persisted result entries (the latest status per agent wins — an agent that later succeeded is not restarted), merged with the widget's live failure cards. An agent that fails again after a resume simply shows up as failed again and can be resumed once more. Rebase (`r`) stays blocked for continued agents — their fork point is the old main context — but squash (`s`) works as always. `/agent resume` takes no arguments; to dispatch a task whose first word is literally `resume`, quote that word: `/agent "resume the failing test"`.
+
 ### 🌡️ A context meter in one cell
 
 Each row carries the agent's own footer gauge: it fills `▁▂▃▄▅▆▇█` against that agent's model context window and shifts color through the same stages as Pi's footer — dim, then muted at 40%, warning at 65%, error at 85%. You see an agent approaching its limit before it becomes a problem.
 
 ## Reference
 
-The general form is one command: `/agent [options] <task>`. Three one-keystroke front doors bake in the common combinations — `/spawn <task>` (`-s`: on this conversation, result delivered back automatically), `/scout <task>` (`-i`: isolated, blank context), `/blueprint <task>` (`-P -s`: plan mode, finished plan delivered back).
+The general form is one command: `/agent [options] <task>`. Three one-keystroke front doors bake in the common combinations — `/spawn <task>` (`-s`: on this conversation, result delivered back automatically), `/scout <task>` (`-i`: isolated, blank context), `/blueprint <task>` (`-P -s`: plan mode, finished plan delivered back). One bare subcommand exists: `/agent resume` restarts every failed background agent of this session (see *♻️ `/agent resume`* above).
 
 | Flag | Effect |
 |---|---|

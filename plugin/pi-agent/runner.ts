@@ -1,5 +1,6 @@
 import * as os from "node:os";
 import * as path from "node:path";
+import { readdir } from "node:fs/promises";
 import {
 	type AgentSessionEvent,
 	type AgentSessionServices,
@@ -16,7 +17,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import { type AgentValueValidator, parseAgentCommand } from "./command-line.js";
+import { type AgentValueValidator, parseAgentCommand, scanAgentArguments } from "./command-line.js";
 import {
 	assistantText,
 	AgentStopError,
@@ -27,14 +28,18 @@ import {
 } from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
+import { AGENT_PRESETS, buildPresetArgs } from "./presets.js";
 import type {
 	AgentCommandName,
+	AgentEntryData,
 	AgentMessage,
 	AgentResultMessage,
 	AgentSession,
 	ChildCompactionMessage,
+	CompletedAgent,
 	ExtensionAPI,
 	ExtensionCommandContext,
+	FailedAgentTarget,
 	Model,
 	ParsedAgentCommand,
 	RebaseDelivery,
@@ -43,14 +48,19 @@ import type {
 	ThinkingLevel,
 } from "./shared.js";
 import {
+	agentArgsFromInvocation,
 	errorMessage,
 	formatModel,
 	formatModelLabel,
 	logSteering,
+	MESSAGE_TYPE,
+	planFailedAgentResume,
 	REBASED_ENTRY_TYPE,
+	selectResumeTargets,
 } from "./shared.js";
 import {
 	buildAgentResultMessage,
+	formatCommandErrorMessage,
 	formatStartNotification,
 	reportCommandError,
 } from "./transcript.js";
@@ -77,6 +87,19 @@ export async function handleAgentCommand(
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
 	try {
+		// `/agent resume` subcommand: restart every failed background agent. Strict full match —
+		// anything after `resume` is a usage error, so a task whose first word is literally
+		// "resume" can still be dispatched by quoting that word (quotes flip the parser to prose).
+		const trimmed = args.trim();
+		const firstToken = trimmed.split(/\s+/)[0] ?? "";
+		if (command === "agent" && firstToken === "resume") {
+			if (trimmed !== "resume")
+				throw new Error(
+					'/agent resume takes no arguments. To dispatch a task whose first word is "resume", quote that word: /agent "resume …"',
+			);
+			await resumeFailedAgents(pi, runningAgents, widget, disabledCommands, isShuttingDown, ctx);
+			return;
+		}
 		await startUserAgent(
 			pi,
 			runningAgents,
@@ -92,6 +115,313 @@ export async function handleAgentCommand(
 	} catch (error) {
 		reportCommandError(pi, command, args, ctx, errorMessage(error));
 	}
+}
+
+/** Inputs resolved once per dispatch and reused by /agent resume: services, options, model, thinking. */
+type ChildDispatchServices = {
+	services: AgentSessionServices;
+	forwarded: ForwardedOptions;
+	model: Model;
+	thinkingLevel: ThinkingLevel;
+};
+
+async function resolveChildDispatchServices(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	forwardedArgs: string[],
+): Promise<ChildDispatchServices> {
+	const parsedForwardedArgs = parseForwardedArgs(forwardedArgs);
+	const agentDir = getAgentDir();
+	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {
+		projectTrusted: ctx.isProjectTrusted(),
+	});
+	const services = await createAgentSessionServices({
+		cwd: ctx.cwd,
+		agentDir,
+		settingsManager,
+		modelRuntime: (ctx.modelRegistry as unknown as { runtime: ModelRuntime }).runtime,
+		resourceLoaderOptions: buildChildResourceLoaderOptions(parsedForwardedArgs, ctx.cwd),
+	});
+	const forwarded = resolveForwardedOptions(parsedForwardedArgs, services.modelRuntime);
+	const selectedModel = forwarded.model ?? ctx.model;
+	if (!selectedModel) throw new Error("No current model is selected; pass -m MODELNAME");
+	const model =
+		services.modelRuntime.getModel(selectedModel.provider, selectedModel.id) ?? selectedModel;
+	const thinkingLevel = forwarded.thinkingLevel ?? pi.getThinkingLevel();
+	return { services, forwarded, model, thinkingLevel };
+}
+
+/** The tail every dispatch and resume share: register the agent, notify, and run its lifecycle. */
+function launchRunningAgent(
+	pi: ExtensionAPI,
+	runningAgents: Set<RunningAgent>,
+	widget: UserAgentWidget,
+	disabledCommands: Set<string>,
+	isShuttingDown: () => boolean,
+	command: AgentCommandName,
+	dispatch: ChildDispatchServices,
+	warnings: string[],
+	task: string,
+	inheritedMessages: AgentMessage[],
+	childSessionManager: SessionManager,
+	runningAgent: RunningAgent,
+	ctx: ExtensionCommandContext,
+): void {
+	runningAgents.add(runningAgent);
+	logSteering(runningAgent.id, "agent-created", { command, taskLength: task.length });
+	if (ctx.hasUI) {
+		widget.setUI(ctx.ui);
+		for (const warning of warnings) ctx.ui.notify(warning, "warning");
+		ctx.ui.notify(formatStartNotification(runningAgent), "info");
+		widget.ensureTimer();
+		widget.update();
+	}
+
+	runningAgent.finished = runAgentLifecycle(
+		pi,
+		isShuttingDown,
+		task,
+		dispatch.model,
+		dispatch.thinkingLevel,
+		dispatch.forwarded,
+		inheritedMessages,
+		dispatch.services,
+		childSessionManager,
+		runningAgent,
+		widget,
+	).finally(() => {
+		logSteering(runningAgent.id, "agent-disposed", { status: runningAgent.status });
+		runningAgent.session?.dispose();
+		runningAgents.delete(runningAgent);
+
+		// Check if this command should be auto-disabled
+		if (command !== "agent" && runningAgent.status === "delivered") {
+			const { getCommandRetentionSettings } = require("../../src/provider-config.js");
+			const settings = getCommandRetentionSettings();
+			if (!settings.retainTemporaryCommands) {
+				disabledCommands.add(command);
+				pi.ui?.notify(
+					`✓ /${command} completed and auto-removed. Enable retention in Settings to keep it.`,
+					"info",
+				);
+			}
+		}
+
+		widget.update();
+	});
+}
+
+// ── /agent resume: restart every failed background agent ──────────────────────
+
+// A continued agent forked from an older main context that cannot be reconstructed here, so its
+// rebase base deliberately never matches the live main session (rebase stays blocked; squash
+// still works). Real fingerprints are JSON arrays, so a bare quoted word cannot collide.
+const RESUME_REBASE_BASE_FINGERPRINT = '"pi-user-agents-resumed"';
+
+async function resumeFailedAgents(
+	pi: ExtensionAPI,
+	runningAgents: Set<RunningAgent>,
+	widget: UserAgentWidget,
+	disabledCommands: Set<string>,
+	isShuttingDown: () => boolean,
+	ctx: ExtensionCommandContext,
+): Promise<void> {
+	const selection = selectResumeTargets({
+		isShuttingDown: isShuttingDown(),
+		entries: (ctx.sessionManager as unknown as SessionManager).getBranch(),
+		widgetTargets: widget.failedCompletedAgents().map(failedTargetFromCard),
+		runningAgentIds: [...runningAgents].map((agent) => agent.id),
+	});
+	if (selection.blocked) throw new Error(selection.blocked);
+	for (const skip of selection.skipped)
+		reportResumeNotice(pi, ctx, `${skip.agentId}: ${skip.reason}`, "warning");
+	if (selection.targets.length === 0) {
+		reportResumeNotice(pi, ctx, "No failed background agents to resume.", "info");
+		return;
+	}
+	if (ctx.hasUI)
+		ctx.ui.notify(
+			`Resuming ${selection.targets.length} failed agent${selection.targets.length === 1 ? "" : "s"}…`,
+			"info",
+		);
+	for (const target of selection.targets) {
+		try {
+			await resumeOneFailedAgent(
+				pi,
+				runningAgents,
+				widget,
+				disabledCommands,
+				isShuttingDown,
+				target,
+				ctx,
+			);
+		} catch (error) {
+			reportResumeNotice(
+				pi,
+				ctx,
+				`Could not resume ${target.agentId}: ${errorMessage(error)}`,
+				"error",
+			);
+		}
+	}
+}
+
+function failedTargetFromCard(card: CompletedAgent): FailedAgentTarget {
+	return {
+		agentId: card.id,
+		sessionId: card.sessionId,
+		command: card.command,
+		task: card.task,
+		invocation: card.invocation,
+		error: card.error,
+	};
+}
+
+/** Surface a /agent resume outcome: transient notice with a UI, transcript entry without one. */
+function reportResumeNotice(
+	pi: ExtensionAPI,
+	ctx: ExtensionCommandContext,
+	message: string,
+	level: "info" | "warning" | "error",
+): void {
+	if (ctx.hasUI) {
+		ctx.ui.notify(message, level);
+		return;
+	}
+	pi.appendEntry<AgentEntryData>(MESSAGE_TYPE, {
+		content: formatCommandErrorMessage("agent", "resume", message),
+		details: {
+			command: "agent",
+			inheritedContext: false,
+			model: "",
+			modelLabel: "",
+			task: "resume",
+			ok: level !== "error",
+			responseText: level === "error" ? undefined : message,
+			error: level === "error" ? message : undefined,
+		},
+	});
+}
+
+/** Re-apply a preset's baked-in flags (/spawn → -s, …) — presets encode them outside the invocation text. */
+function presetPrefixFromInvocation(invocation: string): string {
+	const name = /^\/(\S+)/.exec(invocation)?.[1];
+	const preset = AGENT_PRESETS.find((candidate) => candidate.name === name);
+	return preset ? buildPresetArgs(preset, "") : "";
+}
+
+/** Recover the original dispatch options from the persisted invocation; task comes from the entry. */
+function parseResumeCommand(target: FailedAgentTarget, invocation: string): ParsedAgentCommand {
+	const args = `${presetPrefixFromInvocation(invocation)} ${agentArgsFromInvocation(invocation)}`.trim();
+	const scan = scanAgentArguments(args, target.command);
+	return {
+		isolate: scan.isolate,
+		squash: scan.squash,
+		plan: scan.plan,
+		planRef: scan.planRef,
+		forwardedArgs: scan.forwardedArgs,
+		task: target.task,
+		warnings: [],
+	};
+}
+
+function continuationInstruction(target: FailedAgentTarget): string {
+	const error = target.error?.trim() || "an internal error";
+	return [
+		"Your previous attempt at this task ended in failure:",
+		`<previous_error>\n${error}\n</previous_error>`,
+		"The task is NOT complete. Pick up where the previous attempt left off — its earlier turns, tool results, and file edits are already part of your context — and finish the original task.",
+		`<original_task>\n${target.task}\n</original_task>`,
+	].join("\n\n");
+}
+
+/** Locate a failed agent's session file in the default session dir for the dispatch cwd. */
+async function findChildSessionFile(
+	cwd: string,
+	sessionId: string | undefined,
+): Promise<string | undefined> {
+	if (!sessionId) return undefined;
+	// Child sessions are always created with the default session dir for the dispatch cwd
+	// (SessionManager.create(cwd, undefined, …)). The layout mirrors the SDK's internal
+	// getDefaultSessionDirPath: <agentDir>/sessions/--<sanitized-cwd>--/, files <timestamp>_<sessionId>.jsonl.
+	const safeDir = `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+	const dir = path.join(getAgentDir(), "sessions", safeDir);
+	let names: string[];
+	try {
+		names = await readdir(dir);
+	} catch {
+		return undefined;
+	}
+	const suffix = `_${sessionId}.jsonl`;
+	const matches = names.filter((name) => name.endsWith(suffix)).sort();
+	return matches.length > 0 ? path.join(dir, matches.at(-1)!) : undefined;
+}
+
+async function resumeOneFailedAgent(
+	pi: ExtensionAPI,
+	runningAgents: Set<RunningAgent>,
+	widget: UserAgentWidget,
+	disabledCommands: Set<string>,
+	isShuttingDown: () => boolean,
+	target: FailedAgentTarget,
+	ctx: ExtensionCommandContext,
+): Promise<void> {
+	const invocation = target.invocation ?? `/${target.command} ${target.task}`.trim();
+	const parsed = parseResumeCommand(target, invocation);
+	const sessionFile = await findChildSessionFile(ctx.cwd, target.sessionId);
+	const plan = planFailedAgentResume(target, sessionFile, parsed.planRef !== undefined);
+	if (plan.mode === "skip") {
+		reportResumeNotice(pi, ctx, `${target.agentId}: ${plan.reason}`, "warning");
+		return;
+	}
+	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs);
+	let childSessionManager: SessionManager;
+	let inheritedMessages: AgentMessage[];
+	let task: string;
+	if (plan.mode === "continue") {
+		childSessionManager = SessionManager.open(plan.sessionFile);
+		// The session file already carries the inherited snapshot from the original dispatch.
+		inheritedMessages = [];
+		task = continuationInstruction(target);
+		reportResumeNotice(pi, ctx, `${target.agentId}: continuing its saved session`, "info");
+	} else {
+		childSessionManager = SessionManager.create(dispatch.services.cwd, undefined, {
+			parentSession: ctx.sessionManager.getSessionFile(),
+		});
+		inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
+		task = target.task;
+		reportResumeNotice(pi, ctx, `${target.agentId}: ${plan.reason}`, "warning");
+	}
+	// The id is reused on purpose: "latest entry per agentId" makes the old failure void once this
+	// run succeeds, and keeps it resumable if it fails again — no extra bookkeeping entries needed.
+	const runningAgent = createRunningAgent(
+		target.agentId,
+		childSessionManager.getSessionId(),
+		target.command,
+		dispatch.model,
+		parsed,
+		invocation,
+		target.planSourceSessionId,
+		plan.mode === "continue"
+			? RESUME_REBASE_BASE_FINGERPRINT
+			: conversationFingerprint(inheritedMessages),
+	);
+	widget.removeFailedCompletedById(target.agentId);
+	launchRunningAgent(
+		pi,
+		runningAgents,
+		widget,
+		disabledCommands,
+		isShuttingDown,
+		target.command,
+		dispatch,
+		[],
+		task,
+		inheritedMessages,
+		childSessionManager,
+		runningAgent,
+		ctx,
+	);
 }
 
 /** Warn (without blocking) when a dispatch skips -p while a blueprint is still mid-turn. */
@@ -140,87 +470,42 @@ export async function startUserAgent(
 	if (parsed.plan) {
 		parsed.task = await buildPlanPrompt(parsed.task);
 	}
-	const parsedForwardedArgs = parseForwardedArgs(parsed.forwardedArgs);
-	const agentDir = getAgentDir();
-	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {
-		projectTrusted: ctx.isProjectTrusted(),
-	});
-	const services = await createAgentSessionServices({
-		cwd: ctx.cwd,
-		agentDir,
-		settingsManager,
-		modelRuntime: (ctx.modelRegistry as unknown as { runtime: ModelRuntime }).runtime,
-		resourceLoaderOptions: buildChildResourceLoaderOptions(parsedForwardedArgs, ctx.cwd),
-	});
-	const forwarded = resolveForwardedOptions(parsedForwardedArgs, services.modelRuntime);
-	const selectedModel = forwarded.model ?? ctx.model;
-	if (!selectedModel) throw new Error("No current model is selected; pass -m MODELNAME");
-	const model =
-		services.modelRuntime.getModel(selectedModel.provider, selectedModel.id) ?? selectedModel;
-	const thinkingLevel = forwarded.thinkingLevel ?? pi.getThinkingLevel();
+	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs);
 	const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
 	// A real session file from birth: the child outlives the widget row and stays resumable.
-	const childSessionManager = SessionManager.create(services.cwd, undefined, {
+	const childSessionManager = SessionManager.create(dispatch.services.cwd, undefined, {
 		parentSession: ctx.sessionManager.getSessionFile(),
 	});
 	const runningAgent = createRunningAgent(
-		nextAgentNumber(),
+		`user-${nextAgentNumber().toString(36)}`,
 		childSessionManager.getSessionId(),
 		command,
-		model,
+		dispatch.model,
 		parsed,
 		invocation,
 		planSourceSessionId,
 		conversationFingerprint(inheritedMessages),
 	);
-
-	runningAgents.add(runningAgent);
-	logSteering(runningAgent.id, "agent-created", { command, taskLength: parsed.task.length });
-	if (ctx.hasUI) {
-		widget.setUI(ctx.ui);
-		for (const warning of parsed.warnings) ctx.ui.notify(warning, "warning");
-		ctx.ui.notify(formatStartNotification(runningAgent), "info");
-		widget.ensureTimer();
-		widget.update();
-	}
-
-	runningAgent.finished = runAgentLifecycle(
+	launchRunningAgent(
 		pi,
+		runningAgents,
+		widget,
+		disabledCommands,
 		isShuttingDown,
-		(relayInstruction ?? parsed.task),
-		model,
-		thinkingLevel,
-		forwarded,
+		command,
+		dispatch,
+		parsed.warnings,
+		relayInstruction ?? parsed.task,
 		inheritedMessages,
-		services,
 		childSessionManager,
 		runningAgent,
-		widget,
-	).finally(() => {
-		logSteering(runningAgent.id, "agent-disposed", { status: runningAgent.status });
-		runningAgent.session?.dispose();
-		runningAgents.delete(runningAgent);
-		
-		// Check if this command should be auto-disabled
-		if (command !== "agent" && runningAgent.status === "delivered") {
-			const { getCommandRetentionSettings } = require("../../src/provider-config.js");
-			const settings = getCommandRetentionSettings();
-			if (!settings.retainTemporaryCommands) {
-				disabledCommands.add(command);
-				pi.ui?.notify(
-					`✓ /${command} completed and auto-removed. Enable retention in Settings to keep it.`,
-					"info",
-				);
-			}
-		}
-		
-		widget.update();
-	});
+		ctx,
+	);
 	return runningAgent;
 }
 
 function createRunningAgent(
-	sequenceNumber: number,
+	agentId: string,
 	sessionId: string,
 	command: AgentCommandName,
 	model: Model,
@@ -230,7 +515,7 @@ function createRunningAgent(
 	dispatchBaseFingerprint: string,
 ): RunningAgent {
 	return {
-		id: `user-${sequenceNumber.toString(36)}`,
+		id: agentId,
 		sessionId,
 		command,
 		inheritedContext: !parsed.isolate,

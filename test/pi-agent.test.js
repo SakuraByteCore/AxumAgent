@@ -35,6 +35,13 @@ import {
 	resolvePlanRelay,
 	selectPlanCandidate,
 } from "../plugin/pi-agent/plan-relay.ts";
+import {
+	MESSAGE_TYPE,
+	agentArgsFromInvocation,
+	collectFailedAgentTargets,
+	planFailedAgentResume,
+	selectResumeTargets,
+} from "../plugin/pi-agent/shared.ts";
 function createPi() {
   const commands = new Map();
   const tools = new Map();
@@ -595,4 +602,212 @@ test("composeRelayInstruction embeds the plan verbatim with an optional suppleme
   const withNote = composeRelayInstruction(source, "use Postgres");
   assert.match(withNote, /Additional instruction from the user: use Postgres/);
   assert.ok(withNote.includes("PLAN BODY"));
+});
+
+// ── /agent resume: failed-agent recovery ─────────────────────────────────────
+
+function agentResultEntry(agentId, { ok, sessionId, invocation, error } = {}) {
+  return {
+    type: "custom_message",
+    customType: MESSAGE_TYPE,
+    content: [
+      "<user_agent_error command=\"/agent\">",
+      "<user_invocation>",
+      invocation ?? `/agent -s fix it (${agentId})`,
+      "</user_invocation>",
+      "<task>",
+      "fix it",
+      "</task>",
+      `<error>\n${error ?? "boom"}\n</error>`,
+      "</user_agent_error>",
+    ].join("\n"),
+    details: {
+      agentId,
+      sessionId,
+      command: "agent",
+      inheritedContext: true,
+      model: "prov/m",
+      modelLabel: "m",
+      task: "fix it",
+      ok,
+      error: ok ? undefined : (error ?? "boom"),
+    },
+  };
+}
+
+const dispatchErrorEntry = () => ({
+  type: "custom_message",
+  customType: MESSAGE_TYPE,
+  content: "<user_agent_error command=\"/agent\">…</user_agent_error>",
+  details: {
+    command: "agent",
+    inheritedContext: true,
+    model: "",
+    modelLabel: "",
+    task: "resume",
+    ok: false,
+    error: "bad flag",
+  },
+});
+
+test("collectFailedAgentTargets: latest status per agentId wins — failure → success drops it", () => {
+  const targets = collectFailedAgentTargets([
+    agentResultEntry("user-3", { ok: false }),
+    agentResultEntry("user-3", { ok: true }),
+  ]);
+  assert.equal(targets.length, 0);
+});
+
+test("collectFailedAgentTargets: success → later failure is collected (resumable again)", () => {
+  const targets = collectFailedAgentTargets([
+    agentResultEntry("user-3", { ok: true }),
+    agentResultEntry("user-3", { ok: false, error: "second crash" }),
+  ]);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].agentId, "user-3");
+  assert.equal(targets[0].error, "second crash");
+});
+
+test("collectFailedAgentTargets: extracts agentId, sessionId, invocation, and task from failures", () => {
+  const [target] = collectFailedAgentTargets([
+    agentResultEntry("user-5", {
+      ok: false,
+      sessionId: "0199c4f2",
+      invocation: "/agent -i -m prov/m fix it",
+      error: "empty response",
+    }),
+  ]);
+  assert.equal(target.agentId, "user-5");
+  assert.equal(target.sessionId, "0199c4f2");
+  assert.equal(target.invocation, "/agent -i -m prov/m fix it");
+  assert.equal(target.task, "fix it");
+  assert.equal(target.error, "empty response");
+});
+
+test("collectFailedAgentTargets: skips entries without an agentId (dispatch-time errors)", () => {
+  const targets = collectFailedAgentTargets([
+    dispatchErrorEntry(),
+    agentResultEntry("user-4", { ok: false }),
+  ]);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].agentId, "user-4");
+});
+
+test("selectResumeTargets: merges persisted entries with live widget cards, persisted wins per id", () => {
+  const selection = selectResumeTargets({
+    isShuttingDown: false,
+    entries: [
+      agentResultEntry("user-3", { ok: false, sessionId: "s-3" }),
+      agentResultEntry("user-4", { ok: false }),
+    ],
+    widgetTargets: [
+      // Same id as a persisted failure: persisted data must win.
+      { agentId: "user-3", command: "agent", task: "stale card task" },
+      // Live-only failure (e.g. never persisted during shutdown): still resumable.
+      { agentId: "user-9", command: "agent", task: "card-only task" },
+    ],
+    runningAgentIds: [],
+  });
+  assert.deepEqual(
+    selection.targets.map((target) => target.agentId).sort(),
+    ["user-3", "user-4", "user-9"],
+  );
+  const user3 = selection.targets.find((target) => target.agentId === "user-3");
+  assert.equal(user3.sessionId, "s-3");
+  assert.equal(user3.task, "fix it");
+  assert.equal(selection.targets.find((target) => target.agentId === "user-9").task, "card-only task");
+  assert.equal(selection.skipped.length, 0);
+});
+
+test("selectResumeTargets: a widget failure card whose id later succeeded is not resumed", () => {
+  const selection = selectResumeTargets({
+    isShuttingDown: false,
+    entries: [agentResultEntry("user-3", { ok: false }), agentResultEntry("user-3", { ok: true })],
+    widgetTargets: [{ agentId: "user-3", command: "agent", task: "fix it" }],
+    runningAgentIds: [],
+  });
+  assert.equal(selection.targets.length, 0);
+});
+
+test("selectResumeTargets: skips ids that are already running again, with a reason", () => {
+  const selection = selectResumeTargets({
+    isShuttingDown: false,
+    entries: [agentResultEntry("user-3", { ok: false })],
+    widgetTargets: [],
+    runningAgentIds: ["user-3"],
+  });
+  assert.equal(selection.targets.length, 0);
+  assert.deepEqual(selection.skipped, [{ agentId: "user-3", reason: "already running again" }]);
+});
+
+test("selectResumeTargets: refuses to resume while shutting down", () => {
+  const selection = selectResumeTargets({
+    isShuttingDown: true,
+    entries: [agentResultEntry("user-3", { ok: false })],
+    widgetTargets: [],
+    runningAgentIds: [],
+  });
+  assert.ok(selection.blocked);
+  assert.match(selection.blocked, /shutting down/);
+  assert.equal(selection.targets.length, 0);
+});
+
+test("planFailedAgentResume: continues the session file when it exists", () => {
+  const plan = planFailedAgentResume({ agentId: "user-3", command: "agent", task: "fix it" }, "/sessions/x.jsonl", false);
+  assert.deepEqual(plan, { mode: "continue", sessionFile: "/sessions/x.jsonl" });
+});
+
+test("planFailedAgentResume: falls back to a fresh re-dispatch when the session file is missing", () => {
+  const withSessionId = planFailedAgentResume(
+    { agentId: "user-3", command: "agent", task: "fix it", sessionId: "s-3" },
+    undefined,
+    false,
+  );
+  assert.equal(withSessionId.mode, "redispatch");
+  assert.match(withSessionId.reason, /session file for user-3 is missing/);
+  const legacy = planFailedAgentResume({ agentId: "user-3", command: "agent", task: "fix it" }, undefined, false);
+  assert.equal(legacy.mode, "redispatch");
+  assert.match(legacy.reason, /predates per-agent session tracking/);
+});
+
+test("planFailedAgentResume: plan-relay agents cannot be re-dispatched without their session", () => {
+  const plan = planFailedAgentResume(
+    { agentId: "user-3", command: "agent", task: "fix it", sessionId: "s-3" },
+    undefined,
+    true,
+  );
+  assert.equal(plan.mode, "skip");
+  assert.match(plan.reason, /plan-relay agent cannot be re-dispatched/);
+});
+
+test("resume idempotency: a failed→resumed→succeeded history is never re-collected", () => {
+  const entries = [
+    agentResultEntry("user-3", { ok: false, sessionId: "s-3", error: "first crash" }),
+    agentResultEntry("user-3", { ok: false, sessionId: "s-3", error: "second crash" }),
+    agentResultEntry("user-3", { ok: true }),
+  ];
+  assert.equal(collectFailedAgentTargets(entries).length, 0);
+  // Failing again after the resume restores resumability with the latest error.
+  const afterAnotherFailure = [
+    ...entries,
+    agentResultEntry("user-3", { ok: false, sessionId: "s-3", error: "third crash" }),
+  ];
+  const [target] = collectFailedAgentTargets(afterAnotherFailure);
+  assert.equal(target.agentId, "user-3");
+  assert.equal(target.error, "third crash");
+});
+
+test("agentArgsFromInvocation: strips the leading /command token, keeps the rest verbatim", () => {
+  assert.equal(agentArgsFromInvocation("/agent -s fix the bug"), "-s fix the bug");
+  assert.equal(agentArgsFromInvocation("/spawn fix it"), "fix it");
+  assert.equal(agentArgsFromInvocation("/agent"), "");
+  assert.equal(agentArgsFromInvocation(undefined), "");
+  assert.equal(agentArgsFromInvocation("dispatch_agent: fix it"), "");
+});
+
+test("resume subcommand is ordinary prose to the parser (interception happens upstream)", () => {
+  // `/agent resume` is intercepted before parseAgentCommand; the parser still treats a
+  // bare `resume` word as a task so a quoted first word dispatches normally.
+  assert.equal(parseAgentCommand("resume everything", "agent").task, "resume everything");
+  assert.equal(parseAgentCommand('"resume everything"', "agent").task, '"resume everything"');
 });

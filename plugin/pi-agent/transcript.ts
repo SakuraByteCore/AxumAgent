@@ -82,6 +82,7 @@ export function selectSquashedMessages(messages: readonly AgentMessage[]): Squas
 export function buildMessageDetails(agent: RunningAgent, ok: boolean): AgentCommandDetails {
 	return {
 		agentId: agent.id,
+		sessionId: agent.sessionId,
 		command: agent.command,
 		mainContextState: agent.mainContextState,
 		inheritedContext: agent.inheritedContext,

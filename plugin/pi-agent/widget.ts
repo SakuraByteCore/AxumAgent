@@ -133,6 +133,21 @@ export class UserAgentWidget {
 		return this.completedAgents.filter((agent) => agent.planMode);
 	}
 
+	/** Failed completion cards — /agent resume's live half of the restart pool. */
+	failedCompletedAgents(): CompletedAgent[] {
+		return this.completedAgents.filter((agent) => !agent.ok);
+	}
+
+	/** Drop a failed card when its agent is resumed; the new running row appears in its place. */
+	removeFailedCompletedById(agentId: string): void {
+		const index = this.completedAgents.findIndex(
+			(agent) => agent.id === agentId && !agent.ok,
+		);
+		if (index < 0) return;
+		this.completedAgents.splice(index, 1);
+		this.update();
+	}
+
 	ensureTimer(): void {
 		if (!this.ui || this.interval) return;
 		this.interval = setInterval(() => this.update(), 100);
