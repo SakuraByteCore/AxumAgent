@@ -35,6 +35,8 @@ const PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN = /\/\/ AXUM_PI_HTTP_IDLE_TIMEOUT_[A-Z0
 const PI_HTTP_IDLE_TIMEOUT_HEADERS_ANCHOR = "headersTimeout: normalizedTimeoutMs,";
 const PI_ERROR_DEDUP_MARKER = "AXUM_PI_ERROR_DEDUP";
 const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
+const PI_ASSISTANT_CONNECTION_DISPLAY_MARKER = "AXUM_PI_ASSISTANT_CONNECTION_DISPLAY";
+const PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER = "AXUM_PI_INTERACTIVE_CONNECTION_DISPLAY";
 const PI_USER_AGENT_CUSTOM_MARKER = "AXUM_PI_USER_AGENT_CUSTOM";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
@@ -1300,6 +1302,217 @@ ${classAnchor}`,
   return updated;
 }
 
+// Mid-request transport aborts (undici `terminated`, connection resets,
+// relay deadline kills) surface as stopReason "error" assistant messages
+// even though the connection retry lane restarts the turn in the background
+// right after. Without display softening every failed attempt paints an
+// opaque `Error: terminated` bubble into the chat history that a later
+// successful retry never clears - the exact UX gap the 429 softening fixed
+// for provider throttling. Connection-class failures therefore render a soft
+// Chinese notice instead; the raw message stays in the session file for
+// debugging, so no information is lost.
+const AXUM_CONNECTION_INTERRUPTED_NOTICE_TEXT = "网络连接中断，已在后台自动重试；请稍候。";
+const AXUM_CONNECTION_SHOW_ERROR_NOTICE_TEXT = "网络连接中断；请检查网络后重试。";
+
+function buildConnectionDisplayHelpers(marker) {
+  return [
+    `// ${marker}: transport aborts (\"terminated\") surface mid-request even`,
+    `// though the connection retry lane restarts the turn in the background;`,
+    `// render the soft notice instead of the opaque raw error, mirroring the`,
+    `// 429 display softening.`,
+    `const AXUM_CONNECTION_INTERRUPTED_NOTICE = ${JSON.stringify(AXUM_CONNECTION_INTERRUPTED_NOTICE_TEXT)};`,
+    `const AXUM_CONNECTION_SHOW_ERROR_NOTICE = ${JSON.stringify(AXUM_CONNECTION_SHOW_ERROR_NOTICE_TEXT)};`,
+    `function isAxumConnectionErrorMessage(message) {`,
+    `    return typeof message === \"string\" && new RegExp(${JSON.stringify(PI_CONNECTION_ERROR_PATTERN_SOURCE)}).test(message);`,
+    `}`,
+  ].join("\n");
+}
+
+// Softens the assistant-message error bubble: a connection-class
+// errorMessage renders the retry notice instead of `Error: terminated`.
+// Runs after patchPiAssistantMessageErrorDedup in the same chain and anchors
+// on the dedup-patched shape, so caches carrying an earlier dedup-only
+// generation upgrade in place.
+function patchPiAssistantMessageConnectionDisplay(content) {
+  if (content.includes(PI_ASSISTANT_CONNECTION_DISPLAY_MARKER)) return content;
+  const classAnchor = "export class AssistantMessageComponent extends Container {";
+  if (!content.includes(classAnchor)) {
+    throw new Error("unable to patch bundled Pi assistant message: class anchor not found");
+  }
+  let updated = content.replace(classAnchor, buildConnectionDisplayHelpers(PI_ASSISTANT_CONNECTION_DISPLAY_MARKER) + "\n" + classAnchor);
+  const errorAnchor = [
+    '                const errorMsg = message.errorMessage || "Unknown error";',
+    '                if (axumLastBubbleFailure !== `error:${errorMsg}`) {',
+    '                    axumLastBubbleFailure = `error:${errorMsg}`;',
+    '                this.contentContainer.addChild(new Spacer(1));',
+    '                this.contentContainer.addChild(new Text(theme.fg("error", `Error: ${errorMsg}`), this.outputPad, 0));',
+    '                }',
+  ].join("\n");
+  if (!updated.includes(errorAnchor)) {
+    throw new Error("unable to patch bundled Pi assistant message: connection error render anchor not found");
+  }
+  const errorReplacement = [
+    '                const errorMsg = message.errorMessage || "Unknown error";',
+    '                if (axumLastBubbleFailure !== `error:${errorMsg}`) {',
+    '                    axumLastBubbleFailure = `error:${errorMsg}`;',
+    '                this.contentContainer.addChild(new Spacer(1));',
+    '                this.contentContainer.addChild(new Text(',
+    '                    isAxumConnectionErrorMessage(errorMsg)',
+    '                        ? AXUM_CONNECTION_INTERRUPTED_NOTICE',
+    '                        : theme.fg("error", `Error: ${errorMsg}`),',
+    '                    this.outputPad, 0));',
+    '                }',
+  ].join("\n");
+  return updated.replace(errorAnchor, errorReplacement);
+}
+
+// Softens every interactive-mode surface that would otherwise print a raw
+// connection error: showError, the exhausted auto-retry notice, the
+// summarization retry banner, compaction error rows, and the tool-call
+// result rows painted for pending tools when the stream dies mid-request.
+// Runs after patchPiInteractiveRateLimitDisplay and
+// patchPiInteractiveErrorDedup and anchors on their patched shapes.
+function patchPiInteractiveConnectionDisplay(content) {
+  if (content.includes(PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER)) return content;
+  const classAnchor = "export class InteractiveMode {";
+  if (!content.includes(classAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: class anchor not found");
+  }
+  let updated = content.replace(classAnchor, buildConnectionDisplayHelpers(PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER) + "\n" + classAnchor);
+
+  const showErrorAnchor = [
+    '        this._axumLastShownError = errorMessage;',
+    '        this.chatContainer.addChild(new Spacer(1));',
+    '        this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${errorMessage}`), this.outputPad, 0));',
+    '        this.ui.requestRender();',
+  ].join("\n");
+  if (!updated.includes(showErrorAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: showError anchor not found");
+  }
+  const showErrorReplacement = [
+    '        this._axumLastShownError = errorMessage;',
+    '        this.chatContainer.addChild(new Spacer(1));',
+    '        this.chatContainer.addChild(new Text(',
+    '            isAxumConnectionErrorMessage(errorMessage)',
+    '                ? AXUM_CONNECTION_SHOW_ERROR_NOTICE',
+    '                : theme.fg("error", `Error: ${errorMessage}`),',
+    '            this.outputPad, 0));',
+    '        this.ui.requestRender();',
+  ].join("\n");
+  updated = updated.replace(showErrorAnchor, showErrorReplacement);
+
+  const retryEndAnchor = [
+    '                    if (isAxumRateLimit429Message(event.finalError)) {',
+    '                        this.chatContainer.addChild(new Text(AXUM_RATE_LIMIT_429_NOTICE, 1, 0));',
+    '                    }',
+    '                    else {',
+    '                        this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);',
+    '                    }',
+  ].join("\n");
+  if (!updated.includes(retryEndAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: auto retry end anchor not found");
+  }
+  const retryEndReplacement = [
+    '                    if (isAxumRateLimit429Message(event.finalError)) {',
+    '                        this.chatContainer.addChild(new Text(AXUM_RATE_LIMIT_429_NOTICE, 1, 0));',
+    '                    }',
+    '                    else if (isAxumConnectionErrorMessage(event.finalError)) {',
+    '                        this.showError(`网络持续中断，已自动重试 ${event.attempt} 次仍未成功；请检查网络后重试。`);',
+    '                    }',
+    '                    else {',
+    '                        this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || "Unknown error"}`);',
+    '                    }',
+  ].join("\n");
+  updated = updated.replace(retryEndAnchor, retryEndReplacement);
+
+  const summarizationAnchor = [
+    '                if (!isAxumRateLimit429Message(event.errorMessage)) {',
+    '                    this.showError(event.errorMessage);',
+    '                }',
+  ].join("\n");
+  if (!updated.includes(summarizationAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: summarization retry anchor not found");
+  }
+  const summarizationReplacement = [
+    '                if (!isAxumRateLimit429Message(event.errorMessage) && !isAxumConnectionErrorMessage(event.errorMessage)) {',
+    '                    this.showError(event.errorMessage);',
+    '                }',
+  ].join("\n");
+  updated = updated.replace(summarizationAnchor, summarizationReplacement);
+
+  const compactionAnchor = [
+    '                else if (event.errorMessage) {',
+    '                    if (isAxumRateLimit429Message(event.errorMessage)) {',
+    '                        this.chatContainer.addChild(new Spacer(1));',
+    '                        this.chatContainer.addChild(new Text(AXUM_RATE_LIMIT_429_NOTICE, 1, 0));',
+    '                    }',
+    '                    else if (event.reason === "manual") {',
+  ].join("\n");
+  if (!updated.includes(compactionAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: compaction error anchor not found");
+  }
+  const compactionReplacement = [
+    '                else if (event.errorMessage) {',
+    '                    if (isAxumRateLimit429Message(event.errorMessage)) {',
+    '                        this.chatContainer.addChild(new Spacer(1));',
+    '                        this.chatContainer.addChild(new Text(AXUM_RATE_LIMIT_429_NOTICE, 1, 0));',
+    '                    }',
+    '                    else if (isAxumConnectionErrorMessage(event.errorMessage)) {',
+    '                        this.chatContainer.addChild(new Spacer(1));',
+    '                        this.chatContainer.addChild(new Text(AXUM_CONNECTION_INTERRUPTED_NOTICE, 1, 0));',
+    '                    }',
+    '                    else if (event.reason === "manual") {',
+  ].join("\n");
+  updated = updated.replace(compactionAnchor, compactionReplacement);
+
+  const messageEndAnchor = [
+    '                        if (!errorMessage) {',
+    '                            errorMessage = this.streamingMessage.errorMessage || "Error";',
+    '                        }',
+    '                        for (const [, component] of this.pendingTools.entries()) {',
+    '                            component.updateResult({',
+    '                                content: [{ type: "text", text: errorMessage }],',
+    '                                isError: true,',
+    '                            });',
+    '                        }',
+  ].join("\n");
+  if (!updated.includes(messageEndAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: message_end tool result anchor not found");
+  }
+  const messageEndReplacement = [
+    '                        if (!errorMessage) {',
+    '                            errorMessage = this.streamingMessage.errorMessage || "Error";',
+    '                        }',
+    '                        const axumToolResultText = isAxumConnectionErrorMessage(errorMessage)',
+    '                            ? AXUM_CONNECTION_INTERRUPTED_NOTICE',
+    '                            : errorMessage;',
+    '                        for (const [, component] of this.pendingTools.entries()) {',
+    '                            component.updateResult({',
+    '                                content: [{ type: "text", text: axumToolResultText }],',
+    '                                isError: true,',
+    '                            });',
+    '                        }',
+  ].join("\n");
+  updated = updated.replace(messageEndAnchor, messageEndReplacement);
+
+  const replayAnchor = [
+    '                            else {',
+    '                                errorMessage = message.errorMessage || "Error";',
+    '                            }',
+    '                            component.updateResult({ content: [{ type: "text", text: errorMessage }], isError: true });',
+  ].join("\n");
+  if (!updated.includes(replayAnchor)) {
+    throw new Error("unable to patch bundled Pi interactive mode: history replay tool result anchor not found");
+  }
+  const replayReplacement = [
+    '                            else {',
+    '                                errorMessage = message.errorMessage || "Error";',
+    '                            }',
+    '                            component.updateResult({ content: [{ type: "text", text: isAxumConnectionErrorMessage(errorMessage) ? AXUM_CONNECTION_INTERRUPTED_NOTICE : errorMessage }], isError: true });',
+  ].join("\n");
+  return updated.replace(replayAnchor, replayReplacement);
+}
+
 const PI_RETRY_JITTER_MARKER = "AXUM_PI_RETRY_JITTER";
 
 function patchPiRetryJitter(content) {
@@ -1497,10 +1710,10 @@ export function applyBundledPiPatches(options) {
 
   const interactiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(interactiveModePath)) {
-    results.push(patchFileInPlace(interactiveModePath, patchPiInteractiveRateLimitDisplay, patchPiInteractiveErrorDedup));
+    results.push(patchFileInPlace(interactiveModePath, patchPiInteractiveRateLimitDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay));
     const assistantMessagePath = path.join(piRoot, "dist", "modes", "interactive", "components", "assistant-message.js");
     if (fs.existsSync(assistantMessagePath)) {
-      results.push(patchFileInPlace(assistantMessagePath, patchPiAssistantMessageErrorDedup));
+      results.push(patchFileInPlace(assistantMessagePath, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay));
     }
   } else {
     results.push({ patched: false, file: interactiveModePath });
@@ -1546,4 +1759,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiInteractiveErrorDedup, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER };

@@ -15,6 +15,14 @@ import {
   patchPiTuiStdinBuffer,
   patchPiExtensionTerminalInputFocusGate,
   PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER,
+  PI_CONNECTION_ERROR_PATTERN_SOURCE,
+  PI_ASSISTANT_CONNECTION_DISPLAY_MARKER,
+  PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER,
+  patchPiAssistantMessageErrorDedup,
+  patchPiAssistantMessageConnectionDisplay,
+  patchPiInteractiveErrorDedup,
+  patchPiInteractiveRateLimitDisplay,
+  patchPiInteractiveConnectionDisplay,
 } from "../src/bundled-pi-patches.js";
 
 test("429 pattern matches strict provider throttle shapes only", () => {
@@ -248,4 +256,129 @@ test("patchPiSubagentsLatencyOrchestrator upgrades the proactive protocol into t
   assert.equal(patchPiSubagentsLatencyOrchestrator("unrelated content"), "unrelated content", "drifted content is left untouched");
   const noSnippet = proactive.replace("export const SUBAGENT_TOOL_PROMPT_SNIPPET = \"Delegate aggressively to subagents", "drifted export");
   assert.equal(patchPiSubagentsLatencyOrchestrator(noSnippet), noSnippet, "snippet drift skips the patch");
+});
+
+test("connection error pattern classifies transport aborts like undici terminated", () => {
+  const re = new RegExp(PI_CONNECTION_ERROR_PATTERN_SOURCE);
+  assert.ok(re.test("Error: terminated"));
+  assert.ok(re.test("terminated"));
+  assert.equal(re.test("some unrelated model error"), false);
+});
+
+test("patchPiAssistantMessageConnectionDisplay softens connection error bubbles and is idempotent", () => {
+  const stock = [
+    "export class AssistantMessageComponent extends Container {",
+    "    render(message) {",
+    "        if (message.stopReason === \"aborted\") {",
+    "            const abortMessage = message.errorMessage && message.errorMessage !== \"Request was aborted\"",
+    "                ? message.errorMessage",
+    "                : \"Operation aborted\";",
+    "                this.contentContainer.addChild(new Spacer(1));",
+    "                this.contentContainer.addChild(new Text(theme.fg(\"error\", abortMessage), this.outputPad, 0));",
+    "        }",
+    "        else if (message.stopReason === \"error\") {",
+    "                const errorMsg = message.errorMessage || \"Unknown error\";",
+    "                this.contentContainer.addChild(new Spacer(1));",
+    "                this.contentContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMsg}`), this.outputPad, 0));",
+    "        }",
+    "    }",
+    "}",
+    "",
+  ].join("\n");
+  const deduped = patchPiAssistantMessageErrorDedup(stock);
+  const once = patchPiAssistantMessageConnectionDisplay(deduped);
+  assert.ok(once.includes(PI_ASSISTANT_CONNECTION_DISPLAY_MARKER), "marker comment injected");
+  assert.ok(once.includes("function isAxumConnectionErrorMessage(message)"), "classifier helper injected");
+  assert.ok(once.includes("网络连接中断，已在后台自动重试；请稍候。"), "soft notice injected");
+  assert.ok(once.includes("isAxumConnectionErrorMessage(errorMsg)"), "error branch consults the classifier");
+  assert.ok(once.includes("theme.fg(\"error\", `Error: ${errorMsg}`)"), "non-connection errors keep the raw render");
+  assert.ok(once.includes("axumLastBubbleFailure !== `error:${errorMsg}`"), "dedup key unchanged");
+  assert.equal(patchPiAssistantMessageConnectionDisplay(once), once, "idempotent on re-run");
+  assert.throws(
+    () => patchPiAssistantMessageConnectionDisplay("const X = 1;"),
+    /class anchor not found/,
+  );
+});
+
+test("patchPiInteractiveConnectionDisplay softens every interactive surface and is idempotent", () => {
+  const stock = [
+    "export class InteractiveMode {",
+    "    showError(errorMessage) {",
+    "        this.chatContainer.addChild(new Spacer(1));",
+    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.ui.requestRender();",
+    "    }",
+    "    handleEvent(event, message, errorMessage, component) {",
+    "        switch (event.type) {",
+    "            case \"message_end\": {",
+    "                    if (this.streamingMessage.stopReason === \"aborted\" || this.streamingMessage.stopReason === \"error\") {",
+    "                        if (!errorMessage) {",
+    "                            errorMessage = this.streamingMessage.errorMessage || \"Error\";",
+    "                        }",
+    "                        for (const [, component] of this.pendingTools.entries()) {",
+    "                            component.updateResult({",
+    "                                content: [{ type: \"text\", text: errorMessage }],",
+    "                                isError: true,",
+    "                            });",
+    "                        }",
+    "                        this.pendingTools.clear();",
+    "                    }",
+    "                break;",
+    "            }",
+    "            case \"auto_retry_end\": {",
+    "                if (!event.success) {",
+    "                    this.showError(`Retry failed after ${event.attempt} attempts: ${event.finalError || \"Unknown error\"}`);",
+    "                }",
+    "                break;",
+    "            }",
+    "            case \"summarization_retry_scheduled\": {",
+    "                this.showError(event.errorMessage);",
+    "                break;",
+    "            }",
+    "            case \"compaction\": {",
+    "                else if (event.errorMessage) {",
+    "                    if (event.reason === \"manual\") {",
+    "                        this.showError(event.errorMessage);",
+    "                    }",
+    "                    else {",
+    "                        this.chatContainer.addChild(new Spacer(1));",
+    "                        this.chatContainer.addChild(new Text(theme.fg(\"error\", event.errorMessage), 1, 0));",
+    "                    }",
+    "                }",
+    "                break;",
+    "            }",
+    "            case \"history_replay\": {",
+    "                        if (message.stopReason === \"aborted\" || message.stopReason === \"error\") {",
+    "                            let errorMessage;",
+    "                            if (message.stopReason === \"aborted\") {",
+    "                                errorMessage = \"Operation aborted\";",
+    "                            }",
+    "                            else {",
+    "                                errorMessage = message.errorMessage || \"Error\";",
+    "                            }",
+    "                            component.updateResult({ content: [{ type: \"text\", text: errorMessage }], isError: true });",
+    "                        }",
+    "                break;",
+    "            }",
+    "        }",
+    "    }",
+    "}",
+    "",
+  ].join("\n");
+  const previous = patchPiInteractiveErrorDedup(patchPiInteractiveRateLimitDisplay(stock));
+  const once = patchPiInteractiveConnectionDisplay(previous);
+  assert.ok(once.includes(PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER), "marker comment injected");
+  assert.ok(once.includes("网络连接中断；请检查网络后重试。"), "showError notice injected");
+  assert.ok(once.includes("isAxumConnectionErrorMessage(errorMessage)"), "showError consults the classifier");
+  assert.ok(once.includes("else if (isAxumConnectionErrorMessage(event.finalError)) {"), "exhausted retry branch added");
+  assert.ok(once.includes("网络持续中断，已自动重试 ${event.attempt} 次仍未成功；请检查网络后重试。"), "exhausted retry notice uses attempt count");
+  assert.ok(once.includes("!isAxumConnectionErrorMessage(event.errorMessage)) {"), "summarization retry suppressed for connection errors");
+  assert.ok(once.includes("isAxumConnectionErrorMessage(event.errorMessage)) {\n                        this.chatContainer.addChild(new Spacer(1));\n                        this.chatContainer.addChild(new Text(AXUM_CONNECTION_INTERRUPTED_NOTICE, 1, 0));"), "compaction row softened");
+  assert.ok(once.includes("const axumToolResultText = isAxumConnectionErrorMessage(errorMessage)"), "message_end tool result softened");
+  assert.ok(once.includes("text: isAxumConnectionErrorMessage(errorMessage) ? AXUM_CONNECTION_INTERRUPTED_NOTICE : errorMessage"), "history replay tool result softened");
+  assert.equal(patchPiInteractiveConnectionDisplay(once), once, "idempotent on re-run");
+  assert.throws(
+    () => patchPiInteractiveConnectionDisplay("const X = 1;"),
+    /class anchor not found/,
+  );
 });
