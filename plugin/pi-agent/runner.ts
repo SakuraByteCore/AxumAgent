@@ -389,6 +389,8 @@ async function resumeOneFailedAgent(
 			parentSession: ctx.sessionManager.getSessionFile(),
 		});
 		inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
+		// target.task is already the dispatched prompt: -P agents persist the plan-wrapped task
+		// (buildPlanPrompt runs in startUserAgent BEFORE the entry is recorded), so no re-wrap here.
 		task = target.task;
 		reportResumeNotice(pi, ctx, `${target.agentId}: ${plan.reason}`, "warning");
 	}
