@@ -101,6 +101,14 @@ function getUserAgent(): string {
 	return cachedUserAgent;
 }
 
+// Display rule: UA strings follow the "product/version (details)"
+// convention (codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) ...), and the
+// border tag only shows the leading product/version token.
+function uaShortLabel(ua: string): string {
+	const comment = ua.indexOf(" (");
+	return comment > 0 ? ua.slice(0, comment) : ua;
+}
+
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
 // border editor. Renders an ASCII header with skill / extension cards once
@@ -533,7 +541,7 @@ class DashedBorderEditor extends RuntimeCustomEditor {
    */
   override render(width: number): string[] {
     const lines = super.render(width);
-    const ua = truncateToWidth(getUserAgent(), UA_TRUNCATE_WIDTH, "…");
+    const ua = truncateToWidth(uaShortLabel(getUserAgent()), UA_TRUNCATE_WIDTH, "…");
     if (!ua || width <= 2 || lines.length < 2) return lines;
     const border = this.borderColor as ColorFn;
     const rule = border("─").repeat(width);

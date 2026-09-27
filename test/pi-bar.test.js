@@ -316,7 +316,10 @@ test("user agent embeds into the editor bottom-right border", () => {
   // autocomplete rows still pass through after the border line.
   assert.match(statuslineSource, /override render\(width: number\): string\[\] \{/);
   assert.match(statuslineSource, /const lines = super\.render\(width\);/);
-  assert.match(statuslineSource, /const ua = truncateToWidth\(getUserAgent\(\), UA_TRUNCATE_WIDTH, "…"\);/);
+  assert.match(statuslineSource, /function uaShortLabel\(ua: string\): string \{/);
+  assert.match(statuslineSource, /const comment = ua\.indexOf\(" \("\);/);
+  assert.match(statuslineSource, /return comment > 0 \? ua\.slice\(0, comment\) : ua;/);
+  assert.match(statuslineSource, /const ua = truncateToWidth\(uaShortLabel\(getUserAgent\(\)\), UA_TRUNCATE_WIDTH, "…"\);/);
   assert.match(statuslineSource, /if \(!ua \|\| width <= 2 \|\| lines\.length < 2\) return lines;/);
   assert.match(statuslineSource, /const rule = border\("─"\)\.repeat\(width\);/);
   assert.match(statuslineSource, /const index = lines\.lastIndexOf\(rule\);/);
