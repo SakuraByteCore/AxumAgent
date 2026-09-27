@@ -27,7 +27,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
   assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
-  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tps", "context-tokens", "context-usage"\]/);
+  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tps", "context-tokens", "context-usage", "ua"\]/);
   assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
   assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
@@ -116,7 +116,7 @@ test("messages count is a separate right-side pill, separated from context-usage
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "messages", text: `#\$\{msgCount\}`, color: "thinkingMedium" \}\)/);
   // messages is its own separate pill at the head of the right train, not
   // embedded in the elastic context-usage block.
-  assert.match(statuslineSource, /right: \["messages", "ua", "model"\]/);
+  assert.match(statuslineSource, /right: \["messages", "model"\]/);
   // messages now has its own warm ground in the palette.
   assert.match(statuslineSource, /messages:\s+\[49, 94, 94\]/);
   // elastic context-usage block no longer reads the messages segment.
@@ -297,11 +297,13 @@ test("ua segment shows the effective User-Agent, never unknown", () => {
   const emitBlock = statuslineSource.match(/function emitUserAgent[\s\S]*?\n\t}/)?.[0] ?? "";
   assert.match(emitBlock, /id: "ua"/);
   assert.match(emitBlock, /truncateToWidth\(getUserAgent\(\), UA_TRUNCATE_WIDTH/);
-  // ua is a right-side pill with its own palette ground, and is the first
+  // ua is a left-side pill with its own palette ground, and is the first
   // segment the line prunes away on narrow terminals (model is never hidden).
-  assert.match(statuslineSource, /right: \["messages", "ua", "model"\]/);
+  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tps", "context-tokens", "context-usage", "ua"\]/);
   assert.match(statuslineSource, /ua:\s+\[123, 90, 141\]/);
   assert.match(statuslineSource, /"messages", "ua"\] as const;/);
-  assert.doesNotMatch(statuslineSource, /UA: \$\{/);
+  // the old footer UA display (below the bar) is gone entirely.
+  assert.doesNotMatch(statuslineSource, /renderUserAgentFooter/);
+  assert.doesNotMatch(statuslineSource, /setFooter\(/);
   assert.doesNotMatch(statuslineSource, /getUserAgent\(\) \|\| "unknown"/);
 });

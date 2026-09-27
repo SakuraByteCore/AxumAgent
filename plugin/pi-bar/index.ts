@@ -745,8 +745,8 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "thinking", "tps", "context-tokens", "context-usage"],
-	right: ["messages", "ua", "model"],
+	left: ["git-branch", "thinking", "tps", "context-tokens", "context-usage", "ua"],
+	right: ["messages", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "coralline",
@@ -1655,18 +1655,6 @@ export default function (pi: ExtensionAPI): void {
 		if (dirty) refresh();
 	}
 
-	function renderUserAgentFooter(ctx: ExtensionContext, userAgent: string): void {
-		if (!ctx.hasUI) return;
-		ctx.ui.setFooter((tui, theme, _footerData) => ({
-			render(): string[] {
-				const width = tui.width || 80;
-				const label = userAgent;
-				const padding = " ".repeat(Math.max(0, width - visibleWidth(label)));
-				return [theme.fg("dim", padding + label)];
-			},
-			invalidate(): void {},
-		}));
-	}
 
 	// --- Lifecycle ---
 
@@ -1677,8 +1665,6 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
 			promptHistoryError = undefined;
 		}
-		const userAgent = getUserAgent();
-		renderUserAgentFooter(ctx, userAgent);
 		installHeader(ctx);
 		runEmitGit(ctx);
 		emitTokens(ctx);
