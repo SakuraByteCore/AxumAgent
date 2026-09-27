@@ -58,23 +58,47 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
-// User-Agent: AXUM_USER_AGENT is injected by Axum via env var at spawn time;
+// User-Agent: read the shared axum config file directly instead of importing
 // do not import axum-internal modules here (this file is synced into the Pi
 // cache where ../../src/provider-config.js does not exist). When the env var
 // is unset, fall back to the pi formula so the border tag always has a value.
-// The value is frozen for the process lifetime (env + VERSION never change
-// mid-session), so it is computed once and cached: render() pulls it on
-// every TUI frame and the steady state stays allocation-free.
+// The config file (~/.pi/agent/axum.json, written by /ua and axum web) is the
+// live source of truth; AXUM_USER_AGENT is only its spawn-time snapshot. The
+// file is re-checked per call via an mtime-keyed cache, so render() stays
+// allocation-free in the steady state while /ua switches sync immediately.
 const UA_TRUNCATE_WIDTH = 40;
+const agentDir = process.env.PI_CODING_AGENT_DIR
+	? process.env.PI_CODING_AGENT_DIR.replace(/^~/, homedir())
+	: join(homedir(), ".pi", "agent");
+const userAgentConfigPath = join(agentDir, "axum.json");
 let cachedUserAgent: string | undefined;
+let cachedUserAgentMtime = -1;
+
+function readConfiguredUserAgent(): string | undefined {
+	try {
+		const config = JSON.parse(readFileSync(userAgentConfigPath, "utf8")) as { userAgent?: unknown };
+		return typeof config.userAgent === "string" && config.userAgent.trim() ? config.userAgent : undefined;
+	} catch {
+		// Missing or unreadable config falls through to the env snapshot below;
+		// /ua and provider-config create the file on first write.
+		return undefined;
+	}
+}
 
 function getUserAgent(): string {
-  if (cachedUserAgent === undefined) {
-    const custom = process.env.AXUM_USER_AGENT;
-    const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
-    cachedUserAgent = custom || `pi/${PI_VERSION} (${process.platform}; ${runtime}; ${process.arch})`;
-  }
-  return cachedUserAgent;
+	let mtime = -1;
+	try {
+		mtime = statSync(userAgentConfigPath).mtimeMs;
+	} catch {
+		// No config file yet: the cache key stays at -1 until /ua creates one.
+	}
+	if (cachedUserAgent === undefined || mtime !== cachedUserAgentMtime) {
+		cachedUserAgentMtime = mtime;
+		const custom = readConfiguredUserAgent() ?? process.env.AXUM_USER_AGENT;
+		const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
+		cachedUserAgent = custom || `pi/${PI_VERSION} (${process.platform}; ${runtime}; ${process.arch})`;
+	}
+	return cachedUserAgent;
 }
 
 // ---------------------------------------------------------------------------

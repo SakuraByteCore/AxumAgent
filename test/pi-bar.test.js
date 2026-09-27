@@ -288,11 +288,16 @@ test("takeDisplayTail never emits lone surrogates for emoji tails", async () => 
 });
 
 test("user agent embeds into the editor bottom-right border", () => {
-  // UA value: AXUM_USER_AGENT env wins, the pi formula is the fallback, and
-  // the result is cached so render() stays allocation-free per frame.
+  // UA value: ~/.pi/agent/axum.json is the live source of truth (/ua writes
+  // it); AXUM_USER_AGENT env is only its spawn-time snapshot, so the config
+  // is re-checked via an mtime-keyed cache that keeps render() allocation-
+  // free in the steady state.
   assert.match(statuslineSource, /VERSION: PI_VERSION = "0\.0\.0"/);
   assert.match(statuslineSource, /const UA_TRUNCATE_WIDTH = 40;/);
-  assert.match(statuslineSource, /const custom = process\.env\.AXUM_USER_AGENT;/);
+  assert.match(statuslineSource, /const userAgentConfigPath = join\(agentDir, "axum\.json"\);/);
+  assert.match(statuslineSource, /mtime = statSync\(userAgentConfigPath\)\.mtimeMs;/);
+  assert.match(statuslineSource, /if \(cachedUserAgent === undefined \|\| mtime !== cachedUserAgentMtime\) \{/);
+  assert.match(statuslineSource, /const custom = readConfiguredUserAgent\(\) \?\? process\.env\.AXUM_USER_AGENT;/);
   assert.match(statuslineSource, /cachedUserAgent = custom \|\| `pi\/\$\{PI_VERSION\} \(\$\{process\.platform\}; \$\{runtime\}; \$\{process\.arch\}\)`;/);
   assert.match(statuslineSource, /let cachedUserAgent: string \| undefined;/);
 
