@@ -746,7 +746,7 @@ const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
 	left: ["git-branch", "thinking", "tps", "context-tokens", "context-usage"],
-	right: ["messages", "model", "ua"],
+	right: ["messages", "ua", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "coralline",
@@ -1660,7 +1660,7 @@ export default function (pi: ExtensionAPI): void {
 		ctx.ui.setFooter((tui, theme, _footerData) => ({
 			render(): string[] {
 				const width = tui.width || 80;
-			const label = `UA: ${userAgent}`;
+				const label = userAgent;
 				const padding = " ".repeat(Math.max(0, width - visibleWidth(label)));
 				return [theme.fg("dim", padding + label)];
 			},
