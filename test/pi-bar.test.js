@@ -116,7 +116,7 @@ test("messages count is a separate right-side pill, separated from context-usage
   assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "messages", text: `#\$\{msgCount\}`, color: "thinkingMedium" \}\)/);
   // messages is its own separate pill at the head of the right train, not
   // embedded in the elastic context-usage block.
-  assert.match(statuslineSource, /right: \["messages", "model"\]/);
+  assert.match(statuslineSource, /right: \["messages", "model", "ua"\]/);
   // messages now has its own warm ground in the palette.
   assert.match(statuslineSource, /messages:\s+\[49, 94, 94\]/);
   // elastic context-usage block no longer reads the messages segment.
@@ -285,4 +285,22 @@ test("takeDisplayTail never emits lone surrogates for emoji tails", async () => 
     assert.ok(!lone.test(tail), "lone surrogate at budget " + budget);
   }
   assert.equal(takeDisplayTail(s, 100), s);
+});
+
+test("ua segment shows the effective User-Agent, never unknown", () => {
+  // Custom UA injected via AXUM_USER_AGENT wins; otherwise Pi's own default
+  // UA is shown (mirroring getPiUserAgent in bundled-pi-patches.js), so the
+  // bar reflects the UA actually being sent instead of "unknown".
+  const uaBlock = statuslineSource.match(/function getUserAgent[\s\S]*?\n}/)?.[0] ?? "";
+  assert.match(uaBlock, /process\.env\["AXUM_USER_AGENT"\]/);
+  assert.match(uaBlock, /pi\/\$\{PI_VERSION\} \(\$\{process\.platform\}; \$\{runtime\}; \$\{process\.arch\}\)/);
+  const emitBlock = statuslineSource.match(/function emitUserAgent[\s\S]*?\n\t}/)?.[0] ?? "";
+  assert.match(emitBlock, /id: "ua"/);
+  assert.match(emitBlock, /truncateToWidth\(getUserAgent\(\), UA_TRUNCATE_WIDTH/);
+  // ua is a right-side pill with its own palette ground, and is the first
+  // segment the line prunes away on narrow terminals (model is never hidden).
+  assert.match(statuslineSource, /right: \["messages", "model", "ua"\]/);
+  assert.match(statuslineSource, /ua:\s+\[123, 90, 141\]/);
+  assert.match(statuslineSource, /"messages", "ua"\] as const;/);
+  assert.doesNotMatch(statuslineSource, /getUserAgent\(\) \|\| "unknown"/);
 });

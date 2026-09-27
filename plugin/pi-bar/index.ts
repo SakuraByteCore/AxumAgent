@@ -43,7 +43,7 @@ type TUI = any;
 
 type CustomEditorCtor = new (tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: unknown) => any;
 
-const { CustomEditor: RuntimeCustomEditor = class {} } = await import("@earendil-works/pi-coding-agent").catch(() => ({})) as { CustomEditor?: CustomEditorCtor };
+const { CustomEditor: RuntimeCustomEditor = class {}, VERSION: PI_VERSION = "0.0.0" } = await import("@earendil-works/pi-coding-agent").catch(() => ({})) as { CustomEditor?: CustomEditorCtor; VERSION?: string };
 const piTui = await import("@earendil-works/pi-tui").catch(() => ({})) as {
   truncateToWidth?: (text: string, width: number, ellipsis?: string) => string;
   visibleWidth?: (text: string) => number;
@@ -60,9 +60,16 @@ import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewrite
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
 // User-Agent is injected by Axum via AXUM_USER_AGENT env var at spawn time;
 // do not import axum-internal modules here (this file is synced into the Pi
-// cache where ../../src/provider-config.js does not exist).
+// cache where ../../src/provider-config.js does not exist). When the env var
+// is unset Axum lets Pi send its own default UA, so we mirror getPiUserAgent
+// (src/bundled-pi-patches.js) here to always show the UA actually in effect.
+const UA_TRUNCATE_WIDTH = 40;
+
 function getUserAgent(): string {
-  return process.env.AXUM_USER_AGENT || "";
+  const custom = process.env["AXUM_USER_AGENT"];
+  if (custom) return custom;
+  const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;
+  return `pi/${PI_VERSION} (${process.platform}; ${runtime}; ${process.arch})`;
 }
 
 // ---------------------------------------------------------------------------
@@ -739,7 +746,7 @@ const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
 	left: ["git-branch", "thinking", "tps", "context-tokens", "context-usage"],
-	right: ["messages", "model"],
+	right: ["messages", "model", "ua"],
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "coralline",
@@ -838,6 +845,7 @@ const PALETTE: Record<string, Rgb> = {
 	"context-usage":  [155, 166, 78], // chartreuse (68°, L48)
 	messages:         [49, 94, 94],   // dark teal (180°, L28)
 	model:           [72, 112, 153], // steel blue (210°, L44)
+	ua:              [123, 90, 141], // muted violet (280°, L44)
 };
 
 // Resolve a segment's warm ground RGB from the PALETTE. Returns undefined for
@@ -1052,9 +1060,9 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
 	const minGap = hasElastic ? 0 : 1;
 	// Goal-driven pruning: hide low-priority segments in order until fit.
-	// Priority (low first): tokens-down < thinking < context-tokens < messages.
+	// Priority (low first): tokens-down < thinking < context-tokens < messages < ua.
 	// model is never hidden; pruning runs before shrink pass.
-	const SACRIFICE_IDS = ["tps", "thinking", "context-tokens", "messages"] as const;
+	const SACRIFICE_IDS = ["tps", "thinking", "context-tokens", "messages", "ua"] as const;
 
 	function trainNeed(l: RSeg[], r: RSeg[]): number {
 		const tw = l.reduce((a, s) => a + s.width, 0) + r.reduce((a, s) => a + s.width, 0);
@@ -1617,6 +1625,11 @@ export default function (pi: ExtensionAPI): void {
 	pi.events.emit("pi-bar:update", { id: "model", text: raw, color: "thinkingHigh" });
 }
 
+	function emitUserAgent(ctx: ExtensionContext): void {
+	if (!ctx.hasUI) return;
+	const text = truncateToWidth(getUserAgent(), UA_TRUNCATE_WIDTH, "…");
+	pi.events.emit("pi-bar:update", { id: "ua", text, color: "thinkingMedium" });
+}
 	// --- Render refresh (coalesced) ---
 
 	function refresh(): void {
@@ -1647,8 +1660,7 @@ export default function (pi: ExtensionAPI): void {
 		ctx.ui.setFooter((tui, theme, _footerData) => ({
 			render(): string[] {
 				const width = tui.width || 80;
-				const ua = userAgent || "unknown";
-				const label = `UA: ${ua}`;
+			const label = `UA: ${userAgent}`;
 				const padding = " ".repeat(Math.max(0, width - visibleWidth(label)));
 				return [theme.fg("dim", padding + label)];
 			},
@@ -1665,13 +1677,14 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
 			promptHistoryError = undefined;
 		}
-		const userAgent = getUserAgent() || "unknown";
+		const userAgent = getUserAgent();
 		renderUserAgentFooter(ctx, userAgent);
 		installHeader(ctx);
 		runEmitGit(ctx);
 		emitTokens(ctx);
 		emitContext(ctx);
 		emitModel(ctx);
+		emitUserAgent(ctx);
 		emitThinking(ctx);
 		emitTpsIdle(ctx);
 		refresh();
