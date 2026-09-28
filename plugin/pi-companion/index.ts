@@ -72,10 +72,12 @@ const COMPACT_LEDGER_INSTRUCTIONS = [
 	"Be concise and factual; omit sections with nothing to report.",
 ].join("\n");
 const COMPACT_CONTINUE_PROMPT = "Continue the active task using the continuation handoff summary above. Resume from the next step and do not repeat completed work.";
+const COMPACT_RESUME_FALLBACK_PROMPT = "Continue the active task from where it left off. Resume from the next step and do not repeat completed work.";
 let lastCompactAt = 0;
 let pendingCompact: Promise<boolean> | null = null;
 let compactDeferred = false;
 let compactResumePending = false;
+let compactResumePrompt: string | undefined;
 
 function compactUsagePercent(ctx: ExtensionContext): number | null {
 	const u = ctx.getContextUsage();
@@ -87,26 +89,39 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 	if (pendingCompact) return Promise.resolve(false);
 	lastCompactAt = Date.now();
 	compactDeferred = false;
+	const turnWasActive = !ctx.isIdle();
 	const task = (async () => {
+		// A late onComplete/onError after a proof timeout must not double-settle.
+		let proofSettled = false;
 		await new Promise<void>((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error("compaction proof timeout")), COMPACT_PROOF_TIMEOUT_MS);
+			const timer = setTimeout(() => {
+				if (proofSettled) return;
+				proofSettled = true;
+				reject(new Error("compaction proof timeout"));
+			}, COMPACT_PROOF_TIMEOUT_MS);
 			ctx.compact({
 				customInstructions: COMPACT_LEDGER_INSTRUCTIONS,
 				onComplete: (result) => {
+					if (proofSettled) return;
 					clearTimeout(timer);
 					if (!result || typeof result.summary !== "string" || result.summary.trim().length === 0) {
+						proofSettled = true;
 						reject(new Error("compaction produced no summary"));
 						return;
 					}
+					proofSettled = true;
 					resolve();
 				},
 				onError: (err) => {
+					if (proofSettled) return;
 					clearTimeout(timer);
+					proofSettled = true;
 					reject(err instanceof Error ? err : new Error(String(err)));
 				},
 			});
 		});
 		if (resumeOnProof) {
+			compactResumePrompt = COMPACT_CONTINUE_PROMPT;
 			compactResumePending = true;
 			await drainCompactResume(pi, ctx);
 		}
@@ -114,6 +129,14 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 	})().catch((err) => {
 		const message = err instanceof Error ? err.message : String(err);
 		safeNotify(ctx as QueueAwareContext, `Auto-compact failed: ${message}`, "warning");
+		// session.compact aborts any in-flight agent turn before summarizing, so a
+		// failed or timed-out compaction still leaves the interrupted task turn dead.
+		// Resume it with a fallback prompt so the task never stalls without a turn.
+		if (resumeOnProof && turnWasActive && !compactResumePending) {
+			compactResumePrompt = COMPACT_RESUME_FALLBACK_PROMPT;
+			compactResumePending = true;
+			void drainCompactResume(pi, ctx);
+		}
 		return false;
 	});
 	pendingCompact = task;
@@ -139,11 +162,16 @@ async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionCon
 
 async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactResumePending) return;
-	if (!ctx.isIdle()) return;
-	if (ctx.hasPendingMessages()) return;
-	compactResumePending = false;
+	// While a turn is streaming with queued messages the resume would run after
+	// them anyway; wait for the settle those messages will produce.
+	if (ctx.hasPendingMessages() && !ctx.isIdle()) return;
 	try {
-		await pi.sendUserMessage(COMPACT_CONTINUE_PROMPT, { streamingBehavior: "followUp" });
+		// deliverAs (not streamingBehavior) is the option key the extension API
+		// accepts; with it the prompt queues as a followUp when a turn is still
+		// streaming instead of being rejected with "Agent is already processing".
+		await pi.sendUserMessage(compactResumePrompt ?? COMPACT_CONTINUE_PROMPT, { deliverAs: "followUp" });
+		compactResumePending = false;
+		compactResumePrompt = undefined;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		safeNotify(ctx as QueueAwareContext, `Auto-compact continue failed: ${message}`, "warning");
