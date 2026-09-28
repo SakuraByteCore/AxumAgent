@@ -16,6 +16,8 @@ import {
   patchPiTuiStdinBuffer,
   patchPiExtensionTerminalInputFocusGate,
   PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER,
+  patchPiExtensionSelectorScroll,
+  PI_EXTENSION_SELECTOR_SCROLL_MARKER,
   PI_CONNECTION_ERROR_PATTERN_SOURCE,
   PI_ASSISTANT_CONNECTION_DISPLAY_MARKER,
   PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER,
@@ -408,4 +410,38 @@ test("patchPiSubagentsLatencyOrchestrator upgrades a V1 cache to the execute-fir
   assert.equal(patchPiSubagentsLatencyOrchestrator(upgraded), upgraded, "idempotent after upgrade");
   const drifted = v1.replace("the main agent decomposes", "the main agent restructured");
   assert.equal(patchPiSubagentsLatencyOrchestrator(drifted), drifted, "drifted V1 cache is left untouched");
+});
+
+test("patchPiExtensionSelectorScroll windows the rendered list and is idempotent", () => {
+  const arrow = "\u2192";
+  const upstream = [
+    "export class ExtensionSelectorComponent extends Container {",
+    "    constructor(title, options, onSelect, onCancel, opts) {",
+    "        super();",
+    "        this.options = options;",
+    "        this.updateList();",
+    "    }",
+    "    updateList() {",
+    "        this.listContainer.clear();",
+    "        for (let i = 0; i < this.options.length; i++) {",
+    "            const isSelected = i === this.selectedIndex;",
+    "            const text = isSelected",
+    '                ? theme.fg("accent", "' + arrow + ' ") + theme.fg("accent", this.options[i])',
+    '                : `  ${theme.fg("text", this.options[i])}`;',
+    "            this.listContainer.addChild(new Text(text, 1, 0));",
+    "        }",
+    "    }",
+    "    handleInput(keyData) {}",
+    "}",
+    "",
+  ].join("\n");
+  const once = patchPiExtensionSelectorScroll(upstream);
+  assert.ok(once.includes(PI_EXTENSION_SELECTOR_SCROLL_MARKER), "marker present");
+  assert.ok(once.includes("const maxVisible = Math.min(this.options.length, 10);"), "window size capped");
+  assert.ok(once.includes("const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.options.length - maxVisible));"), "window centered on selection");
+  assert.ok(once.includes("${this.selectedIndex + 1}/${this.options.length}"), "scroll indicator present");
+  assert.ok(!once.includes("for (let i = 0; i < this.options.length; i++) {"), "full-list render gone");
+  assert.equal(patchPiExtensionSelectorScroll(once), once, "idempotent on re-run");
+  const drifted = upstream.replace("this.listContainer.clear();", "this.listContainer.reset();");
+  assert.equal(patchPiExtensionSelectorScroll(drifted), drifted, "drifted upstream shape is left untouched");
 });

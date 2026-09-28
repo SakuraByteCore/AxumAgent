@@ -20,6 +20,7 @@ const PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_SUBAGENT_COMMAN
 const PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN";
 const PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN";
 const PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER = "AXUM_PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE";
+const PI_EXTENSION_SELECTOR_SCROLL_MARKER = "AXUM_PI_EXTENSION_SELECTOR_SCROLL";
 const PI_SUBAGENTS_PACKAGE = "pi-subagents";
 const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
@@ -460,6 +461,60 @@ function patchPiVersionNotificationSuppress(content) {
   return content.replace(needle, replacement);
 }
 
+
+// Pi's generic extension selector (the ctx.ui.select component behind
+// /usemodel and other extension commands) renders every option with no
+// windowing at all. Once a list is longer than the terminal height the
+// highlighted cursor moves below the visible area and the user navigates
+// blind. Mirror the built-in ModelSelectorComponent: render a 10-row window
+// centered on the selected index plus a (n/total) scroll indicator so the
+// cursor stays visible while navigating.
+function patchPiExtensionSelectorScroll(content) {
+  if (content.includes(PI_EXTENSION_SELECTOR_SCROLL_MARKER)) return content;
+
+  const needle = [
+    "    updateList() {",
+    "        this.listContainer.clear();",
+    "        for (let i = 0; i < this.options.length; i++) {",
+    "            const isSelected = i === this.selectedIndex;",
+    "            const text = isSelected",
+    "                ? theme.fg(\"accent\", \"→ \") + theme.fg(\"accent\", this.options[i])",
+    "                : `  ${theme.fg(\"text\", this.options[i])}`;",
+    "            this.listContainer.addChild(new Text(text, 1, 0));",
+    "        }",
+    "    }",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    // Upstream may restructure the extension selector in a future release.
+    // Scroll-into-view is a UX need, not a correctness one, so skip instead
+    // of hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  const replacement = [
+    "    updateList() {",
+    "        this.listContainer.clear();",
+    `        // ${PI_EXTENSION_SELECTOR_SCROLL_MARKER}: window the rendered options around the`,
+    "        // selected index so long lists keep the highlighted cursor visible",
+    "        // while navigating (mirrors the built-in ModelSelectorComponent).",
+    "        const maxVisible = Math.min(this.options.length, 10);",
+    "        const startIndex = Math.max(0, Math.min(this.selectedIndex - Math.floor(maxVisible / 2), this.options.length - maxVisible));",
+    "        const endIndex = Math.min(startIndex + maxVisible, this.options.length);",
+    "        for (let i = startIndex; i < endIndex; i++) {",
+    "            const isSelected = i === this.selectedIndex;",
+    "            const text = isSelected",
+    "                ? theme.fg(\"accent\", \"→ \") + theme.fg(\"accent\", this.options[i])",
+    "                : `  ${theme.fg(\"text\", this.options[i])}`;",
+    "            this.listContainer.addChild(new Text(text, 1, 0));",
+    "        }",
+    "        if (startIndex > 0 || endIndex < this.options.length) {",
+    "            const scrollInfo = theme.fg(\"muted\", `  (${this.selectedIndex + 1}/${this.options.length})`);",
+    "            this.listContainer.addChild(new Text(scrollInfo, 1, 0));",
+    "        }",
+    "    }",
+  ].join("\n");
+  return content.replace(needle, replacement);
+}
 
 /**
  * Split the bundled HTTP idle timeout semantics: the response body timeout is
@@ -1740,6 +1795,10 @@ export function applyBundledPiPatches(options) {
     if (fs.existsSync(assistantMessagePath)) {
       results.push(patchFileInPlace(assistantMessagePath, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay));
     }
+    const extensionSelectorPath = path.join(piRoot, "dist", "modes", "interactive", "components", "extension-selector.js");
+    if (fs.existsSync(extensionSelectorPath)) {
+      results.push(patchFileInPlace(extensionSelectorPath, patchPiExtensionSelectorScroll));
+    }
   } else {
     results.push({ patched: false, file: interactiveModePath });
   }
@@ -1784,4 +1843,4 @@ export function applyBundledPiPatches(options) {
   return results;
 }
 
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER };
