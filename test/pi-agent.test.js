@@ -839,6 +839,11 @@ test("buildOrchestrationPrompt embeds the budget, absolute deadline, and protoco
   assert.match(prompt, /top-level timeoutMs = 60000/);
   assert.match(prompt, /~80% of the budget/);
   assert.match(prompt, /status \(done\|partial\|blocked\|failed\)/);
+  assert.match(prompt, /Execute first: in your first action/);
+  assert.match(prompt, /never open with a decomposition pass/);
+  assert.match(prompt, /Add workers progressively/);
+  assert.match(prompt, /Split cheaply while executing/);
+  assert.doesNotMatch(prompt, /Decompose the request into non-overlapping lanes/);
 });
 
 test("registerOrchestrate registers /orchestrate and forwards the protocol prompt", async () => {

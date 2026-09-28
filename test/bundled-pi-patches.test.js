@@ -9,6 +9,7 @@ import {
   patchPiSubagentsProactiveDelegation,
   patchPiSubagentsLatencyOrchestrator,
   PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER,
+  LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER,
   patchPiAiRateLimitRetry,
   patchPiAgentSessionRateLimitRetry,
   patchPiHttpIdleTimeoutDefault,
@@ -245,7 +246,9 @@ test("patchPiSubagentsLatencyOrchestrator upgrades the proactive protocol into t
   assert.ok(proactive.includes(PI_SUBAGENTS_PROACTIVE_MARKER));
   const patched = patchPiSubagentsLatencyOrchestrator(proactive);
   assert.ok(patched.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER));
-  assert.ok(patched.includes("Latency-first orchestrator: the main agent decomposes"));
+  assert.ok(patched.includes("Latency-first orchestrator: the main agent executes first"));
+  assert.ok(patched.includes("never a decomposition pass or a plan"));
+  assert.ok(!patched.includes("launch ALL of them in one async workflowScript call in your first action"), "up-front all-at-once dispatch must be gone");
   assert.ok(!patched.includes("Delegate aggressively to subagents"), "proactive snippet must be replaced, not duplicated");
   assert.ok(patched.includes("Latency-first budget: derive every lane timeout from one wall-clock budget"));
   assert.ok(patched.includes("Every lane returns a structured envelope: status (done|partial|blocked|failed)"));
@@ -381,4 +384,28 @@ test("patchPiInteractiveConnectionDisplay softens every interactive surface and 
     () => patchPiInteractiveConnectionDisplay("const X = 1;"),
     /class anchor not found/,
   );
+});
+
+test("patchPiSubagentsLatencyOrchestrator upgrades a V1 cache to the execute-first V2 protocol", () => {
+  const v1Snippet = 'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Latency-first orchestrator: the main agent decomposes, dispatches, arbitrates, and verifies; subagents do the exploration and fixes. Partition 2+ independent requirements into non-overlapping lanes (scout / implementer / verifier) and launch ALL of them in one async workflowScript call in your first action - token cost is irrelevant, wall-clock latency is the only metric. Set ONE top-level timeoutMs equal to the wall-clock budget; children that omit timeoutMs inherit the host-enforced remaining budget. Steer still-running children to emit best-partial structured results at ~80% of the budget; interrupt redundant lanes once one passes an acceptance-checked verifier. Arbitrate only from structured envelopes (status, changes/findings, evidence, remainingRisks), preferring verified evidence over prose. Never write a long plan before dispatching.";';
+  const v1 = [
+    "// " + LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": latency-first orchestrator protocol (Axum).",
+    v1Snippet,
+    "export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [",
+    "    'Latency-first budget: derive every lane timeout from one wall-clock budget.',",
+    "    'Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks.',",
+    "];",
+    "",
+  ].join("\n");
+  const upgraded = patchPiSubagentsLatencyOrchestrator(v1);
+  assert.ok(upgraded.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER), "V2 marker line replaces V1");
+  assert.ok(!upgraded.includes(LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ":"), "V1 marker line removed");
+  assert.ok(upgraded.includes("Latency-first orchestrator: the main agent executes first"), "execute-first snippet swapped in");
+  assert.ok(upgraded.includes("never a decomposition pass or a plan"));
+  assert.ok(!upgraded.includes("launch ALL of them in one async workflowScript call"), "up-front dispatch wording gone");
+  assert.ok(upgraded.includes("Latency-first budget: derive every lane timeout"), "budget guideline carried over untouched");
+  assert.ok(upgraded.includes("Every lane returns a structured envelope"), "envelope guideline carried over untouched");
+  assert.equal(patchPiSubagentsLatencyOrchestrator(upgraded), upgraded, "idempotent after upgrade");
+  const drifted = v1.replace("the main agent decomposes", "the main agent restructured");
+  assert.equal(patchPiSubagentsLatencyOrchestrator(drifted), drifted, "drifted V1 cache is left untouched");
 });
