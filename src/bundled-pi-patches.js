@@ -1709,8 +1709,7 @@ function patchPiUserAgent(content) {
   const needle = 'export function getPiUserAgent(version) {\n    const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;\n    return `pi/${version} (${process.platform}; ${runtime}; ${process.arch})`;\n}';
   
   if (!content.includes(needle)) {
-    // Pi 的 getPiUserAgent 函数可能已经改变，跳过 patch
-    return content;
+    throw new Error("unable to patch bundled Pi user agent: getPiUserAgent(version) needle not found");
   }
   
   const replacement = [
@@ -1725,6 +1724,31 @@ function patchPiUserAgent(content) {
     '}',
   ].join('\n');
   
+  return content.replace(needle, replacement);
+}
+
+function patchPiAiUserAgent(content) {
+  if (content.includes(PI_USER_AGENT_CUSTOM_MARKER)) return content;
+
+  // pi-ai ships its own browser-safe getPiUserAgent() (no version arg); every
+  // LLM API request header builder (anthropic-messages, openai-responses, ...)
+  // imports this copy, not the pi-coding-agent dist one.
+  const needle = 'export function getPiUserAgent() {\n    return nodeOs ? `pi (${nodeOs.platform()} ${nodeOs.release()}; ${nodeOs.arch()})` : "pi (browser)";\n}';
+
+  if (!content.includes(needle)) {
+    throw new Error("unable to patch bundled Pi AI user agent: browser-safe getPiUserAgent() needle not found");
+  }
+
+  const replacement = [
+    '// ' + PI_USER_AGENT_CUSTOM_MARKER + ': Use AXUM_USER_AGENT env var if set (Axum)',
+    'export function getPiUserAgent() {',
+    '    if (typeof process !== "undefined" && process.env.AXUM_USER_AGENT) {',
+    '        return process.env.AXUM_USER_AGENT;',
+    '    }',
+    '    return nodeOs ? `pi (${nodeOs.platform()} ${nodeOs.release()}; ${nodeOs.arch()})` : "pi (browser)";',
+    '}',
+  ].join('\n');
+
   return content.replace(needle, replacement);
 }
 
@@ -1753,8 +1777,22 @@ export function applyBundledPiPatches(options) {
 
   // Patch User-Agent to use AXUM_USER_AGENT env var if set
   const piUserAgentPath = path.join(piRoot, "dist", "utils", "pi-user-agent.js");
-  if (fs.existsSync(piUserAgentPath)) {
-    results.push(patchFileInPlace(piUserAgentPath, patchPiUserAgent));
+  if (!fs.existsSync(piUserAgentPath)) {
+    throw new Error(`bundled Pi user agent not found: ${piUserAgentPath}`);
+  }
+  results.push(patchFileInPlace(piUserAgentPath, patchPiUserAgent));
+
+  // LLM API request headers come from the pi-ai package's own
+  // browser-safe getPiUserAgent() copy, not the pi-coding-agent dist one above.
+  // Patch every pi-user-agent.js copy reachable from the coding agent.
+  const piAiUserAgentPaths = [
+    path.join(resolveBundledPackageRoot(PI_AI_PACKAGE, options), "dist", "utils", "pi-user-agent.js"),
+    path.join(piRoot, "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "pi-user-agent.js"),
+    path.join(resolveBundledPackageRoot("@earendil-works/pi-agent-core", options), "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "pi-user-agent.js"),
+  ];
+  for (const uaPath of piAiUserAgentPaths) {
+    if (!fs.existsSync(uaPath)) continue;
+    results.push(patchFileInPlace(uaPath, patchPiAiUserAgent));
   }
 
   // Lower the stock 300s HTTP idle timeout so upstream-cancelled streams that
@@ -1842,5 +1880,4 @@ export function applyBundledPiPatches(options) {
 
   return results;
 }
-
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER };

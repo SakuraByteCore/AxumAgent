@@ -26,6 +26,28 @@ function writePackage(root, name, files = {}) {
   return dir;
 }
 
+const PI_USER_AGENT_VERSIONED_UPSTREAM = [
+  "export function getPiUserAgent(version) {",
+  "    const runtime = process.versions.bun ? `bun/${process.versions.bun}` : `node/${process.version}`;",
+  "    return `pi/${version} (${process.platform}; ${runtime}; ${process.arch})`;",
+  "}",
+  "",
+].join("\n");
+
+const PI_USER_AGENT_BROWSER_SAFE_UPSTREAM = [
+  "function loadNodeOs() {",
+  "    if (typeof process === \"undefined\" || !(process.versions?.node || process.versions?.bun)) {",
+  "        return null;",
+  "    }",
+  "    return process.getBuiltinModule?.(\"node:os\") ?? null;",
+  "}",
+  "const nodeOs = loadNodeOs();",
+  "export function getPiUserAgent() {",
+  "    return nodeOs ? `pi (${nodeOs.platform()} ${nodeOs.release()}; ${nodeOs.arch()})` : \"pi (browser)\";",
+  "}",
+  "",
+].join("\n");
+
 test("resolves bundled Pi from Axum cache directory", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-cache-"));
   const options = { platform: "linux", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES } };
@@ -143,12 +165,15 @@ function pkg(name, files = {}) {
   }
 }
 const stdinBuffer = ${JSON.stringify(stdinBuffer)};
+const piUserAgentVersioned = ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)};
+const piUserAgentBrowserSafe = ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)};
 pkg("@earendil-works/pi-coding-agent", {
   "dist/cli.js": "",
+  "dist/utils/pi-user-agent.js": piUserAgentVersioned,
   "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\\n",
   "node_modules/undici/lib/web/webidl/index.js": "webidl.util.markAsUncloneable = markAsUncloneable\\n",
 });
-pkg("@earendil-works/pi-ai", { "dist/index.js": "" });
+pkg("@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": piUserAgentBrowserSafe });
 pkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 pkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 pkg("pi-bar", { "index.ts": "" });
@@ -194,10 +219,11 @@ class StdinBuffer {
 
   writePackage(cache, "@earendil-works/pi-coding-agent", {
     "dist/cli.js": "",
+    "dist/utils/pi-user-agent.js": PI_USER_AGENT_VERSIONED_UPSTREAM,
     "node_modules/chalk/index.js": "module.exports = {\n  reset: ((t) => t)\n  bold: ((t) => t)\n};\n",
     "node_modules/chalk/package.json": JSON.stringify({ name: "chalk", version: "5.5.1", type: "module", main: "index.js" }),
   });
-  writePackage(cache, "@earendil-works/pi-ai", { "dist/index.js": "" });
+  writePackage(cache, "@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": PI_USER_AGENT_BROWSER_SAFE_UPSTREAM });
   writePackage(cache, "@earendil-works/pi-agent-core", { "dist/index.js": "" });
   writePackage(cache, "@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
   writePackage(cache, "pi-bar", { "index.ts": "" });
@@ -460,8 +486,8 @@ import path from 'node:path';
 const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
-pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
-pkg('@earendil-works/pi-ai', { 'dist/index.js': '' });
+pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)}, 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
+pkg('@earendil-works/pi-ai', { 'dist/index.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)} });
 pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
 pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(`const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
@@ -502,6 +528,10 @@ pkg('@zzxb/pi-notify', { 'index.ts': '' });
   assert.match(patchedStdinBuffer, /looksLikeUnbracketedPaste/);
   const patchedUndici = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "node_modules", "undici", "lib", "web", "webidl", "index.js"), "utf8");
   assert.match(patchedUndici, /AXUM_UNDICI_MARK_AS_UNCLONEABLE_FALLBACK/);
+  const patchedUserAgent = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "utils", "pi-user-agent.js"), "utf8");
+  assert.match(patchedUserAgent, /AXUM_USER_AGENT/);
+  const patchedAiUserAgent = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "pi-user-agent.js"), "utf8");
+  assert.match(patchedAiUserAgent, /AXUM_PI_USER_AGENT_CUSTOM/);
 });
 
 
@@ -551,12 +581,15 @@ function writePkg(name, files = {}) {
   }
 }
 const stdinBuffer = 'const ESC = "\\\\x1b";\\nconst BRACKETED_PASTE_START = "\\\\x1b[200~";\\nconst BRACKETED_PASTE_END = "\\\\x1b[201~";\\nclass StdinBuffer {\\n  process(data) {\\n    let str = Buffer.isBuffer(data) ? data.toString() : data;\\n        if (str.length === 0 && this.buffer.length === 0) {\\n            this.emitDataSequence("");\\n            return;\\n        }\\n  }\\n}\\n';
+const piUserAgentVersioned = ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)};
+const piUserAgentBrowserSafe = ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)};
 writePkg("@earendil-works/pi-coding-agent", {
   "dist/cli.js": "",
+  "dist/utils/pi-user-agent.js": piUserAgentVersioned,
   "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\\n",
   "node_modules/undici/lib/web/webidl/index.js": "webidl.util.markAsUncloneable = markAsUncloneable\\n",
 });
-writePkg("@earendil-works/pi-ai", { "dist/index.js": "" });
+writePkg("@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": piUserAgentBrowserSafe });
 writePkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 writePkg("pi-bar", { "index.ts": "" });

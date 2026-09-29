@@ -26,6 +26,9 @@ import {
   patchPiInteractiveErrorDedup,
   patchPiInteractiveRateLimitDisplay,
   patchPiInteractiveConnectionDisplay,
+  patchPiUserAgent,
+  patchPiAiUserAgent,
+  PI_USER_AGENT_CUSTOM_MARKER,
 } from "../src/bundled-pi-patches.js";
 
 test("429 pattern matches strict provider throttle shapes only", () => {
@@ -444,4 +447,68 @@ test("patchPiExtensionSelectorScroll windows the rendered list and is idempotent
   assert.equal(patchPiExtensionSelectorScroll(once), once, "idempotent on re-run");
   const drifted = upstream.replace("this.listContainer.clear();", "this.listContainer.reset();");
   assert.equal(patchPiExtensionSelectorScroll(drifted), drifted, "drifted upstream shape is left untouched");
+});
+
+const PI_AI_USER_AGENT_UPSTREAM = [
+  "function loadNodeOs() {",
+  "    if (typeof process === \"undefined\" || !(process.versions?.node || process.versions?.bun)) {",
+  "        return null;",
+  "    }",
+  "    return process.getBuiltinModule?.(\"node:os\") ?? null;",
+  "}",
+  "// Keep runtime OS loading browser-safe. A top-level runtime import of node:os breaks browser/Vite builds.",
+  "const nodeOs = loadNodeOs();",
+  "export function getPiUserAgent() {",
+  "    return nodeOs ? `pi (${nodeOs.platform()} ${nodeOs.release()}; ${nodeOs.arch()})` : \"pi (browser)\";",
+  "}",
+  "",
+].join("\n");
+
+test("patchPiAiUserAgent injects the AXUM_USER_AGENT override and is idempotent", () => {
+  const once = patchPiAiUserAgent(PI_AI_USER_AGENT_UPSTREAM);
+  assert.ok(once.includes(PI_USER_AGENT_CUSTOM_MARKER), "marker present");
+  assert.ok(
+    once.includes('if (typeof process !== "undefined" && process.env.AXUM_USER_AGENT) {'),
+    "env override guard present",
+  );
+  assert.ok(once.includes('return nodeOs ? `pi (${nodeOs.platform()} ${nodeOs.release()}; ${nodeOs.arch()})` : "pi (browser)";'), "browser-safe fallback preserved");
+  const twice = patchPiAiUserAgent(once);
+  assert.equal(twice, once, "idempotent on re-run");
+  assert.equal((once.match(/export function getPiUserAgent\(\)/g) || []).length, 1, "single function definition");
+});
+
+test("patchPiAiUserAgent throws when the browser-safe needle drifted", () => {
+  assert.throws(
+    () => patchPiAiUserAgent("export function getPiUserAgent() {\n    return \"something else\";\n}"),
+    /browser-safe getPiUserAgent\(\) needle not found/,
+  );
+});
+
+test("patchPiUserAgent throws when the versioned needle drifted", () => {
+  assert.throws(
+    () => patchPiUserAgent("export function getPiUserAgent(version) {\n    return \"drifted\";\n}"),
+    /getPiUserAgent\(version\) needle not found/,
+  );
+});
+
+test("patched pi-ai getPiUserAgent honours AXUM_USER_AGENT at runtime", async () => {
+  const patched = patchPiAiUserAgent(PI_AI_USER_AGENT_UPSTREAM);
+  const tmp = await import("node:fs/promises");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const dir = await tmp.mkdtemp(path.join(os.tmpdir(), "pi-ai-ua-test-"));
+  const file = path.join(dir, "pi-user-agent.mjs");
+  await tmp.writeFile(file, patched);
+  const before = process.env.AXUM_USER_AGENT;
+  try {
+    process.env.AXUM_USER_AGENT = "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color";
+    const mod = await import(`file://${file}`);
+    assert.equal(mod.getPiUserAgent(), "codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) xterm-256color");
+    delete process.env.AXUM_USER_AGENT;
+    assert.ok(mod.getPiUserAgent().startsWith("pi ("), "falls back to the pi formula without env");
+  } finally {
+    if (before === undefined) delete process.env.AXUM_USER_AGENT;
+    else process.env.AXUM_USER_AGENT = before;
+    await tmp.rm(dir, { recursive: true, force: true });
+  }
 });
