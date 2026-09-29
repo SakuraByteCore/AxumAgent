@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import path from "node:path";
 import { supportedBundledPiExtensions } from "../src/bundled-pi-platform.js";
+import { getUserAgent } from "../src/provider-config.js";
 
 function usage() {
   return `Axum Agent
@@ -462,20 +463,15 @@ function buildPiEnv(compileCacheDir) {
   const env = { ...process.env, AXUM_BUNDLED_PI: "1" };
   if (compileCacheDir && !env.NODE_COMPILE_CACHE) env.NODE_COMPILE_CACHE = compileCacheDir;
   if (!env.JITI_TRY_NATIVE) env.JITI_TRY_NATIVE = "1";
-  
-  // 传递用户配置的 User-Agent 给 Pi
-  try {
-    const { getUserAgent } = require("../src/provider-config.js");
-    const customUserAgent = getUserAgent();
-    if (customUserAgent) {
-      env.AXUM_USER_AGENT = customUserAgent;
-    }
-  } catch {
-    // 忽略错误，继续启动
+  // 传递用户配置的 User-Agent 给 Pi（本文件为 ESM，require 不可用，须用静态 import）
+  const customUserAgent = getUserAgent();
+  if (customUserAgent) {
+    env.AXUM_USER_AGENT = customUserAgent;
   }
   
   return env;
 }
+
 
 async function runPi(passthrough) {
   const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
