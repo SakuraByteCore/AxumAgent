@@ -77,6 +77,14 @@ const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "ma
 
 export const DEFAULT_THINKING_LEVEL = "high";
 
+/** Fallback context-window / max-output-token sizes applied when a model spec omits them.
+ * Shared by the backend `buildModelConfig` default and the `axum web` new-provider form
+ * initial values — single source of truth so both stay in sync. Provider presets keep
+ * their own vendor-specific values (e.g. Anthropic's 1M window); these are only the
+ * generic "nothing specified" fallbacks. */
+export const DEFAULT_MODEL_CONTEXT_WINDOW = 128000;
+export const DEFAULT_MODEL_MAX_TOKENS = 32000;
+
 /** Reference templates for the `axum web` Provider tab: one click fills API form, baseUrl/name/token
  * defaults and model candidates. Models stay editable suggestions — the Fetch button and
  * `/models` remain the authoritative source, and no preset ever ships an API key. */
@@ -148,8 +156,8 @@ export function buildModelConfig(spec, providerReasoningEffort) {
     id,
     name: String(spec.name || id),
     reasoning: reasoningEnabled,
-    contextWindow: positiveNumber(spec.contextWindow, 128000, "Context window"),
-    maxTokens: positiveNumber(spec.maxTokens, 32000, "Max output tokens"),
+    contextWindow: positiveNumber(spec.contextWindow, DEFAULT_MODEL_CONTEXT_WINDOW, "Context window"),
+    maxTokens: positiveNumber(spec.maxTokens, DEFAULT_MODEL_MAX_TOKENS, "Max output tokens"),
   };
   if (reasoningEnabled) modelConfig.thinkingLevelMap = thinkingLevelMap();
   if (spec.default) modelConfig.default = true;

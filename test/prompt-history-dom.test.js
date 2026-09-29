@@ -76,7 +76,8 @@ function loadInlineScript() {
     .split("${JSON.stringify(token)}").join('"tok"')
     .split("${JSON.stringify(presets)}").join("[]")
     .split("${JSON.stringify(apiForms)}").join('[{"id":"openai","fetchable":true}]')
-    .split("${JSON.stringify(DEFAULT_API_FORM)}").join('"openai"');
+    .split("${JSON.stringify(DEFAULT_API_FORM)}").join('"openai"')
+    .split("${JSON.stringify({contextWindow:DEFAULT_MODEL_CONTEXT_WINDOW,maxTokens:DEFAULT_MODEL_MAX_TOKENS})}").join('{"contextWindow":128000,"maxTokens":32000}');
   assert.ok(!/\$\{/.test(js), "inline script must have no unresolved placeholders");
   return js;
 }
