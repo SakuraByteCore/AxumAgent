@@ -162,14 +162,15 @@ async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionCon
 
 async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactResumePending) return;
-	// While a turn is streaming with queued messages the resume would run after
-	// them anyway; wait for the settle those messages will produce.
-	if (ctx.hasPendingMessages() && !ctx.isIdle()) return;
+	// A still-streaming turn would reject the resume; and while user-queued
+	// messages are pending they take priority over the auto-resume.
+	if (!ctx.isIdle()) return;
+	if (ctx.hasPendingMessages()) return;
 	try {
-		// deliverAs (not streamingBehavior) is the option key the extension API
-		// accepts; with it the prompt queues as a followUp when a turn is still
-		// streaming instead of being rejected with "Agent is already processing".
-		await pi.sendUserMessage(compactResumePrompt ?? COMPACT_CONTINUE_PROMPT, { deliverAs: "followUp" });
+		// streamingBehavior is the option key pi's extension API accepts; with it
+		// the prompt queues as a followUp when a turn is still streaming instead of
+		// being rejected with "Agent is already processing".
+		await pi.sendUserMessage(compactResumePrompt ?? COMPACT_CONTINUE_PROMPT, { streamingBehavior: "followUp" });
 		compactResumePending = false;
 		compactResumePrompt = undefined;
 	} catch (err) {
