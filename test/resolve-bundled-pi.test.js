@@ -59,7 +59,7 @@ test("resolves bundled Pi from Axum cache directory", () => {
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
 
@@ -83,7 +83,7 @@ test("checks available Pi extensions on Android", () => {
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
 
   const extensions = resolveBundledExtensions(options);
@@ -95,7 +95,7 @@ test("checks available Pi extensions on Android", () => {
   assert.equal(extensions[4], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
   assert.equal(extensions[5], path.join(cache, "node_modules", "@gamaraan", "todos-tool", "src", "index.ts"));
   assert.equal(extensions[6], path.join(cache, "node_modules", "pi-agent", "index.ts"));
-  assert.equal(extensions[7], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
+  assert.equal(extensions[7], path.join(cache, "node_modules", "pi-subagents", "index.js"));
   assert.equal(extensions[8], path.join(cache, "node_modules", "pi-memory", "index.ts"));
   assert.equal(existingBundledExtensions(options).length, 9);
 });
@@ -111,7 +111,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
   writePackage(cache, "@zzxb/pi-notify", { "index.ts": "" });
@@ -124,7 +124,7 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
   assert.equal(extensions[3], path.join(cache, "node_modules", "pi-hashline-edit-pro", "index.ts"));
   assert.equal(extensions[4], path.join(cache, "node_modules", "@gamaraan", "todos-tool", "src", "index.ts"));
   assert.equal(extensions[5], path.join(cache, "node_modules", "pi-agent", "index.ts"));
-  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-subagents", "index.ts"));
+  assert.equal(extensions[6], path.join(cache, "node_modules", "pi-subagents", "index.js"));
   assert.equal(extensions[7], path.join(cache, "node_modules", "pi-memory", "index.ts"));
   assert.equal(extensions[8], path.join(cache, "node_modules", "@zzxb", "pi-notify", "index.ts"));
   assert.equal(existingBundledExtensions(options).length, 9);
@@ -182,7 +182,7 @@ pkg("pi-companion", { "index.ts": "" });
 pkg("pi-hashline-edit-pro", { "index.ts": "" });
 pkg("@gamaraan/todos-tool", { "src/index.ts": "" });
 pkg("pi-agent", { "index.ts": "" });
-pkg("pi-subagents", { "index.ts": "" });
+pkg("pi-subagents", { "index.js": "" });
 pkg("pi-memory", { "index.ts": "" });
 pkg("@zzxb/pi-notify", { "index.ts": "" });
 `);
@@ -232,7 +232,7 @@ class StdinBuffer {
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "@zzxb/pi-notify", { "index.ts": "" });
 
@@ -513,7 +513,7 @@ pkg('pi-companion', { 'index.ts': '' });
 pkg('pi-hashline-edit-pro', { 'index.ts': '' });
 pkg('@gamaraan/todos-tool', { 'src/index.ts': '' });
 pkg('pi-agent', { 'index.ts': '' });
-pkg('pi-subagents', { 'index.ts': '' });
+pkg('pi-subagents', { 'index.js': '' });
 pkg('pi-memory', { 'index.ts': '' });
 pkg('@zzxb/pi-notify', { 'index.ts': '' });
 `);
@@ -560,7 +560,7 @@ test("reinstalls bundled Pi when cached runtime dependency is missing", () => {
   writePkg(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePkg(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
 writePkg(cache, "pi-agent", { "index.ts": "" });
-  writePkg(cache, "pi-subagents", { "index.ts": "" });
+  writePkg(cache, "pi-subagents", { "index.js": "" });
   writePkg(cache, "pi-memory", { "index.ts": "" });
   writePkg(cache, "@zzxb/pi-notify", { "index.ts": "" });
   writePkg(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -599,7 +599,7 @@ writePkg("pi-web-access", { "index.ts": "" });
 writePkg("pi-hashline-edit-pro", { "index.ts": "" });
 writePkg("@gamaraan/todos-tool", { "src/index.ts": "" });
 writePkg("pi-agent", { "index.ts": "" });
-writePkg("pi-subagents", { "index.ts": "" });
+writePkg("pi-subagents", { "index.js": "" });
 writePkg('pi-memory', { 'index.ts': '' });
 writePkg("@ff-labs/pi-fff", { "src/index.ts": "" });
 writePkg("@zzxb/pi-notify", { "index.ts": "" });
@@ -782,12 +782,12 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
     "                    });",
     "                    this._retryAttempt = 0;",
     "                }",
-    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "        if (message.stopReason === \"error\" && this._retryAttempt > 0) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "        }",
@@ -808,7 +808,7 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
     "            this._retryAttempt--;",
     "            return false;",
     "        }",
-    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        const delayMs = retryDelayMs(settings, this._retryAttempt);",
     "        this._emit({",
     "            type: \"auto_retry_start\",",
     "            attempt: this._retryAttempt,",
@@ -816,15 +816,15 @@ test("patches bundled Pi agent session retry with strict-429 exemption", () => {
     "            delayMs,",
     "            errorMessage: message.errorMessage || \"Unknown error\",",
     "        });",
-    "            const attempt = this._retryAttempt;",
-    "            this._retryAttempt = 0;",
+    "        const attempt = this._retryAttempt;",
+    "        this._retryAttempt = 0;",
   ].join("\n");
   const patched = patchPiAgentSessionRateLimitRetry(vulnerable);
   assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
   assert.match(patched, /_rateLimitRetryAttempt = 0;/);
   assert.match(patched, /this\._rateLimitRetryAttempt < RATE_LIMIT_MAX_ATTEMPTS/);
   assert.match(patched, /delayMs = jitteredDelay\(settings\.fixedDelayMs \?\? RATE_LIMIT_DELAY_MS\);/);
-  assert.match(patched, /delayMs = settings\.baseDelayMs \* 2 \*\* \(this\._retryAttempt - 1\);/);
+  assert.match(patched, /delayMs = retryDelayMs\(settings, this\._retryAttempt\);/);
   assert.equal((patched.match(/_rateLimitRetryAttempt = 0;/g) || []).length, 4);
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
 });
@@ -904,6 +904,7 @@ test("settings manager forwards retry.fixedDelayMs with a sanitized default", ()
     "            enabled: this.getRetryEnabled(),",
     "            maxRetries: this.settings.retry?.maxRetries ?? 3,",
     "            baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,",
+            "            maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,",
     "        };",
     "    }",
   ].join("\n");
@@ -946,12 +947,12 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
     "                    });",
     "                    this._retryAttempt = 0;",
     "                }",
-    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "        if (message.stopReason === \"error\" && this._retryAttempt > 0) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "        }",
@@ -972,7 +973,7 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
     "            this._retryAttempt--;",
     "            return false;",
     "        }",
-    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        const delayMs = retryDelayMs(settings, this._retryAttempt);",
     "        this._emit({",
     "            type: \"auto_retry_start\",",
     "            attempt: this._retryAttempt,",
@@ -980,8 +981,8 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
     "            delayMs,",
     "            errorMessage: message.errorMessage || \"Unknown error\",",
     "        });",
-    "            const attempt = this._retryAttempt;",
-    "            this._retryAttempt = 0;",
+    "        const attempt = this._retryAttempt;",
+    "        this._retryAttempt = 0;",
   ].join("\n");
   const patched = patchPiAgentSessionConnectionRetry(vulnerable);
   assert.match(patched, /AXUM_PI_429_RETRY_EXEMPT/);
@@ -990,7 +991,7 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
   assert.match(patched, /this\._connectionRetryAttempt < CONNECTION_MAX_ATTEMPTS/);
   assert.match(patched, /delayMs = jitteredDelay\(settings\.fixedDelayMs \?\? CONNECTION_DELAY_MS\);/);
   assert.match(patched, /delayMs = jitteredDelay\(settings\.fixedDelayMs \?\? RATE_LIMIT_DELAY_MS\);/);
-  assert.match(patched, /delayMs = settings\.baseDelayMs \* 2 \*\* \(this\._retryAttempt - 1\);/);
+  assert.match(patched, /delayMs = retryDelayMs\(settings, this\._retryAttempt\);/);
   assert.equal((patched.match(/isConnectionError\(message\.errorMessage\)/g) || []).length, 2);
   assert.equal(patchPiAgentSessionConnectionRetry(patched), patched);
 });
@@ -1034,7 +1035,8 @@ test("patches bundled Pi interactive mode to soften 429 display", () => {
     I20 + "}",
     I20 + "else {",
     I24 + "this.chatContainer.addChild(new Spacer(1));",
-    I24 + 'this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));',
+    I24 + "const errorMessage = event.errorMessage;",
+    I24 + 'this.chatContainer.addChild(new ThemedText(() => theme.fg("error", errorMessage), 1, 0));',
     I20 + "}",
     I16 + "}",
     I12 + 'case "auto_retry_end": {',
@@ -1107,7 +1109,7 @@ test("patches bundled Pi interactive mode to dedupe consecutive identical errors
   const vulnerable = [
     "    showError(errorMessage) {",
     "        this.chatContainer.addChild(new Spacer(1));",
-    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.chatContainer.addChild(new ThemedText(() => theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
     "        this.ui.requestRender();",
     "    }",
   ].join("\n");

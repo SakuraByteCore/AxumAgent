@@ -15,7 +15,7 @@ test("detects Termux/Android environments", () => {
 test("checks available Pi extensions on Android", () => {
   const packages = supportedBundledPiPackages({ platform: "android", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.84.4",
+    "@earendil-works/pi-coding-agent@0.99.2",
     "pi-bar@file:plugin/pi-bar",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
@@ -23,7 +23,7 @@ test("checks available Pi extensions on Android", () => {
     "pi-hashline-edit-pro@2.7.0",
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
-    "pi-subagents@0.66.0",
+    "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 9);
@@ -32,7 +32,7 @@ test("checks available Pi extensions on Android", () => {
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
   const packages = supportedBundledPiPackages({ platform: "linux", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.84.4",
+    "@earendil-works/pi-coding-agent@0.99.2",
     "pi-bar@file:plugin/pi-bar",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
@@ -41,7 +41,7 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-hashline-edit-pro@2.7.0",
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
-    "pi-subagents@0.66.0",
+    "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
   ]);
   assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 10);
@@ -50,14 +50,14 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
   const packages = supportedBundledPiPackages({ platform: "win32", env: {} });
   assert.deepEqual(packages, [
-    "@earendil-works/pi-coding-agent@0.84.4",
+    "@earendil-works/pi-coding-agent@0.99.2",
     "pi-bar@file:plugin/pi-bar",
     "@narumitw/pi-goal@0.31.0",
     "pi-companion@file:plugin/pi-companion",
     "pi-hashline-edit-pro@2.7.0",
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
-    "pi-subagents@0.66.0",
+    "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
     "@zzxb/pi-notify@0.0.1",
   ]);

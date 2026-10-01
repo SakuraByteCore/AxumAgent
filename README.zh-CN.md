@@ -109,15 +109,7 @@ axum install npm:pi-foo@1.0.0
 
 ## MCP 服务
 
-MCP 支持内置于扩展而非 Pi 本体；Axum 通过 [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) 扩展提供。两步即可用：
-
-```bash
-axum mcp install    # 一次性：安装 pi-mcp-adapter 扩展
-```
-
-然后启动 `axum code`，在会话内运行 `/mcp` 向导，即可自动发现、导入（Cursor / Claude Code / Codex 配置）或交互式新增服务。
-
-也可以在命令行直接管理服务条目：
+MCP 支持内置于打包的 Pi 运行时（0.99+），无需安装任何扩展。添加一个服务即可使用：
 
 ```bash
 axum mcp add        # 交互式：服务名、stdio 命令或 http(s) url、args、env
@@ -125,7 +117,9 @@ axum mcp list       # 列出已配置的服务
 axum mcp remove <name>
 ```
 
-服务配置存于与 Cursor、Claude Code、Codex 通用的标准 `mcpServers` JSON 格式：项目 `.mcp.json` 优先，全局 `~/.config/mcp/mcp.json` 兜底；`axum mcp add` 的 `--project` / `--global` 可强制指定其中一个文件。这些工具的既有配置可直接复用。stdio 服务的命令行可携带参数：首个词作为 `command`，其余存入 `args`。`axum doctor` 会报告该扩展是否安装、配置文件是否为合法 JSON。
+在 `axum code` 会话内运行 `/mcp`，可查看连接状态并管理服务。
+
+服务配置存于与 Cursor、Claude Code、Codex 通用的标准 `mcpServers` JSON 格式，写入 Pi 原生读取的位置：项目 `.pi/mcp.json` 或用户级 `~/.pi/agent/mcp.json`。项目文件存在时优先使用；`axum mcp add` 的 `--project` / `--global` 可强制指定其中一个文件。stdio 服务的命令行可携带参数：首个词作为 `command`，其余存入 `args`。`axum doctor` 会报告配置文件是否为合法 JSON，并在检测到旧版 pi-mcp-adapter 扩展残留时告警——它会替换内建的 `/mcp`。
 
 ## 配置 Provider
 
@@ -251,7 +245,7 @@ axum code
 axum doctor
 ```
 
-`doctor` 检查打包 Pi 缓存与入口点，并报告用户自装扩展的健康状态（含 MCP 扩展是否安装、MCP 配置文件是否为合法 JSON）。
+`doctor` 检查打包 Pi 缓存与入口点，并报告用户自装扩展的健康状态（含 MCP 配置文件是否为合法 JSON；若检测到旧版 pi-mcp-adapter 扩展会替换内建 `/mcp`，则给出告警）。
 
 安全模式（`axum code --safe`）仅启动 Pi 本体，不加载上述打包扩展。
 

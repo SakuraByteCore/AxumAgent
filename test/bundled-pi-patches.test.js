@@ -144,12 +144,12 @@ test("patchPiAgentSessionRateLimitRetry keeps upstream exponential backoff on th
     "                    });",
     "                    this._retryAttempt = 0;",
     "                }",
-    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "        if (message.stopReason === \"error\" && this._retryAttempt > 0) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "        }",
@@ -170,7 +170,7 @@ test("patchPiAgentSessionRateLimitRetry keeps upstream exponential backoff on th
     "            this._retryAttempt--;",
     "            return false;",
     "        }",
-    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        const delayMs = retryDelayMs(settings, this._retryAttempt);",
     "        this._emit({",
     "            type: \"auto_retry_start\",",
     "            attempt: this._retryAttempt,",
@@ -178,11 +178,11 @@ test("patchPiAgentSessionRateLimitRetry keeps upstream exponential backoff on th
     "            delayMs,",
     "            errorMessage: message.errorMessage || \"Unknown error\",",
     "        });",
-    "            const attempt = this._retryAttempt;",
-    "            this._retryAttempt = 0;",
+    "        const attempt = this._retryAttempt;",
+    "        this._retryAttempt = 0;",
   ].join("\n");
   const patched = patchPiAgentSessionRateLimitRetry(stock);
-  assert.ok(patched.includes("delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);"));
+  assert.ok(patched.includes("delayMs = retryDelayMs(settings, this._retryAttempt);"));
   assert.ok(patched.includes("delayMs = jitteredDelay(settings.fixedDelayMs ?? RATE_LIMIT_DELAY_MS);"));
   assert.equal(patchPiAgentSessionRateLimitRetry(patched), patched);
 });
@@ -313,7 +313,7 @@ test("patchPiInteractiveConnectionDisplay softens every interactive surface and 
     "export class InteractiveMode {",
     "    showError(errorMessage) {",
     "        this.chatContainer.addChild(new Spacer(1));",
-    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.chatContainer.addChild(new ThemedText(() => theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
     "        this.ui.requestRender();",
     "    }",
     "    handleEvent(event, message, errorMessage, component) {",
@@ -350,7 +350,8 @@ test("patchPiInteractiveConnectionDisplay softens every interactive surface and 
     "                    }",
     "                    else {",
     "                        this.chatContainer.addChild(new Spacer(1));",
-    "                        this.chatContainer.addChild(new Text(theme.fg(\"error\", event.errorMessage), 1, 0));",
+    "                        const errorMessage = event.errorMessage;",
+    "                        this.chatContainer.addChild(new ThemedText(() => theme.fg(\"error\", errorMessage), 1, 0));",
     "                    }",
     "                }",
     "                break;",

@@ -113,15 +113,7 @@ axum install npm:pi-foo@1.0.0
 
 ## MCP Servers
 
-MCP support is not built into Pi itself; Axum ships it through the [pi-mcp-adapter](https://github.com/nicobailon/pi-mcp-adapter) extension. Two steps and you are done:
-
-```bash
-axum mcp install    # one-time: installs the pi-mcp-adapter extension
-```
-
-Then start `axum code` and run the `/mcp` wizard inside the session to discover, import (Cursor / Claude Code / Codex configs), or add servers interactively.
-
-You can also manage server entries from the shell:
+MCP support is built into the bundled Pi runtime (0.99+); no extension install is needed. Add a server and you are done:
 
 ```bash
 axum mcp add        # interactive: name, stdio command or http(s) url, args, env
@@ -129,7 +121,9 @@ axum mcp list       # show configured servers
 axum mcp remove <name>
 ```
 
-Servers are stored in the standard `mcpServers` JSON format shared with Cursor, Claude Code, and Codex: the project `.mcp.json` first, then the global `~/.config/mcp/mcp.json` as fallback. Flags `--project` / `--global` on `axum mcp add` force one file. Existing configs from those tools work as-is. For stdio servers the command line may include arguments; the first token becomes the command and the rest are stored as `args`. `axum doctor` reports whether the extension is installed and whether your config files are valid JSON.
+Inside `axum code`, run `/mcp` to inspect connections and manage servers in the session.
+
+Servers are stored in the standard `mcpServers` JSON format shared with Cursor, Claude Code, and Codex, written where Pi reads them natively: the project `.pi/mcp.json` or the user-level `~/.pi/agent/mcp.json`. The project file is preferred once it exists; flags `--project` / `--global` on `axum mcp add` force one file. For stdio servers the command line may include arguments; the first token becomes the command and the rest are stored as `args`. `axum doctor` reports whether your config files are valid JSON and warns if the legacy pi-mcp-adapter extension is still installed — it would replace the built-in `/mcp`.
 
 ## Configure a Provider
 
@@ -257,7 +251,7 @@ The selection is written to `defaultProvider`/`defaultModel` in `~/.pi/agent/set
 axum doctor
 ```
 
-`doctor` checks the bundled Pi cache and entrypoint, and reports the health of user-installed extensions (including whether the MCP extension is present and whether your MCP config files are valid JSON).
+`doctor` checks the bundled Pi cache and entrypoint, and reports the health of user-installed extensions (including whether your MCP config files are valid JSON, and a warning if the legacy pi-mcp-adapter extension would replace the built-in `/mcp`).
 
 Safe mode (`axum code --safe`) launches the Pi core without loading any of the bundled extensions above.
 

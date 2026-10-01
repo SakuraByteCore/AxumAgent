@@ -2,15 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-// MCP server configuration in the standard multi-host format shared by
-// Cursor / Claude Code / Codex: a JSON file with an "mcpServers" object.
-// The pi-mcp-adapter extension reads the project-level .mcp.json first and
-// falls back to the global ~/.config/mcp/mcp.json. This module reads and
-// writes those same files so users stay interoperable with other tools.
+// MCP server configuration for the bundled Pi runtime (0.99+), which has
+// built-in MCP support: it reads user-level servers from ~/.pi/agent/mcp.json
+// and project servers from .pi/mcp.json, both using the standard
+// "mcpServers" format shared with Cursor / Claude Code / Codex. This module
+// reads and writes those same files, so `axum mcp` and Pi stay in sync and
+// MCP works out of the box with no extension install.
 
 export const MCP_SERVERS_KEY = "mcpServers";
-export const MCP_ADAPTER_PACKAGE = "pi-mcp-adapter";
-export const MCP_ADAPTER_SPEC = "npm:pi-mcp-adapter@2.37.0";
 
 const URL_PREFIX_RE = /^https?:\/\//;
 const ENV_PAIR_RE = /^[^=\s]+=.+$/;
@@ -24,13 +23,12 @@ function optionCwd(options = {}) {
 }
 
 export function getProjectMcpPath(options = {}) {
-  return path.join(optionCwd(options), ".mcp.json");
+  return path.join(optionCwd(options), ".pi", "mcp.json");
 }
 
 export function getGlobalMcpPath(options = {}) {
   const env = optionEnv(options);
-  const base = env.XDG_CONFIG_HOME || path.join(env.HOME || os.homedir(), ".config");
-  return path.join(base, "mcp", "mcp.json");
+  return path.join(env.HOME || os.homedir(), ".pi", "agent", "mcp.json");
 }
 
 // Load and validate one config file. Throws when the file is unreadable, the
@@ -89,8 +87,8 @@ export function validateMcpServerEntry(entry, file = "server entry") {
   return true;
 }
 
-// Resolve which file a read or write should target: the project .mcp.json when
-// it exists, otherwise the global config. Flags force one side explicitly.
+// Resolve which file a read or write should target: the project .pi/mcp.json
+// when it exists, otherwise the user-level config. Flags force one side.
 function resolveTargetFile(options) {
   if (options.project) return getProjectMcpPath(options);
   if (options.global) return getGlobalMcpPath(options);
@@ -105,8 +103,8 @@ export function existingMcpConfigFiles(options = {}) {
 }
 
 export function addMcpServer(name, entry, options = {}) {
-  if (typeof name !== "string" || name.length === 0 || /[\/]/.test(name)) {
-    throw new Error("server name must be a non-empty string without slashes");
+  if (typeof name !== "string" || name.length === 0 || !/^[A-Za-z0-9_-]+$/.test(name)) {
+    throw new Error("server name may contain only letters, digits, underscores, and hyphens (Pi requirement)");
   }
   validateMcpServerEntry(entry, `server entry "${name}"`);
   const file = resolveTargetFile(options);
@@ -170,7 +168,9 @@ export function buildServerEntry(commandOrUrl, args = [], env = {}) {
     throw new Error("a stdio command or http(s) url is required");
   }
   if (URL_PREFIX_RE.test(input)) {
-    return { url: input, ...(Object.keys(env).length > 0 ? { env } : {}) };
+    // Pi's streamable-HTTP entries take url and headers; env vars only apply
+    // to stdio servers, so they are not attached to url entries.
+    return { url: input };
   }
   const [command, ...inlineArgs] = input.split(/\s+/);
   const entry = { command };

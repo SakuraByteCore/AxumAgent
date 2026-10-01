@@ -824,23 +824,23 @@ function patchPiAgentSessionRateLimitRetry(content) {
   patched = patched.replace(successResetNeedle, successResetReplacement);
 
   const failureResetNeedle = [
-    "        if (msg.stopReason === \"error\" && this._retryAttempt > 0) {",
+    "        if (message.stopReason === \"error\" && this._retryAttempt > 0) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "        }",
   ].join("\n");
   const failureResetReplacement = [
-    "        if (msg.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
+    "        if (message.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt + this._rateLimitRetryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "            this._rateLimitRetryAttempt = 0;",
@@ -895,7 +895,7 @@ function patchPiAgentSessionRateLimitRetry(content) {
     "            this._retryAttempt--;",
     "            return false;",
     "        }",
-    "        const delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "        const delayMs = retryDelayMs(settings, this._retryAttempt);",
     "        this._emit({",
     "            type: \"auto_retry_start\",",
     "            attempt: this._retryAttempt,",
@@ -926,7 +926,7 @@ function patchPiAgentSessionRateLimitRetry(content) {
     "            }",
     "            attempt = this._retryAttempt;",
     "            maxAttempts = settings.maxRetries;",
-    "            delayMs = settings.baseDelayMs * 2 ** (this._retryAttempt - 1);",
+    "            delayMs = retryDelayMs(settings, this._retryAttempt);",
     "        }",
     "        this._emit({",
     "            type: \"auto_retry_start\",",
@@ -941,14 +941,14 @@ function patchPiAgentSessionRateLimitRetry(content) {
   }
   patched = patched.replace(prepareNeedle, prepareReplacement);
 
-  const abortResetNeedle = "            const attempt = this._retryAttempt;\n            this._retryAttempt = 0;";
+  const abortResetNeedle = "        const attempt = this._retryAttempt;\n        this._retryAttempt = 0;";
   if (!patched.includes(abortResetNeedle)) {
     throw new Error("unable to patch bundled Pi agent session retry: abort reset anchor not found");
   }
   patched = patched.replace(abortResetNeedle, [
-    "            const attempt = this._retryAttempt + this._rateLimitRetryAttempt;",
-    "            this._retryAttempt = 0;",
-    "            this._rateLimitRetryAttempt = 0;",
+    "        const attempt = this._retryAttempt + this._rateLimitRetryAttempt;",
+    "        this._retryAttempt = 0;",
+    "        this._rateLimitRetryAttempt = 0;",
   ].join("\n"));
 
   return patched;
@@ -1040,24 +1040,24 @@ function patchPiAgentSessionConnectionRetry(content) {
   patched = patched.replace(successResetNeedle, successResetReplacement);
 
   const failureResetNeedle = [
-    "        if (msg.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
+    "        if (message.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0)) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt + this._rateLimitRetryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "            this._rateLimitRetryAttempt = 0;",
     "        }",
   ].join("\n");
   const failureResetReplacement = [
-    "        if (msg.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0 || this._connectionRetryAttempt > 0)) {",
+    "        if (message.stopReason === \"error\" && (this._retryAttempt > 0 || this._rateLimitRetryAttempt > 0 || this._connectionRetryAttempt > 0)) {",
     "            this._emit({",
     "                type: \"auto_retry_end\",",
     "                success: false,",
     "                attempt: this._retryAttempt + this._rateLimitRetryAttempt + this._connectionRetryAttempt,",
-    "                finalError: msg.errorMessage,",
+    "                finalError: message.errorMessage,",
     "            });",
     "            this._retryAttempt = 0;",
     "            this._rateLimitRetryAttempt = 0;",
@@ -1114,18 +1114,18 @@ function patchPiAgentSessionConnectionRetry(content) {
   patched = patched.replace(prepareNeedle, prepareReplacement);
 
   const abortResetNeedle = [
-    "            const attempt = this._retryAttempt + this._rateLimitRetryAttempt;",
-    "            this._retryAttempt = 0;",
-    "            this._rateLimitRetryAttempt = 0;",
+    "        const attempt = this._retryAttempt + this._rateLimitRetryAttempt;",
+    "        this._retryAttempt = 0;",
+    "        this._rateLimitRetryAttempt = 0;",
   ].join("\n");
   if (!patched.includes(abortResetNeedle)) {
     throw new Error("unable to patch bundled Pi agent session connection retry: abort reset anchor not found");
   }
   patched = patched.replace(abortResetNeedle, [
-    "            const attempt = this._retryAttempt + this._rateLimitRetryAttempt + this._connectionRetryAttempt;",
-    "            this._retryAttempt = 0;",
-    "            this._rateLimitRetryAttempt = 0;",
-    "            this._connectionRetryAttempt = 0;",
+    "        const attempt = this._retryAttempt + this._rateLimitRetryAttempt + this._connectionRetryAttempt;",
+    "        this._retryAttempt = 0;",
+    "        this._rateLimitRetryAttempt = 0;",
+    "        this._connectionRetryAttempt = 0;",
   ].join("\n"));
 
   return patched;
@@ -1193,7 +1193,8 @@ ${classAnchor}`,
     I20 + "}",
     I20 + "else {",
     I24 + "this.chatContainer.addChild(new Spacer(1));",
-    I24 + 'this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));',
+    I24 + "const errorMessage = event.errorMessage;",
+    I24 + 'this.chatContainer.addChild(new ThemedText(() => theme.fg("error", errorMessage), 1, 0));',
     I20 + "}",
     I16 + "}",
   ].join("\n");
@@ -1208,7 +1209,8 @@ ${classAnchor}`,
     I20 + "}",
     I20 + "else {",
     I24 + "this.chatContainer.addChild(new Spacer(1));",
-    I24 + 'this.chatContainer.addChild(new Text(theme.fg("error", event.errorMessage), 1, 0));',
+    I24 + "const errorMessage = event.errorMessage;",
+    I24 + 'this.chatContainer.addChild(new ThemedText(() => theme.fg("error", errorMessage), 1, 0));',
     I20 + "}",
     I16 + "}",
   ].join("\n");
@@ -1283,7 +1285,7 @@ function patchPiInteractiveErrorDedup(content) {
   const methodAnchor = [
     "    showError(errorMessage) {",
     "        this.chatContainer.addChild(new Spacer(1));",
-    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.chatContainer.addChild(new ThemedText(() => theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
     "        this.ui.requestRender();",
     "    }",
   ].join("\n");
@@ -1299,7 +1301,7 @@ function patchPiInteractiveErrorDedup(content) {
     "            return;",
     "        this._axumLastShownError = errorMessage;",
     "        this.chatContainer.addChild(new Spacer(1));",
-    "        this.chatContainer.addChild(new Text(theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
+    "        this.chatContainer.addChild(new ThemedText(() => theme.fg(\"error\", `Error: ${errorMessage}`), this.outputPad, 0));",
     "        this.ui.requestRender();",
     "    }",
   ].join("\n");
@@ -1439,7 +1441,7 @@ function patchPiInteractiveConnectionDisplay(content) {
   const showErrorAnchor = [
     '        this._axumLastShownError = errorMessage;',
     '        this.chatContainer.addChild(new Spacer(1));',
-    '        this.chatContainer.addChild(new Text(theme.fg("error", `Error: ${errorMessage}`), this.outputPad, 0));',
+    '        this.chatContainer.addChild(new ThemedText(() => theme.fg("error", `Error: ${errorMessage}`), this.outputPad, 0));',
     '        this.ui.requestRender();',
   ].join("\n");
   if (!updated.includes(showErrorAnchor)) {
@@ -1448,8 +1450,8 @@ function patchPiInteractiveConnectionDisplay(content) {
   const showErrorReplacement = [
     '        this._axumLastShownError = errorMessage;',
     '        this.chatContainer.addChild(new Spacer(1));',
-    '        this.chatContainer.addChild(new Text(',
-    '            isAxumConnectionErrorMessage(errorMessage)',
+    '        this.chatContainer.addChild(new ThemedText(',
+    '            () => isAxumConnectionErrorMessage(errorMessage)',
     '                ? AXUM_CONNECTION_SHOW_ERROR_NOTICE',
     '                : theme.fg("error", `Error: ${errorMessage}`),',
     '            this.outputPad, 0));',
@@ -1617,6 +1619,7 @@ function patchPiSettingsRetryFixedDelay(content) {
   if (content.includes("retry?.fixedDelayMs")) return content;
   const needle = [
     "            baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,",
+    "            maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,",
     "        };",
   ].join("\n");
   if (!content.includes(needle)) {
@@ -1625,6 +1628,7 @@ function patchPiSettingsRetryFixedDelay(content) {
   return content.replace(needle, [
     "            baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,",
     "            fixedDelayMs: Number.isFinite(this.settings.retry?.fixedDelayMs) && this.settings.retry.fixedDelayMs > 0 ? Math.floor(this.settings.retry.fixedDelayMs) : 3000,",
+    "            maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,",
     "        };",
   ].join("\n"));
 }
@@ -1636,6 +1640,7 @@ function patchPiSubagentsProactiveDelegation(content) {
       [
         'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate proactively to subagents; orchestrate in one workflowScript call. When the request carries multiple independent tasks or requirements, partition them into non-overlapping scopes and launch all of them in one async workflow immediately, without a long planning pass first.";',
         'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate to subagents; orchestrate in one workflowScript call.";',
+        'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "For operator-requested delegation, use subagents; compose multi-child work in one workflow call.";',
       ],
       'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";',
     ],
@@ -1643,6 +1648,7 @@ function patchPiSubagentsProactiveDelegation(content) {
       [
         "Use subagent proactively; do not wait for the user to explicitly request delegation.",
         "Use subagent only when delegation is needed.",
+        "Do not invoke subagents unless the operator requested delegation directly or through applicable instructions.",
       ],
       "Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",
     ],
@@ -1699,8 +1705,22 @@ function patchPiSubagentsLatencyOrchestrator(content) {
   const guidelinesReplacement = "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.',\n'Latency-first budget: derive every lane timeout from one wall-clock budget. Set the workflow-level timeoutMs once; omit per-child timeoutMs so lanes inherit the host-enforced remaining budget, or set a deliberately tighter phase cap. At ~80% of the budget, steer running children to emit best-partial structured envelopes; interrupt redundant or losing lanes once one lane passes an acceptance-checked verifier.',\n'Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks. The parent arbitrates only from these fields, prefers verified evidence over prose, and reports uncovered shards explicitly instead of proceeding as if coverage were complete.',\n];";
   const snippetNeedle = snippetNeedles.find((needle) => content.includes(needle));
   const guidelinesNeedle = guidelinesNeedles.find((needle) => content.includes(needle));
-  if (!snippetNeedle || !guidelinesNeedle) return content;
-  return markerLine + "\n" + content.replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2).replace(guidelinesNeedle, guidelinesReplacement);
+  if (snippetNeedle && guidelinesNeedle) {
+    return markerLine + "\n" + content.replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2).replace(guidelinesNeedle, guidelinesReplacement);
+  }
+  // pi-subagents 0.74.0+: the guidelines are a standalone export with
+  // double-quoted elements. Anchor on the proactive line injected by
+  // patchPiSubagentsProactiveDelegation and append the budget/envelope rules.
+  const modernGuidelinesNeedle = '"Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",\n];';
+  if (!snippetNeedle || !content.includes(modernGuidelinesNeedle)) return content;
+  return markerLine + "\n" + content
+    .replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2)
+    .replace(modernGuidelinesNeedle, [
+      '"Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",',
+      '"Latency-first budget: derive every lane timeout from one wall-clock budget. Set the workflow-level timeoutMs once; omit per-child timeoutMs so lanes inherit the host-enforced remaining budget, or set a deliberately tighter phase cap. At ~80% of the budget, steer running children to emit best-partial structured envelopes; interrupt redundant or losing lanes once one lane passes an acceptance-checked verifier.",',
+      '"Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks. The parent arbitrates only from these fields, prefers verified evidence over prose, and reports uncovered shards explicitly instead of proceeding as if coverage were complete.",',
+      '];',
+    ].join("\n"));
 }
 
 function patchPiUserAgent(content) {

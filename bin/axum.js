@@ -16,7 +16,7 @@ Usage:
   axum versions
   axum update [version]
   axum install [pkg...]
-  axum mcp [install|add|list|remove] [args...]
+  axum mcp [add|list|remove] [args...]
 
 Commands:
   code          Start bundled Pi coding agent with Axum defaults
@@ -35,8 +35,7 @@ Commands:
   install <pkg> Install user extension packages from npm into the shared Pi
                 cache, e.g. axum install npm:pi-cc-extensions
                 (persisted in ~/.axum/packages.json, loaded on every start)
-  mcp          Manage MCP servers for the pi-mcp-adapter extension
-  mcp install  Install the pi-mcp-adapter extension (official MCP support)
+  mcp          Manage MCP servers for Pi's built-in MCP support (0.99+)
   mcp add      Interactively add an MCP server entry (stdio or http(s))
   mcp list     List configured MCP servers
   mcp remove   Remove an MCP server entry
@@ -81,17 +80,19 @@ function resolveArgs(argv) {
 
 function mcpUsage() {
   return `Usage:
-  axum mcp install            Install the pi-mcp-adapter extension (official MCP support)
   axum mcp add [name]         Interactively add an MCP server entry (stdio or http(s))
   axum mcp list               List configured MCP servers
   axum mcp remove <name>      Remove an MCP server entry
+  (axum mcp install is kept as a no-op notice for upgraders)
 
-Servers use the standard "mcpServers" JSON format shared with Cursor,
-Claude Code, and Codex. The project .mcp.json is preferred; the global
-~/.config/mcp/mcp.json is the fallback. Flags --project / --global on
+MCP support is built into the bundled Pi runtime - no extension install
+is needed. Servers use the standard "mcpServers" JSON format shared with
+Cursor, Claude Code, and Codex, stored where Pi reads them natively:
+the project .pi/mcp.json or the user-level ~/.pi/agent/mcp.json. The
+project file is preferred once it exists; flags --project / --global on
 'axum mcp add' force one file explicitly. For stdio servers the command
 line may include arguments; the first token becomes the command and the
-rest are stored as args.
+rest are stored as args. Inside a session, /mcp shows connections.
 `;
 }
 
@@ -99,8 +100,13 @@ async function runMcpCommand(argv) {
   const [sub, ...rest] = argv;
   const options = { env: process.env, cwd: process.cwd() };
   if (sub === "install") {
-    const { MCP_ADAPTER_SPEC } = await import("../src/mcp-config.js");
-    return runInstallPackages([MCP_ADAPTER_SPEC]);
+    process.stdout.write(
+      "MCP support is built into the bundled Pi runtime (0.99+) - no extension install is needed.\n" +
+      "Use 'axum mcp add' to register a server, then check it with /mcp inside a session.\n" +
+      "If you upgraded from an older Axum: remove a leftover pi-mcp-adapter entry from\n" +
+      "~/.axum/packages.json - it would replace the built-in /mcp support.\n",
+    );
+    return 0;
   }
   if (sub === "add") return runMcpAdd(rest, options);
   if (sub === "list") return runMcpList(options);
@@ -188,7 +194,7 @@ async function runMcpList(options) {
   const mcpConfig = await import("../src/mcp-config.js");
   const files = mcpConfig.existingMcpConfigFiles(options);
   if (files.length === 0) {
-    console.log("no MCP server config found (project .mcp.json or global ~/.config/mcp/mcp.json)");
+    console.log("no MCP server config found (project .pi/mcp.json or user-level ~/.pi/agent/mcp.json)");
     return 0;
   }
   for (const file of files) {
@@ -289,16 +295,20 @@ async function reportUserExtensionHealth(options, missing) {
       failed = true;
     }
   }
-  if (userPackages.some((entry) => entry.packageName === mcpConfig.MCP_ADAPTER_PACKAGE)) {
-    reportMcpConfigHealth(options, mcpConfig);
+  for (const entry of userPackages) {
+    if (entry.packageName === "pi-mcp-adapter") {
+      console.log("user extension: pi-mcp-adapter replaces Pi's built-in MCP support (/mcp); remove it from ~/.axum/packages.json to use the built-in /mcp with ~/.pi/agent/mcp.json");
+      failed = true;
+    }
   }
+  reportMcpConfigHealth(options, mcpConfig);
   return failed;
 }
 
 function reportMcpConfigHealth(options, mcpConfig) {
   const files = mcpConfig.existingMcpConfigFiles(options);
   if (files.length === 0) {
-    console.log(`mcp config: none found — run 'axum mcp add' or the /mcp setup wizard in a session`);
+    console.log(`mcp config: none found — run 'axum mcp add' to register your first MCP server`);
     return;
   }
   for (const file of files) {

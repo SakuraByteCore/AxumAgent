@@ -87,7 +87,7 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "@zzxb/pi-notify", { "index.ts": "" });
   if (includeWindowsBroken) {
@@ -356,7 +356,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   writePackage(cache, "pi-hashline-edit-pro", { "index.ts": "" });
   writePackage(cache, "@gamaraan/todos-tool", { "src/index.ts": "" });
   writePackage(cache, "pi-agent", { "index.ts": "" });
-  writePackage(cache, "pi-subagents", { "index.ts": "" });
+  writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
   writePackage(cache, "@zzxb/pi-notify", { "index.ts": "" });
   writeAgentSettings(agentDir);
@@ -576,7 +576,7 @@ pkg('pi-companion', { 'index.ts': 'export default {};' });
 pkg('pi-hashline-edit-pro', { 'index.ts': 'export default {};' });
 pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
 pkg('pi-agent', { 'index.ts': 'export default {};' });
-pkg('pi-subagents', { 'index.ts': 'export default {};' });
+pkg('pi-subagents', { 'index.js': 'export default {};' });
 pkg('pi-memory', { 'index.ts': 'export default {};' });
 pkg('@zzxb/pi-notify', { 'index.ts': 'export default {};' });
 pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./index.ts'] } });`);
@@ -662,7 +662,7 @@ pkg('pi-companion', { 'index.ts': 'export default {};' });
 pkg('pi-hashline-edit-pro', { 'index.ts': 'export default {};' });
 pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
 pkg('pi-agent', { 'index.ts': 'export default {};' });
-pkg('pi-subagents', { 'index.ts': 'export default {};' });
+pkg('pi-subagents', { 'index.js': 'export default {};' });
 pkg('pi-memory', { 'index.ts': 'export default {};' });
 pkg('@zzxb/pi-notify', { 'index.ts': 'export default {};' });
 pkg('pi-foo', { 'index.ts': 'export default {};' });`;

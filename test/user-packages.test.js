@@ -161,7 +161,7 @@ pkg('pi-companion', { 'index.ts': 'export default {};' });
 pkg('pi-hashline-edit-pro', { 'index.ts': 'export default {};' });
 pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
 pkg('pi-agent', { 'index.ts': 'export default {};' });
-pkg('pi-subagents', { 'index.ts': 'export default {};' });
+pkg('pi-subagents', { 'index.js': 'export default {};' });
 pkg('pi-memory', { 'index.ts': 'export default {};' });
 pkg('@zzxb/pi-notify', { 'index.ts': 'export default {};' });
 pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./index.ts'] } });

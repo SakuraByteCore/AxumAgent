@@ -24,7 +24,7 @@ function makeOptions() {
   return {
     cwd,
     env: { XDG_CONFIG_HOME: configHome, HOME: configHome },
-    paths: { project: path.join(cwd, ".mcp.json"), global: path.join(configHome, "mcp", "mcp.json") },
+    paths: { project: path.join(cwd, ".pi", "mcp.json"), global: path.join(configHome, ".pi", "agent", "mcp.json") },
   };
 }
 
@@ -33,7 +33,7 @@ function writeJson(file, data) {
   fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
 }
 
-test("paths: project is <cwd>/.mcp.json, global honors XDG_CONFIG_HOME", () => {
+test("paths: project is <cwd>/.pi/mcp.json, global is ~/.pi/agent/mcp.json (Pi native)", () => {
   const options = makeOptions();
   assert.equal(getProjectMcpPath(options), options.paths.project);
   assert.equal(getGlobalMcpPath(options), options.paths.global);
@@ -96,7 +96,8 @@ test("addMcpServer: rejects duplicate names, invalid names, and invalid entries"
   const options = makeOptions();
   addMcpServer("foo", { command: "npx" }, options);
   assert.throws(() => addMcpServer("foo", { command: "npx" }, options), /already has a server named "foo"/);
-  assert.throws(() => addMcpServer("a/b", { command: "npx" }, options), /without slashes/);
+  assert.throws(() => addMcpServer("a/b", { command: "npx" }, options), /letters, digits, underscores, and hyphens/);
+  assert.throws(() => addMcpServer("a b", { command: "npx" }, options), /letters, digits, underscores, and hyphens/);
   assert.throws(() => addMcpServer("foo", {}, options), /must include a string "url" or "command"/);
 });
 
@@ -144,10 +145,9 @@ test("buildServerEntry: splits a full stdio command line into command + args", (
   assert.deepEqual(buildServerEntry("plain-binary"), { command: "plain-binary" });
 });
 
-test("buildServerEntry: http url becomes a remote entry; env is carried", () => {
+test("buildServerEntry: http url becomes a remote entry; env applies to stdio only", () => {
   assert.deepEqual(buildServerEntry("https://api.example.com/mcp", [], { TOKEN: "t" }), {
     url: "https://api.example.com/mcp",
-    env: { TOKEN: "t" },
   });
   assert.deepEqual(buildServerEntry("https://api.example.com/mcp"), { url: "https://api.example.com/mcp" });
   assert.throws(() => buildServerEntry("  "), /stdio command or http\(s\) url is required/);

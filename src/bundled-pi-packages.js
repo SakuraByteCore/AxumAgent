@@ -19,7 +19,7 @@
 //   unsupportedPlatforms  array of platform ids (e.g. "win32") to exclude on.
 
 export const bundledPiPackages = [
-  { name: "@earendil-works/pi-coding-agent@0.84.4", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
+  { name: "@earendil-works/pi-coding-agent@0.99.2", packageName: "@earendil-works/pi-coding-agent", extensionPath: null, android: true },
   { name: "pi-bar@file:plugin/pi-bar", packageName: "pi-bar", extensionPath: "index.ts", android: true },
   // pi-bar now also hosts the sakura cyberdeck startup header (formerly the
   // standalone pi-header plugin), rendered via ctx.ui.setHeader() at session
@@ -55,7 +55,7 @@ export const bundledPiPackages = [
   // pi-subagents: single-agent delegation and scripted multi-agent workflows
   // (task tool, background runs, /agents orchestration). Pure TS with no
   // parameter properties or extensionless relative imports, zero native deps.
-  { name: "pi-subagents@0.66.0", packageName: "pi-subagents", extensionPath: "index.ts", android: true },
+  { name: "pi-subagents@0.74.0", packageName: "pi-subagents", extensionPath: "index.js", android: true },
   // pi-memory: persistent cross-session memory (/memory command). Vendored
   // locally because the upstream npm package (@amaster.ai/pi-memory-mem0)
   // pulls mem0ai → better-sqlite3 (native, no android-arm64 prebuild) and
