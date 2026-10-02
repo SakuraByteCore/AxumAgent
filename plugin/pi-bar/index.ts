@@ -412,7 +412,24 @@ function wrapLabeledList(label: string, items: string[], width: number): string[
   return lines;
 }
 
-function renderHeader(width: number, skills: string[] = [], commands: string[] = [], cwd?: string): string[] {
+// Loaded-resources snapshot written by the bundled pi patch inside the kernel's
+// showLoadedResources(): the [Context]/[Skills]/[Extensions] banner sections are
+// moved into this header and their data lands here after the first render —
+// the patch invalidates the custom header once the snapshot is written.
+type AxumLoadedResources = { context?: string[]; skills?: string[]; extensions?: string[] };
+const globalScope = globalThis as typeof globalThis & { __axumLoadedResources?: AxumLoadedResources };
+
+function axumLoadedResources(): AxumLoadedResources {
+	return globalScope.__axumLoadedResources ?? {};
+}
+
+// Abbreviate an absolute path under the user's home directory as `~/...`.
+function abbreviateHome(p: string): string {
+	const home = homedir();
+	return home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
+}
+
+function renderHeader(width: number, commands: string[] = [], cwd?: string): string[] {
   if (width <= 0) return [];
 
   const sakura: RGB = [242, 167, 198];
@@ -427,10 +444,7 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
   const artWidth = artRows.length > 0 ? [...artRows[0]].length : 0;
 
   let displayCwd: string | undefined;
-  if (cwd) {
-    const home = homedir();
-    displayCwd = home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
-  }
+  if (cwd) displayCwd = abbreviateHome(cwd);
 
   const version = axumVersion();
   const welcome = `${welcomeGlyph ?? DEFAULT_WELCOME_GLYPH} Welcome to AxumAgent${version ? ` · v${version}` : ""}`;
@@ -439,9 +453,13 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
     rgb(sakura, welcome, true),
     "",
   ];
-  const infoLabelWidth = Math.max("cwd".length, "skills".length, "commands".length);
+  const infoLabelWidth = Math.max("cwd".length, "context".length, "skills".length, "extensions".length, "commands".length);
   if (displayCwd) infoLines.push(rgb(dim, `${"cwd".padEnd(infoLabelWidth)}: ${displayCwd}`));
   const listWidth = Math.max(1, inner - 1);
+  const loaded = axumLoadedResources();
+  for (const line of wrapLabeledList("context".padEnd(infoLabelWidth), (loaded.context ?? []).map(abbreviateHome), listWidth)) infoLines.push(rgb(dim, line));
+  for (const line of wrapLabeledList("skills".padEnd(infoLabelWidth), loaded.skills ?? [], listWidth)) infoLines.push(rgb(dim, line));
+  for (const line of wrapLabeledList("extensions".padEnd(infoLabelWidth), loaded.extensions ?? [], listWidth)) infoLines.push(rgb(dim, line));
   for (const line of wrapLabeledList("commands".padEnd(infoLabelWidth), commands, listWidth)) infoLines.push(rgb(dim, line));
 
   return [
@@ -1488,7 +1506,12 @@ export default function (pi: ExtensionAPI): void {
 	let commandsCache: string[] = [];
 	function installHeader(ctx: ExtensionContext): void {
 		if (!ctx.hasUI) return;
-		// Probe on every start so freshly installed skills surface.
+		// Drop the previous session's loaded-resources snapshot so a /new or reload
+		// session never flashes stale context/skills/extensions data; the kernel
+		// patch rewrites it after this session's loaded-resources run.
+		globalScope.__axumLoadedResources = undefined;
+		// Skills/commands probes still run on every start; the header's
+		// context/skills/extensions lists come from the kernel snapshot.
 		skillsCache = detectSkills(ctx.cwd);
 		commandsCache = getBundledCommands(pi);
 		const headerCwd = ctx.cwd;
@@ -1500,7 +1523,7 @@ export default function (pi: ExtensionAPI): void {
 				render: (width: number): string[] => {
 					if (width !== cachedWidth) {
 						cachedWidth = width;
-						cachedLines = renderHeader(width, skillsCache, commandsCache, headerCwd);
+						cachedLines = renderHeader(width, commandsCache, headerCwd);
 					}
 					return cachedLines;
 				},

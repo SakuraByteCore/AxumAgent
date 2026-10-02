@@ -336,3 +336,31 @@ test("user agent embeds into the editor bottom-right border", () => {
   assert.doesNotMatch(statuslineSource, /PALETTE\.ua/);
   assert.doesNotMatch(statuslineSource, /"ua"/);
 });
+
+test("header renders context/skills/extensions from the kernel loaded-resources snapshot", () => {
+  // Snapshot contract shared with the bundled pi patch (bundled-pi-patches.js):
+  // the kernel's showLoadedResources writes globalThis.__axumLoadedResources
+  // and invalidates the custom header; renderHeader reads it on every render.
+  assert.match(statuslineSource, /type AxumLoadedResources = \{ context\?: string\[\]; skills\?: string\[\]; extensions\?: string\[\] \};/);
+  assert.match(statuslineSource, /const globalScope = globalThis as typeof globalThis & \{ __axumLoadedResources\?: AxumLoadedResources \};/);
+  assert.match(statuslineSource, /function axumLoadedResources\(\): AxumLoadedResources \{/);
+  assert.match(statuslineSource, /return globalScope\.__axumLoadedResources \?\? \{\};/);
+  // Context paths abbreviate under ~ like the cwd line does.
+  assert.match(statuslineSource, /function abbreviateHome\(p: string\): string \{/);
+  assert.match(statuslineSource, /return home && p\.startsWith\(home\) \? `~\$\{p\.slice\(home\.length\)\}` : p;/);
+  // Three labeled lists render in load order between cwd and commands; the
+  // label column widens to "extensions".
+  assert.match(statuslineSource, /const infoLabelWidth = Math\.max\("cwd"\.length, "context"\.length, "skills"\.length, "extensions"\.length, "commands"\.length\);/);
+  assert.match(statuslineSource, /const loaded = axumLoadedResources\(\);/);
+  assert.match(statuslineSource, /wrapLabeledList\("context"\.padEnd\(infoLabelWidth\), \(loaded\.context \?\? \[\]\)\.map\(abbreviateHome\), listWidth\)/);
+  assert.match(statuslineSource, /wrapLabeledList\("skills"\.padEnd\(infoLabelWidth\), loaded\.skills \?\? \[\], listWidth\)/);
+  assert.match(statuslineSource, /wrapLabeledList\("extensions"\.padEnd\(infoLabelWidth\), loaded\.extensions \?\? \[\], listWidth\)/);
+  // installHeader clears the previous session's snapshot before the kernel
+  // patch rewrites it, so /new and reload never flash stale data.
+  assert.match(statuslineSource, /globalScope\.__axumLoadedResources = undefined;/);
+  // renderHeader no longer takes a skills param: the list comes from the
+  // kernel snapshot now, not from the extension-side probe.
+  assert.match(statuslineSource, /function renderHeader\(width: number, commands: string\[\] = \[\], cwd\?: string\): string\[\] \{/);
+  assert.match(statuslineSource, /cachedLines = renderHeader\(width, commandsCache, headerCwd\);/);
+  assert.doesNotMatch(statuslineSource, /renderHeader\(width, skillsCache/);
+});

@@ -561,64 +561,96 @@ function patchPiHttpIdleTimeoutDefault(content) {
   );
 }
 /**
- * Hide the duplicate `[Skills]` / `[Extensions]` sections that Pi's
- * `showLoadedResources` prints in the startup banner. Axum's SAKURA CYBERDECK
- * header already frames these same lists in sakura cards, so leaving Pi's plain
- * `[Skills] find-skills, impeccable` / `[Extensions] pi-bar, pi-header, ...` lines
- * would render the information twice. Conflicts/diagnostics are untouched.
+ * Move the `[Context]` / `[Skills]` / `[Extensions]` sections that Pi's
+ * `showLoadedResources` prints in the startup banner into Axum's SAKURA
+ * CYBERDECK header: the banner section bodies are replaced with writes to a
+ * `globalThis.__axumLoadedResources` snapshot (pi-bar renders the three lists
+ * from it), followed by a custom-header invalidate + requestRender so the
+ * header re-renders once the data lands. Leaving Pi's plain banner sections
+ * in place would render the information twice. Conflicts/diagnostics are
+ * untouched.
  */
 function patchPiLoadedSkillsExtensionsHide(content) {
   if (content.includes(PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER)) return content;
 
-  // Skills listing block:
+  // Context listing block:
+  //   if (contextFiles.length > 0) { ... addLoadedSection("Context", contextCompactList, contextList); }
+  const contextBlockNeedle = [
+    "            if (contextFiles.length > 0) {",
+    "                this.loadedResourcesContainer.addChild(new Spacer(1));",
+    "                const contextList = () => contextFiles.map((f) => theme.fg(\"dim\", `  ${this.formatDisplayPath(f.path)}`)).join(\"\\n\");",
+    "                const contextCompactList = () => formatCompactList(contextFiles.map((contextFile) => this.formatContextPath(contextFile.path)), { sort: false });",
+    "                addLoadedSection(\"Context\", contextCompactList, contextList);",
+    "            }",
+  ].join("\n");
+
+  // Skills listing block (pi 0.99.x builds the compact list lazily):
   //   const skills = skillsResult.skills;
   //   if (skills.length > 0) { ... addLoadedSection("Skills", skillCompactList, skillList); }
   const skillsBlockNeedle = [
     "            const skills = skillsResult.skills;",
     "            if (skills.length > 0) {",
     "                const groups = this.buildScopeGroups(skills.map((skill) => ({ path: skill.filePath, sourceInfo: skill.sourceInfo })));",
-    "                const skillList = this.formatScopeGroups(groups, {",
+    "                const skillList = () => this.formatScopeGroups(groups, {",
     "                    formatPath: (item) => this.formatDisplayPath(item.path),",
     "                    formatPackagePath: (item) => this.getShortPath(item.path, item.sourceInfo),",
     "                });",
-    "                const skillCompactList = formatCompactList(skills.map((skill) => skill.name));",
+    "                const skillCompactList = () => formatCompactList(skills.map((skill) => skill.name));",
     "                addLoadedSection(\"Skills\", skillCompactList, skillList);",
     "            }",
   ].join("\n");
 
-  // Extensions listing block:
+  // Extensions listing block (pi 0.99.x hoists extensionLabels out of the thunk):
   //   if (extensions.length > 0) { ... addLoadedSection("Extensions", extensionCompactList, extList, "mdHeading"); }
   const extensionsBlockNeedle = [
     "            if (extensions.length > 0) {",
     "                const groups = this.buildScopeGroups(extensions);",
-    "                const extList = this.formatScopeGroups(groups, {",
+    "                const extList = () => this.formatScopeGroups(groups, {",
     "                    formatPath: (item) => this.formatExtensionDisplayPath(item.path),",
     "                    formatPackagePath: (item) => this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo)),",
     "                });",
-    "                const extensionCompactList = formatCompactList(this.getCompactExtensionLabels(extensions));",
+    "                const extensionLabels = this.getCompactExtensionLabels(extensions);",
+    "                const extensionCompactList = () => formatCompactList(extensionLabels);",
     "                addLoadedSection(\"Extensions\", extensionCompactList, extList, \"mdHeading\");",
     "            }",
   ].join("\n");
 
-  if (!content.includes(skillsBlockNeedle) || !content.includes(extensionsBlockNeedle)) {
+  if (!content.includes(contextBlockNeedle) || !content.includes(skillsBlockNeedle) || !content.includes(extensionsBlockNeedle)) {
     // Upstream interactive-mode may restructure the loaded-resources section in a
-    // future release. Hiding is a dedup UX preference, not a correctness need, so
+    // future release. Moving is a dedup UX preference, not a correctness need, so
     // skip it instead of hard-failing startup when the block shape changes.
     return content;
   }
 
-  // Keep `const skills = skillsResult.skills;` so later diagnostic code (which may
-  // reference `skills`) still resolves; only drop the listing `if`-block.
+  // The three writes run in source order (context -> skills -> extensions);
+  // `??=` keeps the earlier fields intact on each write. Keep `const skills =
+  // skillsResult.skills;` so later diagnostic code (which references `skills`)
+  // still resolves. The extensions write runs last, so it also invalidates the
+  // custom header and schedules a re-render.
+  const contextReplacement = [
+    "            if (contextFiles.length > 0) {",
+    "                // " + PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER + ": Context listing moved into the SAKURA CYBERDECK header.",
+    "                (globalThis.__axumLoadedResources ??= {}).context = contextFiles.map((contextFile) => contextFile.path);",
+    "            }",
+  ].join("\n");
   const skillsReplacement = [
     "            const skills = skillsResult.skills;",
     "            // " + PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER + ": Skills listing moved into the SAKURA CYBERDECK header.",
-    "            void skills;",
+    "            if (skills.length > 0) {",
+    "                (globalThis.__axumLoadedResources ??= {}).skills = skills.map((skill) => skill.name);",
+    "            }",
   ].join("\n");
   const extensionsReplacement = [
-    "            // " + PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER + ": Extensions listing moved into the SAKURA CYBERDECK header.",
+    "            if (extensions.length > 0) {",
+    "                // " + PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER + ": Extensions listing moved into the SAKURA CYBERDECK header.",
+    "                (globalThis.__axumLoadedResources ??= {}).extensions = this.getCompactExtensionLabels(extensions);",
+    "                this.customHeader?.invalidate?.();",
+    "                this.ui.requestRender?.();",
+    "            }",
   ].join("\n");
 
   return content
+    .replace(contextBlockNeedle, contextReplacement)
     .replace(skillsBlockNeedle, skillsReplacement)
     .replace(extensionsBlockNeedle, extensionsReplacement);
 }

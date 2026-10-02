@@ -29,6 +29,7 @@ import {
   patchPiUserAgent,
   patchPiAiUserAgent,
   PI_USER_AGENT_CUSTOM_MARKER,
+  patchPiLoadedSkillsExtensionsHide,
 } from "../src/bundled-pi-patches.js";
 
 test("429 pattern matches strict provider throttle shapes only", () => {
@@ -512,4 +513,68 @@ test("patched pi-ai getPiUserAgent honours AXUM_USER_AGENT at runtime", async ()
     else process.env.AXUM_USER_AGENT = before;
     await tmp.rm(dir, { recursive: true, force: true });
   }
+});
+
+const PI_LOADED_FIXTURE_0992 = [
+  "            ];",
+  "            if (contextFiles.length > 0) {",
+  "                this.loadedResourcesContainer.addChild(new Spacer(1));",
+  "                const contextList = () => contextFiles.map((f) => theme.fg(\"dim\", \`  \${this.formatDisplayPath(f.path)}\`)).join(\"\\n\");",
+  "                const contextCompactList = () => formatCompactList(contextFiles.map((contextFile) => this.formatContextPath(contextFile.path)), { sort: false });",
+  "                addLoadedSection(\"Context\", contextCompactList, contextList);",
+  "            }",
+  "            const skills = skillsResult.skills;",
+  "            if (skills.length > 0) {",
+  "                const groups = this.buildScopeGroups(skills.map((skill) => ({ path: skill.filePath, sourceInfo: skill.sourceInfo })));",
+  "                const skillList = () => this.formatScopeGroups(groups, {",
+  "                    formatPath: (item) => this.formatDisplayPath(item.path),",
+  "                    formatPackagePath: (item) => this.getShortPath(item.path, item.sourceInfo),",
+  "                });",
+  "                const skillCompactList = () => formatCompactList(skills.map((skill) => skill.name));",
+  "                addLoadedSection(\"Skills\", skillCompactList, skillList);",
+  "            }",
+  "            const templates = this.session.promptTemplates;",
+  "            if (templates.length > 0) {",
+  "                const promptCompactList = () => formatCompactList(templates.map((template) => `/${template.name}`));",
+  "                addLoadedSection(\"Prompts\", promptCompactList, templateList);",
+  "            }",
+  "            if (extensions.length > 0) {",
+  "                const groups = this.buildScopeGroups(extensions);",
+  "                const extList = () => this.formatScopeGroups(groups, {",
+  "                    formatPath: (item) => this.formatExtensionDisplayPath(item.path),",
+  "                    formatPackagePath: (item) => this.formatExtensionDisplayPath(this.getShortPath(item.path, item.sourceInfo)),",
+  "                });",
+  "                const extensionLabels = this.getCompactExtensionLabels(extensions);",
+  "                const extensionCompactList = () => formatCompactList(extensionLabels);",
+  "                addLoadedSection(\"Extensions\", extensionCompactList, extList, \"mdHeading\");",
+  "            }",
+  "        }",
+  "        if (showDiagnostics) {",
+  "        }",
+].join("\n");
+
+test("patchPiLoadedSkillsExtensionsHide moves Context/Skills/Extensions into the header snapshot (pi 0.99.2)", () => {
+  const out = patchPiLoadedSkillsExtensionsHide(PI_LOADED_FIXTURE_0992);
+  // The three banner sections are gone from the listing.
+  assert.equal(out.includes('addLoadedSection("Context"'), false);
+  assert.equal(out.includes('addLoadedSection("Skills"'), false);
+  assert.equal(out.includes('addLoadedSection("Extensions"'), false);
+  // The Prompts section is untouched.
+  assert.ok(out.includes('addLoadedSection("Prompts"'));
+  // Each section body becomes a globalThis.__axumLoadedResources snapshot write.
+  assert.match(out, /\(globalThis\.__axumLoadedResources \?\?= \{\}\)\.context = contextFiles\.map\(\(contextFile\) => contextFile\.path\);/);
+  assert.match(out, /\(globalThis\.__axumLoadedResources \?\?= \{\}\)\.skills = skills\.map\(\(skill\) => skill\.name\);/);
+  assert.match(out, /\(globalThis\.__axumLoadedResources \?\?= \{\}\)\.extensions = this\.getCompactExtensionLabels\(extensions\);/);
+  // The last write invalidates the custom header and schedules a re-render so
+  // the SAKURA CYBERDECK header picks the snapshot up after first paint.
+  assert.match(out, /this\.customHeader\?\.invalidate\?\.\(\);/);
+  assert.match(out, /this\.ui\.requestRender\?\.\(\);/);
+  // `const skills` survives for the diagnostics lane; marker present; idempotent.
+  assert.ok(out.includes("const skills = skillsResult.skills;"));
+  assert.equal(out.split("AXUM_PI_LOADED_SKILLS_EXTENSIONS_HIDDEN").length - 1, 3);
+  assert.equal(patchPiLoadedSkillsExtensionsHide(out), out);
+});
+
+test("patchPiLoadedSkillsExtensionsHide skips upstream content that drifted from the 0.99.2 shape", () => {
+  assert.equal(patchPiLoadedSkillsExtensionsHide("const whatever = 1;"), "const whatever = 1;");
 });
