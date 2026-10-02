@@ -7,8 +7,8 @@
  * producers are bundled; no external usage provider is required.
  *
  * The extension registers two independent UI surfaces from one entry point:
- *  - ctx.ui.setHeader(): the sakura cyberdeck ASCII header with skill /
- *    extension cards, shown once per session start and cached by width.
+ *  - ctx.ui.setHeader(): the sakura cyberdeck ASCII header with cwd /
+ *    command cards, shown once per session start and cached by width.
  *  - ctx.ui.setWidget("pi-bar"): the live coralline status bar driven by
  *    the pi-bar:update / pi-bar:register-segment event contract.
  *
@@ -111,8 +111,7 @@ function uaShortLabel(ua: string): string {
 
 // ---------------------------------------------------------------------------
 // Header (merged from pi-header): sakura cyberdeck startup header + dashed
-// border editor. Renders an ASCII header with skill / extension cards once
-// per session start and installs a dashed-rule CustomEditor. State below is
+// border editor. Renders an ASCII header with cwd / command cards once
 // module-local to the extension entry; the header factory is built per
 // session_start and reused across render() calls.
 // ---------------------------------------------------------------------------
@@ -443,7 +442,6 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
   const infoLabelWidth = Math.max("cwd".length, "skills".length, "commands".length);
   if (displayCwd) infoLines.push(rgb(dim, `${"cwd".padEnd(infoLabelWidth)}: ${displayCwd}`));
   const listWidth = Math.max(1, inner - 1);
-  for (const line of wrapLabeledList("skills".padEnd(infoLabelWidth), skills, listWidth)) infoLines.push(rgb(dim, line));
   for (const line of wrapLabeledList("commands".padEnd(infoLabelWidth), commands, listWidth)) infoLines.push(rgb(dim, line));
 
   return [
