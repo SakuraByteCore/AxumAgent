@@ -321,8 +321,9 @@ test("user agent embeds into the editor bottom-right border", () => {
   assert.match(statuslineSource, /return comment > 0 \? ua\.slice\(0, comment\) : ua;/);
   assert.match(statuslineSource, /const ua = truncateToWidth\(uaShortLabel\(getUserAgent\(\)\), UA_TRUNCATE_WIDTH, "…"\);/);
   assert.match(statuslineSource, /if \(!ua \|\| width <= 2 \|\| lines\.length < 2\) return lines;/);
-  assert.match(statuslineSource, /const rule = border\("─"\)\.repeat\(width\);/);
-  assert.match(statuslineSource, /const index = lines\.lastIndexOf\(rule\);/);
+  assert.match(statuslineSource, /function stripSgr\(text: string\): string \{/);
+  assert.match(statuslineSource, /const rule = stripSgr\(border\("─"\.repeat\(width\)\)\);/);
+  assert.match(statuslineSource, /if \(stripSgr\(lines\[i\]\) === rule\) \{/);
   assert.match(statuslineSource, /if \(index <= 0\) return lines;/);
   assert.match(statuslineSource, /lines\[index\] = fitUserAgentBorder\(border\(` \$\{ua\} `\), width, border\);/);
 

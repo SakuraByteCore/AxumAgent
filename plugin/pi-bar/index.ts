@@ -472,6 +472,12 @@ function renderHeader(width: number, skills: string[] = [], commands: string[] =
  */
 type ColorFn = (text: string) => string;
 
+// Strip SGR (colour) escape sequences so border lines can be compared by
+// their visible glyphs regardless of how the kernel interleaved the runs.
+function stripSgr(text: string): string {
+  return text.replace(/\u001b\[[0-9;]*m/g, "");
+}
+
 // Keep at least this many rule glyphs between the left corner and the UA
 // label; below that the label is shrunk right-to-left, and an empty label
 // degrades to a plain full-width rule.
@@ -531,21 +537,30 @@ class DashedBorderEditor extends RuntimeCustomEditor {
   }
 
   /*
-   * Embed the UA string into the bottom border. super.render() draws the
-   * idle bottom border as borderColor("─").repeat(width); only that exact
-   * line is rewritten, so the ↑/↓ scroll-indicator borders and the
-   * autocomplete rows pass through untouched (when the host swaps the
-   * bottom rule for a ↓ indicator the only remaining match is the top
-   * border at index 0, and the rewrite is skipped). The label goes through
-   * the same border colour callback so it reads as part of the rule.
+   * Embed the UA string into the bottom border. The idle bottom rule is
+   * identified by its visible form: pi-tui renders it either per-glyph
+   * (border("─").repeat(width), <= 0.84.x) or as one coloured run
+   * (border("─".repeat(width)), >= 0.99.x), so the rule line is found by
+   * stripping SGR sequences and comparing the plain glyphs. Only that line
+   * is rewritten, so the ↑/↓ scroll-indicator borders and the autocomplete
+   * rows pass through untouched (when the host swaps the bottom rule for a
+   * ↓ indicator the only remaining match is the top border at index 0,
+   * which the guard rejects). The label goes through the same border colour
+   * callback so it reads as part of the rule.
    */
   override render(width: number): string[] {
     const lines = super.render(width);
     const ua = truncateToWidth(uaShortLabel(getUserAgent()), UA_TRUNCATE_WIDTH, "…");
     if (!ua || width <= 2 || lines.length < 2) return lines;
     const border = this.borderColor as ColorFn;
-    const rule = border("─").repeat(width);
-    const index = lines.lastIndexOf(rule);
+    const rule = stripSgr(border("─".repeat(width)));
+    let index = -1;
+    for (let i = lines.length - 1; i >= 0; i--) {
+      if (stripSgr(lines[i]) === rule) {
+        index = i;
+        break;
+      }
+    }
     if (index <= 0) return lines;
     lines[index] = fitUserAgentBorder(border(` ${ua} `), width, border);
     return lines;
