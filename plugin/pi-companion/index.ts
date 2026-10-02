@@ -60,6 +60,10 @@ function compactCooldownMs(): number {
 	const raw = Number(process.env.PI_COMPANION_COMPACT_COOLDOWN_MS);
 	return Number.isFinite(raw) && raw >= 0 ? raw : COMPACT_COOLDOWN_MS;
 }
+function compactProofTimeoutMs(): number {
+	const raw = Number(process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS);
+	return Number.isFinite(raw) && raw >= 0 ? raw : COMPACT_PROOF_TIMEOUT_MS;
+}
 const COMPACT_LEDGER_INSTRUCTIONS = [
 	"Write the summary as a continuation handoff ledger for resuming this task later.",
 	"Use exactly these sections:",
@@ -98,11 +102,24 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 				if (proofSettled) return;
 				proofSettled = true;
 				reject(new Error("compaction proof timeout"));
-			}, COMPACT_PROOF_TIMEOUT_MS);
+			}, compactProofTimeoutMs());
 			ctx.compact({
 				customInstructions: COMPACT_LEDGER_INSTRUCTIONS,
 				onComplete: (result) => {
-					if (proofSettled) return;
+					if (proofSettled) {
+						// Late completion after a proof timeout. pi's prompt() rejects sends
+						// while a compaction is in progress ("Cannot submit a prompt while
+						// compaction is in progress"), so the timed-out drain could not send.
+						// The compaction has now really ended, so drain the pending resume;
+						// without this the interrupted turn stalls until manual input.
+						if (resumeOnProof) {
+							if (result && typeof result.summary === "string" && result.summary.trim().length > 0) {
+								compactResumePrompt = COMPACT_CONTINUE_PROMPT;
+							}
+							void drainCompactResume(pi, ctx);
+						}
+						return;
+					}
 					clearTimeout(timer);
 					if (!result || typeof result.summary !== "string" || result.summary.trim().length === 0) {
 						proofSettled = true;
@@ -113,7 +130,13 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 					resolve();
 				},
 				onError: (err) => {
-					if (proofSettled) return;
+					if (proofSettled) {
+						// Late failure/cancel after a proof timeout: the interrupted turn is
+						// still dead and the timed-out drain could not send while compaction
+						// was in progress; drain the pending resume now that it ended.
+						if (resumeOnProof) void drainCompactResume(pi, ctx);
+						return;
+					}
 					clearTimeout(timer);
 					proofSettled = true;
 					reject(err instanceof Error ? err : new Error(String(err)));

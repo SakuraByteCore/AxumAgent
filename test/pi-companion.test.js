@@ -712,6 +712,49 @@ test("auto-compact resume waits for queued user messages", async () => {
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
 
+process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS = "20";
+
+test("auto-compact proof timeout resumes once late compaction completes", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls, notifications } = createCompactContext();
+  // Mirror pi's real prompt(): sending while a compaction is in progress throws
+  // "Cannot submit a prompt while compaction is in progress.".
+  let compactionInFlight = true;
+  pi.sendUserMessage = async (message, options) => {
+    if (compactionInFlight) {
+      throw new Error("Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
+    }
+    pi.messages.push({ message, options });
+  };
+  // The incident scenario: compaction starts mid-turn, so the turn counts active.
+  let idle = false;
+  ctx.isIdle = () => idle;
+
+  const startRun = emit(pi, "agent_start", {}, ctx);
+  await waitFor(() => compactCalls.length === 1);
+
+  // The aborted turn settles long before the slow compaction finishes.
+  idle = true;
+  await emit(pi, "agent_settled", {}, ctx);
+
+  // Proof timeout fires while compaction is still running: pi rejects the
+  // immediate drain, so no resume must be sent yet (this is the stall point).
+  await waitFor(() => notifications.some((n) => /Auto-compact failed: compaction proof timeout/.test(n.message)));
+  await waitFor(() => notifications.some((n) => /Auto-compact continue failed: Cannot submit a prompt/.test(n.message)));
+  assert.equal(pi.messages.length, 0, "no resume while compaction is still in progress");
+
+  // Compaction finally completes: the late proof must drain the pending resume.
+  compactionInFlight = false;
+  compactCalls[0].onComplete({ summary: "late ledger" });
+  await startRun;
+  await waitFor(() => pi.messages.length === 1);
+  assert.match(pi.messages[0].message, /continuation handoff summary/i);
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+
+  delete process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS;
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
 test("ralph prompt instructs continuous multi-item execution", async () => {
   const pi = createPi();
   const { ctx } = createContext();
