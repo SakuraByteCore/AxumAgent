@@ -23,7 +23,7 @@ function makeOptions() {
   const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "axum-mcp-xdg-"));
   return {
     cwd,
-    env: { XDG_CONFIG_HOME: configHome, HOME: configHome },
+    env: { HOME: configHome },
     paths: { project: path.join(cwd, ".pi", "mcp.json"), global: path.join(configHome, ".pi", "agent", "mcp.json") },
   };
 }
