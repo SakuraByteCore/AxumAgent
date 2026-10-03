@@ -1,10 +1,10 @@
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
 import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
-import { applyDefaultSelection, buildModelOptions, parseModelManifest } from "./model-switch.ts";
+import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -1176,7 +1176,14 @@ pi.registerCommand("claude", {
 			}
 
 			const options = buildModelOptions(manifest);
-			const chosen = await ctx.ui.select("Select a model", options);
+
+			// The Axum-bundled Pi extension selector accepts an extra dialog option
+			// (initialSelectedIndex, added by src/bundled-pi-patches.js) so the list
+			// opens with the cursor already on the model currently in use.
+			const dialogOptions: ExtensionUIDialogOptions & { initialSelectedIndex?: number } = {
+				initialSelectedIndex: findCurrentModelIndex(manifest, ctx.model?.provider, ctx.model?.id),
+			};
+			const chosen = await ctx.ui.select("Select a model", options, dialogOptions);
 			if (!chosen) {
 				ctx.ui.notify("Model selection cancelled.", "info");
 				return;

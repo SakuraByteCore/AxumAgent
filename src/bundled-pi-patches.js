@@ -21,6 +21,7 @@ const PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MEMORY_DISPATCH_A
 const PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN";
 const PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER = "AXUM_PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE";
 const PI_EXTENSION_SELECTOR_SCROLL_MARKER = "AXUM_PI_EXTENSION_SELECTOR_SCROLL";
+const PI_EXTENSION_SELECTOR_PRESELECT_MARKER = "AXUM_PI_EXTENSION_SELECTOR_PRESELECT";
 const PI_SUBAGENTS_PACKAGE = "pi-subagents";
 const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
@@ -513,6 +514,50 @@ function patchPiExtensionSelectorScroll(content) {
     "        }",
     "    }",
   ].join("\n");
+  return content.replace(needle, replacement);
+}
+
+// Pi's extension selector always opens with the cursor on the first option
+// (selectedIndex = 0). Thread an initialSelectedIndex option through
+// showExtensionSelector -> ExtensionSelectorComponent so extension commands such
+// as /usemodel can open the list with the cursor already on a caller-chosen
+// entry (e.g. the model currently in use). Callers that pass nothing keep the
+// stock first-option behavior.
+function patchPiExtensionSelectorPreselect(content) {
+  if (content.includes(PI_EXTENSION_SELECTOR_PRESELECT_MARKER)) return content;
+
+  const needle = [
+    "        this.onToggleToolsExpanded = opts?.onToggleToolsExpanded;",
+  ].join("\n");
+  if (!content.includes(needle)) {
+    // Upstream may restructure the extension selector in a future release.
+    // Preselection is a UX need, not a correctness one, so skip instead of
+    // hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  const replacement = [
+    "        this.onToggleToolsExpanded = opts?.onToggleToolsExpanded;",
+    `        // ${PI_EXTENSION_SELECTOR_PRESELECT_MARKER}: open the list with the`,
+    "        // cursor on a caller-chosen option instead of always the first one.",
+    "        if (typeof opts?.initialSelectedIndex === \"number\" && Number.isFinite(opts.initialSelectedIndex)) {",
+    "            const index = Math.trunc(opts.initialSelectedIndex);",
+    "            this.selectedIndex = Math.max(0, Math.min(this.options.length - 1, index));",
+    "        }",
+  ].join("\n");
+  return content.replace(needle, replacement);
+}
+
+// Thread the initialSelectedIndex dialog option from ctx.ui.select through
+// showExtensionSelector into the ExtensionSelectorComponent constructor opts.
+function patchPiInteractiveSelectorPreselect(content) {
+  if (content.includes(PI_EXTENSION_SELECTOR_PRESELECT_MARKER)) return content;
+
+  const needle = ", { tui: this.ui, timeout: opts?.timeout, onToggleToolsExpanded: () => this.toggleToolOutputExpansion() });";
+  if (!content.includes(needle)) {
+    return content;
+  }
+  const replacement = `, { tui: this.ui, timeout: opts?.timeout, onToggleToolsExpanded: () => this.toggleToolOutputExpansion(), initialSelectedIndex: opts?.initialSelectedIndex });`;
   return content.replace(needle, replacement);
 }
 
@@ -1880,14 +1925,14 @@ export function applyBundledPiPatches(options) {
 
   const interactiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(interactiveModePath)) {
-    results.push(patchFileInPlace(interactiveModePath, patchPiInteractiveRateLimitDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay));
+    results.push(patchFileInPlace(interactiveModePath, patchPiInteractiveRateLimitDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, patchPiInteractiveSelectorPreselect));
     const assistantMessagePath = path.join(piRoot, "dist", "modes", "interactive", "components", "assistant-message.js");
     if (fs.existsSync(assistantMessagePath)) {
       results.push(patchFileInPlace(assistantMessagePath, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay));
     }
     const extensionSelectorPath = path.join(piRoot, "dist", "modes", "interactive", "components", "extension-selector.js");
     if (fs.existsSync(extensionSelectorPath)) {
-      results.push(patchFileInPlace(extensionSelectorPath, patchPiExtensionSelectorScroll));
+      results.push(patchFileInPlace(extensionSelectorPath, patchPiExtensionSelectorScroll, patchPiExtensionSelectorPreselect));
     }
   } else {
     results.push({ patched: false, file: interactiveModePath });
@@ -1932,4 +1977,4 @@ export function applyBundledPiPatches(options) {
 
   return results;
 }
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER };

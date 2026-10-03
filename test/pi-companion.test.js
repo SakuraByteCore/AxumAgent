@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import shortcuts from "../plugin/pi-companion/index.ts";
-import { applyDefaultSelection, buildModelOptions, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
+import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
 
 function createContext() {
   const notifications = [];
@@ -856,16 +856,16 @@ test("session_start clears deferred auto-continue state from the previous sessio
 
 // ── /usemodel ─────────────────────────────────────────────────────────────
 
-function createModelSwitchContext({ models = [], selectResult } = {}) {
+function createModelSwitchContext({ models = [], selectResult, currentModel } = {}) {
   const notifications = [];
   const selectCalls = [];
   const ctx = {
     notifications,
-    model: undefined,
+    model: currentModel,
     ui: {
       notify(message, level) { notifications.push({ message, level }); },
-      select(title, options) {
-        selectCalls.push({ title, options });
+      select(title, options, opts) {
+        selectCalls.push({ title, options, opts });
         return Promise.resolve(typeof selectResult === "function" ? selectResult(options) : selectResult);
       },
     },
@@ -995,6 +995,52 @@ test("/usemodel lists all models and switches on selection", async () => {
     assert.equal(settings.defaultProvider, "openai");
     assert.equal(settings.defaultModel, "gpt-4");
     assert.equal(settings.defaultThinkingLevel, "high");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("findCurrentModelIndex locates the session model and falls back to 0", () => {
+  const entries = [
+    { provider: "openai", model: "gpt-5", isDefault: true },
+    { provider: "openai", model: "gpt-4", isDefault: false },
+    { provider: "anthropic", model: "claude-sonnet", isDefault: false },
+  ];
+  assert.equal(findCurrentModelIndex(entries, "openai", "gpt-4"), 1);
+  assert.equal(findCurrentModelIndex(entries, "anthropic", "claude-sonnet"), 2);
+  assert.equal(findCurrentModelIndex(entries, "openai", "missing"), 0);
+  assert.equal(findCurrentModelIndex(entries, undefined, "gpt-4"), 0);
+  assert.equal(findCurrentModelIndex(entries, "openai", undefined), 0);
+});
+
+test("/usemodel opens the selector preselected on the current model", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-preselect-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: {
+      openai: { models: [{ id: "gpt-5", default: true }, { id: "gpt-4" }] },
+      anthropic: { models: [{ id: "claude-sonnet" }] },
+    },
+  }), "utf8");
+  const { ctx, selectCalls } = createModelSwitchContext({
+    models: [
+      { provider: "openai", id: "gpt-5", name: "gpt-5" },
+      { provider: "openai", id: "gpt-4", name: "gpt-4" },
+      { provider: "anthropic", id: "claude-sonnet", name: "claude-sonnet" },
+    ],
+    currentModel: { provider: "anthropic", id: "claude-sonnet" },
+    selectResult: () => undefined,
+  });
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.equal(selectCalls.length, 1, "should open the selector");
+    assert.equal(selectCalls[0].opts?.initialSelectedIndex, 2, "cursor should open on the current model");
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;

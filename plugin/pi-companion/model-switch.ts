@@ -55,6 +55,21 @@ export function buildModelOptions(entries: ModelEntry[]): string[] {
   return entries.map(formatModelLabel);
 }
 
+/**
+ * Index of the entry matching the session's current model, or 0 when the
+ * current model is unknown or absent from the manifest. Used to open the
+ * /usemodel selector with the cursor already on the model in use.
+ */
+export function findCurrentModelIndex(
+  entries: ModelEntry[],
+  provider: string | undefined,
+  model: string | undefined,
+): number {
+  if (!provider || !model) return 0;
+  const index = entries.findIndex((entry) => entry.provider === provider && entry.model === model);
+  return index >= 0 ? index : 0;
+}
+
 /** Resolve a selected option label back into a {provider, model} selection. */
 export function resolveModelSelection(label: string): ModelSelection | null {
   const trimmed = label.trim();
