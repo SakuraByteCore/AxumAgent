@@ -165,6 +165,8 @@ Each row carries the agent's own footer gauge: it fills `▁▂▃▄▅▆▇�
 
 The general form is one command: `/agent [options] <task>`. Three one-keystroke front doors bake in the common combinations — `/spawn <task>` (`-s`: on this conversation, result delivered back automatically), `/scout <task>` (`-i`: isolated, blank context), `/blueprint <task>` (`-P -s`: plan mode, finished plan delivered back). One bare subcommand exists: `/agent resume` restarts every failed background agent of this session (see *♻️ `/agent resume`* above).
 
+One cleanup command exists: `/agents-clear` detaches every running background agent and dismisses every completed card in a single keystroke — the same effect as pressing `d` `d` on each row, one after the other. Session files stay on disk, untouched, so `/resume` still finds them.
+
 | Flag | Effect |
 |---|---|
 | `-i`, `--isolate` | Start without the conversation snapshot |

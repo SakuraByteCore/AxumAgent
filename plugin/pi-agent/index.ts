@@ -1,3 +1,4 @@
+import { registerClear } from "./clear.js";
 import { registerDispatch } from "./dispatch.js";
 import { registerOrchestrate } from "./orchestrate.js";
 import { registerPresets } from "./presets.js";
@@ -77,6 +78,12 @@ export default function userAgent(pi: ExtensionAPI): void {
 				ctx,
 			);
 		},
+	});
+
+	// ── /agents-clear: one-keystroke cleanup of every /agent task ───────────────
+
+	registerClear(pi, {
+		clearAll: () => widget.clearAll(),
 	});
 
 	// ── /dispatch + dispatch_agent: main-agent-driven batch fan-out ─────────────

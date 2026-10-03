@@ -9,6 +9,10 @@ import {
   registerDispatch,
 } from "../plugin/pi-agent/dispatch.ts";
 import {
+  describeClearCounts,
+  registerClear,
+} from "../plugin/pi-agent/clear.ts";
+import {
   DEFAULT_ORCHESTRATION_BUDGET_MS,
   MAX_ORCHESTRATION_BUDGET_MS,
   buildOrchestrationPrompt,
@@ -861,4 +865,50 @@ test("registerOrchestrate registers /orchestrate and forwards the protocol promp
   assert.match(forwarded.message, /\[Orchestration Request\]\nfix the login race/);
   assert.match(forwarded.message, /top-level timeoutMs = 900000/);
   assert.equal(forwarded.options.streamingBehavior, "followUp");
+});
+
+test("registerClear registers /agents-clear", () => {
+  const pi = createPi();
+  registerClear(pi, { clearAll: () => ({ closedLive: 0, dismissedCompleted: 0 }) });
+  const command = pi.commands.get("agents-clear");
+  assert.ok(command, "agents-clear command must be registered");
+  assert.match(command.description, /detach all running background agents/);
+});
+
+test("/agents-clear with nothing to clear informs the user", async () => {
+  const pi = createPi();
+  let calls = 0;
+  registerClear(pi, {
+    clearAll: () => {
+      calls++;
+      return { closedLive: 0, dismissedCompleted: 0 };
+    },
+  });
+  const { ctx, notifications } = createCtx();
+  await pi.commands.get("agents-clear").handler("", ctx);
+  assert.equal(calls, 1);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].message, "No /agent tasks to clear.");
+  assert.equal(notifications[0].level, "info");
+});
+
+test("/agents-clear reports what it cleared", async () => {
+  const pi = createPi();
+  registerClear(pi, { clearAll: () => ({ closedLive: 2, dismissedCompleted: 3 }) });
+  const { ctx, notifications } = createCtx();
+  await pi.commands.get("agents-clear").handler("anything ignored", ctx);
+  assert.equal(notifications.length, 1);
+  assert.equal(
+    notifications[0].message,
+    "Cleared /agent tasks: detached 2 running agents, dismissed 3 completed cards.",
+  );
+});
+
+test("describeClearCounts pluralizes and joins parts", () => {
+  assert.equal(describeClearCounts({ closedLive: 0, dismissedCompleted: 0 }), "");
+  assert.equal(describeClearCounts({ closedLive: 1, dismissedCompleted: 0 }), "detached 1 running agent");
+  assert.equal(
+    describeClearCounts({ closedLive: 2, dismissedCompleted: 1 }),
+    "detached 2 running agents, dismissed 1 completed card",
+  );
 });

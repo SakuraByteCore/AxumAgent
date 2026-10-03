@@ -148,6 +148,18 @@ export class UserAgentWidget {
 		this.update();
 	}
 
+	/** /agents-clear: detach every live agent and drop every completed card in one keystroke. */
+	clearAll(): { closedLive: number; dismissedCompleted: number } {
+		const live = this.runningAgentsForWidget();
+		for (const agent of live) this.closeRunning(agent);
+		const completed = [...this.completedAgents];
+		this.completedAgents.length = 0;
+		for (const agent of completed) this.announceDetached(agent.sessionId);
+		this.detachConfirmation.cancel();
+		this.update();
+		return { closedLive: live.length, dismissedCompleted: completed.length };
+	}
+
 	ensureTimer(): void {
 		if (!this.ui || this.interval) return;
 		this.interval = setInterval(() => this.update(), 100);
