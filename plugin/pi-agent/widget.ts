@@ -148,7 +148,7 @@ export class UserAgentWidget {
 		this.update();
 	}
 
-	/** /agents-clear: detach every live agent and drop every completed card in one keystroke. */
+	/** /aclear: detach every live agent and drop every completed card in one keystroke. */
 	clearAll(): { closedLive: number; dismissedCompleted: number } {
 		const live = this.runningAgentsForWidget();
 		for (const agent of live) this.closeRunning(agent);

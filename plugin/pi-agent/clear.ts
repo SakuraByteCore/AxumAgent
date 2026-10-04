@@ -18,9 +18,9 @@ export function describeClearCounts(counts: { closedLive: number; dismissedCompl
 }
 
 export function registerClear(pi: ExtensionAPI, deps: ClearDeps): void {
-	pi.registerCommand("agents-clear", {
+	pi.registerCommand("aclear", {
 		description:
-			"Clear every /agent task at once: detach all running background agents and dismiss all completed cards: /agents-clear",
+			"Clear every /agent task at once: detach all running background agents and dismiss all completed cards: /aclear",
 		getArgumentCompletions: () => null,
 		async handler(_args: string, ctx) {
 			const summary = describeClearCounts(deps.clearAll());

@@ -80,7 +80,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 		},
 	});
 
-	// ── /agents-clear: one-keystroke cleanup of every /agent task ───────────────
+	// ── /aclear: one-keystroke cleanup of every /agent task ───────────────
 
 	registerClear(pi, {
 		clearAll: () => widget.clearAll(),

@@ -867,15 +867,15 @@ test("registerOrchestrate registers /orchestrate and forwards the protocol promp
   assert.equal(forwarded.options.streamingBehavior, "followUp");
 });
 
-test("registerClear registers /agents-clear", () => {
+test("registerClear registers /aclear", () => {
   const pi = createPi();
   registerClear(pi, { clearAll: () => ({ closedLive: 0, dismissedCompleted: 0 }) });
-  const command = pi.commands.get("agents-clear");
-  assert.ok(command, "agents-clear command must be registered");
+  const command = pi.commands.get("aclear");
+  assert.ok(command, "aclear command must be registered");
   assert.match(command.description, /detach all running background agents/);
 });
 
-test("/agents-clear with nothing to clear informs the user", async () => {
+test("/aclear with nothing to clear informs the user", async () => {
   const pi = createPi();
   let calls = 0;
   registerClear(pi, {
@@ -885,18 +885,18 @@ test("/agents-clear with nothing to clear informs the user", async () => {
     },
   });
   const { ctx, notifications } = createCtx();
-  await pi.commands.get("agents-clear").handler("", ctx);
+  await pi.commands.get("aclear").handler("", ctx);
   assert.equal(calls, 1);
   assert.equal(notifications.length, 1);
   assert.equal(notifications[0].message, "No /agent tasks to clear.");
   assert.equal(notifications[0].level, "info");
 });
 
-test("/agents-clear reports what it cleared", async () => {
+test("/aclear reports what it cleared", async () => {
   const pi = createPi();
   registerClear(pi, { clearAll: () => ({ closedLive: 2, dismissedCompleted: 3 }) });
   const { ctx, notifications } = createCtx();
-  await pi.commands.get("agents-clear").handler("anything ignored", ctx);
+  await pi.commands.get("aclear").handler("anything ignored", ctx);
   assert.equal(notifications.length, 1);
   assert.equal(
     notifications[0].message,
