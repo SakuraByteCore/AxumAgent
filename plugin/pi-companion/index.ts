@@ -1170,7 +1170,7 @@ pi.registerCommand("claude", {
 			const modelsPath = join(agentDir, "models.json");
 			const settingsPath = join(agentDir, "settings.json");
 
-			// Dynamically sync the opencode2dsh (OpenCode Zen free lane) provider block
+			// Dynamically sync the "opencode" (OpenCode Zen free lane) provider block
 			// into models.json before reading it, so its free models are listed (pinned
 			// to the top by model-switch.ts) and selectable. Failures must not block the
 			// selector: notify and continue with whatever models.json already has.
@@ -1178,11 +1178,11 @@ pi.registerCommand("claude", {
 				const zen = await ensureZenProvider(agentDir);
 				if (zen.changed) {
 					const suffix = zen.error ? `, live fetch failed: ${zen.error}` : "";
-					ctx.ui.notify(`opencode2dsh: synced ${zen.count} free Zen models (${zen.source}${suffix}).`, zen.error ? "warning" : "info");
+					ctx.ui.notify(`opencode: synced ${zen.count} free Zen models (${zen.source}${suffix}).`, zen.error ? "warning" : "info");
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`opencode2dsh sync skipped: ${message}`, "warning");
+				ctx.ui.notify(`opencode sync skipped: ${message}`, "warning");
 			}
 			const manifest = parseModelManifest(await readJsonObject(modelsPath));
 			if (!manifest.length) {

@@ -1,7 +1,9 @@
-// opencode-zen.ts — dynamic OpenCode Zen (opencode2dsh) provider sync for /usemodel.
+// opencode-zen.ts — dynamic OpenCode Zen provider sync for /usemodel.
 //
 // Mirrors the catalog and disguise-header logic of FishBottle7/opencode2dsh
-// (packages/plugin/src/adapter/catalog.ts + ids.ts). The anonymous free lane at
+// (packages/plugin/src/adapter/catalog.ts + ids.ts) and exposes the free lane
+// as provider id "opencode" (the upstream project's chosen lane is Zen; the
+// disguise header seeds stay upstream-identical). The anonymous free lane at
 // https://opencode.ai/zen/v1 speaks plain openai-completions with
 // `Authorization: Bearer public`, but it gates on OpenCode-CLI-shaped
 // correlation headers, and the session id must match the canonical
@@ -26,12 +28,14 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-export const ZEN_PROVIDER_ID = "opencode2dsh";
+export const ZEN_PROVIDER_ID = "opencode";
+// Key used by the first shipped version of this sync; migrated away on merge.
+export const LEGACY_PROVIDER_ID = "opencode2dsh";
 export const ZEN_CHAT_BASE_URL = "https://opencode.ai/zen/v1";
 const ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models";
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 export const ZEN_API_KEY = "public";
-export const CATALOG_CACHE_FILE = "opencode2dsh-catalog-cache.json";
+export const CATALOG_CACHE_FILE = "opencode-catalog-cache.json";
 export const CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const LIVE_FETCH_TIMEOUT_MS = 8000;
 /** Upstream ids.ts opencodeUserAgent pins this CLI version string. */
@@ -380,19 +384,29 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 }
 
 /**
- * Merge the zen provider block into models.json. Only the `opencode2dsh` key
- * is managed; every other provider/key is preserved byte-for-byte in value.
- * The disguise headers are generated once and then reused from the existing
- * block so repeated merges are stable. Returns whether the file was rewritten.
+ * Merge the zen provider block into models.json. Only the `opencode` key is
+ * managed; every other provider/key is preserved. A leftover
+ * `opencode2dsh` block from the first shipped version is migrated away (its
+ * headers are reused so the disguise ids stay stable). A user-authored
+ * `opencode` block pointing at another baseUrl is never overwritten: the
+ * merge refuses with a clear error instead. Returns whether the file was
+ * rewritten.
  */
 export async function mergeZenProvider(modelsJsonPath: string, models: ZenModelInfo[]): Promise<boolean> {
 	const config = await readModelsConfig(modelsJsonPath);
 	const providers = isRecord(config.providers) ? config.providers : {};
-	const existing = isRecord(providers[ZEN_PROVIDER_ID]) ? providers[ZEN_PROVIDER_ID] : undefined;
-	const headers = existing && isRecord(existing.headers) ? existing.headers : buildDisguiseHeaders();
+	const current = isRecord(providers[ZEN_PROVIDER_ID]) ? providers[ZEN_PROVIDER_ID] : undefined;
+	if (current !== undefined && current.baseUrl !== ZEN_CHAT_BASE_URL) {
+		throw new Error(`models.json already has a non-Zen "${ZEN_PROVIDER_ID}" provider (baseUrl: ${String(current.baseUrl)}); refusing to overwrite it`);
+	}
+	const legacy = isRecord(providers[LEGACY_PROVIDER_ID]) ? providers[LEGACY_PROVIDER_ID] : undefined;
+	const headersSource = current ?? legacy;
+	const headers = headersSource && isRecord(headersSource.headers) ? headersSource.headers : buildDisguiseHeaders();
 	const block = buildZenProviderBlock(models, headers);
-	if (existing !== undefined && JSON.stringify(existing) === JSON.stringify(block)) return false;
-	const next = { ...config, providers: { ...providers, [ZEN_PROVIDER_ID]: block } };
+	const nextProviders = { ...providers, [ZEN_PROVIDER_ID]: block };
+	if (legacy) delete nextProviders[LEGACY_PROVIDER_ID];
+	const next = { ...config, providers: nextProviders };
+	if (JSON.stringify(next) === JSON.stringify(config)) return false;
 	await atomicWriteJson(modelsJsonPath, next);
 	return true;
 }
@@ -431,7 +445,7 @@ export interface ZenSyncOptions extends ZenCatalogFetchOptions {
 }
 
 /**
- * Keep the opencode2dsh provider block in <agentDir>/models.json fresh:
+ * Keep the "opencode" Zen provider block in <agentDir>/models.json fresh:
  * fresh cache → live S1∩S2 fetch → stale cache → static verified list, then an
  * idempotent merge. Never throws for network reasons (the static floor always
  * lands); only models.json corruption/IO errors propagate to the caller.

@@ -19,7 +19,7 @@ import {
   staticZenCatalog,
 } from "../plugin/pi-companion/opencode-zen.ts";
 
-// Hermetic tests: the /usemodel opencode2dsh sync is disabled file-wide;
+// Hermetic tests: the /usemodel opencode Zen sync is disabled file-wide;
 // the sync itself is covered by the opencode-zen tests at the bottom.
 process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
 
@@ -1203,7 +1203,7 @@ test("/usemodel surfaces registry reload failures instead of silently proceeding
   }
 });
 
-// ── opencode-zen: OpenCode Zen (opencode2dsh) dynamic provider sync ────────
+// ── opencode-zen: OpenCode Zen dynamic provider sync ──────────────────────
 
 test("canonicalSessionID derives canonical shapes deterministically", () => {
   const session = canonicalSessionID("pi-companion:opencode2dsh:static-session");
@@ -1319,15 +1319,15 @@ test("fetchZenCatalog rejects on a bad /v1/models payload", async () => {
   await assert.rejects(fetchZenCatalog({ fetchImpl: fetch }), /HTTP 403/);
 });
 
-test("parseModelManifest pins the opencode2dsh provider to the top", () => {
+test("parseModelManifest pins the opencode provider to the top", () => {
   const entries = parseModelManifest({
     providers: {
       openai: { models: [{ id: "gpt-5" }] },
-      opencode2dsh: { models: [{ id: "big-pickle" }] },
+      opencode: { models: [{ id: "big-pickle" }] },
       anthropic: { models: [{ id: "claude-sonnet" }] },
     },
   });
-  assert.deepEqual(entries.map((e) => e.provider), ["opencode2dsh", "openai", "anthropic"]);
+  assert.deepEqual(entries.map((e) => e.provider), ["opencode", "openai", "anthropic"]);
 });
 
 test("mergeZenProvider merges idempotently and preserves other providers", async () => {
@@ -1343,14 +1343,52 @@ test("mergeZenProvider merges idempotently and preserves other providers", async
     const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
     assert.equal(merged.otherKey, 1);
     assert.equal(merged.providers.openai.apiKey, "sk-x");
-    assert.equal(merged.providers.opencode2dsh.baseUrl, "https://opencode.ai/zen/v1");
-    assert.equal(merged.providers.opencode2dsh.apiKey, "public");
-    assert.equal(merged.providers.opencode2dsh.api, "openai-completions");
-    assert.match(merged.providers.opencode2dsh.headers["x-opencode-session"], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
-    assert.equal(merged.providers.opencode2dsh.models.length, STATIC_FREE_MODEL_IDS.length);
+    assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/zen/v1");
+    assert.equal(merged.providers.opencode.apiKey, "public");
+    assert.equal(merged.providers.opencode.api, "openai-completions");
+    assert.match(merged.providers.opencode.headers["x-opencode-session"], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    assert.equal(merged.providers.opencode.models.length, STATIC_FREE_MODEL_IDS.length);
     const firstContent = fs.readFileSync(modelsJsonPath, "utf8");
     assert.equal(await mergeZenProvider(modelsJsonPath, catalog.models), false, "second merge is a no-op");
     assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), firstContent);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("mergeZenProvider migrates a legacy opencode2dsh block away", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-migrate-"));
+  try {
+    const modelsJsonPath = path.join(tmp, "models.json");
+    const legacyHeaders = buildDisguiseHeaders({ requestID: "req_legacy" });
+    fs.writeFileSync(modelsJsonPath, JSON.stringify({
+      providers: {
+        opencode2dsh: { baseUrl: "https://opencode.ai/zen/v1", apiKey: "public", headers: legacyHeaders, models: [{ id: "old-free" }] },
+        openai: { models: [{ id: "gpt-5" }] },
+      },
+    }), "utf8");
+    assert.equal(await mergeZenProvider(modelsJsonPath, staticZenCatalog().models), true);
+    const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+    assert.equal(merged.providers.opencode2dsh, undefined, "legacy key is removed");
+    assert.equal(merged.providers.openai.models[0].id, "gpt-5");
+    assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/zen/v1");
+    assert.equal(merged.providers.opencode.models.length, STATIC_FREE_MODEL_IDS.length);
+    assert.equal(merged.providers.opencode.headers["x-opencode-request"], "req_legacy", "disguise headers are reused from the legacy block");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("mergeZenProvider refuses to clobber a foreign opencode provider", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-foreign-"));
+  try {
+    const modelsJsonPath = path.join(tmp, "models.json");
+    fs.writeFileSync(modelsJsonPath, JSON.stringify({
+      providers: { opencode: { baseUrl: "https://my-own-gateway.example/v1", apiKey: "sk-mine", models: [{ id: "my-model" }] } },
+    }), "utf8");
+    await assert.rejects(mergeZenProvider(modelsJsonPath, staticZenCatalog().models), /non-Zen "opencode" provider/);
+    const after = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+    assert.equal(after.providers.opencode.apiKey, "sk-mine", "foreign block left untouched");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -1385,14 +1423,14 @@ test("ensureZenProvider caches live results and falls back to the static list", 
       assert.equal(stale.source, "cache", "offline + stale cache still beats the static list");
       assert.equal(stale.count, 1);
       let merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
-      assert.equal(merged.providers.opencode2dsh.models.length, 1);
+      assert.equal(merged.providers.opencode.models.length, 1);
 
       fs.rmSync(path.join(agentDir, CATALOG_CACHE_FILE));
       const floored = await ensureZenProvider(agentDir, { fetchImpl: fetch, now: () => 9_000_000_000 });
       assert.equal(floored.source, "static", "no cache + offline → static floor");
       assert.equal(floored.count, STATIC_FREE_MODEL_IDS.length);
       merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
-      assert.equal(merged.providers.opencode2dsh.models.length, STATIC_FREE_MODEL_IDS.length);
+      assert.equal(merged.providers.opencode.models.length, STATIC_FREE_MODEL_IDS.length);
     } finally {
       delete process.env.PI_COMPANION_ZEN_OFFLINE;
     }
@@ -1410,7 +1448,7 @@ test("ensureZenProvider caches live results and falls back to the static list", 
   }
 });
 
-test("/usemodel lists opencode2dsh models first after the dynamic sync", async () => {
+test("/usemodel lists opencode models first after the dynamic sync", async () => {
   const pi = createPi();
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-zen-"));
   const agentDir = path.join(tmpHome, ".pi", "agent");
@@ -1430,10 +1468,10 @@ test("/usemodel lists opencode2dsh models first after the dynamic sync", async (
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.equal(selectCalls.length, 1);
-    assert.ok(selectCalls[0].options[0].startsWith("opencode2dsh/"), "zen models are pinned to the top");
+    assert.ok(selectCalls[0].options[0].startsWith("opencode/"), "zen models are pinned to the top");
     assert.ok(selectCalls[0].options.some((option) => option === "openai/gpt-5  (default)"));
     const merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
-    assert.ok(merged.providers.opencode2dsh, "provider block merged into models.json");
+    assert.ok(merged.providers.opencode, "provider block merged into models.json");
     assert.equal(merged.providers.openai.models[0].id, "gpt-5", "existing providers untouched");
     const cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
     assert.ok(Array.isArray(cache.models) && cache.models.length > 0);
