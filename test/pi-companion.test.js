@@ -5,6 +5,23 @@ import path from "node:path";
 import test from "node:test";
 import shortcuts from "../plugin/pi-companion/index.ts";
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
+import {
+  CATALOG_CACHE_FILE,
+  STATIC_FREE_MODEL_IDS,
+  buildDisguiseHeaders,
+  buildZenModelInfo,
+  canonicalSessionID,
+  decodeModelsDev,
+  decide,
+  ensureZenProvider,
+  fetchZenCatalog,
+  mergeZenProvider,
+  staticZenCatalog,
+} from "../plugin/pi-companion/opencode-zen.ts";
+
+// Hermetic tests: the /usemodel opencode2dsh sync is disabled file-wide;
+// the sync itself is covered by the opencode-zen tests at the bottom.
+process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
 
 function createContext() {
   const notifications = [];
@@ -1180,6 +1197,250 @@ test("/usemodel surfaces registry reload failures instead of silently proceeding
     assert.ok(notifications.some((n) => n.level === "error" && /Failed to reload provider config: disk on fire/.test(n.message)));
     assert.equal(pi.setModelCalls.length, 0);
   } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+// ── opencode-zen: OpenCode Zen (opencode2dsh) dynamic provider sync ────────
+
+test("canonicalSessionID derives canonical shapes deterministically", () => {
+  const session = canonicalSessionID("pi-companion:opencode2dsh:static-session");
+  assert.match(session, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.equal(session, canonicalSessionID("pi-companion:opencode2dsh:static-session"));
+  assert.notEqual(session, canonicalSessionID("other-signal"));
+  const canonical = "ses_0123456789abABCDEFGHIJKLMN";
+  assert.equal(canonicalSessionID(canonical), canonical, "canonical ids pass through unchanged");
+});
+
+test("buildDisguiseHeaders mirrors the upstream CLI header set", () => {
+  const headers = buildDisguiseHeaders({ requestID: "req_deadbeef" });
+  assert.equal(headers["x-opencode-client"], "cli");
+  assert.match(headers["user-agent"], /^opencode\/1\.18\.31 \(/);
+  assert.equal(headers["x-opencode-request"], "req_deadbeef");
+  const session = headers["x-opencode-session"];
+  assert.match(session, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.equal(headers["x-session-affinity"], session);
+  assert.equal(headers["X-Session-Id"], session);
+  assert.match(headers["x-opencode-project"], /^prj_[0-9a-f]{24}$/);
+  assert.ok(buildDisguiseHeaders()["x-opencode-request"].startsWith("req_"));
+});
+
+test("staticZenCatalog carries the verified static free list", () => {
+  const catalog = staticZenCatalog();
+  assert.equal(catalog.source, "static");
+  assert.deepEqual(catalog.models.map((m) => m.id), [...STATIC_FREE_MODEL_IDS]);
+  for (const model of catalog.models) {
+    assert.equal(model.reasoning, false);
+    assert.equal(model.thinkingLevelMap, undefined);
+  }
+});
+
+test("buildZenModelInfo maps models.dev metadata onto the pi model entry", () => {
+  const vision = buildZenModelInfo("v-free", {
+    input: 0, output: 0, deprecated: false, reasoning: true,
+    effortValues: ["low", "high"], contextWindow: 192000, maxOutput: 32000,
+    modalities: ["text", "image"],
+  });
+  assert.equal(vision.reasoning, true);
+  assert.equal(vision.contextWindow, 192000);
+  assert.equal(vision.maxTokens, 32000);
+  assert.deepEqual(vision.input, ["text", "image"]);
+  assert.deepEqual(vision.thinkingLevelMap, { off: "none", low: "low", high: "high" });
+
+  const plain = buildZenModelInfo("m-free");
+  assert.equal(plain.reasoning, false);
+  assert.equal(plain.thinkingLevelMap, undefined);
+  assert.equal(plain.input, undefined);
+
+  const noEfforts = buildZenModelInfo("r-free", { input: 0, output: 0, deprecated: false, reasoning: true });
+  assert.deepEqual(noEfforts.thinkingLevelMap, { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high" });
+});
+
+const MODELS_DEV_FIXTURE = {
+  "opencode-zen": {
+    models: {
+      "big-pickle": { id: "big-pickle", cost: { input: 0, output: 0 }, limit: { context: 192000, output: 32000 }, modalities: { input: ["text"] } },
+      "paid-model": { id: "paid-model", cost: { input: 1, output: 2 } },
+      "dead-free": { id: "dead-free", deprecated: true, cost: { input: 0, output: 0 } },
+    },
+  },
+  openai: { id: "openai", name: "OpenAI", models: { "gpt-x": { cost: { input: 0, output: 0 } } } },
+};
+
+test("decodeModelsDev prefers the OpenCode section and decide() mirrors upstream", () => {
+  const prices = decodeModelsDev(MODELS_DEV_FIXTURE);
+  assert.ok(prices.has("big-pickle"));
+  assert.equal(prices.get("big-pickle").contextWindow, 192000);
+  assert.ok(!prices.has("gpt-x"), "non-opencode providers are ignored");
+  assert.equal(decide("big-pickle", prices, true).allowed, true);
+  assert.equal(decide("paid-model", prices, true).allowed, false);
+  assert.equal(decide("dead-free", prices, true).allowed, false);
+  assert.equal(decide("whatever-free", prices, true).allowed, true, "unknown ids fall back to the name heuristic");
+  assert.equal(decide("mystery", prices, true).allowed, false);
+  assert.equal(decide("mystery", new Map(), false).allowed, false);
+});
+
+function createZenMockFetch({ zenIds, modelsDev = MODELS_DEV_FIXTURE, failModelsDev = false } = {}) {
+  const calls = [];
+  const impl = async (url, init) => {
+    calls.push({ url, headers: init?.headers });
+    if (url === "https://opencode.ai/zen/v1/models") {
+      return { ok: true, json: async () => ({ data: zenIds.map((id) => ({ id })) }) };
+    }
+    if (url === "https://models.dev/api.json") {
+      if (failModelsDev) throw new Error("metadata down");
+      return { ok: true, json: async () => modelsDev };
+    }
+    throw new Error(`unexpected url ${url}`);
+  };
+  return { calls, fetch: impl };
+}
+
+test("fetchZenCatalog intersects the live list with the free decision", async () => {
+  const { calls, fetch } = createZenMockFetch({ zenIds: ["big-pickle", "paid-model", "mystery-free"] });
+  const catalog = await fetchZenCatalog({ fetchImpl: fetch });
+  assert.deepEqual(catalog.models.map((m) => m.id), ["big-pickle", "mystery-free"]);
+  assert.equal(catalog.source, "live");
+  assert.equal(catalog.models[0].contextWindow, 192000);
+  assert.equal(calls[0].headers.Authorization, "Bearer public");
+  assert.equal(calls[0].headers["x-opencode-client"], "cli");
+});
+
+test("fetchZenCatalog degrades to the name heuristic when models.dev fails", async () => {
+  const { fetch } = createZenMockFetch({ zenIds: ["big-pickle", "mystery-free", "paid-model"], failModelsDev: true });
+  const catalog = await fetchZenCatalog({ fetchImpl: fetch });
+  assert.deepEqual(catalog.models.map((m) => m.id), ["mystery-free"], "non-free-looking ids are dropped when metadata is unavailable");
+});
+
+test("fetchZenCatalog rejects on a bad /v1/models payload", async () => {
+  const fetch = async () => ({ ok: false, status: 403, json: async () => ({}) });
+  await assert.rejects(fetchZenCatalog({ fetchImpl: fetch }), /HTTP 403/);
+});
+
+test("parseModelManifest pins the opencode2dsh provider to the top", () => {
+  const entries = parseModelManifest({
+    providers: {
+      openai: { models: [{ id: "gpt-5" }] },
+      opencode2dsh: { models: [{ id: "big-pickle" }] },
+      anthropic: { models: [{ id: "claude-sonnet" }] },
+    },
+  });
+  assert.deepEqual(entries.map((e) => e.provider), ["opencode2dsh", "openai", "anthropic"]);
+});
+
+test("mergeZenProvider merges idempotently and preserves other providers", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-merge-"));
+  try {
+    const modelsJsonPath = path.join(tmp, "models.json");
+    fs.writeFileSync(modelsJsonPath, JSON.stringify({
+      providers: { openai: { apiKey: "sk-x", models: [{ id: "gpt-5", default: true }] } },
+      otherKey: 1,
+    }), "utf8");
+    const catalog = staticZenCatalog();
+    assert.equal(await mergeZenProvider(modelsJsonPath, catalog.models), true);
+    const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+    assert.equal(merged.otherKey, 1);
+    assert.equal(merged.providers.openai.apiKey, "sk-x");
+    assert.equal(merged.providers.opencode2dsh.baseUrl, "https://opencode.ai/zen/v1");
+    assert.equal(merged.providers.opencode2dsh.apiKey, "public");
+    assert.equal(merged.providers.opencode2dsh.api, "openai-completions");
+    assert.match(merged.providers.opencode2dsh.headers["x-opencode-session"], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    assert.equal(merged.providers.opencode2dsh.models.length, STATIC_FREE_MODEL_IDS.length);
+    const firstContent = fs.readFileSync(modelsJsonPath, "utf8");
+    assert.equal(await mergeZenProvider(modelsJsonPath, catalog.models), false, "second merge is a no-op");
+    assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), firstContent);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("ensureZenProvider caches live results and falls back to the static list", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-ensure-"));
+  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
+  try {
+    const agentDir = path.join(tmp, "agent");
+    const { calls, fetch } = createZenMockFetch({ zenIds: ["big-pickle"] });
+
+    const live = await ensureZenProvider(agentDir, { fetchImpl: fetch, now: () => 1_000_000 });
+    assert.equal(live.source, "live");
+    assert.equal(live.changed, true);
+    assert.equal(live.count, 1);
+    const cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
+    assert.equal(cache.writtenAt, 1_000_000);
+    assert.equal(cache.models.length, 1);
+    const callsAfterLive = calls.length;
+
+    const cached = await ensureZenProvider(agentDir, { fetchImpl: fetch, now: () => 1_001_000 });
+    assert.equal(cached.source, "cache", "fresh cache short-circuits the live fetch");
+    assert.equal(calls.length, callsAfterLive);
+    assert.equal(cached.changed, false);
+
+    fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE),
+      JSON.stringify({ writtenAt: 0, models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }] }));
+    process.env.PI_COMPANION_ZEN_OFFLINE = "1";
+    try {
+      const stale = await ensureZenProvider(agentDir, { fetchImpl: fetch, now: () => 9_000_000_000 });
+      assert.equal(stale.source, "cache", "offline + stale cache still beats the static list");
+      assert.equal(stale.count, 1);
+      let merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+      assert.equal(merged.providers.opencode2dsh.models.length, 1);
+
+      fs.rmSync(path.join(agentDir, CATALOG_CACHE_FILE));
+      const floored = await ensureZenProvider(agentDir, { fetchImpl: fetch, now: () => 9_000_000_000 });
+      assert.equal(floored.source, "static", "no cache + offline → static floor");
+      assert.equal(floored.count, STATIC_FREE_MODEL_IDS.length);
+      merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+      assert.equal(merged.providers.opencode2dsh.models.length, STATIC_FREE_MODEL_IDS.length);
+    } finally {
+      delete process.env.PI_COMPANION_ZEN_OFFLINE;
+    }
+
+    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+    try {
+      const disabled = await ensureZenProvider(agentDir, { fetchImpl: fetch });
+      assert.deepEqual(disabled, { changed: false, source: "disabled", count: 0 });
+    } finally {
+      delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
+    }
+  } finally {
+    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel lists opencode2dsh models first after the dynamic sync", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-zen-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
+  }), "utf8");
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}), "utf8");
+  const { ctx, notifications, selectCalls } = createModelSwitchContext({
+    models: [],
+    selectResult: (options) => options[0],
+  });
+  const previousHome = process.env.HOME;
+  process.env.HOME = tmpHome;
+  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
+  process.env.PI_COMPANION_ZEN_OFFLINE = "1";
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.equal(selectCalls.length, 1);
+    assert.ok(selectCalls[0].options[0].startsWith("opencode2dsh/"), "zen models are pinned to the top");
+    assert.ok(selectCalls[0].options.some((option) => option === "openai/gpt-5  (default)"));
+    const merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+    assert.ok(merged.providers.opencode2dsh, "provider block merged into models.json");
+    assert.equal(merged.providers.openai.models[0].id, "gpt-5", "existing providers untouched");
+    const cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
+    assert.ok(Array.isArray(cache.models) && cache.models.length > 0);
+    assert.ok(notifications.some((n) => n.level === "info" && /synced \d+ free Zen models \(static\)/.test(n.message)));
+  } finally {
+    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+    delete process.env.PI_COMPANION_ZEN_OFFLINE;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });

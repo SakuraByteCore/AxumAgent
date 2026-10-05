@@ -17,6 +17,21 @@ export interface ModelSelection {
 export const DEFAULT_LABEL_SUFFIX = "  (default)";
 
 /**
+ * Providers whose entries are pinned to the top of the /usemodel selector
+ * list. opencode-zen.ts keeps the opencode2dsh block fresh in models.json.
+ */
+export const TOP_PRIORITIZED_PROVIDERS: readonly string[] = ["opencode2dsh"];
+
+/** Stable ordering: pinned providers first (in list order), then the rest in manifest order. */
+function orderModelEntries(entries: ModelEntry[]): ModelEntry[] {
+	if (TOP_PRIORITIZED_PROVIDERS.length === 0) return entries;
+	const pinned = new Set(TOP_PRIORITIZED_PROVIDERS);
+	const top = TOP_PRIORITIZED_PROVIDERS.flatMap((provider) => entries.filter((entry) => entry.provider === provider));
+	const rest = entries.filter((entry) => !pinned.has(entry.provider));
+	return [...top, ...rest];
+}
+
+/**
  * Parse a parsed models.json document into a flat list of entries.
  * models.json shape: { providers: { [provider]: { models: [{ id, default? }] } } }.
  * Malformed or incomplete entries are silently dropped.
@@ -41,7 +56,7 @@ export function parseModelManifest(raw: unknown): ModelEntry[] {
       }
     }
   }
-  return entries;
+	return orderModelEntries(entries);
 }
 
 /** Render a single entry as its selector label, annotating the default. */
