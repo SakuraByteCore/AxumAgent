@@ -201,6 +201,8 @@ Rules:
 - The file must include the placeholder `{{requirement}}` so Axum knows where to inject the user requirement.
 - If the file exists but is empty, or does not contain `{{requirement}}`, `/plan` stops with an error instead of sending a broken prompt.
 
+You can also edit this file from the axum web setup page: open **Settings → System Prompt** and switch the mode dropdown to `plan-prompt.md (/plan template)`. The web editor enforces the same `{{requirement}}` rule, and a **Restore built-in template** button deletes the file so `/plan` falls back to the built-in prompt.
+
 Example:
 
 ```md

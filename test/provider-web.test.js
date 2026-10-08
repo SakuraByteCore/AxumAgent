@@ -949,3 +949,74 @@ test("provider web prompt history delete rejects traversal and missing project",
     else process.env.PI_CODING_AGENT_DIR = previous;
   }
 });
+
+test("provider web manages the /plan template through the system-prompt API", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "axum-plan-web-"));
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const planPath = path.join(home, ".pi", "agent", "plan-prompt.md");
+
+    const readRes = await fetch(`${base}/api/system-prompt?token=${token}&scope=project&mode=plan`);
+    assert.equal(readRes.status, 200);
+    const readJson = await readRes.json();
+    assert.equal(readJson.path, planPath);
+    assert.equal(readJson.scope, "global");
+    assert.equal(readJson.exists, false);
+
+    const badSaveRes = await fetch(`${base}/api/system-prompt/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "plan", content: "no placeholder here" }),
+    });
+    assert.equal(badSaveRes.status, 400);
+    assert.match((await badSaveRes.json()).error, /must include \{\{requirement\}\}/);
+
+    const saveRes = await fetch(`${base}/api/system-prompt/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "plan", content: "Plan it: {{requirement}} with care.\n", baseHash: readJson.hash }),
+    });
+    assert.equal(saveRes.status, 200);
+    assert.equal(fs.readFileSync(planPath, "utf8"), "Plan it: {{requirement}} with care.\n");
+
+    const afterSave = await (await fetch(`${base}/api/system-prompt?token=${token}&mode=plan`)).json();
+    assert.equal(afterSave.exists, true);
+    assert.notEqual(afterSave.hash, readJson.hash);
+
+    const badDeleteRes = await fetch(`${base}/api/system-prompt/delete?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "append" }),
+    });
+    assert.equal(badDeleteRes.status, 400);
+    assert.match((await badDeleteRes.json()).error, /\/plan template/);
+
+    const deleteRes = await fetch(`${base}/api/system-prompt/delete?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "plan" }),
+    });
+    assert.equal(deleteRes.status, 200);
+    const deleteJson = await deleteRes.json();
+    assert.equal(deleteJson.deleted, true);
+    assert.equal(deleteJson.exists, false);
+    assert.equal(fs.existsSync(planPath), false);
+
+    const deleteAgainRes = await fetch(`${base}/api/system-prompt/delete?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "plan" }),
+    });
+    assert.equal(deleteAgainRes.status, 200);
+    assert.equal((await deleteAgainRes.json()).deleted, false);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});

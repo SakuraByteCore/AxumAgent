@@ -1,12 +1,16 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { getAgentDir } from "./provider-config.js";
 
 const modes = {
   system: "SYSTEM.md",
   append: "APPEND_SYSTEM.md",
+  plan: "plan-prompt.md",
 };
+
+const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 
 export function normalizeSystemPromptMode(mode = "append") {
   if (!Object.hasOwn(modes, mode)) throw new Error("Invalid system prompt mode");
@@ -23,8 +27,20 @@ export function hashContent(content) {
 }
 
 export function resolveSystemPromptFile({ scope = "global", mode = "append", cwd = process.cwd(), env = process.env } = {}) {
-  const normalizedScope = normalizeSystemPromptScope(scope);
   const normalizedMode = normalizeSystemPromptMode(mode);
+  if (normalizedMode === "plan") {
+    // Mirror pi-companion's /plan runtime exactly: the template always lives at
+    // ~/.pi/agent/plan-prompt.md resolved via os.homedir(), so PI_CODING_AGENT_DIR
+    // and project scope are ignored — the web editor writes the file /plan reads.
+    return {
+      scope: "global",
+      mode: "plan",
+      filename: "plan-prompt.md",
+      path: path.join(os.homedir(), ".pi", "agent", "plan-prompt.md"),
+      replaceDefault: false,
+    };
+  }
+  const normalizedScope = normalizeSystemPromptScope(scope);
   const filename = modes[normalizedMode];
   const base = normalizedScope === "global" ? getAgentDir(env) : path.join(path.resolve(cwd), ".pi");
   return {
@@ -91,10 +107,22 @@ export function diffSystemPromptFile({ content = "", ...options } = {}) {
 
 export function saveSystemPromptFile({ content = "", baseHash, ...options } = {}) {
   if (!String(content).trim()) throw new Error("System prompt cannot be empty");
+  const target = resolveSystemPromptFile(options);
+  if (target.mode === "plan" && !String(content).includes(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER)) {
+    throw new Error(`Plan prompt template must include ${PLAN_PROMPT_REQUIREMENT_PLACEHOLDER}`);
+  }
   const current = readSystemPromptFile(options);
   if (baseHash && baseHash !== current.hash) throw new Error("System prompt file changed on disk; reload before saving");
   fs.mkdirSync(path.dirname(current.path), { recursive: true });
   fs.writeFileSync(current.path, content.endsWith("\n") ? content : `${content}\n`, { mode: 0o600 });
   try { fs.chmodSync(current.path, 0o600); } catch {}
   return readSystemPromptFile(options);
+}
+
+export function deleteSystemPromptFile(options = {}) {
+  const target = resolveSystemPromptFile(options);
+  if (target.mode !== "plan") throw new Error("Only the /plan template file can be deleted");
+  const deleted = fs.existsSync(target.path);
+  if (deleted) fs.unlinkSync(target.path);
+  return { ...readSystemPromptFile(options), deleted };
 }

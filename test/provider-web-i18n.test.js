@@ -77,3 +77,12 @@ test("saveLanguagePreference('zh') persists and reads back", () => {
   assert.equal(raw.language, "zh");
   cleanup();
 });
+
+test("page i18n dictionaries cover the plan template keys in every language", () => {
+  const src = fs.readFileSync(new URL("../src/provider-web.js", import.meta.url), "utf8");
+  const keys = ["modePlan", "editPlan", "planHint", "planReset", "planResetConfirm", "planResetDone", "planResetFailed"];
+  for (const key of keys) {
+    const count = src.split(`"${key}":`).length - 1;
+    assert.equal(count, 3, `i18n key "${key}" must exist in en/ja/zh`);
+  }
+});

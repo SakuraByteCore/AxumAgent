@@ -196,6 +196,8 @@ axum code
 - 文件必须包含占位符 `{{requirement}}`，这样 Axum 才知道把用户需求插到哪里。
 - 如果文件存在但为空，或不包含 `{{requirement}}`，`/plan` 会直接报错，而不是发送损坏的 prompt。
 
+也可以在 axum web 设置页编辑该文件：打开 **设置 → System Prompt**，把模式下拉切换到 `plan-prompt.md（/plan 模板）`。网页编辑器会强制校验同样的 `{{requirement}}` 规则，并提供“恢复内置模板”按钮删除该文件，让 `/plan` 回退到内置 prompt。
+
 示例：
 
 ```md
