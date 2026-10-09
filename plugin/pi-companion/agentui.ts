@@ -66,6 +66,7 @@ function commandAvailable(command: string): boolean {
 // Local twin of openBrowser() in src/provider-web.js: plugins run from the
 // bundled-pi cache, where ../../src is not reachable, so the opener stays self-contained.
 function openUrlInBrowser(url: string): boolean {
+	if (process.env.AXUM_AGENTUI_NO_OPEN === "1") return false;
 	const platform = process.platform;
 	const candidates: Array<[string, string[]]> = [];
 	if (platform === "android" || process.env.TERMUX_VERSION || (process.env.PREFIX ?? "").includes("/com.termux/")) {
@@ -106,8 +107,10 @@ function optionsHtml(selectId: string, entries: ModelEntry[], labels: string[], 
 	return `<select id="${selectId}">${rows.join("")}</select>`;
 }
 
-function pageHtml(): string {
-	const autoHint = panel ? ` (current: ${esc(panel.currentLabel)})` : "";
+function pageHtml(p: Panel): string {
+	// Parameterized on the panel instance (not the module-level singleton) so the
+	// page always renders the server-closure state even before first assignment.
+	const autoHint = ` (current: ${esc(p.currentLabel)})`;
 	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>/agentui — spawn & blueprint models</title>
 <style>body{font-family:system-ui,sans-serif;background:#14161a;color:#e6e6e6;max-width:560px;margin:40px auto;padding:0 16px}
@@ -117,22 +120,24 @@ button{margin-top:22px;cursor:pointer;background:#2f6fed;border-color:#2f6fed}
 #status{margin-top:12px;font-size:13px;min-height:18px;color:#8f8}</style></head>
 <body><h1>/agentui — models for /spawn and /blueprint${autoHint}</h1>
 <p style="font-size:13px;color:#889">Session-scoped: applies to this pi session only. auto = inherit the current session model.</p>
-<label for="spawn">/spawn model</label>${optionsHtml("spawn", panel?.entries ?? [], panel?.labels ?? [], AUTO)}
-<label for="blueprint">/blueprint model</label>${optionsHtml("blueprint", panel?.entries ?? [], panel?.labels ?? [], AUTO)}
+<label for="spawn">/spawn model</label>${optionsHtml("spawn", p.entries, p.labels, AUTO)}
+<label for="blueprint">/blueprint model</label>${optionsHtml("blueprint", p.entries, p.labels, AUTO)}
 <button id="save">Save</button><div id="status"></div>
 <script>
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || "";
 const api = (path) => path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+function setSelectValue(key, value) {
+  const select = document.getElementById(key);
+  for (const opt of select.options) { if (opt.value === value) { select.value = value; return; } }
+  select.value = "auto";
+}
 async function load() {
   try {
     const r = await fetch(api("/api/state"));
     const j = await r.json();
     if (!r.ok) throw new Error(j.error || "failed to load state");
-    for (const key of ["spawn", "blueprint"]) {
-      const select = document.getElementById(key);
-      select.value = j[key] && select.querySelector('option[value="' + CSS.escape(j[key]) + '"]') ? j[key] : "auto";
-    }
+    for (const key of ["spawn", "blueprint"]) setSelectValue(key, j[key] || "auto");
     document.getElementById("status").textContent = "";
   } catch (e) { document.getElementById("status").textContent = e.message; }
 }
@@ -202,7 +207,7 @@ function startPanelServer(sessionId: string, entries: ModelEntry[], currentLabel
 			if (url.searchParams.get("token") !== token) return json(res, 403, { error: "invalid token" });
 			if (req.method === "GET" && url.pathname === "/") {
 				res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-				res.end(pageHtml());
+				res.end(pageHtml(pending));
 				return;
 			}
 			if (req.method === "GET" && url.pathname === "/api/state") {
@@ -265,6 +270,17 @@ async function loadModelEntries(agentDir: string): Promise<ModelEntry[]> {
 	return parseModelManifest(await readJsonFile(join(agentDir, "models.json")));
 }
 
+/** Close the panel server and drop the singleton (process exit does this implicitly). */
+export function closeAgentUiPanel(): void {
+	if (!panel) return;
+	try {
+		panel.server.close();
+	} catch {
+		// Already closing.
+	}
+	panel = undefined;
+}
+
 export function registerAgentUi(pi: ExtensionAPI): void {
 	pi.registerCommand("agentui", {
 		description:
@@ -280,11 +296,14 @@ export function registerAgentUi(pi: ExtensionAPI): void {
 			const sessionId = ctx.sessionManager.getSessionId();
 			const current = ctx.model ? (ctx.model.name && ctx.model.name !== ctx.model.id ? ctx.model.name : ctx.model.id) : "none";
 			if (panel) {
-				// Singleton reuse: rebind to the (possibly switched) session and refresh the list.
+				// Singleton reuse: rebind to the (possibly switched) session and refresh
+				// the list. prefs must reset too — the old session's snapshot must never
+				// leak into the freshly bound session's /api/state fallback.
 				panel.sessionId = sessionId;
 				panel.entries = entries;
 				panel.labels = buildModelOptions(entries);
 				panel.currentLabel = current;
+				panel.prefs = { sessionId, spawn: null, blueprint: null };
 			} else {
 				try {
 					panel = await startPanelServer(sessionId, entries, current);

@@ -64,3 +64,27 @@ export function resolveAgentUiModelOverride(
 	const ref = prefs[preset];
 	return ref ?? undefined;
 }
+
+/**
+ * Dispatch model priority chain: an explicit -m on the invocation beats the
+ * /agentui panel choice; the panel choice beats inheriting the current session
+ * model. An unresolvable panel choice warns once and degrades to inheritance.
+ * Generic over the model type so the pure module stays dependency-free.
+ */
+export function chooseDispatchModel<M>(input: {
+	forwardedModel?: M;
+	currentModel?: M;
+	override?: AgentUiModelRef;
+	lookup: (provider: string, id: string) => M | undefined;
+	warn?: (message: string) => void;
+}): M | undefined {
+	if (input.forwardedModel) return input.forwardedModel;
+	if (input.override) {
+		const resolved = input.lookup(input.override.provider, input.override.id);
+		if (resolved) return resolved;
+		input.warn?.(
+			`/agentui model ${input.override.provider}/${input.override.id} is no longer available; falling back to the current session model.`,
+		);
+	}
+	return input.currentModel;
+}
