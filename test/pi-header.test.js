@@ -118,14 +118,35 @@ function createHeaderRenderer(rows = 80, argv = []) {
   }
 }
 
-function renderHeaderLines(width, rows = 80, argv = []) {
+// Mirror of the snapshot the kernel patch writes into globalThis.__axumLoadedResources
+// (context paths, skill names, compact extension labels).
+function renderHeaderLines(width, rows = 80, argv = [], loadedResources) {
   const headerRenderer = createHeaderRenderer(rows, argv);
   try {
+    if (loadedResources) globalThis.__axumLoadedResources = loadedResources;
     return headerRenderer.render(width).map((line) => line.replace(ANSI_PATTERN, ""));
   } finally {
+    delete globalThis.__axumLoadedResources;
     headerRenderer.restore();
   }
 }
+
+const LOADED_RESOURCES = {
+  context: ["/tmp/AGENTS.md"],
+  skills: ["reverse-skill", "workflow-guide"],
+  extensions: ["pi-bar"],
+};
+
+// Info labels are padded to the widest label ("extensions" = 10); framedLine adds
+// one leading space, so the commands head is " commands  : " and continuations
+// start with 1 + 12 = 13 spaces.
+const COMMANDS_HEAD = " commands  : ";
+const COMMANDS_INDENT = " ".repeat(13);
+const commandInfoLines = (lines) =>
+  lines.filter((l) => {
+    const raw = l.replace(/^│/, "");
+    return raw.startsWith(COMMANDS_HEAD) || raw.startsWith(COMMANDS_INDENT);
+  });
 
 test("pi-header reuses rendered lines until width changes or the theme invalidates", () => {
   const headerRenderer = createHeaderRenderer();
@@ -187,7 +208,7 @@ test("pi-header frames the claude-code style welcome block", () => {
  const argv = [];
 
  for (const width of [80, 120]) {
- const lines = renderHeaderLines(width, 80, argv);
+ const lines = renderHeaderLines(width, 80, argv, LOADED_RESOURCES);
  const firstArtIndex = lines.findIndex((line) => /[█▓▒░]/.test(line));
  const lastArtIndex = lines.findLastIndex((line) => /[█▓▒░]/.test(line));
  const topIndex = lines.findIndex((line) => line.includes("╭─ Axum ─"));
@@ -205,8 +226,7 @@ test("pi-header frames the claude-code style welcome block", () => {
  assert.equal(firstArtIndex - topIndex, 1, "art directly inside the frame");
  assert.ok(lines.some((l) => l.replace(/^│/, "").trimStart().startsWith("cwd")));
  assert.ok(lines.some((l) => l.replace(/^│/, "").trimStart().startsWith("skills")));
- const rawInfoText = (line) => line.replace(/^│/, "");
- const cmdLines = lines.filter((l) => rawInfoText(l).startsWith(" commands: ") || rawInfoText(l).startsWith("           "));
+ const cmdLines = commandInfoLines(lines);
  const allCmdText = cmdLines.join(" ");
  assert.ok(cmdLines.length >= 1, "commands info line present");
  for (const cmd of EXPECTED_COMMANDS) {
@@ -218,9 +238,8 @@ test("pi-header frames the claude-code style welcome block", () => {
 test("pi-header shows bundled commands instead of extensions", () => {
   const argv = [];
 
-  const lines = renderHeaderLines(120, 80, argv);
-  const rawInfoText = (line) => line.replace(/^│/, "");
-  const cmdLines = lines.filter((l) => rawInfoText(l).startsWith(" commands: ") || rawInfoText(l).startsWith("           "));
+  const lines = renderHeaderLines(120, 80, argv, LOADED_RESOURCES);
+  const cmdLines = commandInfoLines(lines);
   const allCmdText = cmdLines.join(" ");
 
   assert.ok(cmdLines.length >= 1);
@@ -252,7 +271,7 @@ test("pi-header shows bundled commands instead of extensions", () => {
 test("pi-header wraps long commands list inside the frame", () => {
   const argv = [];
 
-  const lines = renderHeaderLines(50, 80, argv);
+  const lines = renderHeaderLines(50, 80, argv, LOADED_RESOURCES);
   const boxWidth = Math.min(...lines.filter(Boolean).map((line) => [...line].length));
   const maxInner = Math.max(...lines.map((line) => [...line].length));
 
@@ -262,7 +281,7 @@ test("pi-header wraps long commands list inside the frame", () => {
     assert.ok(lines.some((l) => l.includes(cmd)), `${cmd} survives wrapping`);
   }
   const infoText = (line) => line.replace(/^│/, "").trimStart();
-  const cmdLines = lines.filter((l) => infoText(l).startsWith("commands: "));
+  const cmdLines = lines.filter((l) => infoText(l).startsWith("commands  : "));
   assert.ok(cmdLines.length >= 1);
   const labelCols = ["cwd", "skills", "commands"].map((label) => {
     const line = lines.find((l) => infoText(l).startsWith(`${label}`) && infoText(l).includes(": "));

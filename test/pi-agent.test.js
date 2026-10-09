@@ -314,6 +314,7 @@ function createPresetDeps(overrides = {}) {
   return {
     runs,
     deps: {
+      disabledCommands: new Set(),
       async run(presetArgs, invocation, _ctx) {
         runs.push({ presetArgs, invocation });
       },
@@ -332,6 +333,19 @@ test("registerPresets registers spawn, scout, and blueprint", () => {
     AGENT_PRESETS.map((preset) => preset.name),
     ["spawn", "scout", "blueprint"],
   );
+});
+
+test("preset command disabled by auto-removal notifies and does not launch", async () => {
+  const pi = createPi();
+  const { runs, deps } = createPresetDeps();
+  deps.disabledCommands.add("spawn");
+  registerPresets(pi, deps);
+  const { ctx, notifications } = createCtx();
+  await pi.commands.get("spawn").handler("fix the login bug", ctx);
+  assert.equal(runs.length, 0);
+  assert.equal(notifications.length, 1);
+  assert.equal(notifications[0].level, "info");
+  assert.ok(notifications[0].message.includes("Command /spawn has completed and been removed"));
 });
 
 test("preset command with empty args warns and does not launch", async () => {

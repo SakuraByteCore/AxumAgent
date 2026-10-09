@@ -117,7 +117,24 @@ function createPi() {
 }
 
 
-test("plan command still sends the plan-first prompt", async () => {
+// Hermetic HOME: the plan command reads ~/.pi/agent/plan-prompt.md, so without
+// isolation the developer's real user template would shadow the built-in prompt.
+function withBareHome(fn) {
+  return async () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-home-bare-"));
+    const previousHome = process.env.HOME;
+    process.env.HOME = tmpHome;
+    try {
+      await fn();
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  };
+}
+
+test("plan command still sends the plan-first prompt", withBareHome(async () => {
   const pi = createPi();
   const { ctx } = createContext();
 
@@ -131,7 +148,7 @@ test("plan command still sends the plan-first prompt", async () => {
   assert.match(pi.messages[0].message, /3\. Please say clearly, in plain and simple language, what result you are trying to achieve right now/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
-});
+}));
 
 test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists", async () => {
   const pi = createPi();
@@ -200,7 +217,7 @@ test("plan command notifies when the user template lacks the requirement placeho
   }
 });
 
-test("plan command applies the same no-code rules for CJK input", async () => {
+test("plan command applies the same no-code rules for CJK input", withBareHome(async () => {
   const pi = createPi();
   const { ctx } = createContext();
 
@@ -212,7 +229,7 @@ test("plan command applies the same no-code rules for CJK input", async () => {
   assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
   assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Do read-only research only; do not modify files, write code, or provide code snippets/);
   assert.match(pi.messages[0].message, /what result you are trying to achieve right now/);
-});
+}));
 
 test("claude command sends the claude-driver skill prompt", async () => {
   const pi = createPi();
@@ -729,47 +746,51 @@ test("auto-compact resume waits for queued user messages", async () => {
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
 
-process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS = "20";
-
 test("auto-compact proof timeout resumes once late compaction completes", async () => {
-  const pi = createPi();
-  const { ctx, compactCalls, notifications } = createCompactContext();
-  // Mirror pi's real prompt(): sending while a compaction is in progress throws
-  // "Cannot submit a prompt while compaction is in progress.".
-  let compactionInFlight = true;
-  pi.sendUserMessage = async (message, options) => {
-    if (compactionInFlight) {
-      throw new Error("Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
-    }
-    pi.messages.push({ message, options });
-  };
-  // The incident scenario: compaction starts mid-turn, so the turn counts active.
-  let idle = false;
-  ctx.isIdle = () => idle;
+  // Scoped env: a module-scope assignment would leak the 20ms proof timeout
+  // into every earlier auto-compact test and race their late onComplete proofs.
+  process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS = "20";
+  try {
+    const pi = createPi();
+    const { ctx, compactCalls, notifications } = createCompactContext();
+    // Mirror pi's real prompt(): sending while a compaction is in progress throws
+    // "Cannot submit a prompt while compaction is in progress.".
+    let compactionInFlight = true;
+    pi.sendUserMessage = async (message, options) => {
+      if (compactionInFlight) {
+        throw new Error("Cannot submit a prompt while compaction is in progress. Wait for compaction to finish and retry.");
+      }
+      pi.messages.push({ message, options });
+    };
+    // The incident scenario: compaction starts mid-turn, so the turn counts active.
+    let idle = false;
+    ctx.isIdle = () => idle;
 
-  const startRun = emit(pi, "agent_start", {}, ctx);
-  await waitFor(() => compactCalls.length === 1);
+    const startRun = emit(pi, "agent_start", {}, ctx);
+    await waitFor(() => compactCalls.length === 1);
 
-  // The aborted turn settles long before the slow compaction finishes.
-  idle = true;
-  await emit(pi, "agent_settled", {}, ctx);
+    // The aborted turn settles long before the slow compaction finishes.
+    idle = true;
+    await emit(pi, "agent_settled", {}, ctx);
 
-  // Proof timeout fires while compaction is still running: pi rejects the
-  // immediate drain, so no resume must be sent yet (this is the stall point).
-  await waitFor(() => notifications.some((n) => /Auto-compact failed: compaction proof timeout/.test(n.message)));
-  await waitFor(() => notifications.some((n) => /Auto-compact continue failed: Cannot submit a prompt/.test(n.message)));
-  assert.equal(pi.messages.length, 0, "no resume while compaction is still in progress");
+    // Proof timeout fires while compaction is still running: pi rejects the
+    // immediate drain, so no resume must be sent yet (this is the stall point).
+    await waitFor(() => notifications.some((n) => /Auto-compact failed: compaction proof timeout/.test(n.message)));
+    await waitFor(() => notifications.some((n) => /Auto-compact continue failed: Cannot submit a prompt/.test(n.message)));
+    assert.equal(pi.messages.length, 0, "no resume while compaction is still in progress");
 
-  // Compaction finally completes: the late proof must drain the pending resume.
-  compactionInFlight = false;
-  compactCalls[0].onComplete({ summary: "late ledger" });
-  await startRun;
-  await waitFor(() => pi.messages.length === 1);
-  assert.match(pi.messages[0].message, /continuation handoff summary/i);
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    // Compaction finally completes: the late proof must drain the pending resume.
+    compactionInFlight = false;
+    compactCalls[0].onComplete({ summary: "late ledger" });
+    await startRun;
+    await waitFor(() => pi.messages.length === 1);
+    assert.match(pi.messages[0].message, /continuation handoff summary/i);
+    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
 
-  delete process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS;
-  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+    fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  } finally {
+    delete process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS;
+  }
 });
 
 test("ralph prompt instructs continuous multi-item execution", async () => {
