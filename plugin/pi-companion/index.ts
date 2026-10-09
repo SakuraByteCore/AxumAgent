@@ -6,6 +6,7 @@ import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
 import { ensureZenProvider } from "./opencode-zen.ts";
+import { registerAgentUi } from "./agentui.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -1247,6 +1248,9 @@ pi.registerCommand("claude", {
 			ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} and persisted as default.`, "info");
 		},
 	});
+
+	// ── /agentui: session-scoped web panel for /spawn & /blueprint model choice.
+	registerAgentUi(pi);
 
 	// ── /plugin-create-mode: open the bundled pi-plugins skill guide (plugin creation mode).
 

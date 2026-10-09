@@ -17,6 +17,7 @@ import {
 	SessionManager,
 	SettingsManager,
 } from "@earendil-works/pi-coding-agent";
+import { resolveAgentUiModelOverride } from "./agentui-prefs.js";
 import { type AgentValueValidator, parseAgentCommand, scanAgentArguments } from "./command-line.js";
 import {
 	assistantText,
@@ -129,6 +130,7 @@ async function resolveChildDispatchServices(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	forwardedArgs: string[],
+	invocation: string,
 ): Promise<ChildDispatchServices> {
 	const parsedForwardedArgs = parseForwardedArgs(forwardedArgs);
 	const agentDir = getAgentDir();
@@ -143,7 +145,21 @@ async function resolveChildDispatchServices(
 		resourceLoaderOptions: buildChildResourceLoaderOptions(parsedForwardedArgs, ctx.cwd),
 	});
 	const forwarded = resolveForwardedOptions(parsedForwardedArgs, services.modelRuntime);
-	const selectedModel = forwarded.model ?? ctx.model;
+	// /agentui session-scoped override: /spawn and /blueprint presets only. A stale or
+	// unavailable choice warns and falls back to the inherited current-session model.
+	let selectedModel = forwarded.model ?? ctx.model;
+	const agentUiOverride = resolveAgentUiModelOverride(invocation, ctx.sessionManager.getSessionId());
+	if (agentUiOverride) {
+		const resolvedOverride = services.modelRuntime.getModel(agentUiOverride.provider, agentUiOverride.id);
+		if (resolvedOverride) {
+			selectedModel = resolvedOverride;
+		} else if (ctx.hasUI) {
+			ctx.ui.notify(
+				`/agentui model ${agentUiOverride.provider}/${agentUiOverride.id} is no longer available; falling back to the current session model.`,
+				"warning",
+			);
+		}
+	}
 	if (!selectedModel) throw new Error("No current model is selected; pass -m MODELNAME");
 	const model =
 		services.modelRuntime.getModel(selectedModel.provider, selectedModel.id) ?? selectedModel;
@@ -374,7 +390,7 @@ async function resumeOneFailedAgent(
 		reportResumeNotice(pi, ctx, `${target.agentId}: ${plan.reason}`, "warning");
 		return;
 	}
-	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs);
+	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
 	let childSessionManager: SessionManager;
 	let inheritedMessages: AgentMessage[];
 	let task: string;
@@ -472,7 +488,7 @@ export async function startUserAgent(
 	if (parsed.plan) {
 		parsed.task = await buildPlanPrompt(parsed.task);
 	}
-	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs);
+	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
 	const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
 	// A real session file from birth: the child outlives the widget row and stays resumable.
 	const childSessionManager = SessionManager.create(dispatch.services.cwd, undefined, {
