@@ -141,11 +141,12 @@ test("plan command still sends the plan-first prompt", withBareHome(async () => 
   await pi.commands.get("plan").handler("add login", ctx);
 
   assert.equal(pi.messages.length, 1);
-  assert.match(pi.messages[0].message, /\[Requirement\] add login/);
-  assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
-  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Do read-only research only; do not modify files, write code, or provide code snippets/);
-  assert.match(pi.messages[0].message, /2\. Only when I explicitly say "generate" should you carry out the implementation/);
-  assert.match(pi.messages[0].message, /3\. Please say clearly, in plain and simple language, what result you are trying to achieve right now/);
+  assert.ok(pi.messages[0].message.includes("【总则】\n需求：add login"), "should splice requirement");
+  assert.match(pi.messages[0].message, /角色：首席规划官/);
+  assert.match(pi.messages[0].message, /【模式铁律】（移植自 codex Plan Mode）/);
+  assert.match(pi.messages[0].message, /我的语气、催促或祈使句不解除规划态/);
+  assert.match(pi.messages[0].message, /【终稿契约】（移植自 codex finalization）/);
+  assert.match(pi.messages[0].message, /<proposed_plan>/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
 }));
@@ -225,10 +226,11 @@ test("plan command applies the same no-code rules for CJK input", withBareHome(a
 
   // CJK input gets the identical built-in template:
   // research/discuss only, no code, and an expected outcome in plain language.
-  assert.match(pi.messages[0].message, /\[Requirement\] 实现登录功能/);
-  assert.match(pi.messages[0].message, /\[Objective\]\s*Talk the technical solution through and finalize it/);
-  assert.match(pi.messages[0].message, /\[Rules\]\s*1\. Do read-only research only; do not modify files, write code, or provide code snippets/);
-  assert.match(pi.messages[0].message, /what result you are trying to achieve right now/);
+  assert.ok(pi.messages[0].message.includes("【总则】\n需求：实现登录功能"), "should splice requirement");
+  assert.match(pi.messages[0].message, /角色：首席规划官/);
+  assert.match(pi.messages[0].message, /【模式铁律】（移植自 codex Plan Mode）/);
+  assert.match(pi.messages[0].message, /全程处于规划态，直到我明确说“开始写”或“生成”才可实施/);
+  assert.match(pi.messages[0].message, /<proposed_plan>/);
 }));
 
 test("claude command sends the claude-driver skill prompt", async () => {

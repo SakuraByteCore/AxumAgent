@@ -277,10 +277,11 @@ async function withTemplate(content, fn) {
 test("buildPlanPrompt falls back to the built-in skeleton when no template exists", async () => {
   await withTemplate(null, async (missing) => {
     const prompt = await buildPlanPrompt("ship webhooks", missing);
-    assert.ok(prompt.startsWith("[Requirement] ship webhooks"));
-    assert.ok(prompt.includes("[Objective]"));
-    assert.ok(prompt.includes("[Rules]"));
-    assert.ok(prompt.includes("do not modify files"));
+    assert.ok(prompt.startsWith("【总则】\n需求：ship webhooks"), "should splice requirement");
+    assert.ok(prompt.includes("角色：首席规划官"));
+    assert.ok(prompt.includes("【模式铁律】"));
+    assert.ok(prompt.includes("【终稿契约】"));
+    assert.ok(prompt.includes("<proposed_plan>"));
   });
 });
 
