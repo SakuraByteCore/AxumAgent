@@ -143,9 +143,9 @@ test("plan command still sends the plan-first prompt", withBareHome(async () => 
   assert.equal(pi.messages.length, 1);
   assert.ok(pi.messages[0].message.includes("【总则】\n需求：add login"), "should splice requirement");
   assert.match(pi.messages[0].message, /角色：首席规划官/);
-  assert.match(pi.messages[0].message, /【模式铁律】（移植自 codex Plan Mode）/);
+  assert.match(pi.messages[0].message, /【模式铁律】/);
   assert.match(pi.messages[0].message, /我的语气、催促或祈使句不解除规划态/);
-  assert.match(pi.messages[0].message, /【终稿契约】（移植自 codex finalization）/);
+  assert.match(pi.messages[0].message, /【终稿契约】/);
   assert.match(pi.messages[0].message, /<proposed_plan>/);
   // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
   assert.equal(pi.messages[0].options.streamingBehavior, "new");
@@ -228,7 +228,7 @@ test("plan command applies the same no-code rules for CJK input", withBareHome(a
   // research/discuss only, no code, and an expected outcome in plain language.
   assert.ok(pi.messages[0].message.includes("【总则】\n需求：实现登录功能"), "should splice requirement");
   assert.match(pi.messages[0].message, /角色：首席规划官/);
-  assert.match(pi.messages[0].message, /【模式铁律】（移植自 codex Plan Mode）/);
+  assert.match(pi.messages[0].message, /【模式铁律】/);
   assert.match(pi.messages[0].message, /全程处于规划态，直到我明确说“开始写”或“生成”才可实施/);
   assert.match(pi.messages[0].message, /<proposed_plan>/);
 }));

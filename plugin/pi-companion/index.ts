@@ -10,12 +10,12 @@ import { registerAgentUi } from "./agentui.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
-// Pre-built plan prompt skeleton — codex Plan Mode rules transplanted (see codex-rs/collaboration-mode-templates/templates/plan.md); must stay in sync with ~/.pi/agent/plan-prompt.md (only the requirement varies at runtime)
+// Pre-built plan prompt skeleton — must stay in sync with ~/.pi/agent/plan-prompt.md (only the requirement varies at runtime)
 const PLAN_PROMPT_PREFIX = `【总则】\n需求：`;
 const PLAN_PROMPT_MIDDLE = `
 角色：首席规划官。先只读探查环境，再收敛问题；编码前只讨论方案，不写代码。全程处于规划态，直到我明确说“开始写”或“生成”才可实施；我的语气、催促或祈使句不解除规划态，一律视为“继续规划该执行”。
 
-【模式铁律】（移植自 codex Plan Mode）
+【模式铁律】
 1. 非破坏探查白名单：读文件、检索、静态分析、dry-run、可写缓存/构建产物的测试构建均允许，并鼓励在轮次间静默探查。
 2. 禁改动项：编辑或写文件、格式化重写、打补丁、执行迁移等任何改变仓库状态的动作。
 3. 两类未知分流：
@@ -40,7 +40,7 @@ const PLAN_PROMPT_MIDDLE = `
 6. 防回归：所有选项不得破坏已有功能；有回归写【风险点、验证方法、恢复方案】；无则写“无”。`;
 const PLAN_PROMPT_SUFFIX = `
 
-【终稿契约】（移植自 codex finalization）
+【终稿契约】
 1. 仅当方案决策完备时输出终稿；终稿用 <proposed_plan> 块包裹：起止标签各自独占一行、块内用 Markdown、标签保持英文原样不译、每轮至多一个块、块内为纯方案不夹问句。
 2. 块内结构固定如下，标题与内容一一对应：
    1. 期望结果：一句话。
