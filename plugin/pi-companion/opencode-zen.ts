@@ -6,11 +6,12 @@
 // disguise header seeds stay upstream-identical). The anonymous free lane at
 // https://opencode.ai/zen/v1 speaks plain openai-completions with
 // `Authorization: Bearer public`, but it gates on OpenCode-CLI-shaped
-// correlation headers, and the session id must match the canonical
-// `ses_<12hex><14 base62>` shape or the free tier answers 403 — which is why
-// the provider block built here carries a static disguise header set derived
-// with the same recipes (a static approximation of the upstream per-session
-// derivation; ids stay stable per install).
+// correlation headers, and the session id must be encoded with the gateway's
+// inverted-timestamp recipe (upstream ids.ts invertedTimestampHex, tightened
+// 2026-10-13 per opencode issue #62: the 12 hex decode to ms*4096 + a counter
+// in [0,63]; digest-derived hex answers 403) — which is why the provider
+// block built here carries a disguise header set derived with the same
+// recipes (stored session ids are re-derived whenever they fail the decode).
 //
 // Catalog chain, trimmed from upstream catalog.ts:
 //   S1  GET https://opencode.ai/zen/v1/models   live ids
@@ -42,18 +43,21 @@ const LIVE_FETCH_TIMEOUT_MS = 8000;
 const OPENCODE_UA_VERSION = "1.18.31";
 
 /**
- * Compile-time verified free ids (upstream catalog.ts staticFreeModels; each
- * one verified against the anonymous lane with a real chat). Bootstrap list
- * and offline floor.
+ * Free ids of the anonymous lane as of the 2026-10-14 live snapshot
+ * (S1 /v1/models ∩ S2 models.dev free decision). Bootstrap list and offline
+ * floor; big-pickle is free by models.dev metadata, the rest by name.
  */
 export const STATIC_FREE_MODEL_IDS: readonly string[] = [
 	"big-pickle",
-	"mimo-v2.5-free",
+	"ling-3.1-flash-free",
+	"cat-jam-free",
 	"mimo-v2.6-flash-free",
-	"ling-3.0-flash-fin-free",
+	"muse-spark-1.3-contributor-free",
 	"nemotron-3.5-lightning-free",
-	"nemotron-3-ultra-free",
-	"muse-spark-1.2-contributor-free",
+	"jev-1.13-free",
+	"step-5-preview-free",
+	"longcat-2.5-preview-free",
+	"space-bunny-free",
 ];
 
 export interface ZenModelInfo {
@@ -114,15 +118,39 @@ function base62Fixed(value: bigint, width: number): string {
 }
 
 /**
- * Ported verbatim-semantics from upstream ids.ts canonicalSessionID: the Zen
- * free tier 403-rejects any session id that does not match this shape.
+/** 48-bit mask over the 12 hex chars the gateway decodes. */
+const SESSION_TIME_MASK = 0xffffffffffffn;
+/** Intra-millisecond counter baked into the id; the gateway rejects counters > 63. */
+const SESSION_COUNTER = 1n;
+
+/**
+ * Upstream ids.ts invertedTimestampHex — the Zen free-tier session recipe,
+ * tightened 2026-10-13 per opencode issue #62: the 12 hex chars are the
+ * bitwise-inverted low 48 bits of `Date.now() * 4096 + counter`, and the
+ * gateway decodes them, 403-rejecting ids whose counter exceeds 63 (any
+ * digest-derived hex, including this file's pre-fix sha256 derivation).
  */
-export function canonicalSessionID(signal: string): string {
-	if (CANONICAL_SESSION_PATTERN.test(signal)) return signal;
+function invertedTimestampHex(now: number): string {
+	return (~(BigInt(now) * 4096n + SESSION_COUNTER) & SESSION_TIME_MASK).toString(16).padStart(12, "0");
+}
+
+/** True when the id follows the gateway recipe and decodes to a legal counter. */
+export function isGatewaySessionID(id: string): boolean {
+	if (!CANONICAL_SESSION_PATTERN.test(id)) return false;
+	const decoded = ~BigInt(`0x${id.slice(4, 16)}`) & SESSION_TIME_MASK;
+	return (decoded & 0xfffn) <= 63n;
+}
+
+/**
+ * Ported from upstream ids.ts canonicalSessionID: gateway-recipe ids pass
+ * through unchanged; anything else is re-encoded with the
+ * inverted-timestamp recipe (sha256 now only derives the opaque base62 tail).
+ */
+export function canonicalSessionID(signal: string, now: number = Date.now()): string {
+	if (isGatewaySessionID(signal)) return signal;
 	const sum = createHash("sha256").update(`ses\x00${signal}`).digest();
-	const timePart = sum.subarray(0, 6).toString("hex");
-	const randomPart = base62Fixed(BigInt(`0x${sum.subarray(6, 16).toString("hex")}`), 14);
-	return `ses_${timePart}${randomPart}`;
+	const randomPart = base62Fixed(BigInt(`0x${sum.subarray(0, 16).toString("hex")}`), 14);
+	return `ses_${invertedTimestampHex(now)}${randomPart}`;
 }
 
 /** The CLI-identical disguise header set the free lane gates on (upstream disguiseHeaders). */
@@ -384,6 +412,23 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 }
 
 /**
+ * Stored disguise headers are reused so request/project ids stay stable per
+ * install, but the session id is regenerated whenever the stored one fails the
+ * gateway decode (ids written before the 2026-10-13 recipe tightening 403).
+ */
+function repairStoredHeaders(source: unknown): Record<string, string> {
+	const headers: Record<string, string> =
+		isRecord(source) && isRecord(source.headers) ? { ...source.headers } : buildDisguiseHeaders();
+	const session = headers["x-opencode-session"];
+	if (typeof session === "string" && isGatewaySessionID(session)) return headers;
+	const fresh = buildDisguiseHeaders();
+	headers["x-opencode-session"] = fresh["x-opencode-session"];
+	headers["x-session-affinity"] = fresh["x-session-affinity"];
+	headers["X-Session-Id"] = fresh["X-Session-Id"];
+	return headers;
+}
+
+/**
  * Merge the zen provider block into models.json. Only the `opencode` key is
  * managed; every other provider/key is preserved. A leftover
  * `opencode2dsh` block from the first shipped version is migrated away (its
@@ -401,7 +446,7 @@ export async function mergeZenProvider(modelsJsonPath: string, models: ZenModelI
 	}
 	const legacy = isRecord(providers[LEGACY_PROVIDER_ID]) ? providers[LEGACY_PROVIDER_ID] : undefined;
 	const headersSource = current ?? legacy;
-	const headers = headersSource && isRecord(headersSource.headers) ? headersSource.headers : buildDisguiseHeaders();
+	const headers = repairStoredHeaders(headersSource);
 	const block = buildZenProviderBlock(models, headers);
 	const nextProviders = { ...providers, [ZEN_PROVIDER_ID]: block };
 	if (legacy) delete nextProviders[LEGACY_PROVIDER_ID];

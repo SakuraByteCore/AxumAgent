@@ -16,6 +16,7 @@ import {
   ensureZenProvider,
   fetchZenCatalog,
   mergeZenProvider,
+  isGatewaySessionID,
   staticZenCatalog,
 } from "../plugin/pi-companion/opencode-zen.ts";
 
@@ -1228,13 +1229,17 @@ test("/usemodel surfaces registry reload failures instead of silently proceeding
 
 // ── opencode-zen: OpenCode Zen dynamic provider sync ──────────────────────
 
-test("canonicalSessionID derives canonical shapes deterministically", () => {
-  const session = canonicalSessionID("pi-companion:opencode2dsh:static-session");
+test("canonicalSessionID encodes gateway-valid session ids", () => {
+  const session = canonicalSessionID("pi-companion:opencode2dsh:static-session", 1_770_000_000_000);
   assert.match(session, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
-  assert.equal(session, canonicalSessionID("pi-companion:opencode2dsh:static-session"));
-  assert.notEqual(session, canonicalSessionID("other-signal"));
-  const canonical = "ses_0123456789abABCDEFGHIJKLMN";
-  assert.equal(canonicalSessionID(canonical), canonical, "canonical ids pass through unchanged");
+  assert.ok(isGatewaySessionID(session), "freshly derived ids decode to a legal counter");
+  assert.equal(session, canonicalSessionID("pi-companion:opencode2dsh:static-session", 1_770_000_000_000), "same signal + same ms is stable");
+  assert.notEqual(canonicalSessionID("sig", 1_000), canonicalSessionID("sig", 1_001), "time moves the hex part");
+  assert.notEqual(canonicalSessionID("sig-a", 1_000), canonicalSessionID("sig-b", 1_000), "signal still seeds the tail");
+  assert.equal(canonicalSessionID(session), session, "gateway-valid ids pass through unchanged");
+  const digestEra = "ses_d5be45fca3354RWTz41XYmjwNd";
+  assert.ok(!isGatewaySessionID(digestEra), "pre-2026-10-13 digest ids fail the decode");
+  assert.notEqual(canonicalSessionID(digestEra), digestEra, "shape-matching ids with an illegal counter are re-encoded");
 });
 
 test("buildDisguiseHeaders mirrors the upstream CLI header set", () => {
@@ -1244,6 +1249,7 @@ test("buildDisguiseHeaders mirrors the upstream CLI header set", () => {
   assert.equal(headers["x-opencode-request"], "req_deadbeef");
   const session = headers["x-opencode-session"];
   assert.match(session, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.ok(isGatewaySessionID(session), "derived session decodes to a legal counter");
   assert.equal(headers["x-session-affinity"], session);
   assert.equal(headers["X-Session-Id"], session);
   assert.match(headers["x-opencode-project"], /^prj_[0-9a-f]{24}$/);
@@ -1397,6 +1403,41 @@ test("mergeZenProvider migrates a legacy opencode2dsh block away", async () => {
     assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/zen/v1");
     assert.equal(merged.providers.opencode.models.length, STATIC_FREE_MODEL_IDS.length);
     assert.equal(merged.providers.opencode.headers["x-opencode-request"], "req_legacy", "disguise headers are reused from the legacy block");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("mergeZenProvider repairs a stored session id that predates the gateway recipe", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-repair-"));
+  try {
+    const modelsJsonPath = path.join(tmp, "models.json");
+    const digestEra = "ses_d5be45fca3354RWTz41XYmjwNd";
+    fs.writeFileSync(modelsJsonPath, JSON.stringify({
+      providers: {
+        opencode: {
+          baseUrl: "https://opencode.ai/zen/v1",
+          apiKey: "public",
+          headers: {
+            ...buildDisguiseHeaders({ requestID: "req_stored" }),
+            "x-opencode-session": digestEra,
+            "x-session-affinity": digestEra,
+            "X-Session-Id": digestEra,
+          },
+          models: [{ id: "old-free" }],
+        },
+      },
+    }), "utf8");
+    assert.equal(await mergeZenProvider(modelsJsonPath, staticZenCatalog().models), true);
+    const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+    const session = merged.providers.opencode.headers["x-opencode-session"];
+    assert.ok(isGatewaySessionID(session), "stored session is re-encoded with the gateway recipe");
+    assert.equal(merged.providers.opencode.headers["x-session-affinity"], session);
+    assert.equal(merged.providers.opencode.headers["X-Session-Id"], session);
+    assert.equal(merged.providers.opencode.headers["x-opencode-request"], "req_stored", "request id stays stable across the repair");
+    const repaired = fs.readFileSync(modelsJsonPath, "utf8");
+    assert.equal(await mergeZenProvider(modelsJsonPath, staticZenCatalog().models), false, "repaired headers are stable on the next merge");
+    assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), repaired);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
