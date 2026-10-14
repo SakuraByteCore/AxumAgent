@@ -461,7 +461,7 @@ export class UserAgentWidget {
 		if (!this.canRebaseMainContext(agentId)) return;
 		const agent = this.deliverableAgent(agentId);
 		if (!agent) return;
-		// The reload will not preserve live rows; give every sibling its resumable-session breadcrumb.
+		// The reload will not preserve live rows; give every sibling its detached-session breadcrumb.
 		for (const other of [...this.runningAgents]) if (other !== agent) this.closeRunning(other);
 		for (const other of [...this.completedAgents]) if (other !== agent) this.removeCompleted(other);
 		const message = agent.pendingSquashMessage;

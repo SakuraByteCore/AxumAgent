@@ -352,8 +352,8 @@ async function findChildSessionFile(
 	sessionId: string | undefined,
 ): Promise<string | undefined> {
 	if (!sessionId) return undefined;
-	// Child sessions are always created with the default session dir for the dispatch cwd
-	// (SessionManager.create(cwd, undefined, …)). The layout mirrors the SDK's internal
+	// Only legacy children (dispatched before in-memory sessions) have files, always in the
+	// default session dir for the dispatch cwd. The layout mirrors the SDK's internal
 	// getDefaultSessionDirPath: <agentDir>/sessions/--<sanitized-cwd>--/, files <timestamp>_<sessionId>.jsonl.
 	const safeDir = `--${path.resolve(cwd).replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
 	const dir = path.join(getAgentDir(), "sessions", safeDir);
@@ -396,9 +396,7 @@ async function resumeOneFailedAgent(
 		task = continuationInstruction(target);
 		reportResumeNotice(pi, ctx, `${target.agentId}: continuing its saved session`, "info");
 	} else {
-		childSessionManager = SessionManager.create(dispatch.services.cwd, undefined, {
-			parentSession: ctx.sessionManager.getSessionFile(),
-		});
+		childSessionManager = SessionManager.inMemory(dispatch.services.cwd);
 		inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
 		// target.task is already the dispatched prompt: -P agents persist the plan-wrapped task
 		// (buildPlanPrompt runs in startUserAgent BEFORE the entry is recorded), so no re-wrap here.
@@ -485,10 +483,9 @@ export async function startUserAgent(
 	}
 	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
 	const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
-	// A real session file from birth: the child outlives the widget row and stays resumable.
-	const childSessionManager = SessionManager.create(dispatch.services.cwd, undefined, {
-		parentSession: ctx.sessionManager.getSessionFile(),
-	});
+	// In-memory from birth: the child never writes a session file, so it stays out of /resume
+	// and pi -r; its transcript lives with the widget row and ends with the process.
+	const childSessionManager = SessionManager.inMemory(dispatch.services.cwd);
 	const runningAgent = createRunningAgent(
 		`user-${nextAgentNumber().toString(36)}`,
 		childSessionManager.getSessionId(),
@@ -896,7 +893,7 @@ export async function runChildTurns(
 
 		let response: string;
 		try {
-			response = getFinalAssistantText(session, turnMessageStart, runningAgent);
+			response = getFinalAssistantText(session, turnMessageStart);
 			// 成功获取响应后重置重试计数
 			runningAgent.retryCount = 0;
 		} catch (error) {

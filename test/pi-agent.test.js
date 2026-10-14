@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -435,7 +436,7 @@ test("getFinalAssistantText returns the final message text when present", () => 
     { role: "user", content: [TEXT_PART("task")] },
     assistantMessage([TEXT_PART("  finished plan  ")]),
   ]);
-  assert.equal(getFinalAssistantText(session, 0, { sessionId: "s1" }), "finished plan");
+  assert.equal(getFinalAssistantText(session, 0), "finished plan");
 });
 
 test("getFinalAssistantText falls back to the last non-empty text in the turn", () => {
@@ -446,7 +447,7 @@ test("getFinalAssistantText falls back to the last non-empty text in the turn", 
     { role: "tool", content: [] },
     assistantMessage([THINKING_PART, TEXT_PART("   ")]),
   ]);
-  assert.equal(getFinalAssistantText(session, 2, { sessionId: "s1" }), "research notes");
+  assert.equal(getFinalAssistantText(session, 2), "research notes");
 });
 
 test("getFinalAssistantText does not reach into a previous turn", () => {
@@ -454,7 +455,7 @@ test("getFinalAssistantText does not reach into a previous turn", () => {
     assistantMessage([TEXT_PART("stale answer from the previous turn")]),
     assistantMessage([THINKING_PART]),
   ]);
-  assert.throws(() => getFinalAssistantText(session, 1, { sessionId: "s1" }), EmptyAgentTextError);
+  assert.throws(() => getFinalAssistantText(session, 1), EmptyAgentTextError);
 });
 
 test("getFinalAssistantText throws a diagnosable error when the turn has no text", () => {
@@ -463,12 +464,11 @@ test("getFinalAssistantText throws a diagnosable error when the turn has no text
     assistantMessage([THINKING_PART, TOOL_PART]),
   ]);
   assert.throws(
-    () => getFinalAssistantText(session, 0, { sessionId: "session-9" }),
+    () => getFinalAssistantText(session, 0),
     (error) => {
       assert.ok(error instanceof EmptyAgentTextError);
       assert.match(error.message, /no text response/);
       assert.match(error.message, /1 assistant messages this turn/);
-      assert.match(error.message, /\/resume session-9/);
       return true;
     },
   );
@@ -476,15 +476,15 @@ test("getFinalAssistantText throws a diagnosable error when the turn has no text
 
 test("getFinalAssistantText surfaces error and abort stop reasons", () => {
   const errored = fakeSession([assistantMessage([TEXT_PART("partial")], "error", "boom")]);
-  assert.throws(() => getFinalAssistantText(errored, 0, { sessionId: "s1" }), /boom/);
+  assert.throws(() => getFinalAssistantText(errored, 0), /boom/);
   const aborted = fakeSession([assistantMessage([TEXT_PART("partial")], "aborted")]);
-  assert.throws(() => getFinalAssistantText(aborted, 0, { sessionId: "s1" }), /User agent aborted/);
+  assert.throws(() => getFinalAssistantText(aborted, 0), /User agent aborted/);
 });
 
 test("getFinalAssistantText throws when the turn produced no assistant message", () => {
   const session = fakeSession([{ role: "user", content: [TEXT_PART("task")] }]);
   assert.throws(
-    () => getFinalAssistantText(session, 0, { sessionId: "s1" }),
+    () => getFinalAssistantText(session, 0),
     /finished without an assistant message/,
   );
 });
@@ -926,4 +926,27 @@ test("describeClearCounts pluralizes and joins parts", () => {
     describeClearCounts({ closedLive: 2, dismissedCompleted: 1 }),
     "detached 2 running agents, dismissed 1 completed card",
   );
+});
+
+test("dispatched children run on in-memory sessions — no session file is ever written", async () => {
+  const { SessionManager, getAgentDir } = await import("@earendil-works/pi-coding-agent");
+  const cwd = await mkdtemp(join(tmpdir(), "pi-agent-inmem-"));
+  const safeDir = `--${cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-")}--`;
+  const expectedDir = join(getAgentDir(), "sessions", safeDir);
+  // Control: a persisted manager must create exactly the dir this test assumes, proving the layout.
+  const persisted = SessionManager.create(cwd);
+  assert.ok(existsSync(expectedDir), "persisted SessionManager must create the session dir");
+  assert.ok((persisted.getSessionFile() ?? "").startsWith(expectedDir + "/"), "persisted file lives in that dir");
+  rmSync(persisted.getSessionFile(), { force: true });
+  // The dispatched-child contract: in-memory means no file, no dir entry, id still usable.
+  const sm = SessionManager.inMemory(cwd);
+  assert.equal(sm.isPersisted(), false);
+  assert.equal(sm.getSessionFile(), undefined);
+  assert.ok(typeof sm.getSessionId() === "string" && sm.getSessionId().length > 0);
+  // The dispatch path seeds the inherited snapshot via persistMessages -> appendMessage.
+  sm.appendMessage({ role: "user", content: [{ type: "text", text: "inherited snapshot" }] });
+  assert.equal(sm.getSessionFile(), undefined);
+  // Regression guard: both child-creation sites in the runner must use inMemory.
+  const runnerSource = readFileSync("plugin/pi-agent/runner.ts", "utf8");
+  assert.equal(runnerSource.split("SessionManager.inMemory(dispatch.services.cwd)").length - 1, 2);
 });

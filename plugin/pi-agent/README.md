@@ -87,13 +87,13 @@ Press `Enter` in the overlay to open the steer composer. Mid-turn, your message 
 
 ### 4. Detach
 
-When a row has served its purpose, press `d` twice: the agent stops, its row leaves the widget, and its session file is left untouched. The transcript records which one it was:
+When a row has served its purpose, press `d` twice: the agent stops and its row leaves the widget. The transcript records which one it was:
 
 ```
 Detached session 0199c4f2-8b1a-7c3d-9e05-6a2f18d7b4ce
 ```
 
-Pick it back up whenever you like — `/resume 0199c4f2`, or `pi -r` and choose it from the list. It resumes as an ordinary Pi session with its full history, its model, and its thinking level, and from there it is a normal agent you talk to directly.
+A dispatched agent's session lives in memory only — there is no session file on disk. Once detached, its transcript is gone: keep the row alive, or squash the result into your context, while you still need it.
 
 ### 5. Squash — or don't
 
@@ -120,7 +120,7 @@ Rebased session 01a0534e-9fa7-7d6f-bd44-b85fba1f5e05 into this conversation (add
 
 Rebase is a fast-forward, in the git sense: the agent forked from the main conversation's tip, and its history can graft back only while that tip hasn't moved. Send the main agent anything after the dispatch and `r` disappears, leaving `s` — which always works — as the way in. Press `r` anyway and the footer tells you why not.
 
-Delivering the rebase switches the session in place — same file, same session id, transcript redrawn — so `r` is withheld while any agent is mid-turn, and parked agents are detached first, each leaving its `Detached session …` line to `/resume` from. When siblings would be detached, the first `r` warns with the count and a second `r` confirms.
+Delivering the rebase switches the session in place — same file, same session id, transcript redrawn — so `r` is withheld while any agent is mid-turn, and parked agents are detached first, each leaving its `Detached session …` line behind. When siblings would be detached, the first `r` warns with the count and a second `r` confirms.
 
 ## The mechanics
 
@@ -142,18 +142,18 @@ You'll rarely type any of this by hand. The moment you type `-`, a completion me
 
 And what you do type by hand is checked live, as you type. Valid options and values light up in your theme's syntax colors; anything that won't parse — a blocked option, a model that doesn't resolve, an option stranded after the task began — shows in the error color before you ever press Enter. **A `/agent` line that looks right is right.**
 
-### 🧱 Agents are durable Pi sessions
+### 🧱 Agents stay out of your session list
 
-Every dispatch writes a real session file, exactly like the one you're sitting in, so dispatched agents show up in `/resume` and `pi -r` alongside your own sessions.
+Every dispatch runs on an in-memory child session — no session file is written, so dispatched agents never appear in `/resume` or `pi -r`; that list stays yours alone. (Agents dispatched by older versions wrote real session files; those legacy files remain on disk and still show up.)
 
-Result cards persist across session reloads; the widget doesn't. After a reload you keep every card, and every agent's session is still on disk — but the steerable rows are gone. Reach them with `/resume`.
+Result cards persist across session reloads; the widget doesn't. After a reload you keep every card, but the steerable rows and live transcripts are gone — child sessions live in memory only.
 
 ### ♻️ `/agent resume` — restart every failed agent
 
 When a background agent fails — a model error, an empty final response after retries, a session-creation failure — its failure card stays in the transcript. `/agent resume` restarts **every** failed agent of this session in one shot:
 
-- The agent **keeps its own id** and, whenever its session file is still on disk, **continues that very session**: the agent picks up its prior turns, tool results, and file edits, told only that its last attempt failed and the task is not complete.
-- If the session file is gone (deleted, or the failure predates per-agent session tracking), the agent is **re-dispatched from scratch** from its original command line, with a notice. Plan-relay (`-p`) agents cannot be re-dispatched without their session — those are skipped with a warning, since the relayed plan lives only in the session file.
+- The agent **keeps its own id**. When a legacy session file (written by an older version of this plugin) is still on disk, it **continues that very session**: the agent picks up its prior turns, tool results, and file edits, told only that its last attempt failed and the task is not complete.
+- Otherwise the agent is **re-dispatched from scratch** from its original command line, with a notice. Plan-relay (`-p`) agents cannot be re-dispatched — the relayed plan lived only in their (in-memory) session — so those are skipped with a warning; re-run `/agent -p` instead.
 
 Resume works across session reloads too: the restart pool is scanned from the session's persisted result entries (the latest status per agent wins — an agent that later succeeded is not restarted), merged with the widget's live failure cards. An agent that fails again after a resume simply shows up as failed again and can be resumed once more. Rebase (`r`) stays blocked for continued agents — their fork point is the old main context — but squash (`s`) works as always. `/agent resume` takes no arguments; to dispatch a task whose first word is literally `resume`, quote that word: `/agent "resume the failing test"`.
 
@@ -165,7 +165,7 @@ Each row carries the agent's own footer gauge: it fills `▁▂▃▄▅▆▇�
 
 The general form is one command: `/agent [options] <task>`. Three one-keystroke front doors bake in the common combinations — `/spawn <task>` (`-s`: on this conversation, result delivered back automatically), `/scout <task>` (`-i`: isolated, blank context), `/blueprint <task>` (`-P -s`: plan mode, finished plan delivered back). One bare subcommand exists: `/agent resume` restarts every failed background agent of this session (see *♻️ `/agent resume`* above).
 
-One cleanup command exists: `/aclear` detaches every running background agent and dismisses every completed card in a single keystroke — the same effect as pressing `d` `d` on each row, one after the other. Session files stay on disk, untouched, so `/resume` still finds them.
+One cleanup command exists: `/aclear` detaches every running background agent and dismisses every completed card in a single keystroke — the same effect as pressing `d` `d` on each row, one after the other. Detached agents are simply gone; their sessions were in memory only.
 
 | Flag | Effect |
 |---|---|

@@ -77,7 +77,7 @@ export type AgentResultMessage = {
 
 export type AgentCommandDetails = {
 	agentId?: string;
-	/** The child's own session id — lets /agent resume locate the failed agent's session file. */
+	/** The child's own session id — lets /agent resume find the session file of legacy (pre-in-memory) dispatched agents. */
 	sessionId?: string;
 	command: AgentCommandName;
 	mainContextState?: MainContextState;
@@ -103,7 +103,7 @@ export type AgentCommandDetails = {
 
 export type RunningAgent = {
 	id: string;
-	/** The child's own Pi session, resumable with `/resume <sessionId>` after the agent is detached. */
+	/** The child's own in-memory Pi session id — no session file is written; legacy children kept one for /resume. */
 	sessionId: string;
 	command: AgentCommandName;
 	inheritedContext: boolean;

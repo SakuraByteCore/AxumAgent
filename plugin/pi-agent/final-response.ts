@@ -1,4 +1,4 @@
-import type { AgentMessage, AgentSession, RunningAgent } from "./shared.js";
+import type { AgentMessage, AgentSession } from "./shared.js";
 
 /** Follow-up instruction for a child that finished a turn without any text response. */
 export const NO_TEXT_RESPONSE_NUDGE =
@@ -6,9 +6,9 @@ export const NO_TEXT_RESPONSE_NUDGE =
 
 /** Thrown when a finished turn contains no recoverable assistant text anywhere within it. */
 export class EmptyAgentTextError extends Error {
-	constructor(detail: { assistantMessages: number; sessionId: string }) {
+	constructor(detail: { assistantMessages: number }) {
 		super(
-			`User agent returned no text response (${detail.assistantMessages} assistant messages this turn, none with text; full transcript resumable via /resume ${detail.sessionId})`,
+			`User agent returned no text response (${detail.assistantMessages} assistant messages this turn, none with text)`,
 		);
 		this.name = "EmptyAgentTextError";
 	}
@@ -16,10 +16,8 @@ export class EmptyAgentTextError extends Error {
 
 /** Thrown when a turn finishes without any assistant message at all. */
 export class NoAssistantMessageError extends Error {
-	constructor(detail: { sessionId: string }) {
-		super(
-			`User agent finished without an assistant message (full transcript resumable via /resume ${detail.sessionId})`,
-		);
+	constructor() {
+		super("User agent finished without an assistant message");
 		this.name = "NoAssistantMessageError";
 	}
 }
@@ -27,11 +25,8 @@ export class NoAssistantMessageError extends Error {
 /** Thrown when the agent stops with an error or aborted status. */
 export class AgentStopError extends Error {
 	public readonly stopReason: "error" | "aborted";
-	constructor(detail: { stopReason: "error" | "aborted"; errorMessage?: string; sessionId: string }) {
-		super(
-			detail.errorMessage ||
-				`User agent ${detail.stopReason} (full transcript resumable via /resume ${detail.sessionId})`,
-		);
+	constructor(detail: { stopReason: "error" | "aborted"; errorMessage?: string }) {
+		super(detail.errorMessage || `User agent ${detail.stopReason}`);
 		this.name = "AgentStopError";
 		this.stopReason = detail.stopReason;
 	}
@@ -51,18 +46,16 @@ export function assistantText(message: Extract<AgentMessage, { role: "assistant"
 export function getFinalAssistantText(
 	session: AgentSession,
 	turnMessageStart: number,
-	agent: Pick<RunningAgent, "sessionId">,
 ): string {
 	const assistantMessages = session.agent.state.messages
 		.slice(turnMessageStart)
 		.filter((message) => message.role === "assistant");
 	const lastMessage = assistantMessages.at(-1);
-	if (!lastMessage) throw new NoAssistantMessageError({ sessionId: agent.sessionId });
+	if (!lastMessage) throw new NoAssistantMessageError();
 	if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
 		throw new AgentStopError({
 			stopReason: lastMessage.stopReason,
 			errorMessage: lastMessage.errorMessage,
-			sessionId: agent.sessionId,
 		});
 	}
 	const text = assistantMessages
@@ -71,6 +64,5 @@ export function getFinalAssistantText(
 	if (text) return text;
 	throw new EmptyAgentTextError({
 		assistantMessages: assistantMessages.length,
-		sessionId: agent.sessionId,
 	});
 }
