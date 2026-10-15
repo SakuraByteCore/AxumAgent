@@ -48,6 +48,7 @@
     "timeout",
     "read timeout",
     "retry delay",
-    "terminated"
+    "terminated",
+    "interrupted"
   ]
 }

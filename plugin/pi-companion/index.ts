@@ -315,6 +315,7 @@ const DEFAULT_CONFIG: AutoContinueConfig = {
 		"read timeout",
 		"retry delay",
 		"terminated",
+		"interrupted",
 	],
 };
 
@@ -807,6 +808,7 @@ async function ensureBundledConfigFile(): Promise<void> {
 				"stream interrupted", "stream ended", "unexpected end", "upstream connect",
 				"upstream request timeout", "request timed out", "timed out",
 				"timeout", "read timeout", "retry delay", "terminated",
+				"interrupted",
 			],
 		};
 		await writeFile(BUNDLED_CONFIG_PATH, `${JSON.stringify(defaults, null, 2)}\n`, "utf8");

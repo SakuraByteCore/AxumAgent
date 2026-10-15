@@ -930,6 +930,8 @@ test("connection error pattern matches transport failures and rejects unrelated 
   assert.equal(pattern.test("Post \"https://relay.example.com/v1/chat/completions\": context deadline exceeded (Client.Timeout exceeded while awaiting headers)"), true);
   assert.equal(pattern.test("request timed out"), true);
   assert.equal(pattern.test("stream terminated before completion"), true);
+  assert.equal(pattern.test("Upstream response stream was interrupted"), true);
+  assert.equal(pattern.test("connection interrupted"), true);
   assert.equal(pattern.test("Error: 429: Too Many Requests"), false);
   assert.equal(pattern.test("insufficient_quota"), false);
   assert.equal(pattern.test("context window exceeded"), false);
@@ -998,13 +1000,14 @@ test("patches bundled Pi agent session retry with connection-error exemption", (
 
 test("upgrades stale connection-exemption caches to the deadline-aware pattern", () => {
   const legacyV1 = "connection.?(error|refused|reset|lost)|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
-  for (const legacy of [PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, legacyV1]) {
+  for (const legacy of [PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE + "|context.?deadline.?exceeded", PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, legacyV1]) {
     const stale = [
       "// AXUM_PI_CONNECTION_RETRY_EXEMPT: transport/connection errors retry on a",
       `    return typeof errorMessage === \"string\" && /${legacy}/i.test(errorMessage);`,
     ].join("\n");
     const upgraded = patchPiAgentSessionConnectionRetry(stale);
     assert.ok(upgraded.includes("context.?deadline.?exceeded"));
+    assert.ok(upgraded.includes("interrupt(ed)?"));
     assert.ok(upgraded.includes(`/${PI_CONNECTION_ERROR_PATTERN_SOURCE}/i.test`));
     assert.equal(patchPiAgentSessionConnectionRetry(upgraded), upgraded);
   }

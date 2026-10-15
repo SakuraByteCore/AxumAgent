@@ -32,6 +32,7 @@ const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
 const PI_422_RETRYABLE_MARKER = "AXUM_PI_422_RETRYABLE";
 const PI_DEADLINE_RETRYABLE_MARKER = "AXUM_PI_DEADLINE_RETRYABLE";
+const PI_INTERRUPTED_RETRYABLE_MARKER = "AXUM_PI_INTERRUPTED_RETRYABLE";
 const PI_HTTP_IDLE_TIMEOUT_PATCH_MARKER = "AXUM_PI_HTTP_IDLE_TIMEOUT_BODY_DISABLED";
 const PI_HTTP_IDLE_TIMEOUT_STOCK_ANCHOR = "export const DEFAULT_HTTP_IDLE_TIMEOUT_MS = 300_000;";
 const PI_HTTP_IDLE_TIMEOUT_BLOCK_PATTERN = /\/\/ AXUM_PI_HTTP_IDLE_TIMEOUT_[A-Z0-9_]+:[^\n]*(?:\n\/\/[^\n]*)*\nexport const DEFAULT_HTTP_IDLE_TIMEOUT_MS = [0-9_]+;(?:\nconst HTTP_HEADERS_TIMEOUT_CAP_MS = [0-9_]+;)?/;
@@ -1037,7 +1038,15 @@ function patchPiAgentSessionRateLimitRetry(content) {
 const PI_CONNECTION_RETRY_EXEMPT_MARKER = "AXUM_PI_CONNECTION_RETRY_EXEMPT";
 const PI_CONNECTION_ERROR_PATTERN_V1_SOURCE = "connection.?(error|refused|reset|lost)|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
 const PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE = "connection.?(error|refused|reset|lost)|client.?disconnected|context.?cancell?ed|fetch.?failed|ECONN(?:RESET|REFUSED)|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket.?(hang.?up|connection.?was.?closed)|other.?side.?closed|upstream.?connect|reset.?before.?headers|timed?.?out|timeout|terminated|network.?error";
-const PI_CONNECTION_ERROR_PATTERN_SOURCE = PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE + "|context.?deadline.?exceeded";
+const PI_CONNECTION_ERROR_PATTERN_SOURCE = PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE + "|context.?deadline.?exceeded|interrupt(ed)?";
+// Prior pattern generations that may still live in cached bundles. Upgrade
+// paths replace them wholesale, most recent first, so no alternation term
+// is ever duplicated in place.
+const PI_CONNECTION_ERROR_PATTERN_UPGRADE_SOURCES = [
+  PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE + "|context.?deadline.?exceeded",
+  PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE,
+  PI_CONNECTION_ERROR_PATTERN_V1_SOURCE,
+];
 
 function buildConnectionRetryHelpers() {
   return [
@@ -1058,7 +1067,7 @@ function buildConnectionRetryHelpers() {
 // deadline exceeded) join the lane without waiting for a cache rebuild.
 function upgradePiAgentSessionConnectionPattern(content) {
   if (content.includes(PI_CONNECTION_ERROR_PATTERN_SOURCE)) return content;
-  for (const legacySource of [PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, PI_CONNECTION_ERROR_PATTERN_V1_SOURCE]) {
+  for (const legacySource of PI_CONNECTION_ERROR_PATTERN_UPGRADE_SOURCES) {
     if (content.includes(legacySource)) {
       return content.replace(legacySource, PI_CONNECTION_ERROR_PATTERN_SOURCE);
     }
@@ -1314,7 +1323,7 @@ function patchPiAiRetryable422(content) {
     }
     // Older caches keep retrying through the 422/520 gate but are missing
     // the relay-deadline lane; patch that lane in place instead of returning.
-    return patchPiAiDeadlineRetryable(upgraded);
+    return patchPiAiInterruptedRetryable(patchPiAiDeadlineRetryable(upgraded));
   }
   const fnAnchor = "export function isRetryableAssistantError(message) {";
   if (!content.includes(fnAnchor)) {
@@ -1337,7 +1346,7 @@ ${fnAnchor}`,
     retAnchor,
     "    if (STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage))\n        return true;\n" + retAnchor,
   );
-  return patchPiAiDeadlineRetryable(updated);
+  return patchPiAiInterruptedRetryable(patchPiAiDeadlineRetryable(updated));
 }
 
 
@@ -1356,6 +1365,23 @@ function patchPiAiDeadlineRetryable(content) {
   );
 }
 
+
+// A gateway's upstream stream abort ("Upstream response stream was
+// interrupted" and its variants) is a transient transport failure, not a
+// rejected call: keep it retryable so the agent session's connection
+// retry lane (isConnectionError && this._isRetryableError) picks it up
+// instead of ending the turn.
+function patchPiAiInterruptedRetryable(content) {
+  if (content.includes(PI_INTERRUPTED_RETRYABLE_MARKER)) return content;
+  const retAnchor = "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);";
+  if (!content.includes(retAnchor)) {
+    throw new Error("unable to patch bundled Pi retry.js interrupted retry: retryable return anchor not found");
+  }
+  return content.replace(
+    retAnchor,
+    "    // " + PI_INTERRUPTED_RETRYABLE_MARKER + ": gateway upstream stream aborts are\n    // transient (\"... stream was interrupted\"); keep them in the retry lanes.\n    if (/interrupt(ed)?/i.test(errorMessage))\n        return true;\n" + retAnchor,
+  );
+}
 
 function patchPiInteractiveErrorDedup(content) {
   if (content.includes(PI_ERROR_DEDUP_MARKER)) return content;
@@ -1463,13 +1489,28 @@ function buildConnectionDisplayHelpers(marker) {
   ].join("\n");
 }
 
+// Cached display helpers embed the connection pattern as a JSON string
+// literal; swap stale generations in place (most recent first) so old
+// caches adopt the current word list without waiting for a rebuild.
+function upgradePiConnectionDisplayPattern(content) {
+  const currentLiteral = JSON.stringify(PI_CONNECTION_ERROR_PATTERN_SOURCE);
+  if (content.includes(currentLiteral)) return content;
+  for (const upgradeSource of PI_CONNECTION_ERROR_PATTERN_UPGRADE_SOURCES) {
+    const upgradeLiteral = JSON.stringify(upgradeSource);
+    if (content.includes(upgradeLiteral)) {
+      return content.replaceAll(upgradeLiteral, currentLiteral);
+    }
+  }
+  throw new Error("unable to upgrade bundled Pi connection display pattern: legacy pattern anchor not found");
+}
+
 // Softens the assistant-message error bubble: a connection-class
 // errorMessage renders the retry notice instead of `Error: terminated`.
 // Runs after patchPiAssistantMessageErrorDedup in the same chain and anchors
 // on the dedup-patched shape, so caches carrying an earlier dedup-only
 // generation upgrade in place.
 function patchPiAssistantMessageConnectionDisplay(content) {
-  if (content.includes(PI_ASSISTANT_CONNECTION_DISPLAY_MARKER)) return content;
+  if (content.includes(PI_ASSISTANT_CONNECTION_DISPLAY_MARKER)) return upgradePiConnectionDisplayPattern(content);
   const classAnchor = "export class AssistantMessageComponent extends Container {";
   if (!content.includes(classAnchor)) {
     throw new Error("unable to patch bundled Pi assistant message: class anchor not found");
@@ -1508,7 +1549,7 @@ function patchPiAssistantMessageConnectionDisplay(content) {
 // Runs after patchPiInteractiveRateLimitDisplay and
 // patchPiInteractiveErrorDedup and anchors on their patched shapes.
 function patchPiInteractiveConnectionDisplay(content) {
-  if (content.includes(PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER)) return content;
+  if (content.includes(PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER)) return upgradePiConnectionDisplayPattern(content);
   const classAnchor = "export class InteractiveMode {";
   if (!content.includes(classAnchor)) {
     throw new Error("unable to patch bundled Pi interactive mode: class anchor not found");
@@ -1977,4 +2018,4 @@ export function applyBundledPiPatches(options) {
 
   return results;
 }
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAiInterruptedRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER };

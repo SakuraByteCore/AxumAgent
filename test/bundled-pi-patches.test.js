@@ -19,6 +19,9 @@ import {
   patchPiExtensionSelectorScroll,
   PI_EXTENSION_SELECTOR_SCROLL_MARKER,
   PI_CONNECTION_ERROR_PATTERN_SOURCE,
+  PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE,
+  patchPiAiRetryable422,
+  patchPiAiInterruptedRetryable,
   PI_ASSISTANT_CONNECTION_DISPLAY_MARKER,
   PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER,
   patchPiAssistantMessageErrorDedup,
@@ -271,7 +274,73 @@ test("connection error pattern classifies transport aborts like undici terminate
   const re = new RegExp(PI_CONNECTION_ERROR_PATTERN_SOURCE);
   assert.ok(re.test("Error: terminated"));
   assert.ok(re.test("terminated"));
+  assert.ok(re.test("Upstream response stream was interrupted"));
+  assert.ok(re.test("connection interrupted"));
+  assert.ok(re.test("request interrupted"));
   assert.equal(re.test("some unrelated model error"), false);
+});
+
+test("retry.js keeps gateway stream aborts retryable and upgrades stale caches in place", () => {
+  const stock = [
+    "export function isRetryableAssistantError(message) {",
+    "    const errorMessage = message.errorMessage || \"\";",
+    "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);",
+    "}",
+  ].join("\n");
+  const patched = patchPiAiRetryable422(stock);
+  assert.ok(patched.includes("AXUM_PI_INTERRUPTED_RETRYABLE"), "interrupted lane injected");
+  assert.ok(patched.includes("if (/interrupt(ed)?/i.test(errorMessage))"));
+  assert.ok(patched.includes("AXUM_PI_DEADLINE_RETRYABLE"), "deadline lane still injected");
+  assert.ok(patched.includes("STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage)"), "422 lane still injected");
+  assert.equal(patchPiAiRetryable422(patched), patched, "idempotent on re-run");
+  const stale = [
+    "// AXUM_PI_422_RETRYABLE: gateway-originated transient statuses (422,",
+    "const STRICT_TRANSIENT_STATUS_PATTERN = /^\\s*(?:Error:\\s*)?(?:422|520)[:\\s]/;",
+    "export function isRetryableAssistantError(message) {",
+    "    if (STRICT_TRANSIENT_STATUS_PATTERN.test(errorMessage))",
+    "        return true;",
+    "    // AXUM_PI_DEADLINE_RETRYABLE: relay deadline aborts are transient upstream failures.",
+    "    if (/context.?deadline.?exceeded/i.test(errorMessage))",
+    "        return true;",
+    "    return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);",
+    "}",
+  ].join("\n");
+  const upgraded = patchPiAiRetryable422(stale);
+  assert.ok(upgraded.includes("AXUM_PI_INTERRUPTED_RETRYABLE"), "stale cache gains the interrupted lane");
+  assert.equal(patchPiAiRetryable422(upgraded), upgraded, "upgraded cache is idempotent");
+  assert.throws(
+    () => patchPiAiInterruptedRetryable("const X = 1;"),
+    /retryable return anchor not found/,
+  );
+});
+
+test("connection display caches upgrade the stale embedded pattern in place", () => {
+  const currentLiteral = JSON.stringify(PI_CONNECTION_ERROR_PATTERN_SOURCE);
+  const staleLiteral = JSON.stringify(PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE + "|context.?deadline.?exceeded");
+  const plainLegacyLiteral = JSON.stringify(PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE);
+  const mkStale = (marker, cls, literal) => [
+    `// ${marker}: softening`,
+    'const AXUM_CONNECTION_INTERRUPTED_NOTICE = "...";',
+    "function isAxumConnectionErrorMessage(message) {",
+    `    return typeof message === "string" && new RegExp(${literal}).test(message);`,
+    "}",
+    `export class ${cls} {`,
+    "}",
+  ].join("\n");
+  const assistantUpgraded = patchPiAssistantMessageConnectionDisplay(
+    mkStale(PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, "AssistantMessageComponent", staleLiteral),
+  );
+  assert.ok(assistantUpgraded.includes(`new RegExp(${currentLiteral})`));
+  assert.ok(!assistantUpgraded.includes(staleLiteral));
+  assert.equal(patchPiAssistantMessageConnectionDisplay(assistantUpgraded), assistantUpgraded, "idempotent");
+  const interactiveUpgraded = patchPiInteractiveConnectionDisplay(
+    mkStale(PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, "InteractiveMode", plainLegacyLiteral),
+  );
+  assert.ok(interactiveUpgraded.includes(`new RegExp(${currentLiteral})`), "plain-legacy cache upgrades too");
+  assert.throws(
+    () => patchPiAssistantMessageConnectionDisplay(`// ${PI_ASSISTANT_CONNECTION_DISPLAY_MARKER}: no pattern`),
+    /legacy pattern anchor not found/,
+  );
 });
 
 test("patchPiAssistantMessageConnectionDisplay softens connection error bubbles and is idempotent", () => {
