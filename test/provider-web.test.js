@@ -1020,3 +1020,77 @@ test("provider web manages the /plan template through the system-prompt API", as
     fs.rmSync(home, { recursive: true, force: true });
   }
 });
+
+test("model availability testing sends real chat completions with capped concurrency", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-agent-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+
+  const seenPaths = [];
+  let inFlight = 0;
+  let peakInFlight = 0;
+  const mock = http.createServer((req, res) => {
+    seenPaths.push(`${req.method} ${req.url}`);
+    if (req.method !== "POST" || !req.url.startsWith("/v1/chat/completions")) {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end("{}");
+      return;
+    }
+    let body = "";
+    req.on("data", (chunk) => { body += chunk; });
+    req.on("end", () => {
+      inFlight += 1;
+      peakInFlight = Math.max(peakInFlight, inFlight);
+      setTimeout(() => {
+        inFlight -= 1;
+        const model = JSON.parse(body).model;
+        if (model.startsWith("real-ok")) {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ choices: [{ message: { role: "assistant", content: "pong" } }] }));
+        } else if (model === "fake-body") {
+          res.writeHead(200, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message: "model unavailable" } }));
+        } else {
+          res.writeHead(404, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "not found" }));
+        }
+      }, 150);
+    });
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  const mockPort = mock.address().port;
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const testRes = await fetch(`${base}/api/models/test?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+        apiKey: "test-key",
+        models: ["real-ok", "fake-body", "missing-model", "real-ok-2", "real-ok-3"],
+      }),
+    });
+    assert.equal(testRes.status, 200);
+    const { results } = await testRes.json();
+    const byModel = new Map(results.map((r) => [r.model, r]));
+    assert.equal(byModel.get("real-ok").ok, true);
+    assert.equal(byModel.get("real-ok-2").ok, true);
+    assert.equal(byModel.get("real-ok-3").ok, true);
+    assert.equal(byModel.get("fake-body").ok, false);
+    assert.equal(byModel.get("fake-body").detail, "response missing choices array");
+    assert.equal(byModel.get("missing-model").ok, false);
+    assert.equal(byModel.get("missing-model").detail, "HTTP 404");
+    assert.ok(seenPaths.every((entry) => entry.startsWith("POST /v1/chat/completions")), "must probe every model with a real completion, no GET shortcut");
+    assert.equal(seenPaths.length, 5);
+    assert.ok(peakInFlight > 1, "mock should observe overlapping requests");
+    assert.ok(peakInFlight <= 3, `expected peak in-flight <= 3, got ${peakInFlight}`);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => mock.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
