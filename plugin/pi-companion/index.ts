@@ -54,6 +54,123 @@ const PLAN_PROMPT_SUFFIX = `
 const PLAN_PROMPT_TEMPLATE_RELATIVE_PATH = [".pi", "agent", "plan-prompt.md"];
 const PLAN_PROMPT_REQUIREMENT_PLACEHOLDER = "{{requirement}}";
 
+// ── Custom *-prompt.md commands ────────────────────────────────────────────
+// Any `<name>-prompt.md` sitting next to `plan-prompt.md` (i.e. in
+// `~/.pi/agent/`) becomes a slash command `/<name>` using that file as its
+// prompt template. `plan` is the only exception: it is always registered and
+// falls back to a built-in skeleton when its file is missing. All other names
+// are registered only while their file exists, have no built-in template, and
+// carry no read-only rules of their own — the file content alone defines the
+// behavior. The requirement is optional: `/foo <req>` splices `<req>` into
+// `{{requirement}}` (or appends it at the end when the template has no
+// placeholder), bare `/foo` sends the template as-is.
+const CUSTOM_PROMPT_SUFFIX = "-prompt.md";
+const CUSTOM_COMMAND_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]*$/i;
+
+export type CustomPromptTemplate = {
+  name: string;
+  file: string;
+  path: string;
+};
+
+export function agentPromptDir(home: string = homedir()): string {
+  return join(home, ...PLAN_PROMPT_TEMPLATE_RELATIVE_PATH.slice(0, -1));
+}
+
+export function customCommandNameFromFile(fileName: string): string | undefined {
+  const lower = fileName.toLowerCase();
+  if (!lower.endsWith(CUSTOM_PROMPT_SUFFIX)) return undefined;
+  const stem = lower.slice(0, -CUSTOM_PROMPT_SUFFIX.length);
+  if (!stem || stem === "plan") return undefined;
+  if (!CUSTOM_COMMAND_NAME_PATTERN.test(stem)) return undefined;
+  return stem;
+}
+
+export function discoverCustomPromptTemplates(dir: string = agentPromptDir()): CustomPromptTemplate[] {
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  const found: CustomPromptTemplate[] = [];
+  for (const file of entries) {
+    const name = customCommandNameFromFile(file);
+    if (!name) continue;
+    const full = join(dir, file);
+    try {
+      if (!statSync(full).isFile()) continue;
+    } catch {
+      continue;
+    }
+    found.push({ name, file, path: full });
+  }
+  found.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return found;
+}
+
+export async function buildCustomPrompt(templatePath: string, requirement: string): Promise<string> {
+  const template = await readFile(templatePath, "utf8");
+  if (!template.trim()) {
+    throw new Error(`Prompt template is empty: ${templatePath}`);
+  }
+  if (template.includes(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER)) {
+    return template.replaceAll(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER, requirement);
+  }
+  // No placeholder: static template. Bare /<name> sends it verbatim;
+  // /<name> <requirement> appends the requirement at the end.
+  const trimmed = requirement.trim();
+  if (!trimmed) return template;
+  return `${template.trimEnd()}\n\n${trimmed}`;
+}
+
+// Built-in command names owned by this extension: a custom template whose
+// stem collides with one of these is skipped rather than overriding it.
+const CUSTOM_PROMPT_RESERVED_NAMES: ReadonlySet<string> = new Set([
+  "clear",
+  "plan",
+  "claude",
+  "ua",
+  "ralph",
+  "rules",
+  "usemodel",
+  "agentui",
+  "plugin-create-mode",
+  "plugin",
+]);
+
+export function registerCustomPromptCommands(
+  pi: ExtensionAPI,
+  templates: CustomPromptTemplate[] = discoverCustomPromptTemplates(),
+  reserved: ReadonlySet<string> = CUSTOM_PROMPT_RESERVED_NAMES,
+): void {
+  const taken = new Set(reserved);
+  for (const template of templates) {
+    if (taken.has(template.name)) continue;
+    taken.add(template.name);
+    const commandName = template.name;
+    const templatePath = template.path;
+    const templateFile = template.file;
+    pi.registerCommand(commandName, {
+      description: `Custom prompt from ~/.pi/agent/${templateFile}: /${commandName} [requirement]`,
+      getArgumentCompletions: () => null,
+      async handler(args: string, ctx) {
+        const requirement = args.trim();
+        let prompt: string;
+        try {
+          prompt = await buildCustomPrompt(templatePath, requirement);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          ctx.ui.notify(`Failed to build /${commandName} prompt: ${message}`, "error");
+          return;
+        }
+        ctx.ui.notify(`${commandName} sent, waiting for Agent…`, "info");
+        await pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+      },
+    });
+  }
+}
+
 // Session-first-plan flag
 let firstPlanSent = false;
 
@@ -993,6 +1110,10 @@ pi.registerCommand("plan", {
     await pi.sendUserMessage(prompt, { streamingBehavior });
   },
 });
+
+// ── Custom *-prompt.md commands: registered only while their file exists ──
+
+registerCustomPromptCommands(pi);
 
 pi.registerCommand("claude", {
   description: "Delegate the requirement to the Claude Code CLI via the claude-driver skill: /claude <requirement>",

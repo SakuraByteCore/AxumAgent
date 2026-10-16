@@ -3,7 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import shortcuts from "../plugin/pi-companion/index.ts";
+import shortcuts, {
+  agentPromptDir,
+  buildCustomPrompt,
+  customCommandNameFromFile,
+  discoverCustomPromptTemplates,
+  registerCustomPromptCommands,
+} from "../plugin/pi-companion/index.ts";
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
 import {
   CATALOG_CACHE_FILE,
@@ -1546,5 +1552,159 @@ test("/usemodel lists opencode models first after the dynamic sync", async () =>
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+// ── Custom *-prompt.md commands ────────────────────────────────────────────
+
+test("customCommandNameFromFile maps *-prompt.md stems to command names", () => {
+  assert.equal(customCommandNameFromFile("spec-prompt.md"), "spec");
+  assert.equal(customCommandNameFromFile("Design-Prompt.md"), "design");
+  assert.equal(customCommandNameFromFile("plan-prompt.md"), undefined);
+  assert.equal(customCommandNameFromFile("plan.md"), undefined);
+  assert.equal(customCommandNameFromFile("notes.md"), undefined);
+  assert.equal(customCommandNameFromFile("-prompt.md"), undefined);
+  assert.equal(customCommandNameFromFile("bad name-prompt.md"), undefined);
+});
+
+test("agentPromptDir resolves the sibling dir of plan-prompt.md", () => {
+  assert.equal(agentPromptDir("/tmp/home"), path.join("/tmp/home", ".pi", "agent"));
+});
+
+test("discoverCustomPromptTemplates lists sibling *-prompt.md files, skipping plan", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-discover-"));
+  try {
+    fs.writeFileSync(path.join(dir, "spec-prompt.md"), "x {{requirement}}", "utf8");
+    fs.writeFileSync(path.join(dir, "plan-prompt.md"), "x {{requirement}}", "utf8");
+    fs.writeFileSync(path.join(dir, "notes.md"), "unrelated", "utf8");
+    fs.mkdirSync(path.join(dir, "nested-prompt.md"));
+    const found = discoverCustomPromptTemplates(dir);
+    assert.deepEqual(found.map((t) => t.name), ["spec"]);
+    assert.equal(found[0].file, "spec-prompt.md");
+    assert.equal(found[0].path, path.join(dir, "spec-prompt.md"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("discoverCustomPromptTemplates returns [] when the dir is missing", () => {
+  const missing = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-missing-")), "nope");
+  assert.deepEqual(discoverCustomPromptTemplates(missing), []);
+});
+
+test("buildCustomPrompt substitutes {{requirement}}, allowing an empty requirement", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-build-"));
+  try {
+    const file = path.join(dir, "spec-prompt.md");
+    fs.writeFileSync(file, "before {{requirement}} after\n", "utf8");
+    assert.equal(await buildCustomPrompt(file, "add login"), "before add login after\n");
+    assert.equal(await buildCustomPrompt(file, ""), "before  after\n");
+    assert.equal(await buildCustomPrompt(file, "   "), "before     after\n");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildCustomPrompt still rejects empty templates", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-build-err-"));
+  try {
+    const empty = path.join(dir, "empty-prompt.md");
+    fs.writeFileSync(empty, "   \n", "utf8");
+    await assert.rejects(buildCustomPrompt(empty, "x"), /Prompt template is empty/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("buildCustomPrompt appends the requirement when the template has no placeholder", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-build-static-"));
+  try {
+    const file = path.join(dir, "dispatcher-prompt.md");
+    fs.writeFileSync(file, "static rules\n", "utf8");
+    assert.equal(await buildCustomPrompt(file, ""), "static rules\n");
+    assert.equal(await buildCustomPrompt(file, "   "), "static rules\n");
+    assert.equal(await buildCustomPrompt(file, "do the thing"), "static rules\n\ndo the thing");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("registerCustomPromptCommands registers /<name> for each template and sends with/without requirement", async () => {
+  const pi = createPi();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-register-"));
+  try {
+    fs.writeFileSync(path.join(dir, "spec-prompt.md"), "spec: {{requirement}}\n", "utf8");
+    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir));
+    assert.ok(pi.commands.has("spec"), "command appears only because its file exists");
+    const { ctx } = createContext();
+    await pi.commands.get("spec").handler("add login", ctx);
+    assert.equal(pi.messages.length, 1);
+    assert.equal(pi.messages[0].message, "spec: add login\n");
+    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    await pi.commands.get("spec").handler("   ", ctx);
+    assert.equal(pi.messages.length, 2);
+    assert.equal(pi.messages[1].message, "spec: \n");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("custom command with a static template sends it verbatim or with appended requirement", async () => {
+  const pi = createPi();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-register-static-"));
+  try {
+    fs.writeFileSync(path.join(dir, "dispatcher-prompt.md"), "static rules\n", "utf8");
+    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir));
+    const { ctx } = createContext();
+    await pi.commands.get("dispatcher").handler("   ", ctx);
+    assert.equal(pi.messages.length, 1);
+    assert.equal(pi.messages[0].message, "static rules\n");
+    await pi.commands.get("dispatcher").handler("do the thing", ctx);
+    assert.equal(pi.messages.length, 2);
+    assert.equal(pi.messages[1].message, "static rules\n\ndo the thing");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("registerCustomPromptCommands registers nothing when no sibling file exists", () => {
+  const pi = createPi();
+  const before = pi.commands.size;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-register-empty-"));
+  try {
+    fs.writeFileSync(path.join(dir, "plan-prompt.md"), "x {{requirement}}", "utf8");
+    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir));
+    assert.equal(pi.commands.size, before);
+    assert.ok(!pi.commands.has("spec"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("registerCustomPromptCommands skips names colliding with built-ins", () => {
+  const pi = createPi();
+  const before = pi.commands.size;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-register-clash-"));
+  try {
+    fs.writeFileSync(path.join(dir, "spec-prompt.md"), "x {{requirement}}", "utf8");
+    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir), new Set(["spec"]));
+    assert.equal(pi.commands.size, before);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("custom command notifies on empty template instead of sending", async () => {
+  const pi = createPi();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-register-bad-"));
+  try {
+    fs.writeFileSync(path.join(dir, "spec-prompt.md"), "   \n", "utf8");
+    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir));
+    const { ctx, notifications } = createContext();
+    await pi.commands.get("spec").handler("add login", ctx);
+    assert.equal(pi.messages.length, 0);
+    assert.ok(notifications.some((n) => n.level === "error" && /Prompt template is empty/.test(n.message)));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
