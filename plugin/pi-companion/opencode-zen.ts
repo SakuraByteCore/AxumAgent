@@ -38,6 +38,8 @@ const MODELS_DEV_API_URL = "https://models.dev/api.json";
 export const ZEN_API_KEY = "public";
 export const CATALOG_CACHE_FILE = "opencode-catalog-cache.json";
 export const CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+/** After a failed live fetch, stay on cache/static (no retry) for one hour. */
+export const LIVE_FETCH_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;
 const LIVE_FETCH_TIMEOUT_MS = 8000;
 /** Upstream ids.ts opencodeUserAgent pins this CLI version string. */
 const OPENCODE_UA_VERSION = "1.18.31";
@@ -462,6 +464,8 @@ interface CatalogCacheEntry {
 	models: ZenModelInfo[];
 	writtenAt: number;
 	fresh: boolean;
+	/** Time of the last failed live fetch; suppresses live retries for the cooldown window. */
+	lastFailedAttemptAt?: number;
 }
 
 async function loadCatalogCache(cachePath: string, now: number): Promise<CatalogCacheEntry | undefined> {
@@ -478,49 +482,99 @@ async function loadCatalogCache(cachePath: string, now: number): Promise<Catalog
 	}
 	if (models.length === 0) return undefined;
 	const writtenAt = typeof raw.writtenAt === "number" ? raw.writtenAt : 0;
-	return { models, writtenAt, fresh: now - writtenAt <= CATALOG_CACHE_TTL_MS };
+	const lastFailedAttemptAt = typeof raw.lastFailedAttemptAt === "number" ? raw.lastFailedAttemptAt : undefined;
+	return { models, writtenAt, fresh: now - writtenAt <= CATALOG_CACHE_TTL_MS, lastFailedAttemptAt };
 }
 
-async function writeCatalogCache(cachePath: string, models: ZenModelInfo[], now: () => number): Promise<void> {
-	await atomicWriteJson(cachePath, { writtenAt: now(), models });
+async function writeCatalogCache(
+	cachePath: string,
+	models: ZenModelInfo[],
+	writtenAt: number,
+	lastFailedAttemptAt?: number,
+): Promise<void> {
+	const entry: Record<string, unknown> = { writtenAt, models };
+	if (lastFailedAttemptAt !== undefined) entry.lastFailedAttemptAt = lastFailedAttemptAt;
+	await atomicWriteJson(cachePath, entry);
 }
 
 export interface ZenSyncOptions extends ZenCatalogFetchOptions {
 	now?: () => number;
 }
 
+/** Result of the network-free local pass: what got merged and whether a live refresh is due. */
+export interface ZenLocalSyncResult extends ZenSyncResult {
+	/** True when the catalog is stale/missing, live fetching is allowed (env switches off) and no failure cooldown is active. */
+	needsLiveRefresh: boolean;
+}
+
 /**
- * Keep the "opencode" Zen provider block in <agentDir>/models.json fresh:
- * fresh cache → live S1∩S2 fetch → stale cache → static verified list, then an
- * idempotent merge. Never throws for network reasons (the static floor always
- * lands); only models.json corruption/IO errors propagate to the caller.
+ * Network-free fast path: merge whatever the on-disk catalog cache (any age,
+ * stale still beats the compile-time static floor) or the static floor has
+ * into models.json. Never touches the network; reports whether a live
+ * refresh should run in the background. Only models.json corruption/IO
+ * errors propagate.
  */
-export async function ensureZenProvider(agentDir: string, options: ZenSyncOptions = {}): Promise<ZenSyncResult> {
+export async function ensureZenProviderLocal(agentDir: string, options: ZenSyncOptions = {}): Promise<ZenLocalSyncResult> {
 	if (process.env.PI_COMPANION_ZEN_SYNC_DISABLE === "1") {
-		return { changed: false, source: "disabled", count: 0 };
+		return { changed: false, source: "disabled", count: 0, needsLiveRefresh: false };
 	}
 	const now = options.now ?? Date.now;
 	const cachePath = join(agentDir, CATALOG_CACHE_FILE);
 	const cached = await loadCatalogCache(cachePath, now());
 
-	let catalog: ZenCatalog | undefined = cached?.fresh ? { models: cached.models, source: "cache" } : undefined;
-	let liveError: string | undefined;
-	if (!catalog && process.env.PI_COMPANION_ZEN_OFFLINE !== "1") {
-		try {
-			catalog = await fetchZenCatalog(options);
-		} catch (error) {
-			liveError = error instanceof Error ? error.message : String(error);
-		}
-	}
-	if (!catalog && cached) catalog = { models: cached.models, source: "cache" };
-	if (!catalog) catalog = staticZenCatalog();
-
+	const catalog: ZenCatalog = cached ? { models: cached.models, source: "cache" } : staticZenCatalog();
 	const changed = await mergeZenProvider(join(agentDir, "models.json"), catalog.models);
-	if (catalog.source !== "cache") await writeCatalogCache(cachePath, catalog.models, now);
-	return {
-		changed,
-		source: catalog.source,
-		count: catalog.models.length,
-		error: catalog.source === "static" ? liveError : undefined,
-	};
+	if (!cached) {
+		// Bootstrap the cache file so the failure cooldown has a home and later
+		// opens are pure cache reads; writtenAt 0 keeps it stale until a live
+		// fetch succeeds, so freshness is never faked.
+		await writeCatalogCache(cachePath, catalog.models, 0);
+	}
+	const cooldownActive =
+		cached?.lastFailedAttemptAt !== undefined &&
+		now() - cached.lastFailedAttemptAt < LIVE_FETCH_FAILURE_COOLDOWN_MS;
+	const needsLiveRefresh = !cached?.fresh && !cooldownActive && process.env.PI_COMPANION_ZEN_OFFLINE !== "1";
+	return { changed, source: catalog.source, count: catalog.models.length, needsLiveRefresh };
+}
+
+/**
+ * Live-only refresh for the background lane: fetch S1∩S2, merge into
+ * models.json, and update the cache. On failure, stamp the attempt time so
+ * the cooldown window suppresses retries (the stale cache keeps its own
+ * writtenAt and is never faked fresh). Never throws for network reasons.
+ */
+export async function refreshZenProviderLive(agentDir: string, options: ZenSyncOptions = {}): Promise<ZenSyncResult> {
+	if (process.env.PI_COMPANION_ZEN_SYNC_DISABLE === "1" || process.env.PI_COMPANION_ZEN_OFFLINE === "1") {
+		return { changed: false, source: "disabled", count: 0 };
+	}
+	const now = options.now ?? Date.now;
+	const cachePath = join(agentDir, CATALOG_CACHE_FILE);
+	const cached = await loadCatalogCache(cachePath, now());
+	try {
+		const catalog = await fetchZenCatalog(options);
+		await writeCatalogCache(cachePath, catalog.models, now());
+		const changed = await mergeZenProvider(join(agentDir, "models.json"), catalog.models);
+		return { changed, source: catalog.source, count: catalog.models.length };
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		const models = cached?.models ?? staticZenCatalog().models;
+		await writeCatalogCache(cachePath, models, cached?.writtenAt ?? 0, now());
+		return { changed: false, source: cached ? "cache" : "static", count: models.length, error: message };
+	}
+}
+
+/**
+ * Keep the "opencode" Zen provider block in <agentDir>/models.json fresh:
+ * local pass first, then a live fetch only when due. Composed from the two
+ * split entry points above; the UI calls them separately so the selector
+ * never waits on the network. Only models.json corruption/IO errors propagate.
+ */
+export async function ensureZenProvider(agentDir: string, options: ZenSyncOptions = {}): Promise<ZenSyncResult> {
+	const local = await ensureZenProviderLocal(agentDir, options);
+	if (!local.needsLiveRefresh) {
+		return { changed: local.changed, source: local.source, count: local.count };
+	}
+	const live = await refreshZenProviderLive(agentDir, options);
+	if (!live.error) return live;
+	return { changed: local.changed, source: local.source, count: local.count, error: live.error };
 }

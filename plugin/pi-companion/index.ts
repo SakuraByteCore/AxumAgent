@@ -5,7 +5,7 @@ import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync, mkdirSync
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
-import { ensureZenProvider } from "./opencode-zen.ts";
+import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
 import { registerAgentUi } from "./agentui.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
@@ -1314,6 +1314,40 @@ pi.registerCommand("claude", {
 		}
 	};
 
+	let zenBackgroundRefreshInFlight = false;
+
+	/**
+	 * Fire-and-forget live Zen catalog refresh so the /usemodel selector never
+	 * waits on the network. Toasts when the fresh list has landed (it shows up
+	 * on the next open) or when the fetch failed and the 1h retry cooldown
+	 * started.
+	 */
+	const startZenBackgroundRefresh = (
+		agentDir: string,
+		ctx: { ui: { notify: (message: string, level: "info" | "warning" | "error") => unknown } },
+	) => {
+		if (zenBackgroundRefreshInFlight) return;
+		zenBackgroundRefreshInFlight = true;
+		void refreshZenProviderLive(agentDir)
+			.then((result) => {
+				if (result.error) {
+					ctx.ui.notify(`opencode: background Zen sync failed (${result.error}); retry paused for 1h.`, "warning");
+					return;
+				}
+				ctx.ui.notify(
+					`opencode: synced ${result.count} free Zen models in the background; they list on the next /usemodel.`,
+					"info",
+				);
+			})
+			.catch((error) => {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`opencode background sync crashed: ${message}`, "error");
+			})
+			.finally(() => {
+				zenBackgroundRefreshInFlight = false;
+			});
+	};
+
 	pi.registerCommand("usemodel", {
 		description: "Interactively switch the current model and persist it as the default",
 		getArgumentCompletions: () => null,
@@ -1322,15 +1356,18 @@ pi.registerCommand("claude", {
 			const modelsPath = join(agentDir, "models.json");
 			const settingsPath = join(agentDir, "settings.json");
 
-			// Dynamically sync the "opencode" (OpenCode Zen free lane) provider block
-			// into models.json before reading it, so its free models are listed (pinned
-			// to the top by model-switch.ts) and selectable. Failures must not block the
-			// selector: notify and continue with whatever models.json already has.
+			// Open the selector instantly: merge whatever the on-disk catalog cache
+			// (any age; stale still beats the compile-time static floor) or the static
+			// floor already has into models.json — local disk only, never the network —
+			// then kick a live Zen refresh in the background when the cache is stale.
+			// The refreshed free models land on the next /usemodel.
 			try {
-				const zen = await ensureZenProvider(agentDir);
-				if (zen.changed) {
-					const suffix = zen.error ? `, live fetch failed: ${zen.error}` : "";
-					ctx.ui.notify(`opencode: synced ${zen.count} free Zen models (${zen.source}${suffix}).`, zen.error ? "warning" : "info");
+				const local = await ensureZenProviderLocal(agentDir);
+				if (local.changed) {
+					ctx.ui.notify(`opencode: synced ${local.count} free Zen models (${local.source}).`, "info");
+				}
+				if (local.needsLiveRefresh) {
+					startZenBackgroundRefresh(agentDir, ctx);
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);

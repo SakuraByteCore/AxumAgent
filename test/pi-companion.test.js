@@ -13,6 +13,7 @@ import shortcuts, {
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
 import {
   CATALOG_CACHE_FILE,
+  LIVE_FETCH_FAILURE_COOLDOWN_MS,
   STATIC_FREE_MODEL_IDS,
   buildDisguiseHeaders,
   buildZenModelInfo,
@@ -20,9 +21,11 @@ import {
   decodeModelsDev,
   decide,
   ensureZenProvider,
+  ensureZenProviderLocal,
   fetchZenCatalog,
   mergeZenProvider,
   isGatewaySessionID,
+  refreshZenProviderLive,
   staticZenCatalog,
 } from "../plugin/pi-companion/opencode-zen.ts";
 
@@ -1515,6 +1518,152 @@ test("ensureZenProvider caches live results and falls back to the static list", 
   } finally {
     process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("ensureZenProviderLocal never touches the network and flags a due live refresh", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-local-"));
+  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
+  try {
+    const agentDir = path.join(tmp, "agent");
+    const fetch = async () => {
+      throw new Error("network must not be touched");
+    };
+
+    const boot = await ensureZenProviderLocal(agentDir, { fetchImpl: fetch, now: () => 1_000_000 });
+    assert.equal(boot.source, "static", "no cache → static floor, merged locally");
+    assert.equal(boot.changed, true);
+    assert.equal(boot.needsLiveRefresh, true);
+    let cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
+    assert.equal(cache.writtenAt, 0, "bootstrap cache is never faked fresh");
+
+    fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE),
+      JSON.stringify({ writtenAt: 0, models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }] }));
+    const stale = await ensureZenProviderLocal(agentDir, { fetchImpl: fetch, now: () => 1_000_000_000 });
+    assert.equal(stale.source, "cache", "stale cache still beats the static floor");
+    assert.equal(stale.count, 1);
+    assert.equal(stale.needsLiveRefresh, true);
+
+    fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE),
+      JSON.stringify({ writtenAt: 999_000_000, models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }] }));
+    const fresh = await ensureZenProviderLocal(agentDir, { fetchImpl: fetch, now: () => 1_000_000_000 });
+    assert.equal(fresh.source, "cache");
+    assert.equal(fresh.needsLiveRefresh, false, "fresh cache → no refresh due");
+
+    fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE),
+      JSON.stringify({ writtenAt: 0, lastFailedAttemptAt: 999_900_000, models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }] }));
+    const cooling = await ensureZenProviderLocal(agentDir, { fetchImpl: fetch, now: () => 1_000_000_000 });
+    assert.equal(cooling.needsLiveRefresh, false, "failure cooldown suppresses the live refresh");
+    const afterCooldown = await ensureZenProviderLocal(agentDir, {
+      fetchImpl: fetch,
+      now: () => 999_900_000 + LIVE_FETCH_FAILURE_COOLDOWN_MS + 1,
+    });
+    assert.equal(afterCooldown.needsLiveRefresh, true, "cooldown expiry re-arms the refresh");
+  } finally {
+    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("refreshZenProviderLive stamps a failure cooldown and clears it on success", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-refresh-"));
+  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
+  try {
+    const agentDir = path.join(tmp, "agent");
+    const cachePath = path.join(agentDir, CATALOG_CACHE_FILE);
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(cachePath, JSON.stringify({ writtenAt: 0, models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }] }));
+    const failingFetch = async () => {
+      throw new Error("gateway down");
+    };
+
+    const failed = await refreshZenProviderLive(agentDir, { fetchImpl: failingFetch, now: () => 1_000_000_000 });
+    assert.equal(failed.changed, false);
+    assert.equal(failed.source, "cache");
+    assert.ok(failed.error.includes("gateway down"));
+    let cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+    assert.equal(cache.writtenAt, 0, "stale cache is not faked fresh on failure");
+    assert.equal(cache.lastFailedAttemptAt, 1_000_000_000, "failure attempt is stamped for the cooldown");
+    assert.equal(cache.models.length, 1);
+
+    const cooling = await ensureZenProviderLocal(agentDir, { fetchImpl: failingFetch, now: () => 1_000_000_001 });
+    assert.equal(cooling.needsLiveRefresh, false, "cooldown suppresses live retries");
+
+    const { fetch } = createZenMockFetch({ zenIds: ["big-pickle", "mystery-free"] });
+    const live = await refreshZenProviderLive(agentDir, { fetchImpl: fetch, now: () => 1_000_000_002 });
+    assert.equal(live.source, "live");
+    assert.equal(live.count, 2);
+    cache = JSON.parse(fs.readFileSync(cachePath, "utf8"));
+    assert.equal(cache.writtenAt, 1_000_000_002);
+    assert.equal(cache.lastFailedAttemptAt, undefined, "success clears the cooldown stamp");
+    const after = await ensureZenProviderLocal(agentDir, { fetchImpl: fetch, now: () => 1_000_000_003 });
+    assert.equal(after.needsLiveRefresh, false, "fresh cache after a successful sync");
+  } finally {
+    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel shows the selector without waiting on the Zen network sync", async () => {
+  const pi = createPi();
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-fast-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
+  }), "utf8");
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}), "utf8");
+  fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE), JSON.stringify({
+    writtenAt: 0,
+    models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }],
+  }), "utf8");
+  const { ctx, notifications, selectCalls } = createModelSwitchContext({
+    models: [],
+    selectResult: (options) => options[0],
+  });
+  const previousHome = process.env.HOME;
+  const previousFetch = globalThis.fetch;
+  const pendingFetches = [];
+  globalThis.fetch = (url) => {
+    const response = String(url).includes("/zen/v1/models")
+      ? { ok: true, json: async () => ({ data: [{ id: "big-pickle" }] }) }
+      : { ok: true, json: async () => MODELS_DEV_FIXTURE };
+    return new Promise((resolve) => pendingFetches.push(() => resolve(response)));
+  };
+  process.env.HOME = tmpHome;
+  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
+  try {
+    await pi.commands.get("usemodel").handler("", ctx);
+
+    assert.equal(selectCalls.length, 1, "the selector opened without awaiting any fetch");
+    assert.ok(selectCalls[0].options.some((option) => option === "opencode/big-pickle"), "cached Zen model is listed instantly");
+    assert.ok(notifications.some((n) => n.level === "info" && /synced 1 free Zen models \(cache\)/.test(n.message)));
+
+    // The mocked fetch never resolves on its own, so the handler having already
+    // returned proves the sync runs detached in the background.
+    const fetchDeadline = Date.now() + 2_000;
+    while (pendingFetches.length === 0 && Date.now() < fetchDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    assert.ok(pendingFetches.length >= 1, "the live Zen sync is pending in the background");
+
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+      const flush = pendingFetches.splice(0);
+      for (const release of flush) release();
+      if (notifications.some((n) => /in the background/.test(n.message))) break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.ok(
+      notifications.some((n) => n.level === "info" && /synced 1 free Zen models in the background/.test(n.message)),
+      "the background sync toasts once the fresh catalog lands",
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
 

@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildModelOptions, parseModelManifest, type ModelEntry } from "./model-switch.ts";
-import { ensureZenProvider } from "./opencode-zen.ts";
+import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
 
 // Mirror of AGENTUI_PREFS_GLOBAL_KEY in plugin/pi-agent/agentui-prefs.ts — keep in sync.
 const AGENTUI_PREFS_GLOBAL_KEY = "axumAgentUiModelPrefs";
@@ -260,10 +260,13 @@ async function readJsonFile(file: string): Promise<Record<string, unknown>> {
 	}
 }
 
-/** Same model manifest source as /usemodel: live opencode Zen sync + ~/.pi/agent/models.json. */
+/** Same model manifest source as /usemodel: on-disk opencode Zen catalog + ~/.pi/agent/models.json. */
 async function loadModelEntries(agentDir: string): Promise<ModelEntry[]> {
 	try {
-		await ensureZenProvider(agentDir); // best-effort, identical to /usemodel; failures must not block the panel
+		// Network-free local merge so the panel never waits on a sync; a stale
+		// catalog triggers a silent background refresh for the next open.
+		const local = await ensureZenProviderLocal(agentDir);
+		if (local.needsLiveRefresh) void refreshZenProviderLive(agentDir).catch(() => {});
 	} catch {
 		// Fall through to the on-disk manifest below.
 	}
