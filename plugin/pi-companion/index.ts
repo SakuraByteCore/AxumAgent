@@ -1439,6 +1439,11 @@ pi.registerCommand("claude", {
 
 	// ── /ctx: show or set the current model's contextWindow in place. ──
 
+	// pi-bar listens for this on the shared event bus and recomputes its
+	// context pills immediately: /ctx writes model.contextWindow in place,
+	// which fires no pi lifecycle event, so the bar would otherwise lag a turn.
+	const CONTEXT_CHANGED_EVENT = "pi-companion:context-changed";
+
 	const parseContextWindowArg = (raw: string): number | null => {
 		if (!/^\d+$/.test(raw)) return null;
 		const value = Number(raw);
@@ -1483,6 +1488,7 @@ pi.registerCommand("claude", {
 			// in-place write applies instantly to every live reader (context metering,
 			// compaction threshold, overflow checks) without a setModel round-trip.
 			model.contextWindow = next;
+		pi.events.emit(CONTEXT_CHANGED_EVENT);
 			const modelsPath = join(modelSwitchAgentDir(), "models.json");
 			try {
 				const config = await readJsonObject(modelsPath);

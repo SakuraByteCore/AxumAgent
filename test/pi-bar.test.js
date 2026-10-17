@@ -26,7 +26,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /suffix:\s*`\$\{pct\}%`/);
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
-  assert.match(contextBlock, /id: "context-tokens", text: fmtTokens\(u\.tokens\)/);
+  assert.match(contextBlock, /id: "context-tokens", text: `\$\{fmtTokens\(u\.tokens\)\}\/\$\{windowText\}`/);
   assert.match(statuslineSource, /left: \["git-branch", "thinking", "tps", "context-tokens", "context-usage"\]/);
   assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
@@ -34,6 +34,27 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.doesNotMatch(statuslineSource, /const GAUGE_EMPTY/);
   assert.match(statuslineSource, /const GAUGE_WARN_PCT = 50;/);
   assert.match(statuslineSource, /const GAUGE_HOT_PCT = 75;/);
+});
+
+test("context-tokens shows used/window with no 0k placeholder", () => {
+  const contextBlock = statuslineSource.match(/function emitContext[\s\S]*?\n\t}/)?.[0] ?? "";
+  // Dual value: used tokens over the live contextWindow (e.g. "12k/200k").
+  assert.match(contextBlock, /const windowText = fmtTokens\(u\.contextWindow\);/);
+  assert.match(contextBlock, /text: `\$\{fmtTokens\(u\.tokens\)\}\/\$\{windowText\}`/);
+  // Before the first request the pill carries the Context length alone.
+  assert.match(contextBlock, /if \(u\.tokens == null\) \{[\s\S]*?text: windowText/);
+  assert.doesNotMatch(contextBlock, /fmtTokens\(0\)/);
+  // No model -> no window either: the pill is cleared, not a fake 0.0k.
+  assert.match(contextBlock, /if \(!u\) \{[\s\S]*?id: "context-tokens", text: undefined/);
+});
+
+test("context pills refresh on /ctx changes and model switches without waiting a turn", () => {
+  // pi-companion's /ctx announces the in-place window rewrite on the shared
+  // bus; pi-bar listens and recomputes within the same command tick.
+  assert.match(statuslineSource, /pi\.events\.on\("pi-companion:context-changed", \(\) => \{/);
+  assert.match(statuslineSource, /pi-companion:context-changed"[\s\S]*?if \(currentCtx\) emitContext\(currentCtx\);/);
+  // model_select recomputes the context pills too: the window can differ per model.
+  assert.match(statuslineSource, /pi\.on\("model_select", async \(_event, ctx\) => \{[\s\S]*?emitContext\(ctx\);/);
 });
 
 test("suffix-only statusline segments stay visible", () => {

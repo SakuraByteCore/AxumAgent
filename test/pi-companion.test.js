@@ -1291,6 +1291,7 @@ test("/ctx sets the session model in place and persists to models.json", withTem
   assert.equal(modelsJson.providers.maxx.models[0].contextWindow, 200000);
   assert.ok(notifications.some((n) => n.level === "info" && /328000 → 200000 \(saved to models\.json\)/.test(n.message)));
   assert.ok(!fs.existsSync(path.join(agentDir, "models.json.tmp")), "atomic rename must not leave a temp file behind");
+  assert.ok(pi.emitted.some((e) => e.event === "pi-companion:context-changed"), "/ctx must announce the change so pi-bar refreshes immediately");
 }));
 
 test("/ctx rejects non-positive or non-integer input without touching state", withTempCtxHome("pi-companion-ctx-invalid-", async (agentDir) => {
@@ -1310,6 +1311,7 @@ test("/ctx rejects non-positive or non-integer input without touching state", wi
   assert.equal(ctx.model.contextWindow, 328000, "session model must stay untouched");
   assert.equal(fs.readFileSync(modelsPath, "utf8"), before, "models.json must stay untouched");
   assert.equal(notifications.filter((n) => n.level === "warning" && /Invalid contextWindow/.test(n.message)).length, 4);
+  assert.ok(!pi.emitted.some((e) => e.event === "pi-companion:context-changed"), "rejected input must not fire the change event");
 }));
 
 test("/ctx applies session-only when the model is absent from models.json", withTempCtxHome("pi-companion-ctx-unpersisted-", async (agentDir) => {
@@ -1326,6 +1328,7 @@ test("/ctx applies session-only when the model is absent from models.json", with
   const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
   assert.ok(!modelsJson.providers.builtin, "nothing must be persisted for unknown models");
   assert.ok(notifications.some((n) => n.level === "info" && /nothing persisted/.test(n.message)));
+  assert.ok(pi.emitted.some((e) => e.event === "pi-companion:context-changed"), "session-only writes still fire the change event");
 }));
 
 // ── opencode-zen: OpenCode Zen dynamic provider sync ──────────────────────

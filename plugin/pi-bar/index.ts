@@ -1722,9 +1722,18 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitContext(ctx: ExtensionContext): void {
 		const u = ctx.getContextUsage();
-		if (!u || u.tokens == null) {
+		if (!u) {
 			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
-			pi.events.emit("pi-bar:update", { id: "context-tokens", text: fmtTokens(0) });
+			pi.events.emit("pi-bar:update", { id: "context-tokens", text: undefined });
+			return;
+		}
+		// The window half is always visible ("used/window"). Before the first
+		// request tokens are unknown, so the pill shows the Context length
+		// alone instead of the old "0.0k" placeholder.
+		const windowText = fmtTokens(u.contextWindow);
+		if (u.tokens == null) {
+			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
+			pi.events.emit("pi-bar:update", { id: "context-tokens", text: windowText });
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
@@ -1735,7 +1744,7 @@ export default function (pi: ExtensionAPI): void {
 			bar: pct,
 			color: thresholdColor(pct),
 		});
-		pi.events.emit("pi-bar:update", { id: "context-tokens", text: fmtTokens(u.tokens) });
+		pi.events.emit("pi-bar:update", { id: "context-tokens", text: `${fmtTokens(u.tokens)}/${windowText}` });
 	}
 
 	function emitModel(ctx: ExtensionContext): void {
@@ -1810,6 +1819,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("model_select", async (_event, ctx) => {
 		emitModel(ctx);
 		emitThinking(ctx);
+		emitContext(ctx);
 	});
 
 	pi.on("thinking_level_select", async (_event, ctx) => {
@@ -1863,4 +1873,10 @@ export default function (pi: ExtensionAPI): void {
 	const flush = (): void => flushIfDirty();
 	pi.events.on("pi-bar:update", flush);
 	pi.events.on("pi-bar:register-segment", flush);
+	// pi-companion's /ctx rewrites model.contextWindow in place — no setModel,
+	// no lifecycle event — so it announces the change on the shared bus; the
+	// bar recomputes its context pills within the same command tick.
+	pi.events.on("pi-companion:context-changed", () => {
+		if (currentCtx) emitContext(currentCtx);
+	});
 }
