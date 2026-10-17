@@ -1236,6 +1236,98 @@ test("/usemodel surfaces registry reload failures instead of silently proceeding
   }
 });
 
+// ── /ctx ───────────────────────────────────────────────────────────────────
+
+function createCtxCommandContext({ currentModel } = {}) {
+  const notifications = [];
+  const ctx = {
+    model: currentModel,
+    ui: {
+      notify(message, level) { notifications.push({ message, level }); },
+    },
+    cwd: process.cwd(),
+  };
+  return { ctx, notifications };
+}
+
+function withTempCtxHome(prefix, fn) {
+  return async () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+    const agentDir = path.join(tmpHome, ".pi", "agent");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const previousHome = process.env.HOME;
+    process.env.HOME = tmpHome;
+    try {
+      await fn(agentDir);
+    } finally {
+      if (previousHome === undefined) delete process.env.HOME;
+      else process.env.HOME = previousHome;
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  };
+}
+
+test("/ctx without arguments reports the current model and contextWindow", withTempCtxHome("pi-companion-ctx-show-", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createCtxCommandContext({
+    currentModel: { provider: "maxx", id: "grok-4.6", contextWindow: 328000 },
+  });
+  await pi.commands.get("ctx").handler("", ctx);
+  assert.ok(notifications.some((n) => n.level === "info" && /maxx\/grok-4\.6: contextWindow = 328000/.test(n.message)));
+}));
+
+test("/ctx sets the session model in place and persists to models.json", withTempCtxHome("pi-companion-ctx-set-", async (agentDir) => {
+  const pi = createPi();
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { maxx: { models: [{ id: "grok-4.6", contextWindow: 328000, default: true }] } },
+  }), "utf8");
+  const { ctx, notifications } = createCtxCommandContext({
+    currentModel: { provider: "maxx", id: "grok-4.6", contextWindow: 328000 },
+  });
+  await pi.commands.get("ctx").handler(" 200000 ", ctx);
+
+  assert.equal(ctx.model.contextWindow, 200000, "session model must update in place");
+  const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+  assert.equal(modelsJson.providers.maxx.models[0].contextWindow, 200000);
+  assert.ok(notifications.some((n) => n.level === "info" && /328000 → 200000 \(saved to models\.json\)/.test(n.message)));
+  assert.ok(!fs.existsSync(path.join(agentDir, "models.json.tmp")), "atomic rename must not leave a temp file behind");
+}));
+
+test("/ctx rejects non-positive or non-integer input without touching state", withTempCtxHome("pi-companion-ctx-invalid-", async (agentDir) => {
+  const pi = createPi();
+  const modelsPath = path.join(agentDir, "models.json");
+  fs.writeFileSync(modelsPath, JSON.stringify({
+    providers: { maxx: { models: [{ id: "grok-4.6", contextWindow: 328000 }] } },
+  }), "utf8");
+  const before = fs.readFileSync(modelsPath, "utf8");
+  const { ctx, notifications } = createCtxCommandContext({
+    currentModel: { provider: "maxx", id: "grok-4.6", contextWindow: 328000 },
+  });
+
+  for (const bad of ["abc", "0", "-5", "12.5"]) {
+    await pi.commands.get("ctx").handler(bad, ctx);
+  }
+  assert.equal(ctx.model.contextWindow, 328000, "session model must stay untouched");
+  assert.equal(fs.readFileSync(modelsPath, "utf8"), before, "models.json must stay untouched");
+  assert.equal(notifications.filter((n) => n.level === "warning" && /Invalid contextWindow/.test(n.message)).length, 4);
+}));
+
+test("/ctx applies session-only when the model is absent from models.json", withTempCtxHome("pi-companion-ctx-unpersisted-", async (agentDir) => {
+  const pi = createPi();
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
+    providers: { other: { models: [{ id: "unrelated" }] } },
+  }), "utf8");
+  const { ctx, notifications } = createCtxCommandContext({
+    currentModel: { provider: "builtin", id: "mystery", contextWindow: 128000 },
+  });
+  await pi.commands.get("ctx").handler("64000", ctx);
+
+  assert.equal(ctx.model.contextWindow, 64000);
+  const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+  assert.ok(!modelsJson.providers.builtin, "nothing must be persisted for unknown models");
+  assert.ok(notifications.some((n) => n.level === "info" && /nothing persisted/.test(n.message)));
+}));
+
 // ── opencode-zen: OpenCode Zen dynamic provider sync ──────────────────────
 
 test("canonicalSessionID encodes gateway-valid session ids", () => {

@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, ExtensionUIDialogOptions } from "@earendil-works/pi-coding-agent";
 import { fileURLToPath } from "node:url";
-import { access, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
@@ -1434,6 +1434,75 @@ pi.registerCommand("claude", {
 			}
 
 			ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} and persisted as default.`, "info");
+		},
+	});
+
+	// ── /ctx: show or set the current model's contextWindow in place. ──
+
+	const parseContextWindowArg = (raw: string): number | null => {
+		if (!/^\d+$/.test(raw)) return null;
+		const value = Number(raw);
+		return Number.isSafeInteger(value) && value > 0 ? value : null;
+	};
+
+	const findPersistedModelEntry = (
+		config: Record<string, unknown>,
+		provider: string,
+		modelId: string,
+	): Record<string, unknown> | null => {
+		const providers = config.providers;
+		if (!isRecord(providers)) return null;
+		const providerBlock = providers[provider];
+		if (!isRecord(providerBlock) || !Array.isArray(providerBlock.models)) return null;
+		const entry = providerBlock.models.find((m) => isRecord(m) && m.id === modelId);
+		return isRecord(entry) ? entry : null;
+	};
+
+	pi.registerCommand("ctx", {
+		description:
+			"Show or set the current model's contextWindow (applies instantly, persisted to models.json): /ctx <positive integer>",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			const model = ctx.model;
+			if (!model) {
+				ctx.ui.notify("No current model in this session.", "warning");
+				return;
+			}
+			const raw = args.trim();
+			const current = model.contextWindow;
+			if (!raw) {
+				ctx.ui.notify(`${model.provider}/${model.id}: contextWindow = ${current}`, "info");
+				return;
+			}
+			const next = parseContextWindowArg(raw);
+			if (next === null) {
+				ctx.ui.notify(`Invalid contextWindow "${raw}" — expected a positive integer. Usage: /ctx <positive integer>`, "warning");
+				return;
+			}
+			// ctx.model is the very object stored in agent.state.model, so the
+			// in-place write applies instantly to every live reader (context metering,
+			// compaction threshold, overflow checks) without a setModel round-trip.
+			model.contextWindow = next;
+			const modelsPath = join(modelSwitchAgentDir(), "models.json");
+			try {
+				const config = await readJsonObject(modelsPath);
+				const entry = findPersistedModelEntry(config, model.provider, model.id);
+				if (!entry) {
+					ctx.ui.notify(
+						`${model.provider}/${model.id}: contextWindow ${current} → ${next} for this session (model not defined in models.json — nothing persisted).`,
+						"info",
+					);
+					return;
+				}
+				entry.contextWindow = next;
+				const tmpPath = `${modelsPath}.tmp`;
+				await writeFile(tmpPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+				await rename(tmpPath, modelsPath);
+				ctx.ui.notify(`${model.provider}/${model.id}: contextWindow ${current} → ${next} (saved to models.json).`, "info");
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`contextWindow ${current} → ${next} applied to this session, but persisting to models.json failed: ${message}`, "warning");
+			}
 		},
 	});
 

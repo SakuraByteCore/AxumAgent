@@ -38,12 +38,12 @@ test("provider web fetches models and saves default config", async () => {
     const saveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock", contextWindow: 256000, maxTokens: 64000, reasoningEffort: "medium" }),
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock", maxTokens: 64000, reasoningEffort: "medium" }),
     });
     assert.equal(saveRes.status, 200);
     const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
     assert.equal(modelsJson.providers.localmock.models[0].id, "mock-b");
-    assert.equal(modelsJson.providers.localmock.models[0].contextWindow, 256000);
+    assert.equal(modelsJson.providers.localmock.models[0].contextWindow, 128000);
     assert.equal(modelsJson.providers.localmock.models[0].maxTokens, 64000);
     assert.equal(modelsJson.providers.localmock.models[0].reasoning, true);
     assert.deepEqual(modelsJson.providers.localmock.models[0].thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
@@ -58,14 +58,14 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(configJson.defaultModel, "mock-b");
     assert.equal(configJson.defaultThinkingLevel, "medium");
     assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
-    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 256000, maxTokens: 64000, reasoning: true, default: true }]);
+    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 128000, maxTokens: 64000, reasoning: true, default: true }]);
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 
     const defaultHighSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", originalName: "localmock", contextWindow: 128000, maxTokens: 32000 }),
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", originalName: "localmock", maxTokens: 32000 }),
     });
     assert.equal(defaultHighSaveRes.status, 200);
     const defaultHighSettingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
@@ -102,10 +102,10 @@ test("provider web fetches models and saves default config", async () => {
     const invalidTokenSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", contextWindow: 0, maxTokens: 32000 }),
+      body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", maxTokens: 0 }),
     });
     assert.equal(invalidTokenSaveRes.status, 400);
-    assert.match((await invalidTokenSaveRes.json()).error, /Context window must be a positive number/);
+    assert.match((await invalidTokenSaveRes.json()).error, /Max output tokens must be a positive number/);
 
     const blankSaveRes = await fetch(`${base}/api/save?token=${token}`, {
       method: "POST",
@@ -173,7 +173,6 @@ test("provider web saves multiple models with a default marker", async () => {
           { id: "mock-b", default: true },
         ],
         defaultModel: "mock-b",
-        contextWindow: 128000,
         maxTokens: 32000,
         reasoningEffort: "medium",
       }),
@@ -199,6 +198,76 @@ test("provider web saves multiple models with a default marker", async () => {
     assert.deepEqual(configJson.providers[0].models, ["mock-a", "mock-b"]);
     assert.deepEqual(configJson.providers[0].modelConfigs.map((m) => m.id), ["mock-a", "mock-b"]);
     assert.deepEqual(configJson.providers[0].modelConfigs.map((m) => m.default), [false, true]);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => mock.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
+});
+
+test("provider web edit preserves each model's on-disk contextWindow", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-keepctx-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+
+  const mock = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/v1/models") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ data: [{ id: "mock-a" }, { id: "mock-b" }] }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  await new Promise((resolve) => mock.listen(0, "127.0.0.1", resolve));
+  const mockPort = mock.address().port;
+
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const token = new URL(url).searchParams.get("token");
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const modelsFile = path.join(agentDir, "models.json");
+
+    const createRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+        apiKey: "test-key",
+        name: "keepctx",
+        models: [{ id: "mock-a" }, { id: "mock-b", default: true }],
+        maxTokens: 32000,
+        reasoningEffort: "high",
+      }),
+    });
+    assert.equal(createRes.status, 200);
+    // brand-new provider: models fall back to the built-in default window
+    let modelsJson = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    assert.equal(modelsJson.providers.keepctx.models[0].contextWindow, 128000);
+
+    // simulate a contextWindow tuned later via /ctx
+    modelsJson.providers.keepctx.models[1].contextWindow = 999000;
+    fs.writeFileSync(modelsFile, JSON.stringify(modelsJson, null, 2), "utf8");
+
+    // re-saving the same provider (the payload carries no contextWindow) must not reset it
+    const editRes = await fetch(`${base}/api/save?token=${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        baseUrl: `http://127.0.0.1:${mockPort}/v1`,
+        apiKey: "test-key",
+        name: "keepctx",
+        originalName: "keepctx",
+        models: [{ id: "mock-a" }, { id: "mock-b", default: true }],
+        maxTokens: 32000,
+        reasoningEffort: "high",
+      }),
+    });
+    assert.equal(editRes.status, 200);
+    modelsJson = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    const saved = modelsJson.providers.keepctx.models;
+    assert.equal(saved.find((m) => m.id === "mock-a").contextWindow, 128000);
+    assert.equal(saved.find((m) => m.id === "mock-b").contextWindow, 999000);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => mock.close(resolve));
@@ -358,7 +427,6 @@ test("provider web exposes new-provider entry and keeps both providers after a s
       name: "firstmock",
       models: [{ id: "mock-a", default: true }],
       defaultModel: "mock-a",
-      contextWindow: 128000,
       maxTokens: 32000,
       reasoningEffort: "high",
     };
@@ -560,7 +628,6 @@ test("provider web saves the selected API form and refuses model listing for nat
         name: "anthropic-native",
         models: [{ id: "claude-sonnet-5", default: true }],
         defaultModel: "claude-sonnet-5",
-        contextWindow: 1000000,
         maxTokens: 128000,
         reasoningEffort: "high",
       }),
@@ -679,12 +746,16 @@ test("provider web clones a provider under a fresh name without touching the sou
         apiKey: "test-key",
         name: "alpha",
         models: [{ id: "claude-sonnet-5", default: true }],
-        contextWindow: 1000000,
         maxTokens: 128000,
         reasoningEffort: "high",
       }),
     });
     assert.equal(saveRes.status, 200);
+
+    // simulate a contextWindow tuned later (e.g. via /ctx), then verify the clone keeps it
+    const tuned = JSON.parse(fs.readFileSync(modelsFile, "utf8"));
+    tuned.providers.alpha.models[0].contextWindow = 1000000;
+    fs.writeFileSync(modelsFile, JSON.stringify(tuned, null, 2), "utf8");
 
     const pageRes = await fetch(`${base}/?token=${token}`);
     const pageHtml = await pageRes.text();
