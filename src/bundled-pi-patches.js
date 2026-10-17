@@ -42,6 +42,8 @@ const PI_ASSISTANT_ERROR_DEDUP_MARKER = "AXUM_PI_ASSISTANT_ERROR_DEDUP";
 const PI_ASSISTANT_CONNECTION_DISPLAY_MARKER = "AXUM_PI_ASSISTANT_CONNECTION_DISPLAY";
 const PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER = "AXUM_PI_INTERACTIVE_CONNECTION_DISPLAY";
 const PI_USER_AGENT_CUSTOM_MARKER = "AXUM_PI_USER_AGENT_CUSTOM";
+const PI_SESSION_LAST_USER_MESSAGE_MARKER = "AXUM_PI_SESSION_LAST_USER_MESSAGE";
+const PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER = "AXUM_PI_SESSION_SELECTOR_LAST_USER_PREVIEW";
 // Strict 429 shape: only an error message that *starts* with the HTTP status
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
@@ -1890,6 +1892,107 @@ function patchPiAiUserAgent(content) {
   return content.replace(needle, replacement);
 }
 
+// The /resume list builds its rows from buildSessionInfo, which only records
+// the session's opening line. For long-running chats that line is stale, so
+// collect the latest user message during the same streaming pass (zero extra
+// I/O) and expose it as lastUserMessage on the session info objects.
+function patchPiSessionLastUserMessage(content) {
+  if (content.includes(PI_SESSION_LAST_USER_MESSAGE_MARKER)) return content;
+
+  const declaresNeedle = '        let firstMessage = "";';
+  const collectNeedle = [
+    '            if (!firstMessage && message.role === "user") {',
+    "                firstMessage = textContent;",
+    "            }",
+  ].join("\n");
+  const returnNeedle = '            firstMessage: firstMessage || "(no messages)",';
+  if (!content.includes(declaresNeedle) || !content.includes(collectNeedle) || !content.includes(returnNeedle)) {
+    // Upstream may restructure buildSessionInfo in a future release. The
+    // last-user-message field is a UX need, not a correctness one, so skip
+    // instead of hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  let patched = content.replace(
+    declaresNeedle,
+    `${declaresNeedle}\n        let lastUserMessage = ""; // ${PI_SESSION_LAST_USER_MESSAGE_MARKER}`,
+  );
+  patched = patched.replace(
+    collectNeedle,
+    [
+      collectNeedle,
+      '            if (message.role === "user") {',
+      "                lastUserMessage = textContent;",
+      "            }",
+    ].join("\n"),
+  );
+  patched = patched.replace(
+    returnNeedle,
+    `${returnNeedle}\n            lastUserMessage: lastUserMessage || undefined,`,
+  );
+  return patched;
+}
+
+// /resume rows fall back to each session's first user message and offer no way
+// to see what a session was actually about without opening it. Show
+// name ?? lastUserMessage ?? firstMessage in rows, and render a muted
+// multi-line preview of the selected session's latest user message under the
+// list. The preview recomputes on every render, so it follows the cursor as
+// the user moves with arrow keys (the "hover to inspect" equivalent on a
+// touch terminal, where true hover events do not exist).
+function patchPiSessionSelectorLastUserPreview(content) {
+  if (content.includes(PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER)) return content;
+
+  const importNeedle = 'import { Container, getKeybindings, Input, Spacer, Text, truncateToWidth, visibleWidth, } from "@earendil-works/pi-tui";';
+  const displayNeedle = "            const displayText = session.name ?? session.firstMessage;";
+  const scrollNeedle = [
+    "            lines.push(scrollInfo);",
+    "        }",
+    "        return lines;",
+  ].join("\n");
+  if (!content.includes(importNeedle) || !content.includes(displayNeedle) || !content.includes(scrollNeedle)) {
+    // Upstream may restructure the session selector in a future release. The
+    // preview pane is a UX need, not a correctness one, so skip instead of
+    // hard-failing startup when the block shape changes.
+    return content;
+  }
+
+  let patched = content.replace(
+    importNeedle,
+    'import { Container, getKeybindings, Input, Spacer, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, } from "@earendil-works/pi-tui";',
+  );
+  patched = patched.replace(
+    displayNeedle,
+    "            const displayText = session.name ?? session.lastUserMessage ?? session.firstMessage;",
+  );
+  patched = patched.replace(
+    scrollNeedle,
+    [
+      "            lines.push(scrollInfo);",
+      "        }",
+      `        // ${PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER}: preview the selected`,
+      "        // session's latest user message below the list so scanning rows",
+      "        // reveals the most recent request without opening the session.",
+      "        const previewSession = this.filteredSessions[this.selectedIndex]?.session;",
+      "        const previewText = previewSession?.lastUserMessage;",
+      "        if (previewText) {",
+      '            lines.push("");',
+      "            const maxPreviewLines = 6;",
+      '            const normalizedPreview = previewText.replace(/[\\x00-\\x1f\\x7f]/g, " ").trim();',
+      "            const previewLines = wrapTextWithAnsi(normalizedPreview, Math.max(20, width - 2));",
+      "            for (const previewLine of previewLines.slice(0, maxPreviewLines)) {",
+      '                lines.push(theme.fg("muted", truncateToWidth("  " + previewLine, width)));',
+      "            }",
+      "            if (previewLines.length > maxPreviewLines) {",
+      '                lines.push(theme.fg("muted", "  …"));',
+      "            }",
+      "        }",
+      "        return lines;",
+    ].join("\n"),
+  );
+  return patched;
+}
+
 function patchFileInPlace(filePath, ...patchers) {
   const original = fs.readFileSync(filePath, "utf8");
   const patched = patchers.reduce((content, apply) => apply(content), original);
@@ -1964,6 +2067,17 @@ export function applyBundledPiPatches(options) {
     ? patchFileInPlace(settingsManagerPath, patchPiSettingsRetryFixedDelay)
     : { patched: false, file: settingsManagerPath });
 
+  // /resume rows + preview: surface each session's latest user message.
+  // Soft-guarded: upstream layout drift skips the patch instead of failing.
+  const sessionManagerPath = path.join(piRoot, "dist", "core", "session-manager.js");
+  if (fs.existsSync(sessionManagerPath)) {
+    results.push(patchFileInPlace(sessionManagerPath, patchPiSessionLastUserMessage));
+  }
+  const sessionSelectorPath = path.join(piRoot, "dist", "modes", "interactive", "components", "session-selector.js");
+  if (fs.existsSync(sessionSelectorPath)) {
+    results.push(patchFileInPlace(sessionSelectorPath, patchPiSessionSelectorLastUserPreview));
+  }
+
   const interactiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   if (fs.existsSync(interactiveModePath)) {
     results.push(patchFileInPlace(interactiveModePath, patchPiInteractiveRateLimitDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, patchPiInteractiveSelectorPreselect));
@@ -2018,4 +2132,4 @@ export function applyBundledPiPatches(options) {
 
   return results;
 }
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAiInterruptedRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAiInterruptedRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER, patchPiSessionLastUserMessage, PI_SESSION_LAST_USER_MESSAGE_MARKER, patchPiSessionSelectorLastUserPreview, PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER };

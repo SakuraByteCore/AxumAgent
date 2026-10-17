@@ -33,6 +33,10 @@ import {
   patchPiAiUserAgent,
   PI_USER_AGENT_CUSTOM_MARKER,
   patchPiLoadedSkillsExtensionsHide,
+  patchPiSessionLastUserMessage,
+  PI_SESSION_LAST_USER_MESSAGE_MARKER,
+  patchPiSessionSelectorLastUserPreview,
+  PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER,
 } from "../src/bundled-pi-patches.js";
 
 test("429 pattern matches strict provider throttle shapes only", () => {
@@ -646,4 +650,64 @@ test("patchPiLoadedSkillsExtensionsHide moves Context/Skills/Extensions into the
 
 test("patchPiLoadedSkillsExtensionsHide skips upstream content that drifted from the 0.99.2 shape", () => {
   assert.equal(patchPiLoadedSkillsExtensionsHide("const whatever = 1;"), "const whatever = 1;");
+});
+
+test("patchPiSessionLastUserMessage collects the latest user message and is idempotent", () => {
+  const content = [
+    "async function buildSessionInfo(filePath, signal, fileStats) {",
+    "    try {",
+    '        let firstMessage = "";',
+    '            if (!firstMessage && message.role === "user") {',
+    "                firstMessage = textContent;",
+    "            }",
+    "        return {",
+    '            firstMessage: firstMessage || "(no messages)",',
+    "        };",
+    "    }",
+    "}",
+    "",
+  ].join("\n");
+  const once = patchPiSessionLastUserMessage(content);
+  assert.ok(once.includes(PI_SESSION_LAST_USER_MESSAGE_MARKER));
+  assert.ok(once.includes('let lastUserMessage = "";'));
+  assert.ok(once.includes('if (message.role === "user") {\n                lastUserMessage = textContent;\n            }'));
+  assert.ok(once.includes("lastUserMessage: lastUserMessage || undefined,"));
+  assert.equal(once.includes('let lastUserMessage = "";'), true);
+  const twice = patchPiSessionLastUserMessage(once);
+  assert.equal(twice, once);
+});
+
+test("patchPiSessionLastUserMessage skips upstream content that drifted", () => {
+  const content = 'async function buildSessionInfo() {\n        let msg = "";\n}';
+  assert.equal(patchPiSessionLastUserMessage(content), content);
+});
+
+test("patchPiSessionSelectorLastUserPreview wires rows to the latest user message and adds the preview pane", () => {
+  const content = [
+    'import { Container, getKeybindings, Input, Spacer, Text, truncateToWidth, visibleWidth, } from "@earendil-works/pi-tui";',
+    "    render(width) {",
+    "        const lines = [];",
+    "            const displayText = session.name ?? session.firstMessage;",
+    "        if (startIndex > 0 || endIndex < this.filteredSessions.length) {",
+    "            lines.push(scrollInfo);",
+    "        }",
+    "        return lines;",
+    "    }",
+    "",
+  ].join("\n");
+  const once = patchPiSessionSelectorLastUserPreview(content);
+  assert.ok(once.includes(PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER));
+  assert.ok(once.includes('wrapTextWithAnsi, } from "@earendil-works/pi-tui";'));
+  assert.ok(once.includes("const displayText = session.name ?? session.lastUserMessage ?? session.firstMessage;"));
+  assert.ok(once.includes("const previewSession = this.filteredSessions[this.selectedIndex]?.session;"));
+  assert.ok(once.includes("const previewText = previewSession?.lastUserMessage;"));
+  assert.ok(once.includes("previewLines.slice(0, maxPreviewLines)"));
+  assert.ok(once.includes("previewLines.length > maxPreviewLines"));
+  const twice = patchPiSessionSelectorLastUserPreview(once);
+  assert.equal(twice, once);
+});
+
+test("patchPiSessionSelectorLastUserPreview skips upstream content that drifted", () => {
+  const content = 'import { Text } from "@earendil-works/pi-tui";\n';
+  assert.equal(patchPiSessionSelectorLastUserPreview(content), content);
 });
