@@ -200,7 +200,31 @@ function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, co
 
 // ── Auto-Compact ────────────────────────────────────────────────────────────
 
-const COMPACT_THRESHOLD = 80;
+const COMPACT_THRESHOLD_DEFAULT = 80;
+const COMPACT_THRESHOLD_MIN = 1;
+const COMPACT_THRESHOLD_MAX = 99;
+const COMPACT_CONFIG_DIR = () => join(homedir(), ".pi", "agent", "extensions", "pi-companion");
+let compactThreshold = COMPACT_THRESHOLD_DEFAULT;
+
+async function loadPersistedCompactThreshold(): Promise<number | null> {
+	try {
+		const parsed = JSON.parse(await readFile(join(COMPACT_CONFIG_DIR(), "config.json"), "utf8")) as { compactThreshold?: unknown };
+		const value = parsed?.compactThreshold;
+		return typeof value === "number" && Number.isInteger(value)
+			&& value >= COMPACT_THRESHOLD_MIN && value <= COMPACT_THRESHOLD_MAX ? value : null;
+	} catch {
+		// Missing or unreadable config file: keep the built-in default.
+		return null;
+	}
+}
+
+async function persistCompactThreshold(value: number): Promise<void> {
+	const configPath = join(COMPACT_CONFIG_DIR(), "config.json");
+	const tmpPath = `${configPath}.tmp`;
+	await mkdir(dirname(configPath), { recursive: true });
+	await writeFile(tmpPath, `${JSON.stringify({ compactThreshold: value }, null, 2)}\n`, "utf8");
+	await rename(tmpPath, configPath);
+}
 const COMPACT_COOLDOWN_MS = 30_000;
 const COMPACT_PROOF_TIMEOUT_MS = 300_000;
 function compactCooldownMs(): number {
@@ -321,7 +345,7 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionContext): Promise<boolean> {
 	const pct = compactUsagePercent(ctx);
 	if (pct == null) return false;
-	if (pct < COMPACT_THRESHOLD) {
+	if (pct < compactThreshold) {
 		compactDeferred = false;
 		return false;
 	}
@@ -352,7 +376,7 @@ async function tryDeferredCompact(pi: ExtensionAPI, ctx: ExtensionContext): Prom
 	if (!compactDeferred) return;
 	const pct = compactUsagePercent(ctx);
 	if (pct == null) return;
-	if (pct < COMPACT_THRESHOLD) {
+	if (pct < compactThreshold) {
 		compactDeferred = false;
 		return;
 	}
@@ -1016,6 +1040,10 @@ export default function (pi: ExtensionAPI): void {
 	let lastAssistantAlreadyHandled = false;
 	const lastConfigError: { value?: string } = {};
 
+	void loadPersistedCompactThreshold().then((value) => {
+		if (value !== null) compactThreshold = value;
+	});
+
 	interface RalphState {
 		prompt: string;
 		commitRequested: boolean;
@@ -1508,6 +1536,39 @@ pi.registerCommand("claude", {
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`contextWindow ${current} → ${next} applied to this session, but persisting to models.json failed: ${message}`, "warning");
+			}
+		},
+	});
+
+	// ── /cthreshold: show or set the auto-compact threshold (1-99, persisted). ──
+
+	pi.registerCommand("cthreshold", {
+		description:
+			"Show or set the auto-compact context threshold in percent, 1-99 (applies instantly, persisted): /cthreshold <1-99>",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			const raw = args.trim();
+			if (!raw) {
+				ctx.ui.notify(`Auto-compact threshold: ${compactThreshold}% (default ${COMPACT_THRESHOLD_DEFAULT}%).`, "info");
+				return;
+			}
+			if (!/^\d+$/.test(raw)) {
+				ctx.ui.notify(`Invalid threshold "${raw}" — expected an integer between 1 and 99. Usage: /cthreshold <1-99>`, "warning");
+				return;
+			}
+			const next = Number(raw);
+			if (next < COMPACT_THRESHOLD_MIN || next > COMPACT_THRESHOLD_MAX) {
+				ctx.ui.notify(`Threshold ${next} out of range — expected 1-99. Auto-compact stays enabled; use /compact to compact manually at any time.`, "warning");
+				return;
+			}
+			const current = compactThreshold;
+			compactThreshold = next;
+			try {
+				await persistCompactThreshold(next);
+				ctx.ui.notify(`Auto-compact threshold: ${current}% → ${next}% (saved).`, "info");
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Auto-compact threshold ${current}% → ${next}% applied for this session, but persisting failed: ${message}`, "warning");
 			}
 		},
 	});

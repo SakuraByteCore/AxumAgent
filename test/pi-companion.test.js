@@ -608,7 +608,7 @@ function createCompactContext(overrides = {}) {
     },
     hasPendingMessages() { return false; },
     isIdle() { return true; },
-    getContextUsage() { return { tokens: 85, contextWindow: 100 }; },
+    getContextUsage() { return { tokens: 100, contextWindow: 100 }; },
     compact(options) {
       compactCalls.push(options);
       if (overrides.compactBehavior) {
@@ -679,7 +679,8 @@ test("auto-compact proof arriving after agent_settled still resumes", async () =
 test("auto-compact stays below threshold and respects cooldown", async () => {
   const pi = createPi();
   const { ctx, compactCalls } = createCompactContext();
-  ctx.getContextUsage = () => ({ tokens: 50, contextWindow: 100 });
+  // 0% keeps this hermetic for any persisted threshold in 1-99.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
 
   await emit(pi, "turn_start", {}, ctx);
   assert.equal(compactCalls.length, 0, "below threshold must not compact");
@@ -697,6 +698,49 @@ test("auto-compact stays below threshold and respects cooldown", async () => {
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
   fs.rmSync(hot.ctx.cwd, { recursive: true, force: true });
 });
+
+test("cthreshold shows default, rejects out-of-range, and persists valid values", withBareHome(async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const command = pi.commands.get("cthreshold");
+
+  await command.handler("", ctx);
+  assert.match(notifications.at(-1).message, /threshold: 80% \(default 80%\)/);
+
+  await command.handler("0", ctx);
+  assert.equal(notifications.at(-1).level, "warning");
+  await command.handler("100", ctx);
+  assert.equal(notifications.at(-1).level, "warning");
+  await command.handler("abc", ctx);
+  assert.equal(notifications.at(-1).level, "warning");
+
+  await command.handler("60", ctx);
+  assert.match(notifications.at(-1).message, /80% → 60% \(saved\)/);
+  const configPath = path.join(process.env.HOME, ".pi", "agent", "extensions", "pi-companion", "config.json");
+  assert.equal(JSON.parse(fs.readFileSync(configPath, "utf8")).compactThreshold, 60);
+
+  // Restore the module default so other tests stay independent of this one.
+  await command.handler("80", ctx);
+}));
+
+test("cthreshold loads persisted threshold at extension init", withBareHome(async () => {
+  const agentDir = path.join(process.env.HOME, ".pi", "agent", "extensions", "pi-companion");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "config.json"), JSON.stringify({ compactThreshold: 50 }), "utf8");
+
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+
+  // The loader is fire-and-forget at init; poll until it has applied the value.
+  await waitFor(() => {
+    if (!notifications.some((n) => /threshold: 50%/.test(n.message))) {
+      void pi.commands.get("cthreshold").handler("", ctx);
+    }
+    return notifications.some((n) => /threshold: 50%/.test(n.message));
+  });
+
+  await pi.commands.get("cthreshold").handler("80", ctx);
+}));
 
 test("length stop compacts with ledger via native compaction, retries after proof", async () => {
   const pi = createPi();
