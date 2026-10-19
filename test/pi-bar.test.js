@@ -27,7 +27,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
   assert.match(contextBlock, /id: "context-tokens", text: `\$\{fmtTokens\(u\.tokens\)\}\/\$\{windowText\}`/);
-  assert.match(statuslineSource, /left: \["git-branch", "thinking", "tps", "context-tokens", "context-usage"\]/);
+  assert.match(statuslineSource, /left: \["git-branch", "thinking", "context-tokens", "context-usage"\]/);
   assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
   assert.match(statuslineSource, /const GAUGE_FILL = "\\u25B0";/);
@@ -166,6 +166,13 @@ test("tps segment replaces tokens-down with a live tokens-per-second pill", () =
   assert.match(statuslineSource, /text_delta" \|\| ev\.type === "thinking_delta" \|\| ev\.type === "toolcall_delta"/);
   assert.match(statuslineSource, /emitTpsDelta\(ctx, ev\.delta\);/);
   assert.match(statuslineSource, /\{ id: "tps", text: `\$\{Math\.round\(value\)\} t\/s`/);
+  // The tps pill rides its own aboveEditor widget at the input box's
+  // top-left corner, not the main bar train.
+  assert.match(statuslineSource, /function renderTpsLine\(segs: Map<string, Segment>, settings: Settings, theme: Theme\): string\[\] \{/);
+  assert.match(statuslineSource, /setWidget\(\s*"pi-bar-tps"/);
+  assert.match(statuslineSource, /\{ placement: "aboveEditor" \}/);
+  assert.match(statuslineSource, /split\(s\["left"\], DEFAULTS\.left\.join\(","\)\)\.filter\(\(x\) => x !== "tps"\)/);
+  assert.match(statuslineSource, /ctx\.ui\.setWidget\("pi-bar-tps", undefined\);/);
 });
 test("usage-core, last-tool and git-dirty dead segments purged", () => {
   for (const dead of [
@@ -208,8 +215,9 @@ test("emitThinking shows the current reasoning strength at all times", () => {
 
 test("right-train drops low-priority segments in order when model risks clipping", () => {
  // Goal-driven pruning hides segments from lowest to highest priority until fit.
- // Order: tps < thinking < context-tokens < messages. model is spared.
- assert.match(statuslineSource, /const SACRIFICE_IDS = \[.*tps.*thinking.*context-tokens.*messages/);
+ // Order: thinking < context-tokens < messages. model is spared. tps is
+ // exempt: it lives on its own aboveEditor row, never in the trains.
+ assert.match(statuslineSource, /const SACRIFICE_IDS = \["thinking", "context-tokens", "messages"\] as const;/);
  assert.match(statuslineSource, /function trainNeed\(l: RSeg\[\], r: RSeg\[\]\): number/);
  assert.match(statuslineSource, /for \(const id of SACRIFICE_IDS\)/);
  assert.match(statuslineSource, /left\.splice\(li, 1\)/);

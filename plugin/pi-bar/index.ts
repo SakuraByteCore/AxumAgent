@@ -6,11 +6,13 @@
  * zero native deps, inline settings (no external settings pkg). Segment
  * producers are bundled; no external usage provider is required.
  *
- * The extension registers two independent UI surfaces from one entry point:
+ * The extension registers three independent UI surfaces from one entry point:
  *  - ctx.ui.setHeader(): the sakura cyberdeck ASCII header with cwd /
  *    command cards, shown once per session start and cached by width.
  *  - ctx.ui.setWidget("pi-bar"): the live coralline status bar driven by
  *    the pi-bar:update / pi-bar:register-segment event contract.
+ *  - ctx.ui.setWidget("pi-bar-tps", { placement: "aboveEditor" }): the
+ *    t/s pill on its own row at the input box's top-left corner.
  *
  * Status bar stylistic notes:
  *  - "coralline" barStyle renders each segment as a rounded pill: a dark
@@ -861,7 +863,7 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
-	left: ["git-branch", "thinking", "tps", "context-tokens", "context-usage"],
+	left: ["git-branch", "thinking", "context-tokens", "context-usage"],
 	right: ["messages", "model"],
 	placement: "belowEditor",
 	barWidth: 10,
@@ -892,7 +894,9 @@ function loadSettings(): Settings {
 	const place = (v: string | undefined): "aboveEditor" | "belowEditor" =>
 		v === "aboveEditor" ? "aboveEditor" : "belowEditor";
 	return {
-		left: split(s["left"], DEFAULTS.left.join(",")),
+		// tps is owned by the dedicated aboveEditor widget (pi-bar-tps); strip it
+		// from a user-configured left list so it never renders twice.
+		left: split(s["left"], DEFAULTS.left.join(",")).filter((x) => x !== "tps"),
 		right: split(s["right"], DEFAULTS.right.join(",")),
 		placement: place(s["placement"]),
 		barWidth: num(s["bar-width"], DEFAULTS.barWidth),
@@ -1151,6 +1155,17 @@ export function renderBar(segs: Map<string, Segment>, settings: Settings, theme:
 	return [singleLine];
 }
 
+// Dedicated t/s row: rendered as its own aboveEditor widget so the live
+// tokens-per-second pill reads at the input box's top-left corner instead
+// of riding the main bar train. Same pill styling as the bar (rounded caps
+// both ends since the pill stands alone on the row). Empty string while the
+// segment has no data yet keeps the row height stable.
+export function renderTpsLine(segs: Map<string, Segment>, settings: Settings, theme: Theme): string[] {
+	const row = renderSide(["tps"], segs, settings, theme);
+	const t = joinPills(row, settings.barStyle === "coralline", theme, true, true);
+	return [t.text];
+}
+
 // Render the single bar line. The context-usage segment is elastic: it sits
 // between the left train and the right train and expands to fill all leftover
 // columns so the bar spans the full width. The messages count (`#N`) and the
@@ -1175,9 +1190,10 @@ function renderLine(lineLeft: string[], lineRight: string[], segs: Map<string, S
 	const ellMin = hasElastic ? elasticMinWidth(elastic, segs, theme, settings) : 0;
 	const minGap = hasElastic ? 0 : 1;
 	// Goal-driven pruning: hide low-priority segments in order until fit.
-	// Priority (low first): tokens-down < thinking < context-tokens < messages.
-	// model is never hidden; pruning runs before shrink pass.
-	const SACRIFICE_IDS = ["tps", "thinking", "context-tokens", "messages"] as const;
+	// Priority (low first): thinking < context-tokens < messages.
+	// model is never hidden; pruning runs before shrink pass. tps is not
+	// listed: it lives on its own aboveEditor row, not in the bar trains.
+	const SACRIFICE_IDS = ["thinking", "context-tokens", "messages"] as const;
 
 	function trainNeed(l: RSeg[], r: RSeg[]): number {
 		const tw = l.reduce((a, s) => a + s.width, 0) + r.reduce((a, s) => a + s.width, 0);
@@ -1772,6 +1788,19 @@ export default function (pi: ExtensionAPI): void {
 			}),
 			{ placement: settings.placement },
 		);
+		// t/s pill gets its own row pinned above the editor (the input box's
+		// top-left corner), independent of the main bar's placement setting.
+		currentCtx.ui.setWidget(
+			"pi-bar-tps",
+			(_tui: TUI, theme: Theme): Component & { dispose?(): void } => ({
+				render(_width: number): string[] {
+					return renderTpsLine(segs, settings, theme);
+				},
+				invalidate(): void {
+				},
+			}),
+			{ placement: "aboveEditor" },
+		);
 		dirty = false;
 	}
 
@@ -1806,6 +1835,7 @@ export default function (pi: ExtensionAPI): void {
 		stopWorkingTimer();
 		if (ctx.hasUI) {
 			ctx.ui.setWidget("pi-bar", undefined);
+			ctx.ui.setWidget("pi-bar-tps", undefined);
 			ctx.ui.setHeader(undefined);
 			ctx.ui.setEditorComponent(undefined);
 		}
