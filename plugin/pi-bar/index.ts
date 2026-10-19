@@ -6,13 +6,14 @@
  * zero native deps, inline settings (no external settings pkg). Segment
  * producers are bundled; no external usage provider is required.
  *
- * The extension registers three independent UI surfaces from one entry point:
+ * The extension registers two independent UI surfaces from one entry point:
  *  - ctx.ui.setHeader(): the sakura cyberdeck ASCII header with cwd /
  *    command cards, shown once per session start and cached by width.
  *  - ctx.ui.setWidget("pi-bar"): the live coralline status bar driven by
  *    the pi-bar:update / pi-bar:register-segment event contract.
- *  - ctx.ui.setWidget("pi-bar-tps", { placement: "aboveEditor" }): the
- *    t/s pill on its own row at the input box's top-left corner.
+ *  - ctx.ui.setEditorComponent(): the dashed-rule editor that embeds the
+ *    live t/s readout into the input box's top-left border (no background)
+ *    and the UA label into its bottom-right border.
  *
  * Status bar stylistic notes:
  *  - "coralline" barStyle renders each segment as a rounded pill: a dark
@@ -486,7 +487,10 @@ function renderHeader(width: number, commands: string[] = [], cwd?: string): str
  * Additionally, render() embeds the user-agent string into the bottom border,
  * right-aligned against the bottom-right corner (see fitUserAgentBorder
  * below): the UA text replaces the trailing rule segment instead of taking
- * its own status row or bar segment.
+ * its own status row or bar segment. The live t/s readout is embedded the
+ * same way into the TOP border, left-aligned against the top-left corner
+ * (see fitTpsBorder): the label goes through the same border colour
+ * callback, so it reads as part of the dashed rule with no background.
  */
 type ColorFn = (text: string) => string;
 
@@ -516,6 +520,32 @@ function fitUserAgentBorder(label: string, width: number, border: ColorFn): stri
   }
   const gap = Math.max(0, width - 2 - visibleWidth(text));
   return `${border("─")}${border("─".repeat(gap))}${text}${border("─")}`;
+}
+
+const TPS_BORDER_MIN_GAP = 1;
+
+// Live t/s readout for the editor top border. Module-level because the
+// DashedBorderEditor instance is built by the host factory outside the
+// extension closure; emitTps keeps it current (and still emits the same
+// pi-bar:update event so the dirty->refresh cycle re-renders the host).
+let tpsBorderLabel = "";
+
+/*
+ * Renders the editor top border with the t/s label embedded at the left
+ * end: corner glyph, label, and fill run all go through `border` (which
+ * rewrites ─ to ⌄); the label keeps the caller's border colouring so it
+ * sits flush in the rule with no background. Left-aligned mirror of
+ * fitUserAgentBorder, same fitBorder shrink/degrade rules.
+ */
+function fitTpsBorder(label: string, width: number, border: ColorFn): string {
+  if (width <= 0) return "";
+  if (width === 1) return border("─");
+  let text = label;
+  while (2 + visibleWidth(text) + TPS_BORDER_MIN_GAP > width && visibleWidth(text) > 0) {
+    text = truncateToWidth(text, Math.max(0, visibleWidth(text) - 1), "");
+  }
+  const gap = Math.max(0, width - 2 - visibleWidth(text));
+  return `${border("─")}${text}${border("─".repeat(gap))}${border("─")}`;
 }
 
 class DashedBorderEditor extends RuntimeCustomEditor {
@@ -555,23 +585,29 @@ class DashedBorderEditor extends RuntimeCustomEditor {
   }
 
   /*
-   * Embed the UA string into the bottom border. The idle bottom rule is
-   * identified by its visible form: pi-tui renders it either per-glyph
-   * (border("─").repeat(width), <= 0.84.x) or as one coloured run
-   * (border("─".repeat(width)), >= 0.99.x), so the rule line is found by
-   * stripping SGR sequences and comparing the plain glyphs. Only that line
-   * is rewritten, so the ↑/↓ scroll-indicator borders and the autocomplete
-   * rows pass through untouched (when the host swaps the bottom rule for a
-   * ↓ indicator the only remaining match is the top border at index 0,
-   * which the guard rejects). The label goes through the same border colour
-   * callback so it reads as part of the rule.
+   * Embed the t/s readout into the TOP border and the UA string into the
+   * bottom border. A rule line is identified by its visible form: pi-tui
+   * renders it either per-glyph (border("─").repeat(width), <= 0.84.x) or
+   * as one coloured run (border("─".repeat(width)), >= 0.99.x), so the
+   * line is found by stripping SGR sequences and comparing the plain
+   * glyphs. The top rule must be lines[0] itself, so the t/s label always
+   * lands at the input box's top-left corner; the bottom rule is found by
+   * a reverse scan (the ↑/↓ scroll-indicator borders and the autocomplete
+   * rows pass through untouched, and when the host swaps the bottom rule
+   * for a ↓ indicator the only remaining match is the top border at index
+   * 0, which the guard rejects). Both labels go through the same border
+   * colour callback so they read as part of the rule.
    */
   override render(width: number): string[] {
     const lines = super.render(width);
-    const ua = truncateToWidth(uaShortLabel(getUserAgent()), UA_TRUNCATE_WIDTH, "…");
-    if (!ua || width <= 2 || lines.length < 2) return lines;
+    if (width <= 2 || lines.length < 2) return lines;
     const border = this.borderColor as ColorFn;
     const rule = stripSgr(border("─".repeat(width)));
+    if (tpsBorderLabel && stripSgr(lines[0]) === rule) {
+      lines[0] = fitTpsBorder(border(` ${tpsBorderLabel} `), width, border);
+    }
+    const ua = truncateToWidth(uaShortLabel(getUserAgent()), UA_TRUNCATE_WIDTH, "…");
+    if (!ua) return lines;
     let index = -1;
     for (let i = lines.length - 1; i >= 0; i--) {
       if (stripSgr(lines[i]) === rule) {
@@ -894,8 +930,8 @@ function loadSettings(): Settings {
 	const place = (v: string | undefined): "aboveEditor" | "belowEditor" =>
 		v === "aboveEditor" ? "aboveEditor" : "belowEditor";
 	return {
-		// tps is owned by the dedicated aboveEditor widget (pi-bar-tps); strip it
-		// from a user-configured left list so it never renders twice.
+		// tps lives in the editor's top border (fitTpsBorder), not in the bar;
+		// strip it from a user-configured left list so it never renders twice.
 		left: split(s["left"], DEFAULTS.left.join(",")).filter((x) => x !== "tps"),
 		right: split(s["right"], DEFAULTS.right.join(",")),
 		placement: place(s["placement"]),
@@ -1155,16 +1191,6 @@ export function renderBar(segs: Map<string, Segment>, settings: Settings, theme:
 	return [singleLine];
 }
 
-// Dedicated t/s row: rendered as its own aboveEditor widget so the live
-// tokens-per-second pill reads at the input box's top-left corner instead
-// of riding the main bar train. Same pill styling as the bar (rounded caps
-// both ends since the pill stands alone on the row). Empty string while the
-// segment has no data yet keeps the row height stable.
-export function renderTpsLine(segs: Map<string, Segment>, settings: Settings, theme: Theme): string[] {
-	const row = renderSide(["tps"], segs, settings, theme);
-	const t = joinPills(row, settings.barStyle === "coralline", theme, true, true);
-	return [t.text];
-}
 
 // Render the single bar line. The context-usage segment is elastic: it sits
 // between the left train and the right train and expands to fill all leftover
@@ -1717,7 +1743,8 @@ export default function (pi: ExtensionAPI): void {
 	let tpsSamples: { chars: number; start: number } | undefined;
 
 	function emitTps(ctx: ExtensionContext, value: number): void {
-		pi.events.emit("pi-bar:update", { id: "tps", text: `${Math.round(value)} t/s`, color: "text" });
+		tpsBorderLabel = `${Math.round(value)} t/s`;
+		pi.events.emit("pi-bar:update", { id: "tps", text: tpsBorderLabel, color: "text" });
 	}
 
 	function emitTpsIdle(ctx: ExtensionContext): void {
@@ -1788,19 +1815,6 @@ export default function (pi: ExtensionAPI): void {
 			}),
 			{ placement: settings.placement },
 		);
-		// t/s pill gets its own row pinned above the editor (the input box's
-		// top-left corner), independent of the main bar's placement setting.
-		currentCtx.ui.setWidget(
-			"pi-bar-tps",
-			(_tui: TUI, theme: Theme): Component & { dispose?(): void } => ({
-				render(_width: number): string[] {
-					return renderTpsLine(segs, settings, theme);
-				},
-				invalidate(): void {
-				},
-			}),
-			{ placement: "aboveEditor" },
-		);
 		dirty = false;
 	}
 
@@ -1835,7 +1849,6 @@ export default function (pi: ExtensionAPI): void {
 		stopWorkingTimer();
 		if (ctx.hasUI) {
 			ctx.ui.setWidget("pi-bar", undefined);
-			ctx.ui.setWidget("pi-bar-tps", undefined);
 			ctx.ui.setHeader(undefined);
 			ctx.ui.setEditorComponent(undefined);
 		}

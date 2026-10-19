@@ -165,14 +165,20 @@ test("tps segment replaces tokens-down with a live tokens-per-second pill", () =
   assert.match(statuslineSource, /const TPS_SAMPLE_MS = 250;/);
   assert.match(statuslineSource, /text_delta" \|\| ev\.type === "thinking_delta" \|\| ev\.type === "toolcall_delta"/);
   assert.match(statuslineSource, /emitTpsDelta\(ctx, ev\.delta\);/);
-  assert.match(statuslineSource, /\{ id: "tps", text: `\$\{Math\.round\(value\)\} t\/s`/);
-  // The tps pill rides its own aboveEditor widget at the input box's
-  // top-left corner, not the main bar train.
-  assert.match(statuslineSource, /function renderTpsLine\(segs: Map<string, Segment>, settings: Settings, theme: Theme\): string\[\] \{/);
-  assert.match(statuslineSource, /setWidget\(\s*"pi-bar-tps"/);
-  assert.match(statuslineSource, /\{ placement: "aboveEditor" \}/);
+  assert.match(statuslineSource, /\{ id: "tps", text: tpsBorderLabel, color: "text" \}/);
+  // The t/s readout is embedded into the input box's TOP border at the left
+  // end — no background, label goes through the border colour callback —
+  // instead of taking a bar segment or its own widget row.
+  assert.match(statuslineSource, /function fitTpsBorder\(label: string, width: number, border: ColorFn\): string \{/);
+  assert.match(statuslineSource, /const TPS_BORDER_MIN_GAP = 1;/);
+  assert.match(statuslineSource, /let tpsBorderLabel = "";/);
+  assert.match(statuslineSource, /tpsBorderLabel = `\$\{Math\.round\(value\)\} t\/s`;/);
+  assert.match(statuslineSource, /if \(tpsBorderLabel && stripSgr\(lines\[0\]\) === rule\) \{/);
+  assert.match(statuslineSource, /lines\[0\] = fitTpsBorder\(border\(` \$\{tpsBorderLabel\} `\), width, border\);/);
   assert.match(statuslineSource, /split\(s\["left"\], DEFAULTS\.left\.join\(","\)\)\.filter\(\(x\) => x !== "tps"\)/);
-  assert.match(statuslineSource, /ctx\.ui\.setWidget\("pi-bar-tps", undefined\);/);
+  // No leftover aboveEditor row: the dedicated widget is fully retired.
+  assert.doesNotMatch(statuslineSource, /pi-bar-tps/);
+  assert.doesNotMatch(statuslineSource, /renderTpsLine/);
 });
 test("usage-core, last-tool and git-dirty dead segments purged", () => {
   for (const dead of [
@@ -340,8 +346,9 @@ test("user agent embeds into the editor bottom-right border", () => {
   assert.match(statuslineSource, /text = truncateToWidth\(text, Math\.max\(0, visibleWidth\(text\) - 1\), ""\);/);
   assert.match(statuslineSource, /const gap = Math\.max\(0, width - 2 - visibleWidth\(text\)\);/);
 
-  // Only the idle plain bottom rule is rewritten: the top border (index 0)
-  // and the ↑/↓ scroll-indicator borders are left untouched, and
+  // Only the idle plain rule lines are rewritten: the t/s label lands on the
+  // TOP border (lines[0] exactly), the UA label on the bottom rule found by
+  // reverse scan; the ↑/↓ scroll-indicator borders are left untouched, and
   // autocomplete rows still pass through after the border line.
   assert.match(statuslineSource, /override render\(width: number\): string\[\] \{/);
   assert.match(statuslineSource, /const lines = super\.render\(width\);/);
@@ -349,7 +356,8 @@ test("user agent embeds into the editor bottom-right border", () => {
   assert.match(statuslineSource, /const comment = ua\.indexOf\(" \("\);/);
   assert.match(statuslineSource, /return comment > 0 \? ua\.slice\(0, comment\) : ua;/);
   assert.match(statuslineSource, /const ua = truncateToWidth\(uaShortLabel\(getUserAgent\(\)\), UA_TRUNCATE_WIDTH, "…"\);/);
-  assert.match(statuslineSource, /if \(!ua \|\| width <= 2 \|\| lines\.length < 2\) return lines;/);
+  assert.match(statuslineSource, /if \(width <= 2 \|\| lines\.length < 2\) return lines;/);
+  assert.match(statuslineSource, /if \(!ua\) return lines;/);
   assert.match(statuslineSource, /function stripSgr\(text: string\): string \{/);
   assert.match(statuslineSource, /const rule = stripSgr\(border\("─"\.repeat\(width\)\)\);/);
   assert.match(statuslineSource, /if \(stripSgr\(lines\[i\]\) === rule\) \{/);
