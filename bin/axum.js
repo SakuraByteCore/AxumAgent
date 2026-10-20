@@ -484,7 +484,7 @@ function buildPiEnv(compileCacheDir) {
 
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault, ensureSubagentAsyncWidgetDefault }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
@@ -498,6 +498,7 @@ async function runPi(passthrough) {
   ensureBundledPi(bundledPiOptions);
   ensureTuiModeDefault();
   ensureWebSearchWorkflowDefault();
+  ensureSubagentAsyncWidgetDefault();
   const piCli = resolvePiCli(bundledPiOptions);
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
   const packageNames = supportedBundledPiPackages(bundledPiOptions);

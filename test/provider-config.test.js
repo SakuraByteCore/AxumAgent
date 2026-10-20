@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, cloneProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveModelsConfig, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
+import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, cloneProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureSubagentAsyncWidgetDefault, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getSubagentConfigPath, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveModelsConfig, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -300,6 +300,34 @@ test("ensureWebSearchWorkflowDefault leaves malformed JSON untouched", () => {
   const result = ensureWebSearchWorkflowDefault(file);
   assert.equal(result.seeded, false);
   assert.equal(fs.readFileSync(file, "utf8"), broken);
+});
+
+test("ensureSubagentAsyncWidgetDefault seeds asyncWidget false when file is missing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-widget-new-"));
+  const file = path.join(dir, "extensions", "subagent", "config.json");
+  const result = ensureSubagentAsyncWidgetDefault(file);
+  assert.equal(result.seeded, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { asyncWidget: false });
+});
+
+test("ensureSubagentAsyncWidgetDefault preserves existing keys and fills missing asyncWidget", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-widget-merge-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ fleetView: true }));
+  const result = ensureSubagentAsyncWidgetDefault(file);
+  assert.equal(result.seeded, true);
+  const merged = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(merged.asyncWidget, false);
+  assert.equal(merged.fleetView, true);
+});
+
+test("ensureSubagentAsyncWidgetDefault never overrides an explicit asyncWidget", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-widget-keep-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ asyncWidget: true }));
+  const result = ensureSubagentAsyncWidgetDefault(file);
+  assert.equal(result.seeded, false);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).asyncWidget, true);
 });
 
 
