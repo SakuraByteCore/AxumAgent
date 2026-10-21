@@ -517,7 +517,7 @@ test("upsert refuses to create a provider that duplicates an existing name", () 
   assert.equal(json.providers.alpha.apiKey, "k2");
 });
 test("PROVIDER_PRESETS ships a valid anthropic and openai-chat reference template", () => {
-  assert.deepEqual(PROVIDER_PRESETS.map((p) => p.id), ["anthropic", "openai-chat"]);
+  assert.deepEqual(PROVIDER_PRESETS.map((p) => p.id), ["anthropic", "openai-chat", "openai-responses"]);
   const knownApiForms = new Set(API_FORMS.map((form) => form.id));
   for (const preset of PROVIDER_PRESETS) {
     assert.equal(normalizeBaseUrl(preset.baseUrl), preset.baseUrl);
@@ -553,10 +553,8 @@ test("buildProvider writes the requested API form and only emits OpenAI compat f
   assert.equal(defaulted.api, "openai-completions");
   assert.equal(defaulted.compat.supportsDeveloperRole, false);
 
-  assert.throws(
-    () => buildProvider({ baseUrl: "https://api.example.com/v1", api: "not-a-form", model: "m", apiKey: "k" }),
-    /Unsupported API form: not-a-form/
-  );
+  const passthrough = buildProvider({ baseUrl: "https://api.example.com/v1", api: "not-a-form", model: "m", apiKey: "k" });
+  assert.equal(passthrough.api, "not-a-form");
 });
 
 test("exportProviders includes the current default provider selection", () => {

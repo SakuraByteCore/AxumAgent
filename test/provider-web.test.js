@@ -648,7 +648,7 @@ test("provider web saves the selected API form and refuses model listing for nat
       body: JSON.stringify({ api: "anthropic-messages", baseUrl: "https://api.anthropic.com", apiKey: "test-key" }),
     });
     assert.equal(listRes.status, 400);
-    assert.match((await listRes.json()).error, /OpenAI-compatible API form/);
+    assert.match((await listRes.json()).error, /OpenAI-compatible and Responses API forms/);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;

@@ -111,6 +111,17 @@ export const PROVIDER_PRESETS = [
     reasoningEffort: "off",
     suggestedModels: ["gpt-4o", "gpt-4.1"],
   },
+  {
+    id: "openai-responses",
+    labelKey: "presetOpenAIResponses",
+    api: "openai-responses",
+    baseUrl: "https://api.openai.com/v1",
+    name: "openai-responses",
+    contextWindow: 128000,
+    maxTokens: 16384,
+    reasoningEffort: "off",
+    suggestedModels: ["gpt-5", "gpt-4.1"],
+  },
 ];
 
 /** API forms selectable on the Provider tab. `fetchable` marks whether `/models` can list
@@ -118,6 +129,7 @@ export const PROVIDER_PRESETS = [
  * candidates come only from preset suggestions. */
 export const API_FORMS = [
   { id: "openai-completions", labelKey: "apiShapeOpenAI", fetchable: true },
+  { id: "openai-responses", labelKey: "apiShapeOpenAIResponses", fetchable: true },
   { id: "anthropic-messages", labelKey: "apiShapeAnthropic", fetchable: false },
 ];
 
@@ -177,12 +189,12 @@ export function buildModelConfigs(options, providerReasoningEffort) {
   }, providerReasoningEffort)];
 }
 
-const KNOWN_API_FORMS = new Set(API_FORMS.map((form) => form.id));
-
+/** API form ids pass through verbatim: known ids drive the Provider UI, while unknown ids
+ * (e.g. a hand-written value in models.json) must survive a re-save untouched — only an
+ * empty value falls back to the default form. */
 function normalizeApiForm(value) {
   const id = String(value || "").trim();
   if (!id) return DEFAULT_API_FORM;
-  if (!KNOWN_API_FORMS.has(id)) throw new Error(`Unsupported API form: ${id}`);
   return id;
 }
 
