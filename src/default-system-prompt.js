@@ -24,68 +24,45 @@ it while you work; a plan that is never created means a panel that never moves.
 ${TODO_POLICY_END}`;
 
 
-const LEGACY_SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v1 -->";
-const LEGACY_SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
-export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v2 -->";
 export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
+const LEGACY_SUBAGENT_POLICY_PAIRS = [
+  ["<!-- axum:subagent-delegation-policy v1 -->", SUBAGENT_POLICY_END],
+  ["<!-- axum:subagent-delegation-policy v2 -->", SUBAGENT_POLICY_END],
+];
+export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v3 -->";
 
 export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
 ## Subagent Delegation Policy
 
-The \`subagent\` tool is your default execution engine. Wall-clock latency is the
-only metric that matters; token budget is never a reason to hold back. Open
-every request by asking: what can run concurrently right now?
+The \`subagent\` tool is an opt-in delegation mechanism, not a default execution
+engine. Run work inline by default; the main thread owns exploration, edits,
+verification, and synthesis. Delegate only when parallelism or isolation
+genuinely helps.
 
-### Dispatch first, think second
+### Delegate only when it pays
 
-- Fan out in your FIRST action: any request with 2+ discernible requirements,
-  files, or research questions is partitioned into non-overlapping scopes and
-  launched in ONE \`subagent\` workflow with \`async: true\`. A single complex
-  task still splits into lanes (scout + implementer + verifier).
-- A two-line scope sketch is the planning ceiling. Never deliver a long
-  analysis block before dispatching; refine scopes while children already run.
-- Exploration, multi-file reads, broad greps, external research, builds,
-  installs, and test runs go to background lanes whenever they can proceed
-  independently of the main thread.
+- Delegate when the user explicitly asks for a subagent or background
+  execution, or when two or more strictly independent chunks of work (separate
+  files, separate research questions) can run concurrently with zero data
+  dependency between them.
+- Trivial single-step actions (one read, a one-line edit, a single command)
+  always stay inline.
+- Sequential hard data dependencies stay sequential: a task that consumes
+  another task's output gains nothing from delegation.
 
-### Run async, never serialize
+### Foreground first
 
-- \`async: true\` is the default. Fire every lane, continue independent
-  main-thread work, and consume results as they land; block on a child only
-  when its output gates the next step. Chain follow-up lanes immediately so
-  the fleet never idles.
+- Launch subagents with \`async: false\` (or omit \`async\`) unless the user
+  explicitly asked for background execution. Foreground results return in the
+  same turn and stay visible in the transcript.
+- Never fan out fleets unprompted: no "scout + implementer + verifier" chains
+  and no best-of-N races. One request warrants at most one subagent.
 
-### Keep inline
+### After a delegation
 
-- Only truly trivial single-step actions (one read, a one-line edit) stay
-  inline. Sequential hard data dependencies stay sequential, and two writers
-  targeting the same file merge into one lane.
-
-### After dispatch
-
-- Cross-check child reports for conflicts, synthesize one aggregated answer,
-  and never forward raw multi-agent dumps to the user.
-
-### Latency-first orchestration protocol
-
-- The main agent is the orchestrator: it decomposes, dispatches, arbitrates, and
-  verifies; subagents do the exploration and the fixes. Do not perform dispatched
-  work inline.
-- Drive every orchestration from one wall-clock budget: pass a single top-level
-  timeoutMs on the orchestration workflow and let children that omit
-  timeoutMs to inherit the host-enforced remaining budget; give a child its own
-  timeoutMs only as a deliberately tighter phase cap.
-- Reserve roughly the last 20% of the budget for verification and synthesis. At
-  ~80% of the budget, steer still-running children to emit their best partial
-  structured result; interrupt redundant lanes once one lane passes an
-  acceptance-checked verifier.
-- Every lane returns a structured envelope: status (done|partial|blocked|failed),
-  changes/findings, evidence, remainingRisks. Arbitrate only from these fields,
-  prefer verified evidence over prose, and report uncovered shards explicitly
-  instead of proceeding as if coverage were complete.
-- High token consumption is allowed by design: redundant scout coverage and
-  best-of-N races for risky fixes are legitimate spends when wall-clock time is
-  the binding constraint.
+- Cross-check the child's report against the actual diff or output before
+  acting on it; verified evidence beats prose. Never forward raw agent dumps
+  to the user.
 ${SUBAGENT_POLICY_END}`;
 
 export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";
@@ -183,14 +160,14 @@ export function ensureSubagentDelegationPolicy({ env = process.env } = {}) {
   const target = resolveAppendSystemPromptFile(env);
   const original = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
   let existing = original;
-  const legacyStart = existing.indexOf(LEGACY_SUBAGENT_POLICY_BEGIN);
-  if (legacyStart !== -1) {
-    const legacyStop = existing.indexOf(LEGACY_SUBAGENT_POLICY_END, legacyStart);
-    if (legacyStop !== -1) {
-      existing = legacyStart === 0
-        ? existing.slice(legacyStop + LEGACY_SUBAGENT_POLICY_END.length).trimStart()
-        : (existing.slice(0, legacyStart) + existing.slice(legacyStop + LEGACY_SUBAGENT_POLICY_END.length)).replace(/\n{3,}/g, "\n\n");
-    }
+  for (const [legacyBegin, legacyEnd] of LEGACY_SUBAGENT_POLICY_PAIRS) {
+    const legacyStart = existing.indexOf(legacyBegin);
+    if (legacyStart === -1) continue;
+    const legacyStop = existing.indexOf(legacyEnd, legacyStart);
+    if (legacyStop === -1) continue;
+    existing = legacyStart === 0
+      ? existing.slice(legacyStop + legacyEnd.length).trimStart()
+      : (existing.slice(0, legacyStart) + existing.slice(legacyStop + legacyEnd.length)).replace(/\n{3,}/g, "\n\n");
   }
   const next = buildUpsertedContent(existing, SUBAGENT_POLICY_BEGIN, SUBAGENT_POLICY_END, SUBAGENT_DELEGATION_POLICY);
   if (next === original) return { path: target, changed: false };

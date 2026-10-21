@@ -130,50 +130,25 @@ test("subagent delegation policy: creates the file, is idempotent, and stores mo
   assert.equal(result.changed, true);
   assert.ok(content.includes(SUBAGENT_POLICY_BEGIN));
   assert.ok(content.includes(SUBAGENT_POLICY_END));
-  assert.ok(content.includes("Dispatch first, think second"));
+  assert.ok(content.includes("Delegate only when it pays"));
+  assert.ok(content.includes("Foreground first"));
   assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
   assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent second run");
 });
 
-test("subagent delegation policy: cleans up orphaned v1 block while refreshing to v2", (t) => {
+test("subagent delegation policy: cleans up orphaned v1/v2 blocks while refreshing to v3", (t) => {
   const env = withTempEnv(t);
   const target = resolveAppendSystemPromptFile(env);
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `My custom rules.\n<!-- axum:subagent-delegation-policy v1 -->\nstale v1 guidance\n<!-- /axum:subagent-delegation-policy -->\n`);
+  fs.writeFileSync(target, `My custom rules.\n<!-- axum:subagent-delegation-policy v1 -->\nstale v1 guidance\n<!-- /axum:subagent-delegation-policy -->\n<!-- axum:subagent-delegation-policy v2 -->\nstale v2 guidance\n<!-- /axum:subagent-delegation-policy -->\n`);
   const result = ensureSubagentDelegationPolicy({ env });
   const content = fs.readFileSync(target, "utf8");
   assert.equal(result.changed, true);
   assert.ok(!content.includes("axum:subagent-delegation-policy v1"), "legacy v1 block removed");
   assert.ok(!content.includes("stale v1 guidance"));
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "v2 block installed");
+  assert.ok(!content.includes("axum:subagent-delegation-policy v2"), "legacy v2 block removed");
+  assert.ok(!content.includes("stale v2 guidance"));
+  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "v3 block installed");
   assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
   assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent after cleanup");
-});
-
-test("subagent delegation policy: strips v1 even when v2 is already installed verbatim", (t) => {
-  const env = withTempEnv(t);
-  ensureSubagentDelegationPolicy({ env });
-  const target = resolveAppendSystemPromptFile(env);
-  const installed = fs.readFileSync(target, "utf8");
-  fs.writeFileSync(target, "<!-- axum:subagent-delegation-policy v1 -->\nstale v1 guidance\n<!-- /axum:subagent-delegation-policy -->\n" + installed);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(target, "utf8");
-  assert.equal(result.changed, true, "strip of a leading v1 block must be persisted");
-  assert.ok(!content.includes("axum:subagent-delegation-policy v1"));
-  assert.ok(!content.includes("stale v1 guidance"));
-  assert.ok(!content.startsWith("\n"), "no leading blank lines left");
-});
-
-test("subagent delegation policy: carries the latency-first orchestration protocol", (t) => {
-  const env = withTempEnv(t);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(result.path, "utf8");
-  assert.ok(content.includes("Latency-first orchestration protocol"));
-  assert.ok(content.includes("host-enforced remaining budget"));
-  assert.ok(content.includes("structured envelope: status (done|partial|blocked|failed)"));
-  assert.ok(content.includes("best-of-N races"));
-  assert.ok(
-    content.indexOf("Latency-first orchestration protocol") > content.indexOf("### After dispatch"),
-    "orchestration protocol extends the existing v2 block",
-  );
 });

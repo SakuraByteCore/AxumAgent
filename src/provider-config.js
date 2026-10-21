@@ -629,23 +629,31 @@ export function getSubagentConfigPath(env = process.env) {
 }
 
 // pi-subagents' under-editor async widget (the "async subagent worker · background"
-// header row) is opt-out via config.asyncWidget; seed the off default so new users
-// get a clean out-of-box status area. Only fills a missing key: an explicit
-// asyncWidget from the user always wins.
-export function ensureSubagentAsyncWidgetDefault(file = getSubagentConfigPath()) {
+// header row) is opt-out via config.asyncWidget, and background-by-default launches
+// are opt-out via config.asyncByDefault; seed both off defaults so users get a
+// foreground-first out-of-box experience. Only fills missing keys: explicit
+// asyncWidget/asyncByDefault values from the user always win.
+export function ensureSubagentForegroundDefaults(file = getSubagentConfigPath()) {
   let config;
   try {
     config = readJsonFile(file);
   } catch (error) {
     // Never overwrite a user file that holds unparseable JSON; pi-subagents
     // itself falls back to defaults in that case.
-    console.error(`Skipping subagent asyncWidget default: ${error.message}`);
+    console.error(`Skipping subagent foreground defaults: ${error.message}`);
     return { file, seeded: false };
   }
-  if (config.asyncWidget !== undefined) return { file, seeded: false };
-  config.asyncWidget = false;
-  writeJsonFile(file, config);
-  return { file, seeded: true };
+  let seeded = false;
+  if (config.asyncWidget === undefined) {
+    config.asyncWidget = false;
+    seeded = true;
+  }
+  if (config.asyncByDefault === undefined) {
+    config.asyncByDefault = false;
+    seeded = true;
+  }
+  if (seeded) writeJsonFile(file, config);
+  return { file, seeded };
 }
 
 export function getUserAgent(file = getAxumConfigPath()) {
