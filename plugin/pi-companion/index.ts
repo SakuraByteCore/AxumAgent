@@ -6,6 +6,8 @@ import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
 import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
+import { ensureKiloProviderLocal, refreshKiloProviderLive } from "./kilo-free.ts";
+import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
 import { registerAgentUi } from "./agentui.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
@@ -1031,6 +1033,15 @@ function buildClaudePrompt(requirement: string, skill: string): string {
 // ── /clear ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
+	// The Zen free lane gates on the OpenCode v2 client fingerprint (v2 UA,
+	// four session headers, official read/shell tool definitions verbatim, no
+	// tool_choice "none"). That payload rewrite cannot be expressed in static
+	// models.json headers, so the lane is attached as a streamSimple provider:
+	// models/catalog still come from the models.json "opencode" block that
+	// opencode-zen.ts keeps fresh, while every request passes through the v2
+	// wire in zen-v2-wire.ts.
+	pi.registerProvider("opencode", { api: ZEN_V2_API, streamSimple: createZenStreamSimple() });
+
 	let consecutiveAutoRetries = 0;
 	let pendingAutoRetryMessage: string | undefined;
 	let deferredAutoContinueReason: AutoContinueReason | undefined;
@@ -1342,37 +1353,38 @@ pi.registerCommand("claude", {
 		}
 	};
 
-	let zenBackgroundRefreshInFlight = false;
+	const backgroundRefreshInFlight = new Set<string>();
 
 	/**
-	 * Fire-and-forget live Zen catalog refresh so the /usemodel selector never
+	 * Fire-and-forget live catalog refresh so the /usemodel selector never
 	 * waits on the network. Toasts when the fresh list has landed (it shows up
 	 * on the next open) or when the fetch failed and the 1h retry cooldown
 	 * started.
 	 */
-	const startZenBackgroundRefresh = (
-		agentDir: string,
+	const startBackgroundRefresh = (
+		label: string,
+		refresh: () => Promise<{ error?: string; count: number }>,
 		ctx: { ui: { notify: (message: string, level: "info" | "warning" | "error") => unknown } },
 	) => {
-		if (zenBackgroundRefreshInFlight) return;
-		zenBackgroundRefreshInFlight = true;
-		void refreshZenProviderLive(agentDir)
+		if (backgroundRefreshInFlight.has(label)) return;
+		backgroundRefreshInFlight.add(label);
+		void refresh()
 			.then((result) => {
 				if (result.error) {
-					ctx.ui.notify(`opencode: background Zen sync failed (${result.error}); retry paused for 1h.`, "warning");
+					ctx.ui.notify(`${label}: background sync failed (${result.error}); retry paused for 1h.`, "warning");
 					return;
 				}
 				ctx.ui.notify(
-					`opencode: synced ${result.count} free Zen models in the background; they list on the next /usemodel.`,
+					`${label}: synced ${result.count} free models in the background; they list on the next /usemodel.`,
 					"info",
 				);
 			})
 			.catch((error) => {
 				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`opencode background sync crashed: ${message}`, "error");
+				ctx.ui.notify(`${label} background sync crashed: ${message}`, "error");
 			})
 			.finally(() => {
-				zenBackgroundRefreshInFlight = false;
+				backgroundRefreshInFlight.delete(label);
 			});
 	};
 
@@ -1384,10 +1396,10 @@ pi.registerCommand("claude", {
 			const modelsPath = join(agentDir, "models.json");
 			const settingsPath = join(agentDir, "settings.json");
 
-			// Open the selector instantly: merge whatever the on-disk catalog cache
-			// (any age; stale still beats the compile-time static floor) or the static
-			// floor already has into models.json — local disk only, never the network —
-			// then kick a live Zen refresh in the background when the cache is stale.
+			// Open the selector instantly: merge whatever the on-disk catalog caches
+			// (any age; stale still beats the compile-time static floors) or the static
+			// floors already have into models.json — local disk only, never the network —
+			// then kick live refreshes in the background when a cache is stale.
 			// The refreshed free models land on the next /usemodel.
 			try {
 				const local = await ensureZenProviderLocal(agentDir);
@@ -1395,11 +1407,23 @@ pi.registerCommand("claude", {
 					ctx.ui.notify(`opencode: synced ${local.count} free Zen models (${local.source}).`, "info");
 				}
 				if (local.needsLiveRefresh) {
-					startZenBackgroundRefresh(agentDir, ctx);
+					startBackgroundRefresh("opencode", () => refreshZenProviderLive(agentDir), ctx);
 				}
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`opencode sync skipped: ${message}`, "warning");
+			}
+			try {
+				const local = await ensureKiloProviderLocal(agentDir);
+				if (local.changed) {
+					ctx.ui.notify(`kilo: synced ${local.count} free Kilo models (${local.source}).`, "info");
+				}
+				if (local.needsLiveRefresh) {
+					startBackgroundRefresh("kilo", () => refreshKiloProviderLive(agentDir), ctx);
+				}
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`kilo sync skipped: ${message}`, "warning");
 			}
 			const manifest = parseModelManifest(await readJsonObject(modelsPath));
 			if (!manifest.length) {

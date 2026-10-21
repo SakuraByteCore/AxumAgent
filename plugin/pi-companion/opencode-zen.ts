@@ -3,18 +3,27 @@
 // Mirrors the catalog and disguise-header logic of FishBottle7/opencode2dsh
 // (packages/plugin/src/adapter/catalog.ts + ids.ts) and exposes the free lane
 // as provider id "opencode" (the upstream project's chosen lane is Zen; the
-// disguise header seeds stay upstream-identical). The anonymous free lane at
-// https://opencode.ai/zen/v1 speaks plain openai-completions with
-// `Authorization: Bearer public`, but it gates on OpenCode-CLI-shaped
-// correlation headers, and the session id must be encoded with the gateway's
-// inverted-timestamp recipe (upstream ids.ts invertedTimestampHex, tightened
-// 2026-10-13 per opencode issue #62: the 12 hex decode to ms*4096 + a counter
-// in [0,63]; digest-derived hex answers 403) — which is why the provider
-// block built here carries a disguise header set derived with the same
-// recipes (stored session ids are re-derived whenever they fail the decode).
+// disguise header seeds stay upstream-identical). The anonymous free lane now
+// answers on https://opencode.ai/inference/v1 (the /zen/v1 chat path has been
+// 403 FreeTierError since 2026-10-14) with `Authorization: Bearer public`,
+// gated on the **OpenCode v2 client fingerprint** (2026-10-16, per
+// Ebony-Vinyl/dsh-our-free-model docs/free-lane-wire.md + 9router v0.5.104):
+//
+//   - User-Agent must be exactly `opencode/latest/2.0.26/cli` (v1's
+//     `opencode/1.18.31` and any decorated string are rejected);
+//   - four same-value session headers (x-opencode-session, x-opencode-session-id,
+//     x-session-affinity, x-session-id) and NO `x-opencode-request`
+//     (v1-only header; its presence alone is a 403);
+//   - the session id keeps the inverted-timestamp recipe (upstream ids.ts,
+//     tightened 2026-10-13 per opencode issue #62) with a counter <= 63;
+//   - the request tools must declare `read` + `shell` with the official v2 CLI
+//     definitions verbatim, and `tool_choice: "none"` must never be sent.
+//     That last gate cannot be expressed in static models.json headers, so the
+//     payload rewrite lives in zen-v2-wire.ts and is attached through a
+//     streamSimple provider registration in index.ts.
 //
 // Catalog chain, trimmed from upstream catalog.ts:
-//   S1  GET https://opencode.ai/zen/v1/models   live ids
+//   S1  GET https://opencode.ai/inference/v1/models   live ids
 //   S2  GET https://models.dev/api.json         free decision + metadata
 //   S3  compile-time verified static list       bootstrap / offline fallback
 // with a disk cache (24h TTL) so /usemodel never blocks on the network.
@@ -25,15 +34,15 @@
 //
 // Zero runtime relative imports so node --test can import it directly.
 
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 export const ZEN_PROVIDER_ID = "opencode";
 // Key used by the first shipped version of this sync; migrated away on merge.
 export const LEGACY_PROVIDER_ID = "opencode2dsh";
-export const ZEN_CHAT_BASE_URL = "https://opencode.ai/zen/v1";
-const ZEN_MODELS_URL = "https://opencode.ai/zen/v1/models";
+export const ZEN_CHAT_BASE_URL = "https://opencode.ai/inference/v1";
+const ZEN_MODELS_URL = "https://opencode.ai/inference/v1/models";
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 export const ZEN_API_KEY = "public";
 export const CATALOG_CACHE_FILE = "opencode-catalog-cache.json";
@@ -41,8 +50,12 @@ export const CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 /** After a failed live fetch, stay on cache/static (no retry) for one hour. */
 export const LIVE_FETCH_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;
 const LIVE_FETCH_TIMEOUT_MS = 8000;
-/** Upstream ids.ts opencodeUserAgent pins this CLI version string. */
-const OPENCODE_UA_VERSION = "1.18.31";
+/**
+ * The User-Agent the v2 fingerprint gate matches on (upstream.js CLIENT_UA).
+ * Must be sent alone: v2 compares the whole string, any prefix/suffix
+ * (platform, node version, attribution) turns it back into a non-v2 client.
+ */
+export const ZEN_CLIENT_UA = "opencode/latest/2.0.26/cli";
 
 /**
  * Free ids of the anonymous lane as of the 2026-10-14 live snapshot
@@ -100,12 +113,6 @@ interface ModelPrice {
 
 // ── Correlation-id recipes (upstream ids.ts, same derivations) ─────────────
 
-/** sha256("prefix\0value") truncated to 12 bytes: stable, non-reversible. */
-function stableID(prefix: string, value: string): string {
-	const sum = createHash("sha256").update(`${prefix}\x00${value}`).digest();
-	return `${prefix}_${sum.subarray(0, 12).toString("hex")}`;
-}
-
 const BASE62_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const CANONICAL_SESSION_PATTERN = /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/;
 
@@ -136,6 +143,22 @@ function invertedTimestampHex(now: number): string {
 	return (~(BigInt(now) * 4096n + SESSION_COUNTER) & SESSION_TIME_MASK).toString(16).padStart(12, "0");
 }
 
+/**
+ * Digest-stable session time part (upstream canonicalizeSession): the 48-bit
+ * value is derived from the signal's sha256 so one conversation always maps to
+ * the same upstream session id, while the low 12 bits stay `0xffe` (counter 1),
+ * inside the accepted counter window. Used for per-conversation sessions on
+ * the wire; canonicalSessionID keeps the time-based recipe for callers that
+ * want per-call freshness.
+ */
+function stableSessionTimeHex(signal: string): string {
+	const sum = createHash("sha256").update(`ses\x00${signal}`).digest();
+	const current =
+		((BigInt(sum[0]) << 28n) | (BigInt(sum[1]) << 20n) | (BigInt(sum[2]) << 12n) | (BigInt(sum[3]) << 4n) | BigInt(sum[4] >> 4)) << 12n
+		| SESSION_COUNTER;
+	return (~current & SESSION_TIME_MASK).toString(16).padStart(12, "0");
+}
+
 /** True when the id follows the gateway recipe and decodes to a legal counter. */
 export function isGatewaySessionID(id: string): boolean {
 	if (!CANONICAL_SESSION_PATTERN.test(id)) return false;
@@ -155,17 +178,34 @@ export function canonicalSessionID(signal: string, now: number = Date.now()): st
 	return `ses_${invertedTimestampHex(now)}${randomPart}`;
 }
 
-/** The CLI-identical disguise header set the free lane gates on (upstream disguiseHeaders). */
-export function buildDisguiseHeaders(options: { requestID?: string } = {}): Record<string, string> {
-	const session = canonicalSessionID("pi-companion:opencode2dsh:static-session");
+/**
+ * Digest-stable gateway session id: one conversation signal always encodes to
+ * the same upstream session id (quota accounting is per session, so re-minting
+ * per request would burn the free tier's per-session allowance).
+ */
+export function stableSessionID(signal: string): string {
+	if (isGatewaySessionID(signal)) return signal;
+	const sum = createHash("sha256").update(`ses\x00${signal}`).digest();
+	const randomPart = base62Fixed(BigInt(`0x${sum.subarray(6, 16).toString("hex")}`), 14);
+	return `ses_${stableSessionTimeHex(signal)}${randomPart}`;
+}
+
+/**
+ * The v2 disguise header set the free lane gates on (upstream gatewayHeaders):
+ * exact v2 CLI User-Agent, four same-value session headers, `x-opencode-project:
+ * global`, and — critically — no `x-opencode-request` (v1-only header; sending
+ * it is a 403 on its own).
+ */
+export function buildDisguiseHeaders(options: { session?: string } = {}): Record<string, string> {
+	const session = options.session ?? canonicalSessionID("pi-companion:opencode2dsh:static-session");
 	return {
-		"user-agent": `opencode/${OPENCODE_UA_VERSION} (${process.platform} ${process.arch}; node${process.versions.node})`,
+		"user-agent": ZEN_CLIENT_UA,
 		"x-opencode-client": "cli",
 		"x-opencode-session": session,
+		"x-opencode-session-id": session,
 		"x-session-affinity": session,
-		"X-Session-Id": session,
-		"x-opencode-request": options.requestID ?? `req_${randomBytes(16).toString("hex")}`,
-		"x-opencode-project": stableID("prj", "opencode2dsh:default-project"),
+		"x-session-id": session,
+		"x-opencode-project": "global",
 	};
 }
 
@@ -426,20 +466,18 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 }
 
 /**
- * Stored disguise headers are reused so request/project ids stay stable per
- * install, but the session id is regenerated whenever the stored one fails the
- * gateway decode (ids written before the 2026-10-13 recipe tightening 403).
+ * Stored headers are always rebuilt to the current v2 shape (the v1 set with
+ * `x-opencode-request`/`X-Session-Id`/decorated UA is a 403 on the wire), but
+ * the stored session id is preserved whenever it still passes the gateway
+ * decode so the per-install identity stays stable across upgrades.
  */
 function repairStoredHeaders(source: unknown): Record<string, string> {
-	const headers: Record<string, string> =
-		isRecord(source) && isRecord(source.headers) ? { ...source.headers } : buildDisguiseHeaders();
-	const session = headers["x-opencode-session"];
-	if (typeof session === "string" && isGatewaySessionID(session)) return headers;
-	const fresh = buildDisguiseHeaders();
-	headers["x-opencode-session"] = fresh["x-opencode-session"];
-	headers["x-session-affinity"] = fresh["x-session-affinity"];
-	headers["X-Session-Id"] = fresh["X-Session-Id"];
-	return headers;
+	const stored = isRecord(source) && isRecord(source.headers) ? source.headers : undefined;
+	const storedSession = stored?.["x-opencode-session"];
+	const session = typeof storedSession === "string" && isGatewaySessionID(storedSession)
+		? storedSession
+		: undefined;
+	return buildDisguiseHeaders(session === undefined ? {} : { session });
 }
 
 /**

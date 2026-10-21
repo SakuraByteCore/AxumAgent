@@ -15,6 +15,7 @@ import {
   CATALOG_CACHE_FILE,
   LIVE_FETCH_FAILURE_COOLDOWN_MS,
   STATIC_FREE_MODEL_IDS,
+  ZEN_CHAT_BASE_URL,
   buildDisguiseHeaders,
   buildZenModelInfo,
   canonicalSessionID,
@@ -26,12 +27,25 @@ import {
   mergeZenProvider,
   isGatewaySessionID,
   refreshZenProviderLive,
+  stableSessionID,
   staticZenCatalog,
 } from "../plugin/pi-companion/opencode-zen.ts";
+import {
+  KILO_CATALOG_CACHE_FILE,
+  buildKiloModelInfo,
+  decodeKiloListing,
+  ensureKiloProvider,
+  kiloCanDisableThinking,
+  kiloThinkingLevelMap,
+  mergeKiloProvider,
+  staticKiloCatalog,
+} from "../plugin/pi-companion/kilo-free.ts";
+import { applyFingerprintToChatPayload } from "../plugin/pi-companion/zen-v2-wire.ts";
 
-// Hermetic tests: the /usemodel opencode Zen sync is disabled file-wide;
-// the sync itself is covered by the opencode-zen tests at the bottom.
+// Hermetic tests: the /usemodel opencode + kilo syncs are disabled file-wide;
+// the syncs themselves are covered by the dedicated tests at the bottom.
 process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
+process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
 
 function createContext() {
   const notifications = [];
@@ -80,11 +94,16 @@ function createPi() {
   const listeners = new Map();
   const emitted = [];
   const setModelCalls = [];
+  const registeredProviders = new Map();
   const pi = {
     commands,
     messages,
     listeners,
     emitted,
+    registerProvider(name, config) {
+      registeredProviders.set(name, config);
+    },
+    registeredProviders,
     registerCommand(name, command) {
       commands.set(name, command);
     },
@@ -1390,18 +1409,27 @@ test("canonicalSessionID encodes gateway-valid session ids", () => {
   assert.notEqual(canonicalSessionID(digestEra), digestEra, "shape-matching ids with an illegal counter are re-encoded");
 });
 
-test("buildDisguiseHeaders mirrors the upstream CLI header set", () => {
-  const headers = buildDisguiseHeaders({ requestID: "req_deadbeef" });
+test("buildDisguiseHeaders mirrors the upstream v2 CLI header set", () => {
+  const session = stableSessionID("test-signal");
+  const headers = buildDisguiseHeaders({ session });
+  assert.equal(headers["user-agent"], "opencode/latest/2.0.26/cli", "v2 UA is sent alone, undecorated");
   assert.equal(headers["x-opencode-client"], "cli");
-  assert.match(headers["user-agent"], /^opencode\/1\.18\.31 \(/);
-  assert.equal(headers["x-opencode-request"], "req_deadbeef");
-  const session = headers["x-opencode-session"];
-  assert.match(session, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
-  assert.ok(isGatewaySessionID(session), "derived session decodes to a legal counter");
-  assert.equal(headers["x-session-affinity"], session);
-  assert.equal(headers["X-Session-Id"], session);
-  assert.match(headers["x-opencode-project"], /^prj_[0-9a-f]{24}$/);
-  assert.ok(buildDisguiseHeaders()["x-opencode-request"].startsWith("req_"));
+  assert.equal(headers["x-opencode-request"], undefined, "v1-only request header must not be sent");
+  for (const key of ["x-opencode-session", "x-opencode-session-id", "x-session-affinity", "x-session-id"]) {
+    assert.equal(headers[key], session, `${key} mirrors the session id`);
+  }
+  assert.equal(headers["x-opencode-project"], "global");
+  assert.ok(isGatewaySessionID(buildDisguiseHeaders()["x-opencode-session"]), "derived session decodes to a legal counter");
+});
+
+test("stableSessionID pins one conversation signal to one gateway session", () => {
+  const first = stableSessionID("session-abc");
+  const second = stableSessionID("session-abc");
+  assert.equal(first, second, "same signal → same upstream session id");
+  assert.notEqual(stableSessionID("session-xyz"), first, "different signal → different id");
+  assert.match(first, /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+  assert.ok(isGatewaySessionID(first), "digest-derived time part stays inside the accepted counter window");
+  assert.equal(stableSessionID(first), first, "gateway-valid ids pass through unchanged");
 });
 
 test("staticZenCatalog carries the verified static free list", () => {
@@ -1463,7 +1491,7 @@ function createZenMockFetch({ zenIds, modelsDev = MODELS_DEV_FIXTURE, failModels
   const calls = [];
   const impl = async (url, init) => {
     calls.push({ url, headers: init?.headers });
-    if (url === "https://opencode.ai/zen/v1/models") {
+    if (url === "https://opencode.ai/inference/v1/models") {
       return { ok: true, json: async () => ({ data: zenIds.map((id) => ({ id })) }) };
     }
     if (url === "https://models.dev/api.json") {
@@ -1520,10 +1548,11 @@ test("mergeZenProvider merges idempotently and preserves other providers", async
     const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
     assert.equal(merged.otherKey, 1);
     assert.equal(merged.providers.openai.apiKey, "sk-x");
-    assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/zen/v1");
+    assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/inference/v1");
     assert.equal(merged.providers.opencode.apiKey, "public");
     assert.equal(merged.providers.opencode.api, "openai-completions");
     assert.match(merged.providers.opencode.headers["x-opencode-session"], /^ses_[0-9a-f]{12}[0-9A-Za-z]{14}$/);
+    assert.equal(merged.providers.opencode.headers["x-opencode-request"], undefined);
     assert.equal(merged.providers.opencode.models.length, STATIC_FREE_MODEL_IDS.length);
     const firstContent = fs.readFileSync(modelsJsonPath, "utf8");
     assert.equal(await mergeZenProvider(modelsJsonPath, catalog.models), false, "second merge is a no-op");
@@ -1538,7 +1567,7 @@ test("mergeZenProvider preserves user-set contextWindow overrides", async () => 
   try {
     const modelsJsonPath = path.join(tmp, "models.json");
     fs.writeFileSync(modelsJsonPath, JSON.stringify({
-      providers: { opencode: { baseUrl: "https://opencode.ai/zen/v1", apiKey: "public", headers: buildDisguiseHeaders({ requestID: "req_ctx" }), models: [{ id: STATIC_FREE_MODEL_IDS[0], contextWindow: 999000 }, { id: "other-free", contextWindow: 128000 }, { id: "third-free" }] } },
+      providers: { opencode: { baseUrl: ZEN_CHAT_BASE_URL, apiKey: "public", headers: buildDisguiseHeaders(), models: [{ id: STATIC_FREE_MODEL_IDS[0], contextWindow: 999000 }, { id: "other-free", contextWindow: 128000 }, { id: "third-free" }] } },
     }), "utf8");
     const catalog = staticZenCatalog().models.filter((m) => m.id === STATIC_FREE_MODEL_IDS[0]);
     const incoming = [...catalog, { id: "other-free", contextWindow: 400000 }, { id: "third-free", contextWindow: 256000 }];
@@ -1557,7 +1586,7 @@ test("mergeZenProvider migrates a legacy opencode2dsh block away", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-migrate-"));
   try {
     const modelsJsonPath = path.join(tmp, "models.json");
-    const legacyHeaders = buildDisguiseHeaders({ requestID: "req_legacy" });
+    const legacyHeaders = buildDisguiseHeaders();
     fs.writeFileSync(modelsJsonPath, JSON.stringify({
       providers: {
         opencode2dsh: { baseUrl: "https://opencode.ai/zen/v1", apiKey: "public", headers: legacyHeaders, models: [{ id: "old-free" }] },
@@ -1568,9 +1597,10 @@ test("mergeZenProvider migrates a legacy opencode2dsh block away", async () => {
     const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
     assert.equal(merged.providers.opencode2dsh, undefined, "legacy key is removed");
     assert.equal(merged.providers.openai.models[0].id, "gpt-5");
-    assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/zen/v1");
+    assert.equal(merged.providers.opencode.baseUrl, "https://opencode.ai/inference/v1");
     assert.equal(merged.providers.opencode.models.length, STATIC_FREE_MODEL_IDS.length);
-    assert.equal(merged.providers.opencode.headers["x-opencode-request"], "req_legacy", "disguise headers are reused from the legacy block");
+    assert.equal(merged.providers.opencode.headers["x-opencode-session"], legacyHeaders["x-opencode-session"], "the legacy block's gateway-recipe session id is reused");
+    assert.equal(merged.providers.opencode.headers["x-opencode-request"], undefined, "the v1-only request header is rebuilt away");
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -1584,10 +1614,12 @@ test("mergeZenProvider repairs a stored session id that predates the gateway rec
     fs.writeFileSync(modelsJsonPath, JSON.stringify({
       providers: {
         opencode: {
-          baseUrl: "https://opencode.ai/zen/v1",
+          baseUrl: ZEN_CHAT_BASE_URL,
           apiKey: "public",
           headers: {
-            ...buildDisguiseHeaders({ requestID: "req_stored" }),
+            "user-agent": "opencode/1.18.31 (linux x64; node24)",
+            "x-opencode-client": "cli",
+            "x-opencode-request": "req_stored",
             "x-opencode-session": digestEra,
             "x-session-affinity": digestEra,
             "X-Session-Id": digestEra,
@@ -1600,9 +1632,12 @@ test("mergeZenProvider repairs a stored session id that predates the gateway rec
     const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
     const session = merged.providers.opencode.headers["x-opencode-session"];
     assert.ok(isGatewaySessionID(session), "stored session is re-encoded with the gateway recipe");
+    assert.equal(merged.providers.opencode.headers["x-opencode-session-id"], session, "v2 mirror header follows the session");
     assert.equal(merged.providers.opencode.headers["x-session-affinity"], session);
-    assert.equal(merged.providers.opencode.headers["X-Session-Id"], session);
-    assert.equal(merged.providers.opencode.headers["x-opencode-request"], "req_stored", "request id stays stable across the repair");
+    assert.equal(merged.providers.opencode.headers["x-session-id"], session);
+    assert.equal(merged.providers.opencode.headers["X-Session-Id"], undefined, "v1 capitalized variant is rebuilt away");
+    assert.equal(merged.providers.opencode.headers["x-opencode-request"], undefined, "v1 request header is rebuilt away");
+    assert.equal(merged.providers.opencode.headers["user-agent"], "opencode/latest/2.0.26/cli", "UA rebuilt to the v2 string");
     const repaired = fs.readFileSync(modelsJsonPath, "utf8");
     assert.equal(await mergeZenProvider(modelsJsonPath, staticZenCatalog().models), false, "repaired headers are stable on the next merge");
     assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), repaired);
@@ -1784,9 +1819,11 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
   const previousFetch = globalThis.fetch;
   const pendingFetches = [];
   globalThis.fetch = (url) => {
-    const response = String(url).includes("/zen/v1/models")
+    const response = String(url).includes("/inference/v1/models")
       ? { ok: true, json: async () => ({ data: [{ id: "big-pickle" }] }) }
-      : { ok: true, json: async () => MODELS_DEV_FIXTURE };
+      : String(url).includes("api.kilo.ai")
+        ? { ok: true, json: async () => ({ data: [{ id: "kilo-auto/free", isFree: true, context_length: 256000, top_provider: { max_completion_tokens: 32768 }, architecture: { input_modalities: ["text"] } }] }) }
+        : { ok: true, json: async () => MODELS_DEV_FIXTURE };
     return new Promise((resolve) => pendingFetches.push(() => resolve(response)));
   };
   process.env.HOME = tmpHome;
@@ -1814,7 +1851,7 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
     assert.ok(
-      notifications.some((n) => n.level === "info" && /synced 1 free Zen models in the background/.test(n.message)),
+      notifications.some((n) => n.level === "info" && /opencode: synced 1 free models in the background/.test(n.message)),
       "the background sync toasts once the fresh catalog lands",
     );
   } finally {
@@ -2015,4 +2052,208 @@ test("custom command notifies on empty template instead of sending", async () =>
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// ── zen-v2-wire: OpenCode v2 fingerprint gate ──────────────────────────────
+
+const ZEN_PI_READ_TOOL = {
+	type: "function",
+	function: {
+		name: "read",
+		description: "pi's own read tool",
+		parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+	},
+};
+
+test("applyFingerprintToChatPayload satisfies the v2 tool gate", () => {
+	const body = {
+		messages: [
+			{ role: "system", content: "You are pi." },
+			{ role: "user", content: "hi" },
+		],
+		tools: [
+			ZEN_PI_READ_TOOL,
+			{ type: "function", function: { name: "bash", description: "run a command", parameters: { type: "object", properties: { cmd: { type: "string" } } } } },
+		],
+		tool_choice: "none",
+	};
+	const sentToCaller = applyFingerprintToChatPayload(body);
+	const tools = body.tools;
+	const names = tools.map((t) => t.function?.name);
+	assert.ok(names.includes("read") && names.includes("shell"), "official read/shell definitions are declared");
+	assert.deepEqual(names.filter((n) => n === "read").length, [1].length, "no duplicate read declarations");
+	assert.ok(names.includes("read_client"), "pi's conflicting read tool is renamed");
+	assert.equal(sentToCaller.get("read_client"), "read", "alias map points back at the caller's name");
+	const officialRead = tools.find((t) => t.function?.name === "read");
+	assert.equal(officialRead.function.description.length > 100, true, "official definition is verbatim, not a stub");
+	assert.equal(body.tool_choice, undefined, "tool_choice none is stripped (v2 403s it)");
+	const system = body.messages[0];
+	assert.match(system.content, /Do not call the `read` or `shell` tools/, "placeholder note is appended");
+	// history + tool_choice retargeting
+	const history = {
+		messages: [{ role: "assistant", tool_calls: [{ id: "c1", type: "function", function: { name: "read", arguments: "{}" } }] }],
+		tools: [ZEN_PI_READ_TOOL],
+		tool_choice: { type: "function", function: { name: "read" } },
+	};
+	applyFingerprintToChatPayload(history);
+	const assistant = history.messages.find((m) => m.role === "assistant");
+	assert.equal(assistant.tool_calls[0].function.name, "read_client", "prior-turn calls follow the rename");
+	assert.equal(history.tool_choice.function.name, "read_client", "explicit tool_choice follows the rename");
+});
+
+// ── kilo-free: Kilo free-pool provider sync ────────────────────────────────
+
+test("kiloThinkingLevelMap maps declared efforts onto pi levels", () => {
+	assert.deepEqual(kiloThinkingLevelMap(undefined, true), { off: "none", minimal: "minimal", low: "low", medium: "medium", high: "high" });
+	assert.deepEqual(kiloThinkingLevelMap(["none", "medium", "high"], true), {
+		off: "none", minimal: null, low: null, medium: "medium", high: "high", xhigh: null, max: null,
+	});
+	const wide = kiloThinkingLevelMap(["low", "medium", "high", "xhigh", "max"], true);
+	assert.equal(wide.xhigh, "xhigh");
+	assert.equal(wide.max, "max");
+	assert.equal(wide.minimal, null);
+	assert.deepEqual(kiloThinkingLevelMap(undefined, false), { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" }, "mandatory-reasoning families lose the off rung (gateway 400s reasoning_effort none)");
+	assert.equal(kiloThinkingLevelMap(["low", "medium", "high", "xhigh", "max"], false).off, null);
+});
+
+test("kiloCanDisableThinking pins the mandatory-reasoning families", () => {
+	assert.equal(kiloCanDisableThinking("liquid/lfm-2.5-2.6b:free"), false);
+	assert.equal(kiloCanDisableThinking("minimax/minimax-m3.1-flash:free"), false);
+	assert.equal(kiloCanDisableThinking("stepfun/step-5-preview:free"), false);
+	assert.equal(kiloCanDisableThinking("kilo-auto/free"), true);
+	assert.equal(kiloCanDisableThinking("nvidia/nemotron-3.5-lightning:free"), true);
+});
+
+test("staticKiloCatalog carries the verified Kilo free list", () => {
+	const catalog = staticKiloCatalog();
+	assert.equal(catalog.source, "static");
+	assert.equal(catalog.models.length, 17);
+	const ids = catalog.models.map((m) => m.id);
+	assert.ok(ids.includes("kilo-auto/free") && ids.includes("openrouter/free"));
+	for (const model of catalog.models) {
+		assert.equal(model.reasoning, true, "every free-pool row declares reasoning support");
+		assert.ok(model.contextWindow > 0);
+		assert.ok(model.thinkingLevelMap, "thinking menu is always declared");
+	}
+	assert.equal(catalog.models.find((m) => m.id === "liquid/lfm-2.5-2.6b:free").thinkingLevelMap.off, null, "mandatory-reasoning families never offer off");
+	assert.equal(catalog.models.find((m) => m.id === "nvidia/nemotron-3-ultra-550b-a55b:free").thinkingLevelMap.off, "none");
+	const vision = catalog.models.find((m) => m.id === "nvidia/nemotron-3.5-super-vl:free");
+	assert.deepEqual(vision.input, ["text", "image"]);
+});
+
+const KILO_LISTING_FIXTURE = {
+	data: [
+		{
+			id: "acme/model-a:free", name: "ACME: Model A (free)", isFree: true,
+			context_length: 32000, top_provider: { max_completion_tokens: 8192 },
+			architecture: { input_modalities: ["text", "image"] },
+			opencode: { reasoning_options: [{ type: "effort", values: ["low", "high"] }] },
+		},
+		{ id: "acme/paid", isFree: false, context_length: 1000 },
+		{ id: "acme/model-a:free", isFree: true, context_length: 32000 },
+		{ id: "acme/broken", isFree: true },
+	],
+};
+
+test("decodeKiloListing slices the isFree roster and maps metadata", () => {
+	const models = decodeKiloListing(KILO_LISTING_FIXTURE);
+	assert.equal(models.length, 2, "paid rows, dup ids and keyless ids are dropped");
+	const a = models[0];
+	assert.equal(a.id, "acme/model-a:free");
+	assert.equal(a.name, "Model A", "vendor prefix and (free) qualifier are stripped");
+	assert.equal(a.contextWindow, 32000);
+	assert.equal(a.maxTokens, 8192);
+	assert.deepEqual(a.input, ["text", "image"]);
+	assert.deepEqual(a.thinkingLevelMap, { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: null });
+	const broken = models[1];
+	assert.equal(broken.id, "acme/broken");
+	assert.equal(broken.contextWindow, 131072, "upstream fallback window applies when the row omits it");
+	assert.equal(broken.maxTokens, undefined);
+});
+
+test("mergeKiloProvider merges idempotently with a blank bearer key", async () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kilo-merge-"));
+	try {
+		const modelsJsonPath = path.join(tmp, "models.json");
+		fs.writeFileSync(modelsJsonPath, JSON.stringify({
+			providers: { openai: { apiKey: "sk-x", models: [{ id: "gpt-5", default: true }] } },
+			otherKey: 1,
+		}), "utf8");
+		const catalog = staticKiloCatalog();
+		assert.equal(await mergeKiloProvider(modelsJsonPath, catalog.models), true);
+		const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+		assert.equal(merged.otherKey, 1);
+		assert.equal(merged.providers.openai.apiKey, "sk-x");
+		assert.equal(merged.providers.kilo.baseUrl, "https://api.kilo.ai/api/gateway");
+		assert.equal(merged.providers.kilo.apiKey, " ", "blank bearer: the gateway 401s any non-empty token");
+		assert.equal(merged.providers.kilo.api, "openai-completions");
+		assert.match(merged.providers.kilo.name, /may log prompts/);
+		assert.equal(merged.providers.kilo.models.length, 17);
+		const firstContent = fs.readFileSync(modelsJsonPath, "utf8");
+		assert.equal(await mergeKiloProvider(modelsJsonPath, catalog.models), false, "second merge is a no-op");
+		assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), firstContent);
+	} finally {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
+test("mergeKiloProvider refuses to clobber a foreign kilo provider", async () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kilo-foreign-"));
+	try {
+		const modelsJsonPath = path.join(tmp, "models.json");
+		fs.writeFileSync(modelsJsonPath, JSON.stringify({
+			providers: { kilo: { baseUrl: "https://my-kilo-proxy.example", apiKey: "sk-mine", models: [{ id: "my-model" }] } },
+		}), "utf8");
+		await assert.rejects(mergeKiloProvider(modelsJsonPath, staticKiloCatalog().models), /non-Kilo "kilo" provider/);
+		const after = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+		assert.equal(after.providers.kilo.apiKey, "sk-mine", "foreign block left untouched");
+	} finally {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
+test("ensureKiloProvider caches live results and falls back to the static list", async () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kilo-ensure-"));
+	delete process.env.PI_COMPANION_KILO_SYNC_DISABLE;
+	try {
+		const agentDir = path.join(tmp, "agent");
+		const calls = [];
+		const fetch = async (url) => {
+			calls.push(url);
+			return { ok: true, json: async () => KILO_LISTING_FIXTURE };
+		};
+
+		const live = await ensureKiloProvider(agentDir, { fetchImpl: fetch, now: () => 1_000_000 });
+		assert.equal(live.source, "live");
+		assert.equal(live.changed, true);
+		assert.equal(live.count, 2);
+		const cache = JSON.parse(fs.readFileSync(path.join(agentDir, KILO_CATALOG_CACHE_FILE), "utf8"));
+		assert.equal(cache.writtenAt, 1_000_000);
+		const callsAfterLive = calls.length;
+
+		const cached = await ensureKiloProvider(agentDir, { fetchImpl: fetch, now: () => 1_001_000 });
+		assert.equal(cached.source, "cache", "fresh cache short-circuits the live fetch");
+		assert.equal(calls.length, callsAfterLive);
+
+		fs.rmSync(path.join(agentDir, KILO_CATALOG_CACHE_FILE));
+		process.env.PI_COMPANION_KILO_OFFLINE = "1";
+		try {
+			const floored = await ensureKiloProvider(agentDir, { fetchImpl: fetch, now: () => 9_000_000_000 });
+			assert.equal(floored.source, "static", "no cache + offline → static floor");
+			assert.equal(floored.count, staticKiloCatalog().models.length);
+		} finally {
+			delete process.env.PI_COMPANION_KILO_OFFLINE;
+		}
+
+		process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
+		try {
+			const disabled = await ensureKiloProvider(agentDir, { fetchImpl: fetch });
+			assert.deepEqual(disabled, { changed: false, source: "disabled", count: 0 });
+		} finally {
+			delete process.env.PI_COMPANION_KILO_SYNC_DISABLE;
+		}
+	} finally {
+		process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
 });

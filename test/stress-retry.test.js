@@ -65,6 +65,7 @@ async function createPi() {
     isIdle: function() { return isIdle; },
     sessionManager: { getSessionFile: function() { return undefined; } },
     registerCommand(name, cmd) { commands.set(name, cmd); },
+    registerProvider() {},
     getModel() { return undefined; },
     getContextUsage: function() { return { tokens: 0, contextWindow: 100 }; },
     on(event, handler) {

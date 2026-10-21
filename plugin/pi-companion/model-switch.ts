@@ -18,9 +18,10 @@ export const DEFAULT_LABEL_SUFFIX = "  (default)";
 
 /**
  * Providers whose entries are pinned to the top of the /usemodel selector
- * list. opencode-zen.ts keeps the "opencode" Zen provider block fresh in models.json.
+ * list. opencode-zen.ts keeps the "opencode" Zen provider block and
+ * kilo-free.ts keeps the "kilo" free-pool block fresh in models.json.
  */
-export const TOP_PRIORITIZED_PROVIDERS: readonly string[] = ["opencode"];
+export const TOP_PRIORITIZED_PROVIDERS: readonly string[] = ["opencode", "kilo"];
 
 /** Stable ordering: pinned providers first (in list order), then the rest in manifest order. */
 function orderModelEntries(entries: ModelEntry[]): ModelEntry[] {
