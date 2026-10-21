@@ -1533,6 +1533,26 @@ test("mergeZenProvider merges idempotently and preserves other providers", async
   }
 });
 
+test("mergeZenProvider preserves user-set contextWindow overrides", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-ctx-"));
+  try {
+    const modelsJsonPath = path.join(tmp, "models.json");
+    fs.writeFileSync(modelsJsonPath, JSON.stringify({
+      providers: { opencode: { baseUrl: "https://opencode.ai/zen/v1", apiKey: "public", headers: buildDisguiseHeaders({ requestID: "req_ctx" }), models: [{ id: STATIC_FREE_MODEL_IDS[0], contextWindow: 999000 }, { id: "other-free", contextWindow: 128000 }, { id: "third-free" }] } },
+    }), "utf8");
+    const catalog = staticZenCatalog().models.filter((m) => m.id === STATIC_FREE_MODEL_IDS[0]);
+    const incoming = [...catalog, { id: "other-free", contextWindow: 400000 }, { id: "third-free", contextWindow: 256000 }];
+    assert.equal(await mergeZenProvider(modelsJsonPath, incoming), true);
+    const merged = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8"));
+    const kept = Object.fromEntries(merged.providers.opencode.models.map((m) => [m.id, m.contextWindow]));
+    assert.equal(kept[STATIC_FREE_MODEL_IDS[0]], 999000, "/ctx-set window survives the catalog rebuild");
+    assert.equal(kept["other-free"], 128000, "on-disk override wins over the incoming catalog value");
+    assert.equal(kept["third-free"], 256000, "models without an on-disk override take the catalog value");
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("mergeZenProvider migrates a legacy opencode2dsh block away", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-zen-migrate-"));
   try {

@@ -316,6 +316,18 @@ export function staticZenCatalog(): ZenCatalog {
 	return { models: STATIC_FREE_MODEL_IDS.map((id) => buildZenModelInfo(id)), source: "static" };
 }
 
+/** Per-model contextWindow overrides persisted on disk (e.g. via /ctx); keyed by model id. */
+function collectContextWindows(block: unknown): Map<string, number> {
+	const windows = new Map<string, number>();
+	if (!isRecord(block) || !Array.isArray(block.models)) return windows;
+	for (const m of block.models) {
+		if (isRecord(m) && typeof m.id === "string" && typeof m.contextWindow === "number") {
+			windows.set(m.id, m.contextWindow);
+		}
+	}
+	return windows;
+}
+
 export function buildZenProviderBlock(models: ZenModelInfo[], headers: Record<string, string>): Record<string, unknown> {
 	return {
 		name: "OpenCode Zen (free, anonymous)",
@@ -449,7 +461,14 @@ export async function mergeZenProvider(modelsJsonPath: string, models: ZenModelI
 	const legacy = isRecord(providers[LEGACY_PROVIDER_ID]) ? providers[LEGACY_PROVIDER_ID] : undefined;
 	const headersSource = current ?? legacy;
 	const headers = repairStoredHeaders(headersSource);
-	const block = buildZenProviderBlock(models, headers);
+	// /ctx persists contextWindow into the on-disk opencode block; the catalog
+	// rebuild must never clobber those values (ctx is user-owned, not sync-owned).
+	const userContextWindows = collectContextWindows(current);
+	const mergedModels = models.map((m) => {
+		const pinned = userContextWindows.get(m.id);
+		return pinned === undefined || pinned === m.contextWindow ? m : { ...m, contextWindow: pinned };
+	});
+	const block = buildZenProviderBlock(mergedModels, headers);
 	const nextProviders = { ...providers, [ZEN_PROVIDER_ID]: block };
 	if (legacy) delete nextProviders[LEGACY_PROVIDER_ID];
 	const next = { ...config, providers: nextProviders };
