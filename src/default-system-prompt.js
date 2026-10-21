@@ -111,6 +111,36 @@ could be batched is wasted wall-clock time.
 - Multiple writes to the same file: run them one after another.
 - A tool call that must observe the state left by an earlier call.
 ${PARALLEL_POLICY_END}`;
+
+export const FOCUS_POLICY_BEGIN = "<!-- axum:focus-execution-policy v1 -->";
+export const FOCUS_POLICY_END = "<!-- /axum:focus-execution-policy -->";
+
+export const FOCUS_EXECUTION_POLICY = `${FOCUS_POLICY_BEGIN}
+## Focus Execution Policy
+
+Spend turns and tokens on decisions, actions, and inspectable results — not on
+performing the process. Narration that restates work carries no information value.
+
+### Never
+
+- Opening pleasantries or restating the user's request before acting.
+- Announcing what you are about to do ("Now I will...", "Let me check...").
+- Repeating tool arguments, file contents, or command output back in prose.
+- Ceremonial post-action summaries that add nothing beyond the tool result.
+- Asking permission to continue mid-task; proceed and report at completion.
+
+### Always
+
+- Lead with the decision or the result; keep prose to what changes the user's next action.
+- Let tool calls and their outputs be the execution record; never duplicate them in prose.
+- Surface failures and blockers immediately, with evidence and the recovery path.
+- Answer direct questions fully — analysis and explanations are deliverables, not theater.
+
+### Progress
+
+- When the \`todo\` tool is available, progress lives on the panel, not in prose.
+- Without it, a single short progress line per turn is allowed; never a narrative.
+${FOCUS_POLICY_END}`;
 function buildUpsertedContent(existing, begin, end, block) {
   const start = existing.indexOf(begin);
   if (start !== -1) {
@@ -143,6 +173,10 @@ export function ensureTodoProgressPolicy(options) {
 
 export function ensureParallelToolBatchingPolicy(options) {
   return ensureManagedPolicyBlock({ begin: PARALLEL_POLICY_BEGIN, end: PARALLEL_POLICY_END, block: PARALLEL_TOOL_BATCHING_POLICY }, options);
+}
+
+export function ensureFocusExecutionPolicy(options) {
+  return ensureManagedPolicyBlock({ begin: FOCUS_POLICY_BEGIN, end: FOCUS_POLICY_END, block: FOCUS_EXECUTION_POLICY }, options);
 }
 
 export function ensureSubagentDelegationPolicy({ env = process.env } = {}) {

@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   ensureTodoProgressPolicy,
   ensureParallelToolBatchingPolicy,
+  ensureFocusExecutionPolicy,
   ensureSubagentDelegationPolicy,
   SUBAGENT_POLICY_BEGIN,
   SUBAGENT_POLICY_END,
@@ -13,6 +14,8 @@ import {
   TODO_POLICY_END,
   PARALLEL_POLICY_BEGIN,
   PARALLEL_POLICY_END,
+  FOCUS_POLICY_BEGIN,
+  FOCUS_POLICY_END,
   resolveAppendSystemPromptFile,
 } from "../src/default-system-prompt.js";
 
@@ -78,14 +81,41 @@ test("parallel tool batching policy: replaces only its own block on upgrade, kee
   assert.ok(content.includes("Always batch in one message"));
 });
 
+test("focus execution policy: creates the file, is idempotent, and stores mode 600", (t) => {
+  const env = withTempEnv(t);
+  const result = ensureFocusExecutionPolicy({ env });
+  const content = fs.readFileSync(result.path, "utf8");
+  assert.equal(result.changed, true);
+  assert.ok(content.includes(FOCUS_POLICY_BEGIN));
+  assert.ok(content.includes(FOCUS_POLICY_END));
+  assert.ok(content.includes("Focus Execution Policy"));
+  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
+  assert.equal(ensureFocusExecutionPolicy({ env }).changed, false, "idempotent second run");
+});
+
+test("focus execution policy: replaces only its own block on upgrade, keeping user content", (t) => {
+  const env = withTempEnv(t);
+  const target = resolveAppendSystemPromptFile(env);
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, `My custom rules.\n${FOCUS_POLICY_BEGIN}\nstale focus draft\n${FOCUS_POLICY_END}\n`);
+  const result = ensureFocusExecutionPolicy({ env });
+  const content = fs.readFileSync(target, "utf8");
+  assert.equal(result.changed, true);
+  assert.ok(!content.includes("stale focus draft"));
+  assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
+  assert.ok(content.includes("performing the process"));
+});
+
 test("policy blocks coexist: todo and parallel blocks upsert independently", (t) => {
   const env = withTempEnv(t);
   ensureTodoProgressPolicy({ env });
   ensureParallelToolBatchingPolicy({ env });
+  ensureFocusExecutionPolicy({ env });
   const target = resolveAppendSystemPromptFile(env);
   let content = fs.readFileSync(target, "utf8");
   assert.ok(content.includes(TODO_POLICY_BEGIN));
   assert.ok(content.includes(PARALLEL_POLICY_BEGIN));
+  assert.ok(content.includes(FOCUS_POLICY_BEGIN));
   assert.ok(content.indexOf(TODO_POLICY_BEGIN) < content.indexOf(PARALLEL_POLICY_BEGIN));
   ensureTodoProgressPolicy({ env });
   content = fs.readFileSync(target, "utf8");
