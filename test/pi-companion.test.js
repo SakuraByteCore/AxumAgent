@@ -718,13 +718,41 @@ test("auto-compact stays below threshold and respects cooldown", async () => {
   fs.rmSync(hot.ctx.cwd, { recursive: true, force: true });
 });
 
-test("cthreshold shows default, rejects out-of-range, and persists valid values", withBareHome(async () => {
+test("dual-threshold compaction: settled uses soft, in-flight events use hard", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext();
+  // Pin the thresholds: a real $HOME config.json must not leak into this test.
+  await pi.commands.get("cthreshold").handler("75 95", ctx);
+  ctx.getContextUsage = () => ({ tokens: 80, contextWindow: 100 }); // ≥ soft 75, < hard 95
+
+  await emit(pi, "turn_start", {}, ctx);
+  assert.equal(compactCalls.length, 0, "soft threshold must not fire at in-flight event points");
+
+  await emit(pi, "agent_settled", {}, ctx);
+  await waitFor(() => compactCalls.length === 1);
+  assert.equal(compactCalls.length, 1, "idle boundary compacts at the soft threshold");
+  compactCalls[0].onComplete({ summary: "ledger" });
+  // Let the settled compaction task's microtasks flush so pendingCompact clears
+  // before the hard-threshold probe (a real session emits turn_start continuously).
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  ctx.getContextUsage = () => ({ tokens: 95, contextWindow: 100 }); // ≥ hard 95
+  await emit(pi, "turn_start", {}, ctx);
+  await waitFor(() => compactCalls.length === 2);
+  assert.equal(compactCalls.length, 2, "hard threshold fires at any event point");
+  compactCalls[1].onComplete({ summary: "ledger" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+
+});
+
+test("cthreshold shows defaults, rejects bad input, persists soft+hard, and rejects soft>=hard", withBareHome(async () => {
   const pi = createPi();
   const { ctx, notifications } = createContext();
   const command = pi.commands.get("cthreshold");
 
   await command.handler("", ctx);
-  assert.match(notifications.at(-1).message, /threshold: 80% \(default 80%\)/);
+  assert.match(notifications.at(-1).message, /thresholds: soft 75%, hard 95% \(defaults 75%\/95%/);
 
   await command.handler("0", ctx);
   assert.equal(notifications.at(-1).level, "warning");
@@ -732,15 +760,23 @@ test("cthreshold shows default, rejects out-of-range, and persists valid values"
   assert.equal(notifications.at(-1).level, "warning");
   await command.handler("abc", ctx);
   assert.equal(notifications.at(-1).level, "warning");
+  await command.handler("90 80", ctx);
+  assert.equal(notifications.at(-1).level, "warning");
+  assert.match(notifications.at(-1).message, /soft 75%, hard 95%/);
 
   await command.handler("60", ctx);
-  assert.match(notifications.at(-1).message, /80% → 60% \(saved\)/);
+  assert.match(notifications.at(-1).message, /soft 75% → 60%, hard 95% → 60% \(saved\)/);
   const configPath = path.join(process.env.HOME, ".pi", "agent", "extensions", "pi-companion", "config.json");
-  assert.equal(JSON.parse(fs.readFileSync(configPath, "utf8")).compactThreshold, 60);
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), { compactThreshold: 60, compactHardThreshold: 60 });
 
-  // Restore the module default so other tests stay independent of this one.
-  await command.handler("80", ctx);
+  await command.handler("70 90", ctx);
+  assert.match(notifications.at(-1).message, /soft 60% → 70%, hard 60% → 90% \(saved\)/);
+  assert.deepEqual(JSON.parse(fs.readFileSync(configPath, "utf8")), { compactThreshold: 70, compactHardThreshold: 90 });
+
+  // Restore the module defaults so other tests stay independent of this one.
+  await command.handler("75 95", ctx);
 }));
+
 
 test("cthreshold loads persisted threshold at extension init", withBareHome(async () => {
   const agentDir = path.join(process.env.HOME, ".pi", "agent", "extensions", "pi-companion");
@@ -752,13 +788,13 @@ test("cthreshold loads persisted threshold at extension init", withBareHome(asyn
 
   // The loader is fire-and-forget at init; poll until it has applied the value.
   await waitFor(() => {
-    if (!notifications.some((n) => /threshold: 50%/.test(n.message))) {
+    if (!notifications.some((n) => /soft 50%/.test(n.message))) {
       void pi.commands.get("cthreshold").handler("", ctx);
     }
-    return notifications.some((n) => /threshold: 50%/.test(n.message));
+    return notifications.some((n) => /soft 50%/.test(n.message));
   });
 
-  await pi.commands.get("cthreshold").handler("80", ctx);
+  await pi.commands.get("cthreshold").handler("75 95", ctx);
 }));
 
 test("length stop compacts with ledger via native compaction, retries after proof", async () => {

@@ -202,29 +202,45 @@ function buildRalphLoopPrompt(prompt: string, loop: number, maxLoops: number, co
 
 // ── Auto-Compact ────────────────────────────────────────────────────────────
 
-const COMPACT_THRESHOLD_DEFAULT = 80;
+const COMPACT_SOFT_THRESHOLD_DEFAULT = 75;
+const COMPACT_HARD_THRESHOLD_DEFAULT = 95;
 const COMPACT_THRESHOLD_MIN = 1;
 const COMPACT_THRESHOLD_MAX = 99;
 const COMPACT_CONFIG_DIR = () => join(homedir(), ".pi", "agent", "extensions", "pi-companion");
-let compactThreshold = COMPACT_THRESHOLD_DEFAULT;
+/** Hard-threshold default can be overridden per install via env. */
+function compactHardThresholdDefault(): number {
+	const raw = Number(process.env.PI_COMPANION_COMPACT_HARD_THRESHOLD);
+	return Number.isFinite(raw) && raw >= COMPACT_THRESHOLD_MIN && raw <= COMPACT_THRESHOLD_MAX
+		? Math.trunc(raw)
+		: COMPACT_HARD_THRESHOLD_DEFAULT;
+}
+let compactSoftThreshold = COMPACT_SOFT_THRESHOLD_DEFAULT;
+let compactHardThreshold = compactHardThresholdDefault();
+const CTHRESHOLD_USAGE = "Usage: /cthreshold <soft> <hard> (soft < hard, idle vs emergency) or /cthreshold <1-99> to set both.";
 
-async function loadPersistedCompactThreshold(): Promise<number | null> {
+function validThreshold(value: unknown): value is number {
+	return typeof value === "number" && Number.isInteger(value)
+		&& value >= COMPACT_THRESHOLD_MIN && value <= COMPACT_THRESHOLD_MAX;
+}
+
+async function loadPersistedCompactThresholds(): Promise<{ soft: number | null; hard: number | null }> {
 	try {
-		const parsed = JSON.parse(await readFile(join(COMPACT_CONFIG_DIR(), "config.json"), "utf8")) as { compactThreshold?: unknown };
-		const value = parsed?.compactThreshold;
-		return typeof value === "number" && Number.isInteger(value)
-			&& value >= COMPACT_THRESHOLD_MIN && value <= COMPACT_THRESHOLD_MAX ? value : null;
+		const parsed = JSON.parse(await readFile(join(COMPACT_CONFIG_DIR(), "config.json"), "utf8")) as { compactThreshold?: unknown; compactHardThreshold?: unknown };
+		return {
+			soft: validThreshold(parsed?.compactThreshold) ? parsed.compactThreshold : null,
+			hard: validThreshold(parsed?.compactHardThreshold) ? parsed.compactHardThreshold : null,
+		};
 	} catch {
-		// Missing or unreadable config file: keep the built-in default.
-		return null;
+		// Missing or unreadable config file: keep the built-in defaults.
+		return { soft: null, hard: null };
 	}
 }
 
-async function persistCompactThreshold(value: number): Promise<void> {
+async function persistCompactThresholds(soft: number, hard: number): Promise<void> {
 	const configPath = join(COMPACT_CONFIG_DIR(), "config.json");
 	const tmpPath = `${configPath}.tmp`;
 	await mkdir(dirname(configPath), { recursive: true });
-	await writeFile(tmpPath, `${JSON.stringify({ compactThreshold: value }, null, 2)}\n`, "utf8");
+	await writeFile(tmpPath, `${JSON.stringify({ compactThreshold: soft, compactHardThreshold: hard }, null, 2)}\n`, "utf8");
 	await rename(tmpPath, configPath);
 }
 const COMPACT_COOLDOWN_MS = 30_000;
@@ -344,17 +360,21 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 	return task;
 }
 
-async function maybeCompact(pi: ExtensionAPI, _event: unknown, ctx: ExtensionContext): Promise<boolean> {
+async function maybeCompact(pi: ExtensionAPI, event: unknown, ctx: ExtensionContext): Promise<boolean> {
 	const pct = compactUsagePercent(ctx);
 	if (pct == null) return false;
-	if (pct < compactThreshold) {
+	// Dual-threshold: compaction at an idle boundary (agent_settled) uses the soft
+	// threshold so running work is never interrupted; any other event point only
+	// fires the hard emergency threshold to keep a long generation from blowing
+	// through the window.
+	const threshold = event === "agent_settled" ? compactSoftThreshold : compactHardThreshold;
+	if (pct < threshold) {
 		compactDeferred = false;
 		return false;
 	}
 	if (Date.now() - lastCompactAt < compactCooldownMs()) return false;
 	return startLedgerCompaction(pi, ctx, true);
 }
-
 
 async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactResumePending) return;
@@ -378,7 +398,7 @@ async function tryDeferredCompact(pi: ExtensionAPI, ctx: ExtensionContext): Prom
 	if (!compactDeferred) return;
 	const pct = compactUsagePercent(ctx);
 	if (pct == null) return;
-	if (pct < compactThreshold) {
+	if (pct < compactSoftThreshold) {
 		compactDeferred = false;
 		return;
 	}
@@ -1051,8 +1071,9 @@ export default function (pi: ExtensionAPI): void {
 	let lastAssistantAlreadyHandled = false;
 	const lastConfigError: { value?: string } = {};
 
-	void loadPersistedCompactThreshold().then((value) => {
-		if (value !== null) compactThreshold = value;
+	void loadPersistedCompactThresholds().then(({ soft, hard }) => {
+		if (soft !== null) compactSoftThreshold = soft;
+		if (hard !== null) compactHardThreshold = hard;
 	});
 
 	interface RalphState {
@@ -1564,35 +1585,45 @@ pi.registerCommand("claude", {
 		},
 	});
 
-	// ── /cthreshold: show or set the auto-compact threshold (1-99, persisted). ──
+	// ── /cthreshold: show or set the auto-compact soft/hard thresholds (1-99, persisted). ──
+
 
 	pi.registerCommand("cthreshold", {
 		description:
-			"Show or set the auto-compact context threshold in percent, 1-99 (applies instantly, persisted): /cthreshold <1-99>",
+			"Show or set the auto-compact context thresholds in percent, 1-99 (applies instantly, persisted): /cthreshold <soft> <hard>",
 		getArgumentCompletions: () => null,
 		async handler(args: string, ctx) {
-			const raw = args.trim();
-			if (!raw) {
-				ctx.ui.notify(`Auto-compact threshold: ${compactThreshold}% (default ${COMPACT_THRESHOLD_DEFAULT}%).`, "info");
+			const tokens = args.trim().split(/\s+/).filter(Boolean);
+			if (tokens.length === 0) {
+				ctx.ui.notify(`Auto-compact thresholds: soft ${compactSoftThreshold}%, hard ${compactHardThreshold}% (defaults ${COMPACT_SOFT_THRESHOLD_DEFAULT}%/${compactHardThresholdDefault()}%; idle compaction uses soft, any event point uses hard).`, "info");
 				return;
 			}
-			if (!/^\d+$/.test(raw)) {
-				ctx.ui.notify(`Invalid threshold "${raw}" — expected an integer between 1 and 99. Usage: /cthreshold <1-99>`, "warning");
+			if (tokens.length > 2 || tokens.some((token) => !/^\d+$/.test(token))) {
+				ctx.ui.notify(`Invalid threshold "${args.trim()}" — expected integers between 1 and 99. ${CTHRESHOLD_USAGE}`, "warning");
 				return;
 			}
-			const next = Number(raw);
-			if (next < COMPACT_THRESHOLD_MIN || next > COMPACT_THRESHOLD_MAX) {
-				ctx.ui.notify(`Threshold ${next} out of range — expected 1-99. Auto-compact stays enabled; use /compact to compact manually at any time.`, "warning");
+			const values = tokens.map(Number);
+			if (values.some((value) => value < COMPACT_THRESHOLD_MIN || value > COMPACT_THRESHOLD_MAX)) {
+				ctx.ui.notify(`Threshold out of range — expected 1-99. Auto-compact stays enabled; use /compact to compact manually at any time.`, "warning");
 				return;
 			}
-			const current = compactThreshold;
-			compactThreshold = next;
+			// Single-value form is the legacy path: both thresholds equal reproduces the
+			// old any-event-point behaviour at that percentage.
+			const [nextSoft, nextHard] = tokens.length === 1 ? [values[0], values[0]] : values;
+			if (tokens.length === 2 && nextSoft >= nextHard) {
+				ctx.ui.notify(`Soft threshold ${nextSoft}% must be below hard threshold ${nextHard}%. Keeping soft ${compactSoftThreshold}%, hard ${compactHardThreshold}%.`, "warning");
+				return;
+			}
+			const prevSoft = compactSoftThreshold;
+			const prevHard = compactHardThreshold;
+			compactSoftThreshold = nextSoft;
+			compactHardThreshold = nextHard;
 			try {
-				await persistCompactThreshold(next);
-				ctx.ui.notify(`Auto-compact threshold: ${current}% → ${next}% (saved).`, "info");
+				await persistCompactThresholds(nextSoft, nextHard);
+				ctx.ui.notify(`Auto-compact thresholds: soft ${prevSoft}% → ${nextSoft}%, hard ${prevHard}% → ${nextHard}% (saved).`, "info");
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Auto-compact threshold ${current}% → ${next}% applied for this session, but persisting failed: ${message}`, "warning");
+				ctx.ui.notify(`Auto-compact thresholds soft ${prevSoft}% → ${nextSoft}%, hard ${prevHard}% → ${nextHard}% applied for this session, but persisting failed: ${message}`, "warning");
 			}
 		},
 	});
@@ -1746,12 +1777,12 @@ export default function (pi: ExtensionAPI): void {
 
 	// ── Auto-Compact Listeners ──────────────────────────────────────────────
 
-	pi.on("agent_start", (event, ctx) => {
-		void maybeCompact(pi, event, ctx);
+	pi.on("agent_start", (_event, ctx) => {
+		void maybeCompact(pi, "agent_start", ctx);
 	});
 
-	pi.on("turn_start", (event, ctx) => {
-		void maybeCompact(pi, event, ctx);
+	pi.on("turn_start", (_event, ctx) => {
+		void maybeCompact(pi, "turn_start", ctx);
 	});
 
 	pi.on("message_update", async (_event, ctx) => {
@@ -1763,9 +1794,9 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("agent_settled", async (event, ctx) => {
+	pi.on("agent_settled", async (_event, ctx) => {
 		await tryDeferredCompact(pi, ctx);
-		if (!compactResumePending) void maybeCompact(pi, event, ctx);
+		if (!compactResumePending) void maybeCompact(pi, "agent_settled", ctx);
 		await drainCompactResume(pi, ctx);
 		await maybeAutoContinueTerminal(ctx);
 		await maybeRalphContinue(ctx);
