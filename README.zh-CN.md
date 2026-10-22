@@ -2,18 +2,23 @@
 
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
-  <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square" alt="Node"> </a>
+  <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D22.19.0-green?style=flat-square" alt="Node"> </a>
+  <a href="#环境要求"> <img src="https://img.shields.io/badge/runs%20on-Android%20%2F%20Termux-3ddc84?style=flat-square" alt="Runs on Android/Termux"> </a>
 </p>
 
-> 基于 Pi 的编码代理分发包，将 Pi 本体与精选扩展一同打包并启动。
+<div align="center">
+  <h1>Axum Agent</h1>
+  <p>一条命令装好的完整编码代理：Pi 本体 + 12 个精选扩展，打包同启。macOS、Linux、Windows 之外，Android/Termux 同样一等支持。</p>
+</div>
 
-Axum Agent 是一个基于 Pi 的编码代理分发包。它将 Pi 本体与扩展一同打包并启动，只需一条 `npm install -g` 即可获得开箱即用的代理，无需额外接线。
+> 一条 `npm install -g`（main 分支 tarball）全部就位：无需 clone、无需构建、无需逐个挑选扩展。
 
-- **一键安装** —— 从 main 分支 tarball 安装全局 npm 包，无需 clone 或构建。
-- **打包扩展** —— Pi 本体与一组精选扩展同装同启。
-- **Web 配置** —— Provider、重试与系统提示词设置均在本地 Web UI 完成。
-- **安全模式** —— 任何损坏的扩展都可被跳过，仅启动 Pi 本体。
-- **自包含运行时** —— 打包的 Pi 运行时存于用户缓存，重装 Axum 不会重复首次安装流程。
+- **一条命令，全家桶就位** —— Pi 本体与 12 个打包扩展（快捷指令、后台 Agent、持久记忆、todo、Web 工具）同装同启；自包含运行时存于用户缓存，重装不重复首次安装流程。
+- **手机上也能跑** —— 一等支持 Android/Termux：同一条命令把 Termux 变成编码代理。
+- **一键后台 Agent** —— `/spawn`（继承会话）、`/scout`（空白上下文）、`/blueprint`（规划模式）一键发射后台 Agent，实时进度挂件 + 结果自动回传。
+- **跨会话持久记忆** —— `pi-memory` 以单个 JSON 文件持久化记忆，零原生依赖（/memory save|find|recall|clear）。
+- **MCP 开箱即用** —— `axum mcp add` 添加即生效；配置格式与 Cursor、Claude Code、Codex 通用。
+- **Web 配置 + 安全模式** —— Provider、重试与系统提示词设置均在本地 Web UI 完成；任何损坏的扩展都可被跳过，仅启动 Pi 本体。
 
 ## 目录
 

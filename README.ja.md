@@ -2,18 +2,23 @@
 
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
-  <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square" alt="Node"> </a>
+  <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D22.19.0-green?style=flat-square" alt="Node"> </a>
+  <a href="#要件"> <img src="https://img.shields.io/badge/runs%20on-Android%20%2F%20Termux-3ddc84?style=flat-square" alt="Runs on Android/Termux"> </a>
 </p>
 
-> Pi ベースのコーディングエージェント配布パッケージ。Pi 本体と厳選拡張を同梱して起動します。
+<div align="center">
+  <h1>Axum Agent</h1>
+  <p>1 コマンドで揃うフルコーディングエージェント：Pi 本体 + 厳選 12 拡張を同梱して同時起動。macOS・Linux・Windows に加え、Android/Termux も第一級対応。</p>
+</div>
 
-Axum Agent は、Pi ベースのコーディングエージェント配布パッケージです。Pi 本体と拡張を同梱して起動するため、`npm install -g` 1 本で追加設定なしにすぐ動くエージェントが手に入ります。
+> main ブランチの tarball から `npm install -g` 1 本で全部揃います：clone 不要、build 不要、拡張選びも不要。
 
-- **ワンコマンドでインストール** —— main ブランチの tarball からグローバル npm パッケージをインストール。clone も build も不要。
-- **同梱拡張** —— Pi 本体と厳選した拡張セットを一緒に同梱・同時起動。
-- **Web での設定** —— provider・リトライ・システムプロンプトの設定はローカル Web UI で完結。
-- **セーフモード** —— 壊れた拡張はスキップし、Pi 本体だけを起動可能。
-- **自己完結ランタイム** —— 同梱 Pi ランタイムはユーザーキャッシュに保存され、Axum を再インストールしても first-run setup は繰り返しません。
+- **1 コマンドでフルセット** —— Pi 本体と 12 の同梱拡張（ショートカット・バックグラウンドエージェント・永続メモリ・todo・Web ツール）を一緒にインストール・起動。自己完結ランタイムはユーザーキャッシュに保存され、再インストールでも first-run setup は繰り返しません。
+- **スマホでも動く** —— Android/Termux を第一級サポート：同じ 1 行で Termux がコーディングエージェントに。
+- **ワンキーでバックグラウンドエージェント** —— `/spawn`（セッション継承）・`/scout`（空コンテキスト）・`/blueprint`（プランモード）のワンキー起動で、ライブ進捗ウィジェット付きのバックグラウンドエージェントが走り、結果は自動で返却。
+- **セッション横断の永続メモリ** —— `pi-memory` が単一 JSON ファイルにメモリを永続化、ネイティブ依存ゼロ（/memory save|find|recall|clear）。
+- **MCP 同梱** —— `axum mcp add` で追加するだけ；設定形式は Cursor・Claude Code・Codex と共通。
+- **Web 設定 + セーフモード** —— provider・リトライ・システムプロンプトの設定はローカル Web UI で完結；壊れた拡張はスキップし、Pi 本体だけを起動可能。
 
 ## 目次
 

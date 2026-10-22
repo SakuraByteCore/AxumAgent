@@ -1,32 +1,28 @@
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
-  <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D18-green?style=flat-square" alt="Node"> </a>
+  <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D22.19.0-green?style=flat-square" alt="Node"> </a>
+  <a href="#requirements"> <img src="https://img.shields.io/badge/runs%20on-Android%20%2F%20Termux-3ddc84?style=flat-square" alt="Runs on Android/Termux"> </a>
 </p>
 
 <div align="center">
   <h1>Axum Agent</h1>
-  <p>A Pi-based coding agent distribution that bundles the Pi core with curated extensions and launches them together.</p>
+  <p>A full coding agent in one command: the Pi core plus 12 hand-picked extensions, wired together and launched as one. Runs on macOS, Linux, Windows, and Android/Termux.</p>
 </div>
 
-> Axum Agent is built around Pi-based agent distribution. The web UI handles provider, retry, and system-prompt settings locally, and startup can be isolated with safe mode when needed.
+> One `npm install -g` from the main-branch tarball and everything is in place: no clone, no build step, no extension shopping.
 >
-> Quick Start: [Quick Start](#quick-start)
->
-> Requirements: [Requirements](#requirements)
+> Quick Start: [Quick Start](#quick-start) • Requirements: [Requirements](#requirements)
 >
 > Translations: [English](./README.md) • [日本語](./README.ja.md) • [中文](./README.zh-CN.md)
 
-## Overview
-
-Axum Agent is a Pi-based coding agent distribution package. It bundles the Pi core together with extensions and launches them together, so a single `npm install -g` gives you a ready-to-run agent with no extra wiring.
-
 ## Highlights
 
-- **One-command install** — global npm package from the main branch tarball, no clone or build step.
-- **Bundled extensions** — Pi core plus a hand-picked set of extensions ship together and start together.
-- **Web-based config** — provider, retry, and system-prompt settings live in a local web UI.
-- **Safe mode** — any broken extension can be bypassed to launch only the Pi core.
-- **Self-contained runtime** — the bundled Pi runtime lives in the user cache, so reinstalling Axum does not repeat first-run setup.
+- **One command, full toolkit** — the Pi core and 12 bundled extensions (slash shortcuts, background agents, persistent memory, todos, web tools) install and start together; the self-contained runtime lives in your user cache, so reinstalls skip first-run setup.
+- **Runs on your phone** — first-class Android/Termux support: the same one-liner turns Termux into a coding agent.
+- **Background agents at one keystroke** — `/spawn` (inherits the session), `/scout` (blank context), `/blueprint` (plan mode) each fire a background agent with a live progress widget and deliver the finished result back automatically.
+- **Persistent cross-session memory** — `pi-memory` keeps memory in a single JSON file with zero native deps (`/memory save|find|recall|clear`).
+- **MCP built in** — `axum mcp add` and you are done; servers use the standard `mcpServers` format shared with Cursor, Claude Code, and Codex.
+- **Web-based config + safe mode** — provider, retry, and system-prompt settings live in a local web UI; any broken extension can be bypassed to launch only the Pi core.
 
 ## Requirements
 
