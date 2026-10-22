@@ -33,9 +33,11 @@ import {
 	logSteering,
 	mainContextLabel,
 	MAX_WIDGET_LINES,
+	sampleTokensPerSecond,
 	SPINNER,
 	truncatePlain,
 	WIDGET_KEY,
+	type SpeedSampleState,
 } from "./shared.js";
 
 type UserAgentWidgetEntry =
@@ -70,17 +72,19 @@ export class UserAgentWidget {
 	private viewerOpen = false;
 	/** One confirmation slot for detaching the selected agent. */
 	private readonly detachConfirmation = new TimedConfirmation<ViewableAgent>(() => this.update());
+	/** Per-agent output-token samples feeding the t/s readout; pruned to live agents on every update. */
+	private readonly speedSamples = new Map<string, SpeedSampleState>();
 	private readonly completedAgents: CompletedAgent[] = [];
 
 	private readonly runningAgents: Set<RunningAgent>;
 	private readonly sendSquashedResult: (message: AgentResultMessage) => void;
-	private readonly announceDetached: (sessionId: string) => void;
+	private readonly announceDetached: (sessionId: string, sequence: number) => void;
 	private readonly rebaseDelivery: RebaseDelivery;
 
 	constructor(
 		runningAgents: Set<RunningAgent>,
 		sendSquashedResult: (message: AgentResultMessage) => void,
-		announceDetached: (sessionId: string) => void,
+		announceDetached: (sessionId: string, sequence: number) => void,
 		rebaseDelivery: RebaseDelivery,
 	) {
 		this.runningAgents = runningAgents;
@@ -154,7 +158,7 @@ export class UserAgentWidget {
 		for (const agent of live) this.closeRunning(agent);
 		const completed = [...this.completedAgents];
 		this.completedAgents.length = 0;
-		for (const agent of completed) this.announceDetached(agent.sessionId);
+		for (const agent of completed) this.announceDetached(agent.sessionId, agentDispatchSequence(agent.id));
 		this.detachConfirmation.cancel();
 		this.update();
 		return { closedLive: live.length, dismissedCompleted: completed.length };
@@ -174,6 +178,10 @@ export class UserAgentWidget {
 		}
 
 		this.frame += 1;
+		const liveIds = new Set(this.runningAgentsForWidget().map((agent) => agent.id));
+		for (const id of this.speedSamples.keys()) {
+			if (!liveIds.has(id)) this.speedSamples.delete(id);
+		}
 		this.clampSelection();
 		if (!this.widgetRegistered) {
 			this.ui.setWidget(
@@ -209,12 +217,14 @@ export class UserAgentWidget {
 		this.tui = undefined;
 		this.active = false;
 		this.detachConfirmation.cancel();
+		this.speedSamples.clear();
 	}
 
 	private clear(): void {
 		if (this.widgetRegistered) {
 			this.ui?.setWidget(WIDGET_KEY, undefined);
 			this.widgetRegistered = false;
+			this.speedSamples.clear();
 			this.tui = undefined;
 		}
 		if (this.interval) {
@@ -371,7 +381,7 @@ export class UserAgentWidget {
 		agent.aborted = true;
 		void agent.session?.abort();
 		agent.retire?.();
-		this.announceDetached(agent.sessionId);
+		this.announceDetached(agent.sessionId, agentDispatchSequence(agent.id));
 		this.update();
 	}
 
@@ -519,7 +529,7 @@ export class UserAgentWidget {
 	private removeCompleted(agent: CompletedAgent): void {
 		const index = this.completedAgents.indexOf(agent);
 		if (index >= 0) this.completedAgents.splice(index, 1);
-		this.announceDetached(agent.sessionId);
+		this.announceDetached(agent.sessionId, agentDispatchSequence(agent.id));
 		const total = this.entries().length;
 		if (total === 0) {
 			this.deactivate();
@@ -596,6 +606,18 @@ export class UserAgentWidget {
 		return lines.slice(0, MAX_WIDGET_LINES);
 	}
 
+	/** t/s label for an in-flight agent, or undefined while no active generation is observed. */
+	private tokensPerSecLabel(agent: RunningAgent): string | undefined {
+		if (!agent.session) return undefined;
+		let state = this.speedSamples.get(agent.id);
+		if (!state) {
+			state = { lastAt: 0, samples: [] };
+			this.speedSamples.set(agent.id, state);
+		}
+		const tps = sampleTokensPerSecond(state, agent.session.getSessionStats().tokens.output, Date.now());
+		return tps === undefined ? undefined : `${tps} t/s`;
+	}
+
 	private renderAgentEntry(
 		agent: ViewableAgent,
 		connector: string,
@@ -625,6 +647,10 @@ export class UserAgentWidget {
 				running ? (agent.completedAt ?? Date.now()) - agent.turnStartedAt : agent.durationMs,
 			),
 		);
+		if (inFlight) {
+			const tps = this.tokensPerSecLabel(agent);
+			if (tps) parts.push(tps);
+		}
 
 		const header = [
 			theme.fg("dim", connector),

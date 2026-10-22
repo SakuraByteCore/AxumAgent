@@ -950,3 +950,12 @@ test("dispatched children run on in-memory sessions — no session file is ever 
   const runnerSource = readFileSync("plugin/pi-agent/runner.ts", "utf8");
   assert.equal(runnerSource.split("SessionManager.inMemory(dispatch.services.cwd)").length - 1, 2);
 });
+
+test("sampleTokensPerSecond derives a 10s-window rate and hides idle/tool phases", async () => {
+  const { sampleTokensPerSecond } = await import("../plugin/pi-agent/shared.ts");
+  const state = { lastAt: 0, samples: [] };
+  assert.equal(sampleTokensPerSecond(state, 100, 1_000), undefined, "first sample has no window yet");
+  assert.equal(sampleTokensPerSecond(state, 100, 1_500), undefined, "throttled: no resample within 1s");
+  assert.equal(sampleTokensPerSecond(state, 4_100, 11_000), 400, "(4100-100) tokens over 10s → 400 t/s");
+  assert.equal(sampleTokensPerSecond(state, 4_100, 21_000), undefined, "no token growth (tool phase) hides the readout");
+});

@@ -46,6 +46,8 @@ export type AgentEntryData = {
 
 export type DetachedEntryData = {
 	sessionId: string;
+	/** Agent dispatch sequence (the N in its user-N id); absent in entries written before numbering existed. */
+	sequence?: number;
 };
 
 export type RebaseStats = {
@@ -294,6 +296,37 @@ export function formatMs(ms: number): string {
 	const minutes = Math.floor(ms / 60_000);
 	const seconds = Math.round((ms % 60_000) / 1000);
 	return `${minutes}m ${seconds}s`;
+}
+
+/** Sliding window and throttle for the in-flight t/s readout (output-token samples). */
+export const SPEED_WINDOW_MS = 10_000;
+export const SPEED_SAMPLE_INTERVAL_MS = 1_000;
+
+export interface SpeedSampleState {
+	lastAt: number;
+	samples: { at: number; output: number }[];
+}
+
+/**
+ * Push a ~1s-throttled output-token sample and derive tokens/s over a 10s
+ * sliding window. Undefined while no generation is observed — output tokens
+ * stop growing while the child runs tools, so the readout disappears instead
+ * of decaying and never reflects tool time.
+ */
+export function sampleTokensPerSecond(
+	state: SpeedSampleState,
+	outputTokens: number,
+	now: number,
+): number | undefined {
+	if (now - state.lastAt >= SPEED_SAMPLE_INTERVAL_MS) {
+		state.lastAt = now;
+		state.samples.push({ at: now, output: outputTokens });
+		while (state.samples.length > 1 && now - state.samples[0].at > SPEED_WINDOW_MS) state.samples.shift();
+	}
+	const first = state.samples[0];
+	const last = state.samples[state.samples.length - 1];
+	if (!first || last === first || last.output <= first.output) return undefined;
+	return Math.round(((last.output - first.output) * 1000) / (last.at - first.at)) || undefined;
 }
 
 export function truncatePlain(text: string, length: number): string {
