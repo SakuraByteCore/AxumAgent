@@ -222,11 +222,13 @@ export function registerUserAgentRenderer(pi: ExtensionAPI): void {
 				: undefined,
 	);
 	// Pi's chat container does not pad renderer components; its own chat lines self-pad with paddingX 1.
-	pi.registerEntryRenderer<DetachedEntryData>(DETACHED_ENTRY_TYPE, (entry, _state, theme) =>
-		entry.data
-			? new Text(theme.fg("dim", `Detached session ${entry.data.sessionId}`), 1, 0)
-			: undefined,
-	);
+	pi.registerEntryRenderer<DetachedEntryData>(DETACHED_ENTRY_TYPE, (entry, _state, theme) => {
+		if (!entry.data) return undefined;
+		const label = entry.data.sequence !== undefined
+			? `Detached session ${entry.data.sequence}`
+			: `Detached session ${entry.data.sessionId}`;
+		return new Text(theme.fg("dim", label), 1, 0);
+	});
 	pi.registerEntryRenderer<RebasedEntryData>(REBASED_ENTRY_TYPE, (entry, _state, theme) =>
 		entry.data ? new Text(theme.fg("dim", formatRebasedLine(entry.data)), 1, 0) : undefined,
 	);

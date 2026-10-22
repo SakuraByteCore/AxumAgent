@@ -28,7 +28,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 	const widget = new UserAgentWidget(
 		runningAgents,
 		(message) => pi.sendMessage(message, { triggerTurn: true }),
-		(sessionId) => pi.appendEntry<DetachedEntryData>(DETACHED_ENTRY_TYPE, { sessionId }),
+		(sessionId, sequence) => pi.appendEntry<DetachedEntryData>(DETACHED_ENTRY_TYPE, { sessionId, sequence }),
 		createRebaseDelivery(pi, () => mainSessionContext),
 	);
 	let shuttingDown = false;
