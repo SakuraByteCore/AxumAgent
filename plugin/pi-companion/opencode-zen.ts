@@ -58,22 +58,13 @@ const LIVE_FETCH_TIMEOUT_MS = 8000;
 export const ZEN_CLIENT_UA = "opencode/latest/2.0.26/cli";
 
 /**
- * Free ids of the anonymous lane as of the 2026-10-14 live snapshot
- * (S1 /v1/models ∩ S2 models.dev free decision). Bootstrap list and offline
- * floor; big-pickle is free by models.dev metadata, the rest by name.
+ * Offline floor for the anonymous lane. Intentionally empty: the compile-time
+ * snapshot kept rotting as upstream retired free ids (6 of 10 were dead by
+ * 2026-12), so bootstrap now relies solely on the live catalog and the on-disk
+ * cache. A cold offline start yields an empty provider block until the first
+ * successful live fetch fills the cache.
  */
-export const STATIC_FREE_MODEL_IDS: readonly string[] = [
-	"big-pickle",
-	"ling-3.1-flash-free",
-	"cat-jam-free",
-	"mimo-v2.6-flash-free",
-	"muse-spark-1.3-contributor-free",
-	"nemotron-3.5-lightning-free",
-	"jev-1.13-free",
-	"step-5-preview-free",
-	"longcat-2.5-preview-free",
-	"space-bunny-free",
-];
+export const STATIC_FREE_MODEL_IDS: readonly string[] = [];
 
 export interface ZenModelInfo {
 	id: string;
