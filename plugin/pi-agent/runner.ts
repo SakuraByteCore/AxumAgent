@@ -787,6 +787,16 @@ function buildInheritedMessages(ctx: ExtensionCommandContext): AgentMessage[] {
 	return structuredClone(buildSessionContext(ctx.sessionManager.getBranch()).messages);
 }
 
+function dispatchTimeoutReport(agent: RunningAgent): string {
+	return JSON.stringify({
+		status: "partial",
+		reason: `Dispatch deadline expired after ${agent.timeoutMs}ms.`,
+		findings: agent.responseText || "No assistant text available before timeout.",
+		evidence: { toolUses: agent.toolUses, turnCount: agent.turnCount },
+		remainingRisks: ["Task interrupted; filesystem changes and tool results require parent verification."],
+	});
+}
+
 async function runAgentLifecycle(
 	pi: ExtensionAPI,
 	isShuttingDown: () => boolean,
@@ -820,7 +830,7 @@ async function runAgentLifecycle(
 			logSteering(runningAgent.id, "agent-aborted");
 			return;
 		}
-		const message = errorMessage(error);
+		const message = runningAgent.timeoutMs === undefined ? errorMessage(error) : dispatchTimeoutReport(runningAgent);
 		logSteering(runningAgent.id, "agent-error", { error: message });
 		runningAgent.status = "error";
 		runningAgent.completedAt = Date.now();
@@ -858,6 +868,7 @@ export async function runChildTurns(
 	let instruction = `You are running in an ephemeral, forked background process now, concurrently with the main session. ${task}`;
 	while (true) {
 		const turnMessageStart = session.agent.state.messages.length;
+		if (runningAgent.timeoutMs !== undefined) throw new Error(dispatchTimeoutReport(runningAgent));
 		if (!runningAgent.interruptRequested) {
 			logSteering(runningAgent.id, "turn-prompt-started", {
 				streaming: session.isStreaming,
@@ -865,6 +876,7 @@ export async function runChildTurns(
 			});
 			await session.prompt(instruction);
 		}
+		if (runningAgent.timeoutMs !== undefined) throw new Error(dispatchTimeoutReport(runningAgent));
 		if (runningAgent.interruptRequested) {
 			const response = interruptedTurnResponse(session, turnMessageStart);
 			runningAgent.interruptRequested = false;

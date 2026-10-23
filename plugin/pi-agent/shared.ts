@@ -146,6 +146,8 @@ export type RunningAgent = {
 	finished: Promise<void>;
 	/** Set when the user closes an in-flight agent from the widget — suppresses the error entry and transcript post. */
 	aborted?: boolean;
+	/** Set only when a dispatch deadline expires; unlike aborted, still reports partial results. */
+	timeoutMs?: number;
 	/** Set when the user interrupts only the active turn, leaving the child session alive. */
 	interruptRequested?: boolean;
 	/** Retry count for the current turn (reset on success). */

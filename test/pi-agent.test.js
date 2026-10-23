@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
+  armDispatchDeadline,
   buildDispatchArgs,
   buildDispatchPrompt,
   registerDispatch,
@@ -855,14 +856,13 @@ test("buildOrchestrationPrompt embeds the budget, absolute deadline, and protoco
   assert.ok(prompt.startsWith("[Orchestration Request]\naudit the retry paths"));
   assert.match(prompt, /Wall-clock budget: 60s/);
   assert.match(prompt, /absolute deadline: 2023-11-14T22:14:20\.000Z/);
-  assert.match(prompt, /top-level timeoutMs = 60000/);
-  assert.match(prompt, /~80% of the budget/);
+  assert.match(prompt, /dispatch_agent call must pass timeoutMs/);
+  assert.match(prompt, /Initial total budget: 60000ms/);
+  assert.match(prompt, /last 20%/);
   assert.match(prompt, /status \(done\|partial\|blocked\|failed\)/);
-  assert.match(prompt, /Execute first: in your first action/);
-  assert.match(prompt, /never open with a decomposition pass/);
-  assert.match(prompt, /Add workers progressively/);
-  assert.match(prompt, /Split cheaply while executing/);
-  assert.doesNotMatch(prompt, /Decompose the request into non-overlapping lanes/);
+  assert.match(prompt, /Fan out first/);
+  assert.match(prompt, /NOT a filesystem sandbox/);
+  assert.doesNotMatch(prompt, /workflowScript|Execute first|Add workers progressively/);
 });
 
 test("registerOrchestrate registers /orchestrate and forwards the protocol prompt", async () => {
@@ -878,7 +878,7 @@ test("registerOrchestrate registers /orchestrate and forwards the protocol promp
   assert.equal(pi.messages.length, 1);
   const forwarded = pi.messages[0];
   assert.match(forwarded.message, /\[Orchestration Request\]\nfix the login race/);
-  assert.match(forwarded.message, /top-level timeoutMs = 900000/);
+  assert.match(forwarded.message, /Initial total budget: 900000ms/);
   assert.equal(forwarded.options.streamingBehavior, "followUp");
 });
 
@@ -958,4 +958,39 @@ test("sampleTokensPerSecond derives a 10s-window rate and hides idle/tool phases
   assert.equal(sampleTokensPerSecond(state, 100, 1_500), undefined, "throttled: no resample within 1s");
   assert.equal(sampleTokensPerSecond(state, 4_100, 11_000), 400, "(4100-100) tokens over 10s → 400 t/s");
   assert.equal(sampleTokensPerSecond(state, 4_100, 21_000), undefined, "no token growth (tool phase) hides the readout");
+});
+
+
+test("dispatch deadlines abort active lanes and clear after completion", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let finish, aborted = 0;
+  const agent = { status: "running", session: { abort: () => { aborted++; } }, finished: new Promise(resolve => { finish = resolve; }) };
+  armDispatchDeadline(agent, 100); t.mock.timers.tick(99);
+  assert.equal(aborted, 0);
+  t.mock.timers.tick(1);
+  assert.equal(aborted, 1); assert.equal(agent.timeoutMs, 100);
+  finish();
+  const completed = { ...agent, timeoutMs: undefined, finished: Promise.resolve() };
+  armDispatchDeadline(completed, 100); await Promise.resolve();
+  t.mock.timers.tick(100);
+  assert.equal(completed.timeoutMs, undefined);
+});
+
+test("dispatch_agent rejects invalid deadlines before launch", async () => {
+  const pi = createPi(), { deps, calls } = createDeps();
+  registerDispatch(pi, deps);
+  const result = await pi.tools.get("dispatch_agent").execute("call", { task: "x", timeoutMs: 0 }, undefined, undefined, {});
+  assert.equal(result.details.error, "invalid-timeout"); assert.equal(calls.length, 0);
+});
+
+
+test("dispatch_agent arms the deadline on the returned agent", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let aborted = false;
+  const agent = { id: "user-1", status: "running", session: { abort: () => { aborted = true; } }, finished: new Promise(() => {}) };
+  const pi = createPi();
+  registerDispatch(pi, createDeps({ startAgent: async () => agent }).deps);
+  await pi.tools.get("dispatch_agent").execute("call", { task: "x", timeoutMs: 100 }, undefined, undefined, {});
+  t.mock.timers.tick(100);
+  assert.equal(aborted, true);
 });

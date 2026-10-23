@@ -1,15 +1,19 @@
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionCommandContext, RunningAgent } from "./shared.js";
 
+export const MAX_DISPATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
+
 type DispatchAgentParams = {
 	task: string;
 	isolate?: boolean;
 	squash?: boolean;
 	model?: string;
 	thinking?: string;
+	timeoutMs?: number;
 };
 
 const DISPATCH_AGENT_PARAMETERS = Type.Object({
+	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DISPATCH_TIMEOUT_MS, description: "Host-side execution deadline in milliseconds after dispatch starts. Omit for no deadline; timeout returns partial results." })),
 	task: Type.String({
 		description:
 			"Complete task description for the background agent. The agent inherits this session's conversation unless isolate is true.",
@@ -61,6 +65,17 @@ export type DispatchDeps = {
 	startAgent: (args: string, invocation: string, ctx: ExtensionCommandContext) => Promise<RunningAgent>;
 };
 
+/** Deadline belongs to this dispatched lifecycle, not to ordinary /agent sessions. */
+export function armDispatchDeadline(agent: RunningAgent, timeoutMs: number): void {
+	const timer = setTimeout(() => {
+		if (agent.aborted || !["starting", "running"].includes(agent.status)) return;
+		agent.timeoutMs = timeoutMs;
+		void agent.session?.abort();
+	}, timeoutMs);
+	const clear = () => clearTimeout(timer);
+	void agent.finished.then(clear, clear);
+}
+
 export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 	pi.registerTool({
 		name: "dispatch_agent",
@@ -81,12 +96,16 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 					details: { error: "shutting-down" },
 				};
 			}
+			if (params.timeoutMs !== undefined && (!Number.isInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_DISPATCH_TIMEOUT_MS)) {
+				return { content: [{ type: "text" as const, text: `timeoutMs must be an integer between 1 and ${MAX_DISPATCH_TIMEOUT_MS}.` }], details: { error: "invalid-timeout" } };
+			}
 			try {
 				const agent = await deps.startAgent(
 					buildDispatchArgs(params),
 					`dispatch_agent: ${params.task}`,
 					ctx as ExtensionCommandContext,
 				);
+				if (params.timeoutMs !== undefined) armDispatchDeadline(agent, params.timeoutMs);
 				return {
 					content: [
 						{
