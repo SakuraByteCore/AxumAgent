@@ -23,10 +23,9 @@ test("checks available Pi extensions on Android", () => {
     "pi-hashline-edit-pro@2.7.0",
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
-    "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 8);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -41,10 +40,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-hashline-edit-pro@2.7.0",
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
-    "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 10);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 9);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -57,11 +55,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
     "pi-hashline-edit-pro@2.7.0",
     "@gamaraan/todos-tool@0.3.0",
     "pi-agent@file:plugin/pi-agent",
-    "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
-    "@zzxb/pi-notify@0.0.1",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 7);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate

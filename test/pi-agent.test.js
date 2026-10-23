@@ -847,7 +847,7 @@ test("parseOrchestrationArgs parses duration forms, bare minutes, defaults, and 
   assert.equal(parseOrchestrationArgs("10x not a duration").task, "10x not a duration", "unknown units fall back to task text");
   assert.equal(parseOrchestrationArgs(""), undefined);
   assert.equal(parseOrchestrationArgs("10m"), undefined, "duration without a task is rejected");
-  assert.equal(parseOrchestrationArgs("48h far too long").budgetMs, MAX_ORCHESTRATION_BUDGET_MS, "budget clamped to the pi-subagents timeout ceiling");
+  assert.equal(parseOrchestrationArgs("48h far too long").budgetMs, MAX_ORCHESTRATION_BUDGET_MS, "budget clamped to the 24h ceiling");
 });
 
 test("buildOrchestrationPrompt embeds the budget, absolute deadline, and protocol rules", () => {

@@ -16,17 +16,11 @@ const PI_LOADED_SKILLS_EXTENSIONS_HIDDEN_MARKER = "AXUM_PI_LOADED_SKILLS_EXTENSI
 const PI_STARTUP_CHANGELOG_COLLAPSED_MARKER = "AXUM_PI_STARTUP_CHANGELOG_COLLAPSED";
 const PI_JITI_LAZY_LOADER_MARKER = "AXUM_JITI_LAZY_LOADER";
 const PI_ALT_SCREEN_SCROLL_ON_SUBMIT_MARKER = "AXUM_PI_ALT_SCREEN_SCROLL_ON_SUBMIT";
-const PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN";
 const PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN";
 const PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER = "AXUM_PI_MODEL_TODO_COMMANDS_AUTOCOMPLETE_HIDDEN";
 const PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER = "AXUM_PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE";
 const PI_EXTENSION_SELECTOR_SCROLL_MARKER = "AXUM_PI_EXTENSION_SELECTOR_SCROLL";
 const PI_EXTENSION_SELECTOR_PRESELECT_MARKER = "AXUM_PI_EXTENSION_SELECTOR_PRESELECT";
-const PI_SUBAGENTS_PACKAGE = "pi-subagents";
-const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
-const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
-const LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER = "AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V1";
-const PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER = "AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V2";
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
@@ -307,39 +301,6 @@ function patchPiAltScreenScrollOnSubmit(content) {
   return content.replace(needle, needle + injection);
 }
 
-// The bundled pi-subagents extension registers ~19 slash commands (/subagents,
-// /run, /prompt-workflow, ...). They stay manually invocable through the
-// extension runner's getCommand() path, but the `/` autocomplete list should
-// not advertise them: filter them out of createBaseAutocompleteProvider()'s
-// extensionCommands by their sourceInfo path, so upstream renames or additions
-// need no maintained command-name list.
-function patchPiSubagentsCommandsAutocompleteHide(content) {
-  if (content.includes(PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER)) return content;
-
-  const needle = [
-    "        const extensionCommands = this.session.extensionRunner",
-    "            .getRegisteredCommands()",
-    "            .filter((cmd) => !builtinCommandNames.has(cmd.name))",
-    "            .map((cmd) => ({",
-  ].join("\n");
-  if (!content.includes(needle)) {
-    // Upstream interactive-mode may restructure the extensionCommands block in
-    // a future release. Hiding is a UX preference, not a correctness need, so
-    // skip it instead of hard-failing startup when the block shape changes.
-    return content;
-  }
-
-  const replacement = [
-    "        const extensionCommands = this.session.extensionRunner",
-    "            .getRegisteredCommands()",
-    "            .filter((cmd) => !builtinCommandNames.has(cmd.name))",
-    "            // " + PI_SUBAGENT_COMMANDS_AUTOCOMPLETE_HIDDEN_MARKER + ": pi-subagents commands stay invocable but hidden from `/` autocomplete.",
-    "            .filter((cmd) => !String(cmd.sourceInfo?.path ?? \"\").includes(\"pi-subagents\"))",
-    "            .map((cmd) => ({",
-  ].join("\n");
-  return content.replace(needle, replacement);
-}
-
 // /memory (pi-memory plugin) and /dispatch (pi-agent plugin) stay manually
 // invocable through getCommand(), but should not be advertised in the `/`
 // autocomplete list. /dispatch shares the pi-agent source with /spawn,
@@ -347,11 +308,15 @@ function patchPiSubagentsCommandsAutocompleteHide(content) {
 function patchPiMemoryDispatchCommandsAutocompleteHide(content) {
   if (content.includes(PI_MEMORY_DISPATCH_AUTOCOMPLETE_HIDDEN_MARKER)) return content;
 
-  const needle = "            .filter((cmd) => !String(cmd.sourceInfo?.path ?? \"\").includes(\"pi-subagents\"))";
+  const needle = [
+    "        const extensionCommands = this.session.extensionRunner",
+    "            .getRegisteredCommands()",
+    "            .filter((cmd) => !builtinCommandNames.has(cmd.name))",
+  ].join("\n");
   if (!content.includes(needle)) {
-    // The pi-subagents hide patch owns this anchor line, so it may be missing
-    // on a fresh upstream file or after an upstream restructure. Hiding is a
-    // UX preference, not a correctness need, so skip instead of hard-failing.
+    // Upstream interactive-mode may restructure the extensionCommands block in
+    // a future release. Hiding is a UX preference, not a correctness need, so
+    // skip it instead of hard-failing startup when the block shape changes.
     return content;
   }
 
@@ -362,6 +327,7 @@ function patchPiMemoryDispatchCommandsAutocompleteHide(content) {
   ].join("\n");
   return content.replace(needle, replacement);
 }
+
 
 // /model and /scoped-models are built-in slash commands; /todo and
 // /todos-configure are registered by the bundled todos-tool extension. All
@@ -393,11 +359,8 @@ function patchPiModelTodoCommandsAutocompleteHide(content) {
     "            .filter((cmd) => ![\"todo\", \"todos-configure\"].includes(cmd.name))",
   ].join("\n");
   const memoryAnchor = "            .filter((cmd) => ![\"memory\", \"dispatch\"].includes(cmd.name))";
-  const subagentsAnchor = "            .filter((cmd) => !String(cmd.sourceInfo?.path ?? \"\").includes(\"pi-subagents\"))";
   if (patched.includes(memoryAnchor)) {
     patched = patched.replace(memoryAnchor, memoryAnchor + "\n" + todoFilter);
-  } else if (patched.includes(subagentsAnchor)) {
-    patched = patched.replace(subagentsAnchor, subagentsAnchor + "\n" + todoFilter);
   }
   // Hiding is a UX preference, not a correctness need, so a miss on both
   // extension-command anchors (or on the built-in needle after an upstream
@@ -1753,96 +1716,6 @@ function patchPiSettingsRetryFixedDelay(content) {
   ].join("\n"));
 }
 
-function patchPiSubagentsProactiveDelegation(content) {
-  if (content.includes(PI_SUBAGENTS_PROACTIVE_MARKER)) return content;
-  const needles = [
-    [
-      [
-        'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate proactively to subagents; orchestrate in one workflowScript call. When the request carries multiple independent tasks or requirements, partition them into non-overlapping scopes and launch all of them in one async workflow immediately, without a long planning pass first.";',
-        'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate to subagents; orchestrate in one workflowScript call.";',
-        'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "For operator-requested delegation, use subagents; compose multi-child work in one workflow call.";',
-      ],
-      'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";',
-    ],
-    [
-      [
-        "Use subagent proactively; do not wait for the user to explicitly request delegation.",
-        "Use subagent only when delegation is needed.",
-        "Do not invoke subagents unless the operator requested delegation directly or through applicable instructions.",
-      ],
-      "Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",
-    ],
-  ];
-  let patched = content;
-  const legacyLine = "// " + LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n";
-  const isLegacyMarked = patched.includes(legacyLine);
-  for (const [variants, replacement] of needles) {
-    const variant = variants.find((candidate) => patched.includes(candidate));
-    if (!variant) {
-      if (isLegacyMarked) continue;
-      return content;
-    }
-    patched = patched.replace(variant, replacement);
-  }
-  patched = patched.replace(legacyLine, "");
-  return "// " + PI_SUBAGENTS_PROACTIVE_MARKER + ": proactive delegation triggers (Axum).\n" + patched;
-}
-
-// V1 snippet text lives only in already-patched caches from the previous
-// generation; it is the upgrade needle for the execute-first rewrite.
-const PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1 =
-  'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Latency-first orchestrator: the main agent decomposes, dispatches, arbitrates, and verifies; subagents do the exploration and fixes. Partition 2+ independent requirements into non-overlapping lanes (scout / implementer / verifier) and launch ALL of them in one async workflowScript call in your first action - token cost is irrelevant, wall-clock latency is the only metric. Set ONE top-level timeoutMs equal to the wall-clock budget; children that omit timeoutMs inherit the host-enforced remaining budget. Steer still-running children to emit best-partial structured results at ~80% of the budget; interrupt redundant lanes once one passes an acceptance-checked verifier. Arbitrate only from structured envelopes (status, changes/findings, evidence, remainingRisks), preferring verified evidence over prose. Never write a long plan before dispatching.";';
-
-// Execute-first rewrite: no up-front decomposition pass. The main agent
-// starts the most direct core step itself, peels off only obviously
-// independent chunks as cheap async lanes while executing, and adds
-// workers progressively only when execution reveals real parallelism.
-const PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2 =
-  'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Latency-first orchestrator: the main agent executes first, splits cheaply while executing, and adds workers progressively; subagents do the exploration and fixes. In your first action start the most direct core step yourself - never a decomposition pass or a plan. As you execute, peel off only obviously independent chunks and dispatch each as an async workflowScript call with top-level timeoutMs equal to the wall-clock budget; children that omit timeoutMs inherit the host-enforced remaining budget. Delegate more only when execution reveals genuinely parallelizable shards or confirmed bottlenecks; never pre-launch speculative lanes. Steer still-running children to emit best-partial structured results at ~80% of the budget; interrupt redundant lanes once one passes an acceptance-checked verifier. Arbitrate only from structured envelopes (status, changes/findings, evidence, remainingRisks), preferring verified evidence over prose.";';
-
-function patchPiSubagentsLatencyOrchestrator(content) {
-  if (content.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER)) return content;
-  const markerLine = "// " + PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": latency-first orchestrator protocol (Axum).";
-  const legacyMarkerLine = "// " + LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": latency-first orchestrator protocol (Axum).";
-  if (content.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1)) {
-    // V1 upgrade: swap the snippet for the execute-first rewrite. Detection
-    // keys on the snippet text itself, not the marker line - compiled .js
-    // copies are transpiled from the patched .ts and drop comment markers,
-    // so a marker-line test would strand them on the V1 wording forever.
-    // The budget/envelope guidelines carry over untouched.
-    return content
-      .replace(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2)
-      .replace(legacyMarkerLine, markerLine);
-  }
-  if (content.includes(legacyMarkerLine)) return content;
-  const snippetNeedles = [
-    'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";',
-  ];
-  const guidelinesNeedles = [
-    "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.',\n];",
-    "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.'\n];",
-  ];
-  const guidelinesReplacement = "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.',\n'Latency-first budget: derive every lane timeout from one wall-clock budget. Set the workflow-level timeoutMs once; omit per-child timeoutMs so lanes inherit the host-enforced remaining budget, or set a deliberately tighter phase cap. At ~80% of the budget, steer running children to emit best-partial structured envelopes; interrupt redundant or losing lanes once one lane passes an acceptance-checked verifier.',\n'Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks. The parent arbitrates only from these fields, prefers verified evidence over prose, and reports uncovered shards explicitly instead of proceeding as if coverage were complete.',\n];";
-  const snippetNeedle = snippetNeedles.find((needle) => content.includes(needle));
-  const guidelinesNeedle = guidelinesNeedles.find((needle) => content.includes(needle));
-  if (snippetNeedle && guidelinesNeedle) {
-    return markerLine + "\n" + content.replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2).replace(guidelinesNeedle, guidelinesReplacement);
-  }
-  // pi-subagents 0.74.0+: the guidelines are a standalone export with
-  // double-quoted elements. Anchor on the proactive line injected by
-  // patchPiSubagentsProactiveDelegation and append the budget/envelope rules.
-  const modernGuidelinesNeedle = '"Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",\n];';
-  if (!snippetNeedle || !content.includes(modernGuidelinesNeedle)) return content;
-  return markerLine + "\n" + content
-    .replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2)
-    .replace(modernGuidelinesNeedle, [
-      '"Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",',
-      '"Latency-first budget: derive every lane timeout from one wall-clock budget. Set the workflow-level timeoutMs once; omit per-child timeoutMs so lanes inherit the host-enforced remaining budget, or set a deliberately tighter phase cap. At ~80% of the budget, steer running children to emit best-partial structured envelopes; interrupt redundant or losing lanes once one lane passes an acceptance-checked verifier.",',
-      '"Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks. The parent arbitrates only from these fields, prefers verified evidence over prose, and reports uncovered shards explicitly instead of proceeding as if coverage were complete.",',
-      '];',
-    ].join("\n"));
-}
-
 function patchPiUserAgent(content) {
   if (content.includes(PI_USER_AGENT_CUSTOM_MARKER)) return content;
   
@@ -1866,7 +1739,6 @@ function patchPiUserAgent(content) {
   
   return content.replace(needle, replacement);
 }
-
 function patchPiAiUserAgent(content) {
   if (content.includes(PI_USER_AGENT_CUSTOM_MARKER)) return content;
 
@@ -2117,19 +1989,9 @@ export function applyBundledPiPatches(options) {
     results.push(patchFileInPlace(piExtensionLoaderPath, patchPiJitiLazyLoader));
   }
   results.push(fs.existsSync(piInteractiveModePath)
-    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate)
+    ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate)
     : { patched: false, file: piInteractiveModePath });
-
-  for (const ext of [".ts", ".js"]) {
-    const toolDescriptionPath = path.join(
-      resolveBundledPackageRoot(PI_SUBAGENTS_PACKAGE, options),
-      "src", "extension", `tool-description${ext}`,
-    );
-    if (fs.existsSync(toolDescriptionPath)) {
-      results.push(patchFileInPlace(toolDescriptionPath, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator));
-    }
-  }
 
   return results;
 }
-export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAiInterruptedRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, patchPiSubagentsProactiveDelegation, patchPiSubagentsLatencyOrchestrator, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, PI_SUBAGENTS_PROACTIVE_MARKER, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER, LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER, patchPiSessionLastUserMessage, PI_SESSION_LAST_USER_MESSAGE_MARKER, patchPiSessionSelectorLastUserPreview, PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER };
+export { patchPiAgentSessionRateLimitRetry, patchPiAgentSessionConnectionRetry, patchPiHttpIdleTimeoutDefault, patchPiAiRateLimitRetry, patchPiRetryJitter, patchPiAiRetryable422, patchPiAiDeadlineRetryable, patchPiAiInterruptedRetryable, patchPiAssistantMessageErrorDedup, patchPiAssistantMessageConnectionDisplay, patchPiInteractiveErrorDedup, patchPiInteractiveConnectionDisplay, PI_ASSISTANT_CONNECTION_DISPLAY_MARKER, PI_INTERACTIVE_CONNECTION_DISPLAY_MARKER, patchPiInteractiveRateLimitDisplay, patchPiGoalAutoResume, PI_RATE_LIMIT_429_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_SOURCE, PI_CONNECTION_ERROR_PATTERN_LEGACY_SOURCE, patchPiGoalLinkSyncFallback, patchPiJitiLazyLoader, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiTuiStdinBuffer, patchPiVersionNotificationSuppress, patchPiAltScreenScrollOnSubmit, patchTermuxAutoInstall, patchUndiciMarkAsUncloneableFallback, buildPiRetryConfigurableDelayPatch, patchPiSettingsRetryFixedDelay, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate, PI_EXTENSION_TERMINAL_INPUT_FOCUS_GATE_MARKER, patchPiExtensionSelectorScroll, PI_EXTENSION_SELECTOR_SCROLL_MARKER, patchPiExtensionSelectorPreselect, patchPiInteractiveSelectorPreselect, PI_EXTENSION_SELECTOR_PRESELECT_MARKER, patchPiUserAgent, patchPiAiUserAgent, PI_USER_AGENT_CUSTOM_MARKER, patchPiSessionLastUserMessage, PI_SESSION_LAST_USER_MESSAGE_MARKER, patchPiSessionSelectorLastUserPreview, PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER };

@@ -24,47 +24,6 @@ it while you work; a plan that is never created means a panel that never moves.
 ${TODO_POLICY_END}`;
 
 
-export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
-const LEGACY_SUBAGENT_POLICY_PAIRS = [
-  ["<!-- axum:subagent-delegation-policy v1 -->", SUBAGENT_POLICY_END],
-  ["<!-- axum:subagent-delegation-policy v2 -->", SUBAGENT_POLICY_END],
-];
-export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v3 -->";
-
-export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
-## Subagent Delegation Policy
-
-The \`subagent\` tool is an opt-in delegation mechanism, not a default execution
-engine. Run work inline by default; the main thread owns exploration, edits,
-verification, and synthesis. Delegate only when parallelism or isolation
-genuinely helps.
-
-### Delegate only when it pays
-
-- Delegate when the user explicitly asks for a subagent or background
-  execution, or when two or more strictly independent chunks of work (separate
-  files, separate research questions) can run concurrently with zero data
-  dependency between them.
-- Trivial single-step actions (one read, a one-line edit, a single command)
-  always stay inline.
-- Sequential hard data dependencies stay sequential: a task that consumes
-  another task's output gains nothing from delegation.
-
-### Foreground first
-
-- Launch subagents with \`async: false\` (or omit \`async\`) unless the user
-  explicitly asked for background execution. Foreground results return in the
-  same turn and stay visible in the transcript.
-- Never fan out fleets unprompted: no "scout + implementer + verifier" chains
-  and no best-of-N races. One request warrants at most one subagent.
-
-### After a delegation
-
-- Cross-check the child's report against the actual diff or output before
-  acting on it; verified evidence beats prose. Never forward raw agent dumps
-  to the user.
-${SUBAGENT_POLICY_END}`;
-
 export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";
 export const PARALLEL_POLICY_END = "<!-- /axum:parallel-tool-batching-policy -->";
 
@@ -154,25 +113,4 @@ export function ensureParallelToolBatchingPolicy(options) {
 
 export function ensureFocusExecutionPolicy(options) {
   return ensureManagedPolicyBlock({ begin: FOCUS_POLICY_BEGIN, end: FOCUS_POLICY_END, block: FOCUS_EXECUTION_POLICY }, options);
-}
-
-export function ensureSubagentDelegationPolicy({ env = process.env } = {}) {
-  const target = resolveAppendSystemPromptFile(env);
-  const original = fs.existsSync(target) ? fs.readFileSync(target, "utf8") : "";
-  let existing = original;
-  for (const [legacyBegin, legacyEnd] of LEGACY_SUBAGENT_POLICY_PAIRS) {
-    const legacyStart = existing.indexOf(legacyBegin);
-    if (legacyStart === -1) continue;
-    const legacyStop = existing.indexOf(legacyEnd, legacyStart);
-    if (legacyStop === -1) continue;
-    existing = legacyStart === 0
-      ? existing.slice(legacyStop + legacyEnd.length).trimStart()
-      : (existing.slice(0, legacyStart) + existing.slice(legacyStop + legacyEnd.length)).replace(/\n{3,}/g, "\n\n");
-  }
-  const next = buildUpsertedContent(existing, SUBAGENT_POLICY_BEGIN, SUBAGENT_POLICY_END, SUBAGENT_DELEGATION_POLICY);
-  if (next === original) return { path: target, changed: false };
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, next, { mode: 0o600 });
-  try { fs.chmodSync(target, 0o600); } catch {}
-  return { path: target, changed: true };
 }

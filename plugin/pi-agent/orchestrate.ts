@@ -14,8 +14,8 @@ const UNIT_MS = { h: 3_600_000, m: 60_000, s: 1_000 } as const;
 /**
  * Parse a leading wall-clock budget like "90s", "10m", "1h30m", or bare minutes
  * ("7"); without a duration the default budget is 10m. Returns undefined when no
- * task text remains. Budgets above 24h are clamped to the pi-subagents
- * timeout ceiling (86400000ms).
+ * task text remains. Budgets above 24h are clamped to the 24h ceiling
+ * (86400000ms).
  */
 export function parseOrchestrationArgs(args: string): OrchestrationRequest | undefined {
 	const trimmed = args.trim();

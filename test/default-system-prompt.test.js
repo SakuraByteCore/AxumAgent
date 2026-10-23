@@ -7,9 +7,6 @@ import {
   ensureTodoProgressPolicy,
   ensureParallelToolBatchingPolicy,
   ensureFocusExecutionPolicy,
-  ensureSubagentDelegationPolicy,
-  SUBAGENT_POLICY_BEGIN,
-  SUBAGENT_POLICY_END,
   TODO_POLICY_BEGIN,
   TODO_POLICY_END,
   PARALLEL_POLICY_BEGIN,
@@ -121,34 +118,4 @@ test("policy blocks coexist: todo and parallel blocks upsert independently", (t)
   content = fs.readFileSync(target, "utf8");
   assert.ok(content.includes(TODO_POLICY_BEGIN));
   assert.ok(content.includes(PARALLEL_POLICY_BEGIN), "todo re-upsert does not clobber parallel block");
-});
-
-test("subagent delegation policy: creates the file, is idempotent, and stores mode 600", (t) => {
-  const env = withTempEnv(t);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(result.path, "utf8");
-  assert.equal(result.changed, true);
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN));
-  assert.ok(content.includes(SUBAGENT_POLICY_END));
-  assert.ok(content.includes("Delegate only when it pays"));
-  assert.ok(content.includes("Foreground first"));
-  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
-  assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent second run");
-});
-
-test("subagent delegation policy: cleans up orphaned v1/v2 blocks while refreshing to v3", (t) => {
-  const env = withTempEnv(t);
-  const target = resolveAppendSystemPromptFile(env);
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, `My custom rules.\n<!-- axum:subagent-delegation-policy v1 -->\nstale v1 guidance\n<!-- /axum:subagent-delegation-policy -->\n<!-- axum:subagent-delegation-policy v2 -->\nstale v2 guidance\n<!-- /axum:subagent-delegation-policy -->\n`);
-  const result = ensureSubagentDelegationPolicy({ env });
-  const content = fs.readFileSync(target, "utf8");
-  assert.equal(result.changed, true);
-  assert.ok(!content.includes("axum:subagent-delegation-policy v1"), "legacy v1 block removed");
-  assert.ok(!content.includes("stale v1 guidance"));
-  assert.ok(!content.includes("axum:subagent-delegation-policy v2"), "legacy v2 block removed");
-  assert.ok(!content.includes("stale v2 guidance"));
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "v3 block installed");
-  assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
-  assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent after cleanup");
 });

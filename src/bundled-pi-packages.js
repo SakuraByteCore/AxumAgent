@@ -52,18 +52,9 @@ export const bundledPiPackages = [
   // vendored from @giladbarnea/pi-user-agents@0.0.5. Parameter-property constructors were
   // rewritten to explicit field assignments so the Windows compile path can strip its TS.
   { name: "pi-agent@file:plugin/pi-agent", packageName: "pi-agent", extensionPath: "index.ts", android: true },
-  // pi-subagents: single-agent delegation and scripted multi-agent workflows
-  // (task tool, background runs, /agents orchestration). Pure TS with no
-  // parameter properties or extensionless relative imports, zero native deps.
-  { name: "pi-subagents@0.74.0", packageName: "pi-subagents", extensionPath: "index.js", android: true },
   // pi-memory: persistent cross-session memory (/memory command). Vendored
   // locally because the upstream npm package (@amaster.ai/pi-memory-mem0)
   // pulls mem0ai → better-sqlite3 (native, no android-arm64 prebuild) and
   // cannot install on Android/Termux. Single-file, zero native deps.
   { name: "pi-memory@file:plugin/pi-memory", packageName: "pi-memory", extensionPath: "index.ts", android: true },
-
-  // pi-notify: Windows Toast notifications with terminal focus + BEL fallback.
-  // Ships Windows-only helper binaries/scripts (activate.exe, *.ps1, *.vbs) and
-  // shells out to powershell.exe, so it is bundled for win32 only; pure TS entry.
-  { name: "@zzxb/pi-notify@0.0.1", packageName: "@zzxb/pi-notify", extensionPath: "index.ts", android: false, unsupportedPlatforms: ["linux", "darwin"] },
 ];
