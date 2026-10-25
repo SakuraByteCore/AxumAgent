@@ -4,7 +4,9 @@ import test from "node:test";
 import {
 	BalanceCache,
 	fetchSub2ApiBalance,
+	isSub2ApiPayload,
 	parseUsagePayload,
+	probeSub2ApiBalance,
 	usageUrl,
 } from "../plugin/pi-bar/sub2api-balance.ts";
 
@@ -41,6 +43,14 @@ test("parseUsagePayload renders wallet, quota and unlimited remainders", () => {
 	assert.equal(parseUsagePayload(null), undefined);
 });
 
+test("isSub2ApiPayload only accepts the Sub2API usage fingerprint", () => {
+	assert.equal(isSub2ApiPayload({ mode: "quota_limited" }), true);
+	assert.equal(isSub2ApiPayload({ mode: "unrestricted" }), true);
+	assert.equal(isSub2ApiPayload({ mode: "other" }), false);
+	assert.equal(isSub2ApiPayload({ total: 12 }), false);
+	assert.equal(isSub2ApiPayload(null), false);
+});
+
 test("fetchSub2ApiBalance sends the key as a bearer header and never in the URL", async () => {
 	const calls = [];
 	const fetchImpl = async (url, init) => {
@@ -73,15 +83,52 @@ test("fetchSub2ApiBalance hides the balance on errors and on plaintext remotes",
 	assert.equal(await fetchSub2ApiBalance({ baseUrl: "http://ss2a.top/v1", apiKey: "sk-test", fetchImpl: mustNotRun }), undefined);
 });
 
-test("BalanceCache serves a snapshot inside the TTL and refetches after invalidate", async () => {
+test("probeSub2ApiBalance reports why a balance is missing", async () => {
+	const ok = await probeSub2ApiBalance({
+		baseUrl: "https://ss2a.top/v1",
+		apiKey: "sk-test",
+		fetchImpl: async () => new Response(JSON.stringify({ mode: "unrestricted", unit: "USD", remaining: -1 }), { status: 200 }),
+	});
+	assert.equal(ok.reason, "ok");
+	assert.equal(ok.status, 200);
+	assert.equal(ok.snapshot.label, "∞");
+
+	const foreign = await probeSub2ApiBalance({
+		baseUrl: "https://example.com/v1",
+		apiKey: "sk-test",
+		fetchImpl: async () => new Response(JSON.stringify({ object: "list", data: [] }), { status: 200 }),
+	});
+	assert.equal(foreign.reason, "not-sub2api");
+	assert.equal(foreign.snapshot, undefined);
+
+	const denied = await probeSub2ApiBalance({
+		baseUrl: "https://ss2a.top/v1",
+		apiKey: "sk-test",
+		fetchImpl: async () => new Response("{}", { status: 401 }),
+	});
+	assert.equal(denied.reason, "http-error");
+	assert.equal(denied.status, 401);
+
+	const offline = await probeSub2ApiBalance({
+		baseUrl: "https://ss2a.top/v1",
+		apiKey: "sk-test",
+		fetchImpl: async () => {
+			throw new Error("network down");
+		},
+	});
+	assert.equal(offline.reason, "network-error");
+	assert.equal(offline.status, 0);
+});
+
+test("BalanceCache serves a probe inside the TTL and refetches after invalidate", async () => {
 	const cache = new BalanceCache(60_000, 300_000);
 	let calls = 0;
 	const loader = async () => {
 		calls += 1;
-		return { label: "$1.00", mode: "unrestricted", value: 1, unit: "USD" };
+		return { status: 200, reason: "ok", snapshot: { label: "$1.00", mode: "unrestricted", value: 1, unit: "USD" } };
 	};
-	assert.equal((await cache.get("k", loader)).label, "$1.00");
-	assert.equal((await cache.get("k", loader)).label, "$1.00");
+	assert.equal((await cache.get("k", loader)).snapshot.label, "$1.00");
+	assert.equal((await cache.get("k", loader)).snapshot.label, "$1.00");
 	assert.equal(calls, 1);
 	cache.invalidate();
 	await cache.get("k", loader);
@@ -93,9 +140,9 @@ test("BalanceCache caches failures for the error TTL", async () => {
 	let calls = 0;
 	const loader = async () => {
 		calls += 1;
-		return undefined;
+		return { status: 404, reason: "not-sub2api" };
 	};
-	assert.equal(await cache.get("k", loader), undefined);
-	assert.equal(await cache.get("k", loader), undefined);
+	assert.equal((await cache.get("k", loader)).reason, "not-sub2api");
+	assert.equal((await cache.get("k", loader)).reason, "not-sub2api");
 	assert.equal(calls, 1);
 });

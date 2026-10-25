@@ -14,6 +14,10 @@
  *   quota: { limit, used, remaining, unit }
  *   subscription: { ... }
  *
+ * `mode` is the Sub2API fingerprint: an endpoint that does not answer with it
+ * is not a Sub2API deployment, so the bar stays silent instead of showing a
+ * foreign provider's number.
+ *
  * The API key is only ever used as a request header: it is never logged,
  * persisted or embedded in a URL.
  */
@@ -27,6 +31,16 @@ export interface BalanceSnapshot {
 	value: number | null;
 	/** Upstream unit field ("USD"). */
 	unit: string;
+}
+
+/** Outcome of one usage probe, including why a balance is missing. */
+export interface BalanceProbe {
+	/** Parsed snapshot; present only when a usable remainder was returned. */
+	snapshot?: BalanceSnapshot;
+	/** HTTP status code; 0 when the request never reached the server. */
+	status: number;
+	/** "ok" | "invalid-url" | "network-error" | "http-error" | "not-sub2api" | "no-balance". */
+	reason: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 5000;
@@ -63,6 +77,18 @@ function formatAmount(value: number, unit: string): string {
 	return unit === "USD" ? `$${amount}` : `${unit} ${amount}`;
 }
 
+/** The Sub2API `mode` field, or undefined when the payload is not Sub2API. */
+function usageMode(payload: unknown): string | undefined {
+	if (!payload || typeof payload !== "object") return undefined;
+	const mode = (payload as Record<string, unknown>).mode;
+	return typeof mode === "string" && USAGE_MODES.has(mode) ? mode : undefined;
+}
+
+/** True when the payload carries the Sub2API usage fingerprint. */
+export function isSub2ApiPayload(payload: unknown): boolean {
+	return usageMode(payload) !== undefined;
+}
+
 /**
  * Parse the upstream usage payload into a display snapshot. Returns undefined
  * when the payload does not match the Sub2API usage schema or carries no
@@ -71,8 +97,8 @@ function formatAmount(value: number, unit: string): string {
 export function parseUsagePayload(payload: unknown): BalanceSnapshot | undefined {
 	if (!payload || typeof payload !== "object") return undefined;
 	const body = payload as Record<string, unknown>;
-	const mode = typeof body.mode === "string" ? body.mode : "";
-	if (!USAGE_MODES.has(mode)) return undefined;
+	const mode = usageMode(body);
+	if (!mode) return undefined;
 	const unit = typeof body.unit === "string" && body.unit ? body.unit : "USD";
 	const finite = (value: unknown): number | undefined =>
 		typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -94,6 +120,40 @@ export function parseUsagePayload(payload: unknown): BalanceSnapshot | undefined
 }
 
 /**
+ * Probe the Sub2API usage endpoint. Every transport, status or schema problem
+ * is reported as a reason instead of throwing, so the caller can hide the
+ * segment and still log why nothing was shown.
+ */
+export async function probeSub2ApiBalance(options: {
+	baseUrl: string;
+	apiKey: string;
+	timeoutMs?: number;
+	fetchImpl?: typeof fetch;
+}): Promise<BalanceProbe> {
+	const url = usageUrl(options.baseUrl);
+	if (!url || !options.apiKey) return { status: 0, reason: "invalid-url" };
+	const parsed = new URL(url);
+	// The key only ever travels to the provider's own origin, over TLS.
+	if (parsed.protocol !== "https:" && !isLoopback(parsed.hostname)) return { status: 0, reason: "invalid-url" };
+	const doFetch = options.fetchImpl ?? fetch;
+	try {
+		const response = await doFetch(url, {
+			headers: { Authorization: `Bearer ${options.apiKey}`, Accept: "application/json" },
+			signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+		});
+		if (!response.ok) return { status: response.status, reason: "http-error" };
+		const payload = await response.json();
+		if (!isSub2ApiPayload(payload)) return { status: response.status, reason: "not-sub2api" };
+		const snapshot = parseUsagePayload(payload);
+		return snapshot
+			? { snapshot, status: response.status, reason: "ok" }
+			: { status: response.status, reason: "no-balance" };
+	} catch {
+		return { status: 0, reason: "network-error" };
+	}
+}
+
+/**
  * Query the Sub2API usage endpoint. Any transport, status or schema problem
  * resolves to undefined so the caller can hide the segment.
  */
@@ -103,37 +163,23 @@ export async function fetchSub2ApiBalance(options: {
 	timeoutMs?: number;
 	fetchImpl?: typeof fetch;
 }): Promise<BalanceSnapshot | undefined> {
-	const url = usageUrl(options.baseUrl);
-	if (!url || !options.apiKey) return undefined;
-	const parsed = new URL(url);
-	// The key only ever travels to the provider's own origin, over TLS.
-	if (parsed.protocol !== "https:" && !isLoopback(parsed.hostname)) return undefined;
-	const doFetch = options.fetchImpl ?? fetch;
-	try {
-		const response = await doFetch(url, {
-			headers: { Authorization: `Bearer ${options.apiKey}`, Accept: "application/json" },
-			signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-		});
-		if (!response.ok) return undefined;
-		return parseUsagePayload(await response.json());
-	} catch {
-		return undefined;
-	}
+	return (await probeSub2ApiBalance(options)).snapshot;
 }
 
 interface CacheEntry {
-	snapshot?: BalanceSnapshot;
+	probe: BalanceProbe;
 	fetchedAt: number;
 	failed: boolean;
 }
 
 /**
- * TTL cache for the balance snapshot: one in-flight request per key, a short
- * success TTL and a longer negative TTL so a broken endpoint is not hammered.
+ * TTL cache for the balance probe: one in-flight request per key, a short
+ * success TTL and a longer negative TTL so a broken or non-Sub2API endpoint is
+ * not hammered on every turn.
  */
 export class BalanceCache {
 	private entries = new Map<string, CacheEntry>();
-	private inflight = new Map<string, Promise<BalanceSnapshot | undefined>>();
+	private inflight = new Map<string, Promise<BalanceProbe>>();
 	private ttlMs: number;
 	private errorTtlMs: number;
 
@@ -150,22 +196,26 @@ export class BalanceCache {
 		this.entries.delete(key);
 	}
 
-	async get(key: string, loader: () => Promise<BalanceSnapshot | undefined>): Promise<BalanceSnapshot | undefined> {
+	async get(key: string, loader: () => Promise<BalanceProbe>): Promise<BalanceProbe> {
 		const entry = this.entries.get(key);
 		if (entry) {
 			const age = Date.now() - entry.fetchedAt;
-			if (entry.failed ? age < this.errorTtlMs : age < this.ttlMs) return entry.snapshot;
+			if (entry.failed ? age < this.errorTtlMs : age < this.ttlMs) return entry.probe;
 		}
 		const pending = this.inflight.get(key);
 		if (pending) return pending;
 		const request = loader()
-			.then((snapshot) => {
-				this.entries.set(key, { snapshot, fetchedAt: Date.now(), failed: snapshot === undefined });
-				return snapshot;
+			.then((probe) => {
+				this.entries.set(key, { probe, fetchedAt: Date.now(), failed: probe.snapshot === undefined });
+				return probe;
 			})
 			.catch(() => {
-				this.entries.set(key, { fetchedAt: Date.now(), failed: true });
-				return undefined;
+				this.entries.set(key, {
+					probe: { status: 0, reason: "network-error" },
+					fetchedAt: Date.now(),
+					failed: true,
+				});
+				return { status: 0, reason: "network-error" } as BalanceProbe;
 			})
 			.finally(() => {
 				this.inflight.delete(key);

@@ -464,13 +464,15 @@ test("Codex row 1 keeps t/s centered and pins the Sub2API balance to the right e
 	assert.ok(!narrow[0].includes("$12.34"));
 });
 
-test("pi-bar only queries Sub2API providers and never logs the API key", () => {
+test("pi-bar probes any provider but only trusts the Sub2API schema", () => {
 	const balanceBlock = statuslineSource.match(/function emitBalance[\s\S]*?\n\t}/)?.[0] ?? "";
-	assert.match(balanceBlock, /settings\.appearance === "codex"/);
+	assert.match(balanceBlock, /settings\.appearance !== "codex"/);
 	assert.match(balanceBlock, /balanceProviderAllowed\(providerId\)/);
+	// Auto mode: an empty provider list probes everything, so a new user needs no setup.
+	assert.match(statuslineSource, /if \(settings\.balanceProviders\.length === 0\) return true;/);
 	assert.match(balanceBlock, /getApiKeyForProvider/);
-	assert.match(balanceBlock, /fetchSub2ApiBalance\(\{ baseUrl, apiKey \}\)/);
+	assert.match(balanceBlock, /probeSub2ApiBalance\(\{ baseUrl, apiKey \}\)/);
 	assert.doesNotMatch(balanceBlock, /console\./);
-	assert.match(statuslineSource, /balanceProviders: \["ss2api"\]/);
+	assert.match(statuslineSource, /balanceProviders: \[\]/);
 	assert.match(statuslineSource, /filter\(\(x\) => x !== "tps" && x !== "balance"\)/);
 });

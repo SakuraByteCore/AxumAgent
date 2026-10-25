@@ -63,7 +63,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
-import { BalanceCache, fetchSub2ApiBalance } from "./sub2api-balance.ts";
+import { BalanceCache, probeSub2ApiBalance } from "./sub2api-balance.ts";
 // User-Agent: read the shared axum config file directly instead of importing
 // do not import axum-internal modules here (this file is synced into the Pi
 // cache where ../../src/provider-config.js does not exist). When the env var
@@ -927,7 +927,7 @@ const DEFAULTS: Settings = {
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "coralline",
-	balanceProviders: ["ss2api"],
+	balanceProviders: [],
 };
 
 function loadSettings(): Settings {
@@ -1872,33 +1872,52 @@ export default function (pi: ExtensionAPI): void {
 }
 
 	// --- Sub2API balance (Codex row 1, right side) ---
-	// Only Sub2API providers expose GET {base}/usage. The provider allowlist
-	// keeps every other provider untouched: no request, no segment.
+	// Any provider may point at a Sub2API deployment, so the bar probes the
+	// usage endpoint and trusts only the Sub2API response schema: no provider
+	// id has to be configured and non-Sub2API providers stay silent.
 	const balanceCache = new BalanceCache();
+	const BALANCE_DEBUG = process.env.AXUM_BALANCE_DEBUG === "1";
+	function debugBalance(message: string): void {
+		if (BALANCE_DEBUG) console.error(`[pi-bar:balance] ${message}`);
+	}
 	function balanceProviderAllowed(providerId: string): boolean {
+		// An empty list means "auto": probe every provider and let the response
+		// schema decide. A non-empty list pins the probe to those providers.
+		if (settings.balanceProviders.length === 0) return true;
 		return settings.balanceProviders.includes(providerId.toLowerCase());
 	}
 	async function emitBalance(ctx: ExtensionContext): Promise<void> {
-		const model = ctx.model;
-		const providerId = typeof model?.provider === "string" ? model.provider : "";
-		const baseUrl = typeof model?.baseUrl === "string" ? model.baseUrl : "";
-		const allowed = settings.appearance === "codex"
-			&& providerId !== ""
-			&& baseUrl !== ""
-			&& balanceProviderAllowed(providerId);
-		if (!allowed) {
+		try {
+			const model = ctx.model;
+			const providerId = typeof model?.provider === "string" ? model.provider : "";
+			const providerBaseUrl = ctx.modelRegistry?.getProvider?.(providerId)?.baseUrl;
+			const baseUrl = typeof model?.baseUrl === "string" && model.baseUrl
+				? model.baseUrl
+				: typeof providerBaseUrl === "string" ? providerBaseUrl : "";
+			if (settings.appearance !== "codex" || providerId === "" || baseUrl === "") {
+				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+				return;
+			}
+			if (!balanceProviderAllowed(providerId)) {
+				debugBalance(`provider=${providerId} skipped by balance-providers list`);
+				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+				return;
+			}
+			// The API key is resolved by pi itself (models.json entry, $ENV ref or
+			// stored credential) and is only used as a request header.
+			const apiKey = await ctx.modelRegistry?.getApiKeyForProvider?.(providerId);
+			if (!apiKey) {
+				debugBalance(`provider=${providerId} no api key`);
+				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+				return;
+			}
+			const probe = await balanceCache.get(`${providerId}|${baseUrl}`, () => probeSub2ApiBalance({ baseUrl, apiKey }));
+			debugBalance(`provider=${providerId} status=${probe.status} reason=${probe.reason} label=${probe.snapshot?.label ?? "-"}`);
+			pi.events.emit("pi-bar:update", { id: "balance", text: probe.snapshot?.label, color: "text" });
+		} catch (error) {
+			debugBalance(`error=${error instanceof Error ? error.message : String(error)}`);
 			pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
-			return;
 		}
-		// The API key is resolved by pi itself (models.json entry, $ENV ref or
-		// stored credential) and is only used as a request header.
-		const apiKey = await ctx.modelRegistry?.getApiKeyForProvider?.(providerId);
-		if (!apiKey) {
-			pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
-			return;
-		}
-		const snapshot = await balanceCache.get(`${providerId}|${baseUrl}`, () => fetchSub2ApiBalance({ baseUrl, apiKey }));
-		pi.events.emit("pi-bar:update", { id: "balance", text: snapshot?.label, color: "text" });
 	}
 
 	// --- Render refresh (coalesced) ---
@@ -1947,6 +1966,9 @@ export default function (pi: ExtensionAPI): void {
 		emitThinking(ctx);
 		emitTpsIdle(ctx);
 		void emitBalance(ctx);
+		// The model may not be resolved yet when the session starts; retry once
+		// so the balance appears without waiting for the first turn.
+		if (!ctx.model) setTimeout(() => { void emitBalance(ctx); }, 1500);
 		refresh();
 	});
 
