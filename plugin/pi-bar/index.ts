@@ -1223,9 +1223,12 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 		const modelWidth = Math.max(0, width - contextWidth - visibleWidth(" · "));
 		if (modelWidth > 0) labels[0] = truncateToWidth(labels[0], modelWidth, "…");
 	}
-	const tps = segs.get("tps")?.text || "0 t/s";
+	const tps = truncateToWidth(segs.get("tps")?.text || "0 t/s", Math.max(0, width), "…");
+	const tpsWidth = visibleWidth(tps);
+	const tpsPadding = Math.max(0, width - tpsWidth);
+	const tpsLeft = Math.floor(tpsPadding / 2);
 	return [
-		truncateToWidth(tps, Math.max(0, width), "…"),
+		" ".repeat(tpsLeft) + tps + " ".repeat(tpsPadding - tpsLeft),
 		truncateToWidth(labels.join(" · "), Math.max(0, width), "…"),
 	];
 }

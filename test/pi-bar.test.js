@@ -413,13 +413,15 @@ test("Codex status keeps live t/s on an independent row below the editor", async
   const settings = { appearance: "codex", left: ["thinking", "context-usage"], right: ["model"] };
   const rows = renderBar(segs, settings, {}, 100);
   assert.equal(rows.length, 2);
-  assert.match(rows[0], /^\d+ t\/s$/);
+  assert.equal(rows[0].trim(), "12 t/s");
+  assert.equal(rows[0].indexOf("12 t/s"), 47);
   assert.match(rows[1], /模型-long-name · 72% context left · high/);
   assert.doesNotMatch(rows[1], /t\/s/);
   assert.doesNotMatch(rows.join("\n"), /[\uE0B0\uE0B4\uE0B6]|\x1b\[48/);
   const { displayWidth } = await import("../plugin/pi-bar/display-width.ts");
   const narrow = renderBar(segs, settings, {}, 30);
-  assert.match(narrow[0], /^\d+ t\/s$/);
+  assert.equal(narrow[0].trim(), "12 t/s");
+  assert.equal(narrow[0].indexOf("12 t/s"), 12);
   assert.match(narrow[1], /72% context left/);
   assert.ok(narrow.every((row) => displayWidth(row) <= 30));
   segs.get("context-usage").bar = undefined;
