@@ -32,15 +32,19 @@ import {
 } from "../plugin/pi-companion/opencode-zen.ts";
 import {
   KILO_CATALOG_CACHE_FILE,
+  KILO_CATALOG_CACHE_VERSION,
+  KILO_CHAT_BASE_URL,
   buildKiloModelInfo,
+  capKiloMaxTokens,
   decodeKiloListing,
   ensureKiloProvider,
+  ensureKiloProviderLocal,
   kiloCanDisableThinking,
   kiloThinkingLevelMap,
   mergeKiloProvider,
   staticKiloCatalog,
 } from "../plugin/pi-companion/kilo-free.ts";
-import { applyFingerprintToChatPayload } from "../plugin/pi-companion/zen-v2-wire.ts";
+import { applyFingerprintToChatPayload, describeZenQuotaError } from "../plugin/pi-companion/zen-v2-wire.ts";
 
 // Hermetic tests: the /usemodel opencode + kilo syncs are disabled file-wide;
 // the syncs themselves are covered by the dedicated tests at the bottom.
@@ -144,7 +148,6 @@ function createPi() {
   shortcuts(pi);
   return pi;
 }
-
 
 // Hermetic HOME: the plan command reads ~/.pi/agent/plan-prompt.md, so without
 // isolation the developer's real user template would shadow the built-in prompt.
@@ -776,7 +779,6 @@ test("cthreshold shows defaults, rejects bad input, persists soft+hard, and reje
   // Restore the module defaults so other tests stay independent of this one.
   await command.handler("75 95", ctx);
 }));
-
 
 test("cthreshold loads persisted threshold at extension init", withBareHome(async () => {
   const agentDir = path.join(process.env.HOME, ".pi", "agent", "extensions", "pi-companion");
@@ -1428,6 +1430,16 @@ test("/ctx applies session-only when the model is absent from models.json", with
   assert.ok(!modelsJson.providers.builtin, "nothing must be persisted for unknown models");
   assert.ok(notifications.some((n) => n.level === "info" && /nothing persisted/.test(n.message)));
   assert.ok(pi.emitted.some((e) => e.event === "pi-companion:context-changed"), "session-only writes still fire the change event");
+}));
+
+test("/ctx re-caps the Kilo completion budget in the session and on disk", withTempCtxHome("pi-companion-ctx-kilo-", async (agentDir) => {
+  const pi = createPi();
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: { kilo: { models: [{ id: "acme/model:free", contextWindow: 262144, maxTokens: 131072 }] } } }), "utf8");
+  const { ctx } = createCtxCommandContext({ currentModel: { provider: "kilo", id: "acme/model:free", contextWindow: 262144, maxTokens: 131072 } });
+  await pi.commands.get("ctx").handler("100000", ctx);
+  assert.equal(ctx.model.maxTokens, 50000, "the session budget follows the new window");
+  const modelsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
+  assert.equal(modelsJson.providers.kilo.models[0].maxTokens, 50000, "the persisted budget follows too");
 }));
 
 // ── opencode-zen: OpenCode Zen dynamic provider sync ──────────────────────
@@ -2141,6 +2153,15 @@ test("applyFingerprintToChatPayload satisfies the v2 tool gate", () => {
 	assert.equal(history.tool_choice.function.name, "read_client", "explicit tool_choice follows the rename");
 });
 
+test("describeZenQuotaError turns the Zen quota rejection into an actionable message", () => {
+	const raw = '{"type":"error","error":{"type":"FreeUsageLimitError","message":"Free usage limit reached."}}';
+	const described = describeZenQuotaError(raw);
+	assert.ok(described.includes(raw), "the original upstream error is kept");
+	assert.match(described, /配额已耗尽/);
+	assert.match(described, /Kilo 免费通道/);
+	assert.equal(describeZenQuotaError("boom"), "boom", "unrelated errors pass through unchanged");
+});
+
 // ── kilo-free: Kilo free-pool provider sync ────────────────────────────────
 
 test("kiloThinkingLevelMap maps declared efforts onto pi levels", () => {
@@ -2167,7 +2188,7 @@ test("kiloCanDisableThinking pins the mandatory-reasoning families", () => {
 test("staticKiloCatalog keeps only live ids from the original hard-coded list", () => {
 	const catalog = staticKiloCatalog();
 	assert.equal(catalog.source, "static");
-	assert.equal(catalog.models.length, 16);
+	assert.equal(catalog.models.length, 15);
 	const ids = catalog.models.map((m) => m.id);
 	assert.ok(ids.includes("kilo-auto/free") && ids.includes("openrouter/free"));
 	assert.ok(!ids.includes("minimax/minimax-m3.1-flash:free"), "retired hard-coded model stays excluded");
@@ -2212,6 +2233,46 @@ test("decodeKiloListing slices the isFree roster and maps metadata", () => {
 	assert.equal(broken.maxTokens, undefined);
 });
 
+test("capKiloMaxTokens and buildKiloModelInfo keep the completion budget inside half the context window", () => {
+	assert.equal(capKiloMaxTokens(262144, 235929), 131072);
+	assert.equal(capKiloMaxTokens(262144, 8192), 8192, "a smaller declared budget is kept");
+	assert.equal(capKiloMaxTokens(262144, null), undefined, "no declared budget stays unset");
+	assert.equal(capKiloMaxTokens(undefined, 235929), 235929, "an unknown window does not cap");
+	const capped = buildKiloModelInfo("acme/model:free", { contextWindow: 262144, maxTokens: 235929 });
+	assert.equal(capped.maxTokens, 131072, "buildKiloModelInfo applies the cap");
+	const mandatory = buildKiloModelInfo("acme/model:free", { contextWindow: 262144, maxTokens: 235929, mandatoryReasoning: true });
+	assert.equal(mandatory.thinkingLevelMap.off, null, "mandatory reasoning cannot be switched off");
+	assert.equal(mandatory.thinkingLevelMap.minimal, "minimal");
+});
+
+test("decodeKiloListing drops rows without tool support and pins empty reasoning menus to mandatory", () => {
+	const models = decodeKiloListing({ data: [
+		{ id: "acme/no-tools:free", isFree: true, supported_parameters: ["max_tokens"] },
+		{ id: "acme/dup:free", isFree: true, supported_parameters: ["max_tokens"] },
+		{ id: "acme/dup:free", isFree: true, context_length: 32000, supported_parameters: ["tools"] },
+		{ id: "acme/mandatory:free", isFree: true, context_length: 64000, supported_parameters: ["tools"], opencode: { reasoning_options: [] } },
+		{ id: "acme/legacy:free", isFree: true, context_length: 64000 },
+	] });
+	assert.deepEqual(models.map((m) => m.id), ["acme/dup:free", "acme/mandatory:free", "acme/legacy:free"]);
+	assert.equal(models.find((m) => m.id === "acme/mandatory:free").thinkingLevelMap.off, null);
+	assert.equal(models.find((m) => m.id === "acme/legacy:free").thinkingLevelMap.off, "none");
+});
+
+test("mergeKiloProvider re-caps the completion budget for a pinned context window", async () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kilo-pin-"));
+	try {
+	const modelsJsonPath = path.join(tmp, "models.json");
+	fs.writeFileSync(modelsJsonPath, JSON.stringify({ providers: { kilo: { baseUrl: KILO_CHAT_BASE_URL, apiKey: " ", models: [{ id: "acme/model:free", contextWindow: 100000 }] } } }), "utf8");
+	const incoming = [buildKiloModelInfo("acme/model:free", { contextWindow: 262144, maxTokens: 235929 })];
+	assert.equal(await mergeKiloProvider(modelsJsonPath, incoming), true);
+	const model = JSON.parse(fs.readFileSync(modelsJsonPath, "utf8")).providers.kilo.models[0];
+	assert.equal(model.contextWindow, 100000, "the /ctx-pinned window survives the catalog rebuild");
+	assert.equal(model.maxTokens, 50000, "the pinned window re-caps the completion budget");
+	} finally {
+	fs.rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
 test("mergeKiloProvider merges idempotently with a blank bearer key", async () => {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kilo-merge-"));
 	try {
@@ -2229,7 +2290,7 @@ test("mergeKiloProvider merges idempotently with a blank bearer key", async () =
 		assert.equal(merged.providers.kilo.apiKey, " ", "blank bearer: the gateway 401s any non-empty token");
 		assert.equal(merged.providers.kilo.api, "openai-completions");
 		assert.match(merged.providers.kilo.name, /may log prompts/);
-		assert.equal(merged.providers.kilo.models.length, 16);
+		assert.equal(merged.providers.kilo.models.length, 15);
 		const firstContent = fs.readFileSync(modelsJsonPath, "utf8");
 		assert.equal(await mergeKiloProvider(modelsJsonPath, catalog.models), false, "second merge is a no-op");
 		assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), firstContent);
@@ -2296,5 +2357,22 @@ test("ensureKiloProvider caches live results and falls back to the static list",
 	} finally {
 		process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
 		fs.rmSync(tmp, { recursive: true, force: true });
+	}
+});
+
+test("ensureKiloProviderLocal discards a cache written by an older catalog version", async () => {
+	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "pi-kilo-cachever-"));
+	delete process.env.PI_COMPANION_KILO_SYNC_DISABLE;
+	try {
+	const agentDir = path.join(tmp, "agent");
+	fs.mkdirSync(agentDir, { recursive: true });
+	fs.writeFileSync(path.join(agentDir, KILO_CATALOG_CACHE_FILE), JSON.stringify({ version: KILO_CATALOG_CACHE_VERSION - 1, writtenAt: Date.now(), models: [{ id: "stale/model:free", name: "stale", reasoning: true }] }), "utf8");
+	const local = await ensureKiloProviderLocal(agentDir, { now: () => Date.now() });
+	assert.equal(local.source, "static", "a cache from an older catalog version is discarded");
+	const cache = JSON.parse(fs.readFileSync(path.join(agentDir, KILO_CATALOG_CACHE_FILE), "utf8"));
+	assert.equal(cache.version, KILO_CATALOG_CACHE_VERSION, "the rewritten cache carries the current version");
+	} finally {
+	process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
+	fs.rmSync(tmp, { recursive: true, force: true });
 	}
 });

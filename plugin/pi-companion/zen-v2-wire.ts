@@ -21,6 +21,21 @@ import { buildDisguiseHeaders, stableSessionID, ZEN_CLIENT_UA } from "./opencode
 
 export const ZEN_V2_API = "openai-completions";
 
+/**
+ * Turn the upstream Zen free-quota rejection into an actionable message. The
+ * gateway answers 429 with `FreeUsageLimitError`; the quota window is owned by
+ * the server, so the only ways forward are waiting it out or switching to the
+ * Kilo free pool. Anything else is returned untouched.
+ */
+export function describeZenQuotaError(errorMessage: string): string {
+	if (!/FreeUsageLimitError|free usage limit/i.test(errorMessage)) return errorMessage;
+	return (
+		`${errorMessage}\n\n` +
+		"[OpenCode Zen 免费配额已耗尽] 上游返回 FreeUsageLimitError：免费模型的配额窗口已用尽，" +
+		"需要等待服务端配额窗口恢复后才能继续调用（实测约 10 小时，实际以服务端为准）。" +
+		"如果需要马上继续，请在 /usemodel 里改用 Kilo 免费通道。"
+	);
+}
 /** Fallback conversation signal when the stream options carry no session id. */
 const DEFAULT_SESSION_SIGNAL = "pi-companion:zen-v2:static-session";
 
@@ -290,6 +305,9 @@ export function createZenStreamSimple(options: ZenStreamSimpleOptions = {}): (
 		const output = new AssistantMessageEventStream();
 		void (async () => {
 			for await (const event of incoming) {
+				if (event.type === "error" && event.error.errorMessage) {
+					event.error.errorMessage = describeZenQuotaError(event.error.errorMessage);
+				}
 				output.push(rewriteToolCallEvents(event, sentToCaller));
 			}
 			output.end(typeof incoming.result === "function" ? await incoming.result() : undefined);
@@ -302,7 +320,7 @@ export function createZenStreamSimple(options: ZenStreamSimpleOptions = {}): (
 				model: model.id,
 				usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
 				stopReason: "error",
-				errorMessage: error instanceof Error ? error.message : String(error),
+				errorMessage: describeZenQuotaError(error instanceof Error ? error.message : String(error)),
 				timestamp: Date.now(),
 			};
 			output.push({ type: "error", reason: "error", error: message } as AssistantMessageEvent);

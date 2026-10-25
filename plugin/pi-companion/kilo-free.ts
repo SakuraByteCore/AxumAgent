@@ -33,6 +33,8 @@ export const KILO_CHAT_BASE_URL = "https://api.kilo.ai/api/gateway";
 const KILO_MODELS_URL = "https://api.kilo.ai/api/gateway/models";
 export const KILO_CATALOG_CACHE_FILE = "kilo-catalog-cache.json";
 export const KILO_CATALOG_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+/** Bumped whenever the cached row shape changes (maxTokens cap, thinking menu). */
+export const KILO_CATALOG_CACHE_VERSION = 2;
 /** After a failed live fetch, stay on cache/static (no retry) for one hour. */
 export const KILO_LIVE_FETCH_FAILURE_COOLDOWN_MS = 60 * 60 * 1000;
 const KILO_LISTING_TIMEOUT_MS = 15000;
@@ -66,6 +68,9 @@ export interface KiloSyncResult {
  * never exposes a known-dead model. Tuple shape:
  * [id, contextWindow, maxCompletionTokens (null = gateway default), imageInput,
  * declared effort values (null = no declared menu → identity ladder)].
+ * Rows whose live listing advertises no `tools` support are excluded because
+ * they cannot serve a tool-calling session: nvidia/nemotron-3.5-content-safety:free
+ * (live 2026-10-25, supported_parameters without "tools").
  */
 const STATIC_KILO_FREE_ROWS: readonly (readonly [string, number, number | null, 0 | 1, string | null])[] = [
 	["kilo-auto/free", 256000, 32768, 0, null],
@@ -79,7 +84,6 @@ const STATIC_KILO_FREE_ROWS: readonly (readonly [string, number, number | null, 
 	["poolside/laguna-s-2.1:free", 262144, 32768, 0, null],
 	["poolside/laguna-xs-2.1:free", 262144, 32768, 0, null],
 	["cohere/north-mini-code:free", 256000, 64000, 0, null],
-	["nvidia/nemotron-3.5-content-safety:free", 128000, 8192, 1, null],
 	["nvidia/nemotron-3-ultra-550b-a55b:free", 1000000, 65536, 0, "none,medium,high"],
 	["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", 256000, 65536, 1, null],
 	["nvidia/nemotron-3-super-120b-a12b:free", 262144, 235929, 0, "none,low,medium"],
@@ -107,11 +111,12 @@ const MANDATORY_KILO_THINKING_LADDER: Record<string, string | null> = {
 /**
  * Families that reject disabling reasoning outright — `reasoning_effort: "none"`
  * answers 400 "Reasoning is mandatory" (verified live 2026-10-22 on liquid and
- * minimax; stepfun/thinkingmachines per the upstream lane's probe record).
+ * minimax; recursive verified live 2026-10-25 on recursive/flint-v1.0:free;
+ * stepfun/thinkingmachines per the upstream lane's probe record).
  * The auto-router rows tolerate `none` but keep thinking anyway, so they stay
  * in the disable-capable set and merely waste the rung.
  */
-const KILO_REASONING_MANDATORY: RegExp[] = [/^stepfun\//, /^liquid\//, /^thinkingmachines\//, /^minimax\//];
+const KILO_REASONING_MANDATORY: RegExp[] = [/^stepfun\//, /^liquid\//, /^thinkingmachines\//, /^minimax\//, /^recursive\//];
 
 export function kiloCanDisableThinking(id: string): boolean {
 	return !KILO_REASONING_MANDATORY.some((pattern) => pattern.test(id));
@@ -147,9 +152,24 @@ export function kiloDisplayName(id: string, listingName?: string): string {
 	return bare !== "" ? bare : id;
 }
 
+/**
+ * Keep the completion budget inside the context window. The gateway rejects a
+ * request whose prompt + completion exceed the window with a 400, and the local
+ * prompt-size estimate undercounts tool payloads, so the budget is capped at
+ * half of the window.
+ */
+export function capKiloMaxTokens(
+	contextWindow: number | undefined,
+	maxTokens: number | null | undefined,
+): number | undefined {
+	if (maxTokens === undefined || maxTokens === null) return undefined;
+	if (contextWindow === undefined) return maxTokens;
+	return Math.min(maxTokens, Math.max(1, Math.floor(contextWindow / 2)));
+}
+
 export function buildKiloModelInfo(
 	id: string,
-	metadata: { contextWindow?: number; maxTokens?: number | null; image?: boolean; effortValues?: string[]; listingName?: string } = {},
+	metadata: { contextWindow?: number; maxTokens?: number | null; image?: boolean; effortValues?: string[]; listingName?: string; mandatoryReasoning?: boolean } = {},
 ): KiloModelInfo {
 	const model: KiloModelInfo = {
 		id,
@@ -158,8 +178,12 @@ export function buildKiloModelInfo(
 		input: metadata.image ? ["text", "image"] : ["text"],
 	};
 	if (metadata.contextWindow !== undefined) model.contextWindow = metadata.contextWindow;
-	if (metadata.maxTokens) model.maxTokens = metadata.maxTokens;
-	model.thinkingLevelMap = kiloThinkingLevelMap(metadata.effortValues, kiloCanDisableThinking(id));
+	const maxTokens = capKiloMaxTokens(metadata.contextWindow, metadata.maxTokens);
+	if (maxTokens) model.maxTokens = maxTokens;
+	model.thinkingLevelMap = kiloThinkingLevelMap(
+		metadata.effortValues,
+		metadata.mandatoryReasoning === true ? false : kiloCanDisableThinking(id),
+	);
 	return model;
 }
 
@@ -187,6 +211,7 @@ interface KiloListingRow {
 	top_provider?: { context_length?: unknown; max_completion_tokens?: unknown } | undefined;
 	architecture?: { input_modalities?: unknown } | undefined;
 	opencode?: { reasoning_options?: unknown } | undefined;
+	supported_parameters?: unknown;
 }
 
 function rowEffortValues(row: KiloListingRow): string[] | undefined {
@@ -201,6 +226,18 @@ function rowEffortValues(row: KiloListingRow): string[] | undefined {
 		}
 	}
 	return undefined;
+}
+
+/** A row that advertises supported parameters without "tools" cannot serve a tool-calling session. */
+function rowSupportsTools(row: KiloListingRow): boolean {
+	if (!Array.isArray(row.supported_parameters)) return true;
+	return row.supported_parameters.includes("tools");
+}
+
+/** An empty reasoning_options list means the endpoint refuses reasoning_effort "none" (gateway 400). */
+function rowMandatoryReasoning(row: KiloListingRow): boolean {
+	const options = row.opencode?.reasoning_options;
+	return Array.isArray(options) && options.length === 0;
 }
 
 /** Upstream kiloEntryOf: isFree slice, numeric metadata with the same fallbacks. */
@@ -219,7 +256,11 @@ export function decodeKiloListing(data: unknown): KiloModelInfo[] {
 		const row = raw as KiloListingRow;
 		if (row.isFree !== true) continue;
 		const id = typeof row.id === "string" ? row.id.trim() : "";
-		if (!id || seen.has(id)) continue;
+		if (!id) continue;
+		// Tool support is checked before the id is recorded, so a later duplicate
+		// row of the same id can still qualify.
+		if (!rowSupportsTools(row)) continue;
+		if (seen.has(id)) continue;
 		seen.add(id);
 		const modalities = Array.isArray(row.architecture?.input_modalities) ? row.architecture?.input_modalities : [];
 		models.push(
@@ -229,6 +270,7 @@ export function decodeKiloListing(data: unknown): KiloModelInfo[] {
 				image: Array.isArray(modalities) && modalities.includes("image"),
 				effortValues: rowEffortValues(row),
 				listingName: typeof row.name === "string" ? row.name : undefined,
+				mandatoryReasoning: rowMandatoryReasoning(row),
 			}),
 		);
 	}
@@ -332,7 +374,11 @@ export async function mergeKiloProvider(modelsJsonPath: string, models: KiloMode
 	const userContextWindows = collectContextWindows(current);
 	const mergedModels = models.map((m) => {
 		const pinned = userContextWindows.get(m.id);
-		return pinned === undefined || pinned === m.contextWindow ? m : { ...m, contextWindow: pinned };
+		if (pinned === undefined || pinned === m.contextWindow) return m;
+		// A user-pinned window may shrink below the catalog window, so the
+		// completion budget is recomputed; raising it never relaxes the cap.
+		const maxTokens = capKiloMaxTokens(pinned, m.maxTokens);
+		return maxTokens === undefined ? { ...m, contextWindow: pinned } : { ...m, contextWindow: pinned, maxTokens };
 	});
 	const next = { ...config, providers: { ...providers, [KILO_PROVIDER_ID]: buildKiloProviderBlock(mergedModels) } };
 	if (JSON.stringify(next) === JSON.stringify(config)) return false;
@@ -358,6 +404,7 @@ async function loadCatalogCache(cachePath: string, now: number): Promise<Catalog
 		return undefined;
 	}
 	if (!isRecord(raw) || !Array.isArray(raw.models)) return undefined;
+	if (raw.version !== KILO_CATALOG_CACHE_VERSION) return undefined;
 	const models: KiloModelInfo[] = [];
 	for (const item of raw.models) {
 		if (isRecord(item) && typeof item.id === "string" && item.id.trim()) models.push(item as KiloModelInfo);
@@ -374,7 +421,7 @@ async function writeCatalogCache(
 	writtenAt: number,
 	lastFailedAttemptAt?: number,
 ): Promise<void> {
-	const entry: Record<string, unknown> = { writtenAt, models };
+	const entry: Record<string, unknown> = { version: KILO_CATALOG_CACHE_VERSION, writtenAt, models };
 	if (lastFailedAttemptAt !== undefined) entry.lastFailedAttemptAt = lastFailedAttemptAt;
 	await atomicWriteJson(cachePath, entry);
 }

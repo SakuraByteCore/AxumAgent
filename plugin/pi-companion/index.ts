@@ -6,7 +6,7 @@ import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
 import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
-import { ensureKiloProviderLocal, refreshKiloProviderLive } from "./kilo-free.ts";
+import { capKiloMaxTokens, ensureKiloProviderLocal, KILO_PROVIDER_ID, refreshKiloProviderLive } from "./kilo-free.ts";
 import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
 import { registerAgentUi } from "./agentui.ts";
 
@@ -1561,6 +1561,10 @@ pi.registerCommand("claude", {
 			// in-place write applies instantly to every live reader (context metering,
 			// compaction threshold, overflow checks) without a setModel round-trip.
 			model.contextWindow = next;
+			if (model.provider === KILO_PROVIDER_ID) {
+				const capped = capKiloMaxTokens(next, model.maxTokens);
+				if (capped !== undefined) model.maxTokens = capped;
+			}
 		pi.events.emit(CONTEXT_CHANGED_EVENT);
 			const modelsPath = join(modelSwitchAgentDir(), "models.json");
 			try {
@@ -1574,6 +1578,10 @@ pi.registerCommand("claude", {
 					return;
 				}
 				entry.contextWindow = next;
+				if (model.provider === KILO_PROVIDER_ID && typeof entry.maxTokens === "number") {
+					const capped = capKiloMaxTokens(next, entry.maxTokens);
+					if (capped !== undefined) entry.maxTokens = capped;
+				}
 				const tmpPath = `${modelsPath}.tmp`;
 				await writeFile(tmpPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 				await rename(tmpPath, modelsPath);
