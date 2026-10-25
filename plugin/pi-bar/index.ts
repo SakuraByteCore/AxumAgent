@@ -63,6 +63,7 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
+import { BalanceCache, fetchSub2ApiBalance } from "./sub2api-balance.ts";
 // User-Agent: read the shared axum config file directly instead of importing
 // do not import axum-internal modules here (this file is synced into the Pi
 // cache where ../../src/provider-config.js does not exist). When the env var
@@ -908,6 +909,7 @@ interface Settings {
 	placement: "aboveEditor" | "belowEditor";
 	barWidth: number;
 	barStyle: "continuous" | "blocks" | "coralline";
+	balanceProviders: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -925,6 +927,7 @@ const DEFAULTS: Settings = {
 	placement: "belowEditor",
 	barWidth: 10,
 	barStyle: "coralline",
+	balanceProviders: ["ss2api"],
 };
 
 function loadSettings(): Settings {
@@ -951,14 +954,16 @@ function loadSettings(): Settings {
 	const place = (v: string | undefined): "aboveEditor" | "belowEditor" =>
 		v === "aboveEditor" ? "aboveEditor" : "belowEditor";
 	return {
-		// tps is rendered on its own row in Codex mode, so remove it from
-		// user-configured lists to prevent a duplicate status label.
-		left: split(s["left"], DEFAULTS.left.join(",")).filter((x) => x !== "tps"),
-		right: split(s["right"], DEFAULTS.right.join(",")).filter((x) => x !== "tps"),
+		// tps is rendered on its own row in Codex mode and the balance is
+		// pinned to the right edge of that row, so both are removed from the
+		// user-configured lists to prevent duplicate status labels.
+		left: split(s["left"], DEFAULTS.left.join(",")).filter((x) => x !== "tps" && x !== "balance"),
+		right: split(s["right"], DEFAULTS.right.join(",")).filter((x) => x !== "tps" && x !== "balance"),
 		placement: place(s["placement"]),
 		barWidth: num(s["bar-width"], DEFAULTS.barWidth),
 		barStyle: bstyle(s["bar-style"]),
 		appearance: s["appearance"] === "classic" ? "classic" : "codex",
+		balanceProviders: split(s["balance-providers"], DEFAULTS.balanceProviders.join(",")).map((x) => x.toLowerCase()),
 	};
 }
 
@@ -1207,7 +1212,7 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 	const priority = ["model", "context-usage", ...configured];
 	const parts: string[] = [];
 	for (const id of new Set(priority)) {
-		if (id === "tps" || !configured.has(id)) continue;
+		if (id === "tps" || id === "balance" || !configured.has(id)) continue;
 		const segment = segs.get(id);
 		if (!segment?.visible) continue;
 		const text = id === "context-usage"
@@ -1227,8 +1232,18 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 	const tpsWidth = visibleWidth(tps);
 	const tpsPadding = Math.max(0, width - tpsWidth);
 	const tpsLeft = Math.floor(tpsPadding / 2);
+	const tpsRight = tpsPadding - tpsLeft;
+	// The Sub2API balance is pinned to the right edge of the same row as the
+	// centered t/s readout. It is dropped (never truncated) when the row is
+	// too narrow, so the t/s block keeps its centered position.
+	const balanceSegment = segs.get("balance");
+	const balanceText = balanceSegment?.visible ? balanceSegment.text ?? "" : "";
+	const balanceWidth = visibleWidth(balanceText);
+	const balanceRoom = Math.max(0, tpsRight - 1);
+	const showBalance = balanceWidth > 0 && balanceWidth <= balanceRoom;
+	const gap = showBalance ? tpsRight - balanceWidth : tpsRight;
 	return [
-		" ".repeat(tpsLeft) + tps + " ".repeat(tpsPadding - tpsLeft),
+		" ".repeat(tpsLeft) + tps + " ".repeat(gap) + (showBalance ? balanceText : ""),
 		truncateToWidth(labels.join(" · "), Math.max(0, width), "…"),
 	];
 }
@@ -1856,6 +1871,36 @@ export default function (pi: ExtensionAPI): void {
 	pi.events.emit("pi-bar:update", { id: "model", text: raw, color: "thinkingHigh" });
 }
 
+	// --- Sub2API balance (Codex row 1, right side) ---
+	// Only Sub2API providers expose GET {base}/usage. The provider allowlist
+	// keeps every other provider untouched: no request, no segment.
+	const balanceCache = new BalanceCache();
+	function balanceProviderAllowed(providerId: string): boolean {
+		return settings.balanceProviders.includes(providerId.toLowerCase());
+	}
+	async function emitBalance(ctx: ExtensionContext): Promise<void> {
+		const model = ctx.model;
+		const providerId = typeof model?.provider === "string" ? model.provider : "";
+		const baseUrl = typeof model?.baseUrl === "string" ? model.baseUrl : "";
+		const allowed = settings.appearance === "codex"
+			&& providerId !== ""
+			&& baseUrl !== ""
+			&& balanceProviderAllowed(providerId);
+		if (!allowed) {
+			pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+			return;
+		}
+		// The API key is resolved by pi itself (models.json entry, $ENV ref or
+		// stored credential) and is only used as a request header.
+		const apiKey = await ctx.modelRegistry?.getApiKeyForProvider?.(providerId);
+		if (!apiKey) {
+			pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+			return;
+		}
+		const snapshot = await balanceCache.get(`${providerId}|${baseUrl}`, () => fetchSub2ApiBalance({ baseUrl, apiKey }));
+		pi.events.emit("pi-bar:update", { id: "balance", text: snapshot?.label, color: "text" });
+	}
+
 	// --- Render refresh (coalesced) ---
 
 	function refresh(): void {
@@ -1901,6 +1946,7 @@ export default function (pi: ExtensionAPI): void {
 		emitModel(ctx);
 		emitThinking(ctx);
 		emitTpsIdle(ctx);
+		void emitBalance(ctx);
 		refresh();
 	});
 
@@ -1916,12 +1962,15 @@ export default function (pi: ExtensionAPI): void {
 		lastGitCwd = undefined;
 		tpsSamples = undefined;
 		tokenCache = undefined;
+		balanceCache.invalidate();
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
 		emitModel(ctx);
 		emitThinking(ctx);
 		emitContext(ctx);
+		balanceCache.invalidate();
+		void emitBalance(ctx);
 	});
 
 	pi.on("thinking_level_select", async (_event, ctx) => {
@@ -1967,6 +2016,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("turn_end", async (_event, ctx) => {
 		emitTokens(ctx);
 		emitContext(ctx);
+		void emitBalance(ctx);
 	});
 
 	pi.on("tool_result", async (event, ctx) => {

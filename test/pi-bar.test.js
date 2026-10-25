@@ -175,7 +175,7 @@ test("tps segment replaces tokens-down with a live tokens-per-second pill", () =
   assert.match(statuslineSource, /tpsBorderLabel = `\$\{Math\.round\(value\)\} t\/s`;/);
   assert.match(statuslineSource, /if \(tpsBorderLabel && stripSgr\(lines\[0\]\) === rule\) \{/);
   assert.match(statuslineSource, /lines\[0\] = fitTpsBorder\(border\(` \$\{tpsBorderLabel\} `\), width, border\);/);
-  assert.match(statuslineSource, /split\(s\["left"\], DEFAULTS\.left\.join\(","\)\)\.filter\(\(x\) => x !== "tps"\)/);
+  assert.match(statuslineSource, /split\(s\["left"\], DEFAULTS\.left\.join\(","\)\)\.filter\(\(x\) => x !== "tps" && x !== "balance"\)/);
   // No leftover aboveEditor row: the dedicated widget is fully retired.
   assert.doesNotMatch(statuslineSource, /pi-bar-tps/);
   assert.doesNotMatch(statuslineSource, /renderTpsLine/);
@@ -444,4 +444,33 @@ test("Codex editor preserves cursor marker, wrapping and completion rows", async
   assert.equal(editor.getText(), "中文🚀\nsecond");
   editor.appearance = "classic";
   assert.match(editor.render(18)[0], /╌/);
+});
+
+test("Codex row 1 keeps t/s centered and pins the Sub2API balance to the right edge", async () => {
+	const { renderBar } = await import("../plugin/pi-bar/index.ts");
+	const segs = new Map([
+		["tps", { id: "tps", visible: true, text: "12 t/s" }],
+		["balance", { id: "balance", visible: true, text: "$12.34" }],
+	]);
+	const settings = { appearance: "codex", left: [], right: [] };
+	const rows = renderBar(segs, settings, {}, 40);
+	// t/s stays centered in the full width, the balance hugs the right edge.
+	assert.equal(rows[0].indexOf("12 t/s"), 17);
+	assert.ok(rows[0].endsWith("$12.34"));
+	assert.equal(rows[0].length, 40);
+	// Too narrow: the balance is dropped instead of colliding with the t/s block.
+	const narrow = renderBar(segs, settings, {}, 16);
+	assert.equal(narrow[0].trim(), "12 t/s");
+	assert.ok(!narrow[0].includes("$12.34"));
+});
+
+test("pi-bar only queries Sub2API providers and never logs the API key", () => {
+	const balanceBlock = statuslineSource.match(/function emitBalance[\s\S]*?\n\t}/)?.[0] ?? "";
+	assert.match(balanceBlock, /settings\.appearance === "codex"/);
+	assert.match(balanceBlock, /balanceProviderAllowed\(providerId\)/);
+	assert.match(balanceBlock, /getApiKeyForProvider/);
+	assert.match(balanceBlock, /fetchSub2ApiBalance\(\{ baseUrl, apiKey \}\)/);
+	assert.doesNotMatch(balanceBlock, /console\./);
+	assert.match(statuslineSource, /balanceProviders: \["ss2api"\]/);
+	assert.match(statuslineSource, /filter\(\(x\) => x !== "tps" && x !== "balance"\)/);
 });
