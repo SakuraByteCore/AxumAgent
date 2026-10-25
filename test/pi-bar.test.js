@@ -413,15 +413,17 @@ test("Codex status keeps live t/s on an independent row below the editor", async
   const settings = { appearance: "codex", left: ["thinking", "context-usage"], right: ["model"] };
   const rows = renderBar(segs, settings, {}, 100);
   assert.equal(rows.length, 2);
-  assert.equal(rows[0].trim(), "12 t/s");
-  assert.equal(rows[0].indexOf("12 t/s"), 47);
+  assert.match(rows[0], /^ 12 t\/s/);
+  assert.equal(rows[0].indexOf("12 t/s"), 1);
+  assert.ok(rows[0].endsWith(" "));
   assert.match(rows[1], /模型-long-name · 72% context left · high/);
   assert.doesNotMatch(rows[1], /t\/s/);
+  assert.doesNotMatch(rows[1], /pi\//);
   assert.doesNotMatch(rows.join("\n"), /[\uE0B0\uE0B4\uE0B6]|\x1b\[48/);
   const { displayWidth } = await import("../plugin/pi-bar/display-width.ts");
   const narrow = renderBar(segs, settings, {}, 30);
-  assert.equal(narrow[0].trim(), "12 t/s");
-  assert.equal(narrow[0].indexOf("12 t/s"), 12);
+  assert.match(narrow[0], /^ 12 t\/s/);
+  assert.equal(narrow[0].indexOf("12 t/s"), 1);
   assert.match(narrow[1], /72% context left/);
   assert.ok(narrow.every((row) => displayWidth(row) <= 30));
   segs.get("context-usage").bar = undefined;
@@ -446,22 +448,36 @@ test("Codex editor preserves cursor marker, wrapping and completion rows", async
   assert.match(editor.render(18)[0], /╌/);
 });
 
-test("Codex row 1 keeps t/s centered and pins the Sub2API balance to the right edge", async () => {
+test("Codex row 1 puts t/s left, the Sub2API balance in the middle and the UA right", async () => {
 	const { renderBar } = await import("../plugin/pi-bar/index.ts");
+	const { visibleWidth } = await import("@earendil-works/pi-tui");
 	const segs = new Map([
 		["tps", { id: "tps", visible: true, text: "12 t/s" }],
 		["balance", { id: "balance", visible: true, text: "$12.34" }],
 	]);
 	const settings = { appearance: "codex", left: [], right: [] };
 	const rows = renderBar(segs, settings, {}, 40);
-	// t/s stays centered in the full width, the balance hugs the right edge.
-	assert.equal(rows[0].indexOf("12 t/s"), 17);
-	assert.ok(rows[0].endsWith("$12.34"));
+	// t/s hugs the left margin, the balance sits on the content center, the UA
+	// label hugs the right margin.
+	assert.equal(rows[0].indexOf("12 t/s"), 1);
+	const balanceStart = 1 + Math.floor((40 - 2 - visibleWidth("$12.34")) / 2);
+	assert.equal(rows[0].indexOf("$12.34"), balanceStart);
+	assert.ok(rows[0].slice(balanceStart + visibleWidth("$12.34")).startsWith("  "));
+	const uaText = rows[0].trim().split(/\s{2,}/).at(-1);
+	assert.ok(uaText.length > 0);
+	assert.ok(!uaText.includes("·"));
+	assert.ok(rows[0].endsWith(" "));
 	assert.equal(rows[0].length, 40);
-	// Too narrow: the balance is dropped instead of colliding with the t/s block.
+	// Without a balance the left t/s and the right UA keep their positions.
+	const noBalance = renderBar(new Map([["tps", { id: "tps", visible: true, text: "12 t/s" }]]), settings, {}, 40);
+	assert.equal(noBalance[0].indexOf("12 t/s"), 1);
+	assert.ok(noBalance[0].trim().split(/\s{2,}/).at(-1).length > 0);
+	assert.ok(!noBalance[0].includes("$"));
+	// Too narrow: the balance is dropped instead of colliding with its neighbours.
 	const narrow = renderBar(segs, settings, {}, 16);
-	assert.equal(narrow[0].trim(), "12 t/s");
+	assert.match(narrow[0], /^ 12 t\/s/);
 	assert.ok(!narrow[0].includes("$12.34"));
+	assert.ok(narrow[0].trim().split(/\s{2,}/).length >= 2);
 });
 
 test("pi-bar probes any provider but only trusts the Sub2API schema", () => {

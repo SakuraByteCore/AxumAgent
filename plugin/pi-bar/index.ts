@@ -1207,6 +1207,10 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 	s.width = tgt;
 }
 
+// The Codex row 1 shares its line with the t/s readout and the balance, so the
+// user-agent label is capped to keep the center segment usable.
+const CODEX_UA_MAX_WIDTH = 14;
+
 function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: number): string[] {
 	const configured = new Set([...settings.left, ...settings.right]);
 	const priority = ["model", "context-usage", ...configured];
@@ -1220,7 +1224,6 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 			: [segment.text, segment.suffix].filter(Boolean).join(" ");
 		if (text) parts.push(text);
 	}
-	parts.push(uaShortLabel(getUserAgent()));
 	const labels = parts.filter(Boolean);
 	while (labels.length > 2 && visibleWidth(labels.join(" · ")) > width) labels.pop();
 	if (labels.length === 2 && visibleWidth(labels.join(" · ")) > width) {
@@ -1228,22 +1231,33 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 		const modelWidth = Math.max(0, width - contextWidth - visibleWidth(" · "));
 		if (modelWidth > 0) labels[0] = truncateToWidth(labels[0], modelWidth, "…");
 	}
-	const tps = truncateToWidth(segs.get("tps")?.text || "0 t/s", Math.max(0, width), "…");
+	// Codex row 1 is a three-part line: the live t/s readout flush left, the
+	// Sub2API balance centered, and the user-agent label flush right. Both
+	// edges keep a one-column margin. The balance is dropped whole (never
+	// truncated) whenever it would collide with either neighbour.
+	const margin = width > 2 ? 1 : 0;
+	const contentWidth = Math.max(0, width - margin * 2);
+	const tps = truncateDisplayToWidth(segs.get("tps")?.text || "0 t/s", contentWidth, "…");
 	const tpsWidth = visibleWidth(tps);
-	const tpsPadding = Math.max(0, width - tpsWidth);
-	const tpsLeft = Math.floor(tpsPadding / 2);
-	const tpsRight = tpsPadding - tpsLeft;
-	// The Sub2API balance is pinned to the right edge of the same row as the
-	// centered t/s readout. It is dropped (never truncated) when the row is
-	// too narrow, so the t/s block keeps its centered position.
+	const uaRoom = Math.min(CODEX_UA_MAX_WIDTH, Math.max(0, contentWidth - tpsWidth - 2));
+	const ua = uaShortLabel(getUserAgent());
+	const uaText = uaRoom > 0 ? truncateDisplayToWidth(ua, uaRoom, "…") : "";
+	const uaWidth = visibleWidth(uaText);
 	const balanceSegment = segs.get("balance");
 	const balanceText = balanceSegment?.visible ? balanceSegment.text ?? "" : "";
 	const balanceWidth = visibleWidth(balanceText);
-	const balanceRoom = Math.max(0, tpsRight - 1);
-	const showBalance = balanceWidth > 0 && balanceWidth <= balanceRoom;
-	const gap = showBalance ? tpsRight - balanceWidth : tpsRight;
+	const contentStart = margin;
+	const tpsEnd = contentStart + tpsWidth;
+	const uaStart = contentStart + contentWidth - uaWidth;
+	const balanceStart = contentStart + Math.floor((contentWidth - balanceWidth) / 2);
+	const showBalance = balanceWidth > 0
+		&& balanceStart >= tpsEnd + 1
+		&& balanceStart + balanceWidth <= uaStart - 2;
+	const balancePad = showBalance
+		? " ".repeat(Math.max(0, balanceStart - tpsEnd)) + balanceText + " ".repeat(Math.max(0, uaStart - balanceStart - balanceWidth))
+		: " ".repeat(Math.max(0, uaStart - tpsEnd));
 	return [
-		" ".repeat(tpsLeft) + tps + " ".repeat(gap) + (showBalance ? balanceText : ""),
+		" ".repeat(contentStart) + tps + balancePad + uaText + " ".repeat(margin),
 		truncateToWidth(labels.join(" · "), Math.max(0, width), "…"),
 	];
 }
