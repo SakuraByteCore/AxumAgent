@@ -1468,11 +1468,17 @@ test("stableSessionID pins one conversation signal to one gateway session", () =
   assert.equal(stableSessionID(first), first, "gateway-valid ids pass through unchanged");
 });
 
-test("staticZenCatalog offline floor is intentionally empty", () => {
+test("staticZenCatalog keeps only live ids from the original hard-coded list", () => {
   const catalog = staticZenCatalog();
   assert.equal(catalog.source, "static");
+  assert.deepEqual(catalog.models.map((m) => m.id), [
+    "big-pickle",
+    "mimo-v2.6-flash-free",
+    "nemotron-3.5-lightning-free",
+    "jev-1.13-free",
+  ]);
   assert.deepEqual(catalog.models.map((m) => m.id), [...STATIC_FREE_MODEL_IDS]);
-  assert.equal(catalog.models.length, 0);
+  assert.ok(!catalog.models.some((m) => ["ling-3.1-flash-free", "cat-jam-free", "step-5-preview-free"].includes(m.id)));
 });
 
 test("buildZenModelInfo maps models.dev metadata onto the pi model entry", () => {
@@ -1896,7 +1902,7 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
   }
 });
 
-test("/usemodel merges an empty zen floor offline and pins user providers first", async () => {
+test("/usemodel merges the curated zen floor offline and pins user providers first", async () => {
   const pi = createPi();
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-zen-"));
   const agentDir = path.join(tmpHome, ".pi", "agent");
@@ -1916,14 +1922,15 @@ test("/usemodel merges an empty zen floor offline and pins user providers first"
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.equal(selectCalls.length, 1);
-    assert.ok(selectCalls[0].options.some((option) => option === "openai/gpt-5  (default)"), "offline cold start has no zen floor; only the user provider remains");
-    assert.ok(!selectCalls[0].options.some((option) => option.startsWith("opencode/")), "empty static floor injects no zen models");
+    assert.ok(selectCalls[0].options.some((option) => option === "openai/gpt-5  (default)"), "offline cold start keeps the user provider");
+    assert.ok(selectCalls[0].options.includes("opencode/big-pickle"), "curated static floor injects a live Zen model");
+    assert.ok(!selectCalls[0].options.some((option) => option.startsWith("opencode/ling-3.1-flash-free")), "retired static models stay hidden");
     const merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
     assert.ok(merged.providers.opencode, "provider block merged into models.json");
     assert.equal(merged.providers.openai.models[0].id, "gpt-5", "existing providers untouched");
     const cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
-    assert.ok(Array.isArray(cache.models) && cache.models.length === 0, "bootstrap cache starts empty until live fills it");
-    assert.ok(notifications.some((n) => n.level === "info" && /synced 0 free Zen models \(static\)/.test(n.message)));
+    assert.ok(Array.isArray(cache.models) && cache.models.length === STATIC_FREE_MODEL_IDS.length, "bootstrap cache starts from the curated floor");
+    assert.ok(notifications.some((n) => n.level === "info" && new RegExp(`synced ${STATIC_FREE_MODEL_IDS.length} free Zen models \\(static\\)`).test(n.message)));
   } finally {
     process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
     delete process.env.PI_COMPANION_ZEN_OFFLINE;
@@ -2157,10 +2164,22 @@ test("kiloCanDisableThinking pins the mandatory-reasoning families", () => {
 	assert.equal(kiloCanDisableThinking("nvidia/nemotron-3.5-lightning:free"), true);
 });
 
-test("staticKiloCatalog offline floor is intentionally empty", () => {
+test("staticKiloCatalog keeps only live ids from the original hard-coded list", () => {
 	const catalog = staticKiloCatalog();
 	assert.equal(catalog.source, "static");
-	assert.equal(catalog.models.length, 0);
+	assert.equal(catalog.models.length, 16);
+	const ids = catalog.models.map((m) => m.id);
+	assert.ok(ids.includes("kilo-auto/free") && ids.includes("openrouter/free"));
+	assert.ok(!ids.includes("minimax/minimax-m3.1-flash:free"), "retired hard-coded model stays excluded");
+	for (const model of catalog.models) {
+		assert.equal(model.reasoning, true, "every free-pool row declares reasoning support");
+		assert.ok(model.contextWindow > 0);
+		assert.ok(model.thinkingLevelMap, "thinking menu is always declared");
+	}
+	assert.equal(catalog.models.find((m) => m.id === "liquid/lfm-2.5-2.6b:free").thinkingLevelMap.off, null, "mandatory-reasoning families never offer off");
+	assert.equal(catalog.models.find((m) => m.id === "nvidia/nemotron-3-ultra-550b-a55b:free").thinkingLevelMap.off, "none");
+	const vision = catalog.models.find((m) => m.id === "nvidia/nemotron-3.5-super-vl:free");
+	assert.deepEqual(vision.input, ["text", "image"]);
 });
 
 const KILO_LISTING_FIXTURE = {
@@ -2210,7 +2229,7 @@ test("mergeKiloProvider merges idempotently with a blank bearer key", async () =
 		assert.equal(merged.providers.kilo.apiKey, " ", "blank bearer: the gateway 401s any non-empty token");
 		assert.equal(merged.providers.kilo.api, "openai-completions");
 		assert.match(merged.providers.kilo.name, /may log prompts/);
-		assert.equal(merged.providers.kilo.models.length, 0);
+		assert.equal(merged.providers.kilo.models.length, 16);
 		const firstContent = fs.readFileSync(modelsJsonPath, "utf8");
 		assert.equal(await mergeKiloProvider(modelsJsonPath, catalog.models), false, "second merge is a no-op");
 		assert.equal(fs.readFileSync(modelsJsonPath, "utf8"), firstContent);

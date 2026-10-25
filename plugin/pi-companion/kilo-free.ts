@@ -60,16 +60,31 @@ export interface KiloSyncResult {
 }
 
 /**
- * Offline floor for the Kilo pool. Intentionally empty: the compile-time
- * snapshot kept rotting as upstream retired free ids (e.g.
- * minimax/minimax-m3.1-flash:free was dead while still listed), so bootstrap
- * now relies solely on the live catalog and the on-disk cache. A cold offline
- * start yields an empty provider block until the first successful live fetch
- * fills the cache. Tuple shape (kept for the buildKiloModelInfo mapping):
+ * Curated offline floor for the Kilo pool. These rows were present in the
+ * original hard-coded snapshot and were confirmed in the live catalog on
+ * 2026-10-25. Retired ids are deliberately excluded so a cold offline start
+ * never exposes a known-dead model. Tuple shape:
  * [id, contextWindow, maxCompletionTokens (null = gateway default), imageInput,
  * declared effort values (null = no declared menu → identity ladder)].
  */
-const STATIC_KILO_FREE_ROWS: readonly (readonly [string, number, number | null, 0 | 1, string | null])[] = [];
+const STATIC_KILO_FREE_ROWS: readonly (readonly [string, number, number | null, 0 | 1, string | null])[] = [
+	["kilo-auto/free", 256000, 32768, 0, null],
+	["nvidia/nemotron-3.5-super-vl:free", 1000000, 131072, 1, null],
+	["reflection/beam-free", 1048576, 131072, 0, "low,medium,high,xhigh,max"],
+	["stealth/glyph-cluster", 256000, 256000, 0, "low,medium,high,xhigh"],
+	["xingchen-agi/xing4.0-29b-a4b:free", 262144, 235929, 0, null],
+	["dots-studio/dots-3-note-preview:free", 512000, 460800, 1, null],
+	["liquid/lfm-2.5-2.6b:free", 65536, 8192, 0, null],
+	["nvidia/nemotron-3.5-lightning:free", 1000000, 65536, 0, null],
+	["poolside/laguna-s-2.1:free", 262144, 32768, 0, null],
+	["poolside/laguna-xs-2.1:free", 262144, 32768, 0, null],
+	["cohere/north-mini-code:free", 256000, 64000, 0, null],
+	["nvidia/nemotron-3.5-content-safety:free", 128000, 8192, 1, null],
+	["nvidia/nemotron-3-ultra-550b-a55b:free", 1000000, 65536, 0, "none,medium,high"],
+	["nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", 256000, 65536, 1, null],
+	["nvidia/nemotron-3-super-120b-a12b:free", 262144, 235929, 0, "none,low,medium"],
+	["openrouter/free", 200000, null, 1, null],
+];
 
 /** pi's identity thinking ladder for rows that declare no effort menu. */
 const DEFAULT_KILO_THINKING_LADDER: Record<string, string | null> = {
