@@ -401,3 +401,45 @@ test("header renders context/skills/extensions from the kernel loaded-resources 
   assert.match(statuslineSource, /cachedLines = renderHeader\(width, commandsCache, headerCwd\);/);
   assert.doesNotMatch(statuslineSource, /renderHeader\(width, skillsCache/);
 });
+
+test("Codex status keeps live t/s on an independent row below the editor", async () => {
+  const { renderBar } = await import("../plugin/pi-bar/index.ts");
+  const segs = new Map([
+    ["model", { id: "model", visible: true, text: "模型-long-name" }],
+    ["context-usage", { id: "context-usage", visible: true, bar: 28 }],
+    ["thinking", { id: "thinking", visible: true, text: "high" }],
+    ["tps", { id: "tps", visible: true, text: "12 t/s" }],
+  ]);
+  const settings = { appearance: "codex", left: ["thinking", "context-usage"], right: ["model"] };
+  const rows = renderBar(segs, settings, {}, 100);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /^\d+ t\/s$/);
+  assert.match(rows[1], /模型-long-name · 72% context left · high/);
+  assert.doesNotMatch(rows[1], /t\/s/);
+  assert.doesNotMatch(rows.join("\n"), /[\uE0B0\uE0B4\uE0B6]|\x1b\[48/);
+  const { displayWidth } = await import("../plugin/pi-bar/display-width.ts");
+  const narrow = renderBar(segs, settings, {}, 30);
+  assert.match(narrow[0], /^\d+ t\/s$/);
+  assert.match(narrow[1], /72% context left/);
+  assert.ok(narrow.every((row) => displayWidth(row) <= 30));
+  segs.get("context-usage").bar = undefined;
+  assert.match(renderBar(segs, settings, {}, 100)[1], /context unknown/);
+});
+
+test("Codex editor preserves cursor marker, wrapping and completion rows", async () => {
+  const { DashedBorderEditor } = await import("../plugin/pi-bar/index.ts");
+  const { visibleWidth, CURSOR_MARKER } = await import("@earendil-works/pi-tui");
+  const editor = new DashedBorderEditor({ terminal: { rows: 24 }, requestRender() {} }, { borderColor: s => s }, { matches: () => false });
+  editor.appearance = "codex"; editor.focused = true;
+  editor.setText("中文🚀\nsecond");
+  editor.autocompleteState = "prefix";
+  editor.autocompleteList = { render: () => ["candidate"] };
+  const rows = editor.render(18);
+  assert.ok(rows[1].startsWith("› ")); assert.ok(rows.join("").includes(CURSOR_MARKER));
+  assert.ok(rows.at(-1).startsWith("  candidate"));
+  assert.ok(rows.every(row => visibleWidth(row) <= 18));
+  assert.doesNotMatch(rows.join(""), /[─╌]/);
+  assert.equal(editor.getText(), "中文🚀\nsecond");
+  editor.appearance = "classic";
+  assert.match(editor.render(18)[0], /╌/);
+});

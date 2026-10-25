@@ -11,10 +11,12 @@
  *    command cards, shown once per session start and cached by width.
  *  - ctx.ui.setWidget("pi-bar"): the live coralline status bar driven by
  *    the pi-bar:update / pi-bar:register-segment event contract.
- *  - ctx.ui.setEditorComponent(): the dashed-rule editor that embeds the
- *    live t/s readout into the input box's top-left border (no background)
- *    and the UA label into its bottom-right border.
+ *  - ctx.ui.setEditorComponent(): the dashed-rule editor; classic mode
+ *    embeds t/s into the input box's top-left border and the UA label into its
+ *    bottom-right border, while Codex mode renders a borderless editor.
  *
+ * In Codex mode the widget is placed below the editor and renders the live
+ * t/s readout on its own first row, followed by the model/context/UA status row.
  * Status bar stylistic notes:
  *  - "coralline" barStyle renders each segment as a rounded pill: a dark
  *    role-color background block sealed by rounded caps (U+E0B6 /
@@ -548,7 +550,8 @@ function fitTpsBorder(label: string, width: number, border: ColorFn): string {
   return `${border("─")}${text}${border("─".repeat(gap))}${border("─")}`;
 }
 
-class DashedBorderEditor extends RuntimeCustomEditor {
+export class DashedBorderEditor extends RuntimeCustomEditor {
+  appearance: "codex" | "classic" = "classic";
   private dashedBorderFn: ColorFn | undefined;
 
   constructor(
@@ -598,7 +601,23 @@ class DashedBorderEditor extends RuntimeCustomEditor {
    * 0, which the guard rejects). Both labels go through the same border
    * colour callback so they read as part of the rule.
    */
+  private renderCodex(width: number): string[] {
+    const prefixWidth = Math.min(2, Math.max(0, width - 1));
+    const border = this.dashedBorderFn;
+    // Host Editor emits border rows separately and embeds its hardware cursor
+    // marker in content. Keep rows and marker intact; reserve prefix width
+    // before layout so wrapping, vertical movement and completion all agree.
+    this.dashedBorderFn = (text: string) => /^─+$/.test(text) ? "" : text.replaceAll("─", " ");
+    try {
+      return super.render(Math.max(1, width - prefixWidth)).map((line: string, index: number) =>
+        (index === 1 ? "› ".slice(0, prefixWidth) : " ".repeat(prefixWidth)) + line);
+    } finally {
+      this.dashedBorderFn = border;
+    }
+  }
+
   override render(width: number): string[] {
+    if (this.appearance === "codex") return this.renderCodex(width);
     const lines = super.render(width);
     if (width <= 2 || lines.length < 2) return lines;
     const border = this.borderColor as ColorFn;
@@ -883,6 +902,7 @@ interface RegEvent {
 }
 
 interface Settings {
+	appearance?: "codex" | "classic";
 	left: string[];
 	right: string[];
 	placement: "aboveEditor" | "belowEditor";
@@ -899,6 +919,7 @@ const SETTINGS_FILE = join(AGENT_DIR, "settings-extensions.json");
 const EXT_NAME = "pi-bar";
 
 const DEFAULTS: Settings = {
+	appearance: "codex",
 	left: ["git-branch", "thinking", "context-tokens", "context-usage"],
 	right: ["messages", "model"],
 	placement: "belowEditor",
@@ -930,13 +951,14 @@ function loadSettings(): Settings {
 	const place = (v: string | undefined): "aboveEditor" | "belowEditor" =>
 		v === "aboveEditor" ? "aboveEditor" : "belowEditor";
 	return {
-		// tps lives in the editor's top border (fitTpsBorder), not in the bar;
-		// strip it from a user-configured left list so it never renders twice.
+		// tps is rendered on its own row in Codex mode, so remove it from
+		// user-configured lists to prevent a duplicate status label.
 		left: split(s["left"], DEFAULTS.left.join(",")).filter((x) => x !== "tps"),
-		right: split(s["right"], DEFAULTS.right.join(",")),
+		right: split(s["right"], DEFAULTS.right.join(",")).filter((x) => x !== "tps"),
 		placement: place(s["placement"]),
 		barWidth: num(s["bar-width"], DEFAULTS.barWidth),
 		barStyle: bstyle(s["bar-style"]),
+		appearance: s["appearance"] === "classic" ? "classic" : "codex",
 	};
 }
 
@@ -1180,11 +1202,40 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 	s.width = tgt;
 }
 
+function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: number): string[] {
+	const configured = new Set([...settings.left, ...settings.right]);
+	const priority = ["model", "context-usage", ...configured];
+	const parts: string[] = [];
+	for (const id of new Set(priority)) {
+		if (id === "tps" || !configured.has(id)) continue;
+		const segment = segs.get(id);
+		if (!segment?.visible) continue;
+		const text = id === "context-usage"
+			? segment.bar === undefined ? "context unknown" : `${Math.max(0, 100 - segment.bar)}% context left`
+			: [segment.text, segment.suffix].filter(Boolean).join(" ");
+		if (text) parts.push(text);
+	}
+	parts.push(uaShortLabel(getUserAgent()));
+	const labels = parts.filter(Boolean);
+	while (labels.length > 2 && visibleWidth(labels.join(" · ")) > width) labels.pop();
+	if (labels.length === 2 && visibleWidth(labels.join(" · ")) > width) {
+		const contextWidth = visibleWidth(labels[1]);
+		const modelWidth = Math.max(0, width - contextWidth - visibleWidth(" · "));
+		if (modelWidth > 0) labels[0] = truncateToWidth(labels[0], modelWidth, "…");
+	}
+	const tps = segs.get("tps")?.text || "0 t/s";
+	return [
+		truncateToWidth(tps, Math.max(0, width), "…"),
+		truncateToWidth(labels.join(" · "), Math.max(0, width), "…"),
+	];
+}
+
 export function renderBar(segs: Map<string, Segment>, settings: Settings, theme: Theme, width: number): string[] {
 	// Single-line layout: every active segment shares one row. The configured
 	// left-side segments cluster left, the configured right-side segments
 	// cluster right, and the gap between the two trains fills with spaces so
 	// the left/right split stays visually clear.
+	if (settings.appearance === "codex") return renderCodexBar(segs, settings, width);
 	const lineLeft = settings.left;
 	const lineRight = settings.right;
 	const singleLine = renderLine(lineLeft, lineRight, segs, settings, theme, width);
@@ -1489,6 +1540,7 @@ const REIMU_FRAMES: string[] = [
 	`${RIBBON}＊${RST}${HAIR}～${RST}\n${FACE}(・ω・)${RST}`,
 ];
 const REIMU_INTERVAL_MS = 280;
+const CODEX_WORKING_FRAMES = ["·", "•", "·"];
 
 // Working timer: the working row is a single left-anchored Loader whose
 // message text is the only host-exposed writable face. The elapsed duration
@@ -1579,7 +1631,11 @@ export default function (pi: ExtensionAPI): void {
 		// factory preserves all default editor wiring (keybindings,
 		// autocomplete, onSubmit) since interactive-mode copies them onto our
 		// instance after creation.
-		ctx.ui.setEditorComponent(dashedEditorFactory);
+		ctx.ui.setEditorComponent((tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) => {
+			const editor = dashedEditorFactory(tui, theme, keybindings);
+			editor.appearance = settings.appearance ?? "classic";
+			return editor;
+		});
 	}
 
 	// Working-row elapsed timer lifecycle. A 1-second interval drives the
@@ -1872,7 +1928,11 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("agent_start", async (_event, ctx) => {
 		emitContext(ctx);
 		if (ctx.hasUI) {
-			ctx.ui.setWorkingIndicator({ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS });
+			if (settings.appearance === "codex") {
+				ctx.ui.setWorkingIndicator({ frames: CODEX_WORKING_FRAMES, intervalMs: REIMU_INTERVAL_MS });
+			} else {
+				ctx.ui.setWorkingIndicator({ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS });
+			}
 			startWorkingTimer();
 		}
 		flushIfDirty();
