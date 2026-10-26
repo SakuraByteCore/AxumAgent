@@ -12,6 +12,9 @@
  * The extended rungs are therefore hardcoded onto Axum's own baseline map.
  * Upstream and curated maps keep exactly the rungs their provider declares:
  * they do not match the baseline shape and are never touched.
+ *
+ * pi deep-freezes every models.json provider block, so the live map cannot be
+ * written into; the extended rungs are published as a replacement map instead.
  */
 export type EnrichableModel = {
 	id: string;
@@ -51,12 +54,16 @@ export function enrichModelThinkingLevels(model: EnrichableModel | undefined): b
 	const map = model?.thinkingLevelMap;
 	if (!model || !model.reasoning || !map || typeof map !== "object") return false;
 	if (!isAxumBaselineLevelMap(map)) return false;
-	let changed = false;
+	const additions: Record<string, string> = {};
 	for (const [level, value] of Object.entries(HARDED_EXTENDED_LEVELS)) {
-		if (map[level] === undefined) {
-			map[level] = value;
-			changed = true;
-		}
+		if (map[level] === undefined) additions[level] = value;
 	}
-	return changed;
+	if (Object.keys(additions).length === 0) return false;
+	// The live map comes from pi's deep-frozen models.json provider block, so
+	// writing into it throws "Cannot add property xhigh, object is not
+	// extensible". The model object itself stays extensible: publish a new map
+	// and let the /thinking selector read the extended rungs from it.
+	if (!Object.isExtensible(model)) return false;
+	model.thinkingLevelMap = { ...map, ...additions };
+	return true;
 }

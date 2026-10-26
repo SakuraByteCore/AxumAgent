@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { createStaleSafeEmit, isStaleRuntimeError } from "../plugin/pi-bar/runtime-safety.ts";
 
 const statuslineSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8");
 
@@ -94,7 +95,7 @@ test("working indicator shows Reimu frames via host API, with a 1s elapsed timer
 test("git-branch shows the branch name via emitGit", () => {
   assert.doesNotMatch(statuslineSource, /displayPath/);
   // git-branch holds the branch name; svn working copies show the "svn" label.
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: b, color: "mdHeading" \}\)/);
+  assert.match(statuslineSource, /emitBarUpdate\(\{ id: "git-branch", text: b, color: "mdHeading" \}\)/);
   assert.match(statuslineSource, /\{ id: "git-branch", text: "svn", color: "mdHeading" \}/);
 });
 
@@ -113,10 +114,10 @@ test("emitGit precedence is svn > git > empty", () => {
   // svn checked first and short-circuits before gitBranch.
   assert.match(body, /if \(isSvn\(ctx\.cwd\)\) \{[\s\S]*?return;/);
   // svn shows the "svn" label, git shows the branch name.
-  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: "svn", color: "mdHeading" \}\)/);
-  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: b, color: "mdHeading" \}\)/);
+  assert.match(body, /emitBarUpdate\(\{ id: "git-branch", text: "svn", color: "mdHeading" \}\)/);
+  assert.match(body, /emitBarUpdate\(\{ id: "git-branch", text: b, color: "mdHeading" \}\)/);
   // empty placeholder: both segments cleared (text: undefined) when neither vcs applies; git-dirty was removed entirely.
-  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "git-branch", text: undefined \}\)/);
+  assert.match(body, /emitBarUpdate\(\{ id: "git-branch", text: undefined \}\)/);
   assert.doesNotMatch(body, /emitGitDirty/);
 });
 
@@ -134,7 +135,7 @@ test("messages count is a separate right-side pill, separated from context-usage
   // Counter accumulates message entries inside the token pass to avoid a second traversal.
   assert.match(statuslineSource, /let msgCount = 0;/);
   assert.match(statuslineSource, /if \(e\.type !== "message"\) continue;[\s\S]*?msgCount \+= 1;/);
-  assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "messages", text: `#\$\{msgCount\}`, color: "thinkingMedium" \}\)/);
+  assert.match(statuslineSource, /emitBarUpdate\(\{ id: "messages", text: `#\$\{msgCount\}`, color: "thinkingMedium" \}\)/);
   // messages is its own separate pill at the head of the right train, not
   // embedded in the elastic context-usage block.
   assert.match(statuslineSource, /right: \["messages", "model"\]/);
@@ -147,11 +148,11 @@ test("messages count is a separate right-side pill, separated from context-usage
 test("model segment strips provider prefix from model id", () => {
  assert.match(statuslineSource, /m\.id\.slice\(m\.id\.lastIndexOf\("\/"\) \+ 1\)/);
  assert.match(statuslineSource, /m\.id\.lastIndexOf\("\/"\)/);
- assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
+ assert.match(statuslineSource, /emitBarUpdate\(\{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
  assert.doesNotMatch(statuslineSource, /\\u00b7/);
 });
 test("model segment shows the full unprefixed model id without truncation", () => {
- assert.match(statuslineSource, /pi\.events\.emit\("pi-bar:update", \{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
+ assert.match(statuslineSource, /emitBarUpdate\(\{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
  assert.doesNotMatch(statuslineSource, /MAX_MODEL_WIDTH/);
 });
 test("tps segment replaces tokens-down with a live tokens-per-second pill", () => {
@@ -210,7 +211,7 @@ test("emitThinking shows the current reasoning strength at all times", () => {
   assert.match(sessionBody, /ctx\.sessionManager\.getBranch\(\)/);
   assert.match(sessionBody, /thinking_level_change/);
   assert.match(body, /sessionThinkingLevel\(ctx\) \?\? ctx\.thinkingLevel \?\? "off"/);
-  assert.match(body, /pi\.events\.emit\("pi-bar:update", \{ id: "thinking", text: level/);
+  assert.match(body, /emitBarUpdate\(\{ id: "thinking", text: level/);
   assert.doesNotMatch(body, /text: undefined/);
   // The thinking_level_select event refreshes the pill; model_select and
   // session_start also probe ctx.thinkingLevel so a stale pill never lingers
@@ -506,4 +507,28 @@ test("balance drains live: turn_end forces a fresh probe and working turns poll"
   assert.match(statuslineSource, /pi\.on\("session_shutdown", async \(_event, ctx\) => \{[\s\S]*?stopBalancePolling\(\)/);
   // The forced path rides on the cache's force option, keeping inflight dedupe.
   assert.match(statuslineSource, /\{ baseUrl, apiKey \}\), \{ force \}\)/);
+});
+
+test("stale runtime failures degrade the bar instead of crashing the process", () => {
+	const stale = new Error("This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx.");
+	assert.equal(isStaleRuntimeError(stale), true);
+	assert.equal(isStaleRuntimeError(new Error("network down")), false);
+
+	let staleHits = 0;
+	const guarded = createStaleSafeEmit(() => { throw stale; }, () => { staleHits += 1; });
+	assert.equal(guarded({ id: "balance", text: undefined }), false);
+	assert.equal(staleHits, 1);
+
+	const unexpected = createStaleSafeEmit(() => { throw new Error("boom"); }, () => {});
+	assert.throws(() => unexpected({ id: "balance" }), /boom/);
+});
+
+test("bar segment updates all pass through the stale-runtime guard", () => {
+	const balanceBlock = statuslineSource.match(/async function emitBalance[\s\S]*?\n\t}/)?.[0] ?? "";
+	assert.match(balanceBlock, /emitBarUpdate\(/);
+	assert.doesNotMatch(balanceBlock, /pi\.events\.emit/);
+	// The pending no-model retry is cancelled with the poll so it cannot fire
+	// into a replaced session.
+	assert.match(statuslineSource, /let balanceRetryTimer: ReturnType<typeof setTimeout> \| undefined/);
+	assert.match(statuslineSource, /clearTimeout\(balanceRetryTimer\)/);
 });

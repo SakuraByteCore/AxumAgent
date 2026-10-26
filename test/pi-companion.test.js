@@ -2396,3 +2396,17 @@ test("thinking-level enrichment hardcodes xhigh/max onto Axum's baseline map", (
 	const done = { id: "ss2api/minimaxai/minimax-m3.1-flash", api: "openai-completions", reasoning: true, thinkingLevelMap: { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" } };
 	assert.equal(enrichModelThinkingLevels(done), false);
 });
+
+test("thinking-level enrichment republishes pi's frozen map instead of writing into it", () => {
+	// pi deep-freezes every models.json provider block: writing into the live
+	// map throws "Cannot add property xhigh, object is not extensible".
+	const frozenMap = Object.freeze({ off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+	const model = { id: "ss2api/z-ai/glm-5.3", api: "openai-completions", reasoning: true, thinkingLevelMap: frozenMap };
+	assert.equal(enrichModelThinkingLevels(model), true);
+	assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
+	assert.deepEqual(frozenMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+
+	// A frozen model object cannot take a replacement map either: skip it.
+	const frozenModel = Object.freeze({ id: "ss2api/z-ai/glm-5.3", api: "openai-completions", reasoning: true, thinkingLevelMap: { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" } });
+	assert.equal(enrichModelThinkingLevels(frozenModel), false);
+});

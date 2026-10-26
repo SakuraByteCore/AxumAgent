@@ -64,6 +64,7 @@ import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
 import { BalanceCache, probeSub2ApiBalance } from "./sub2api-balance.ts";
+import { createStaleSafeEmit } from "./runtime-safety.ts";
 // User-Agent: read the shared axum config file directly instead of importing
 // do not import axum-internal modules here (this file is synced into the Pi
 // cache where ../../src/provider-config.js does not exist). When the env var
@@ -1752,15 +1753,15 @@ export default function (pi: ExtensionAPI): void {
 		// Precedence: svn > git > empty.
 		// svn outranks git: a working copy checked out under a git repo shows "svn".
 		if (isSvn(ctx.cwd)) {
-			pi.events.emit("pi-bar:update", { id: "git-branch", text: "svn", color: "mdHeading" });
+			emitBarUpdate({ id: "git-branch", text: "svn", color: "mdHeading" });
 			return;
 		}
 		const b = gitBranch(ctx.cwd);
 		if (!b) {
-			pi.events.emit("pi-bar:update", { id: "git-branch", text: undefined });
+			emitBarUpdate({ id: "git-branch", text: undefined });
 			return;
 		}
-		pi.events.emit("pi-bar:update", { id: "git-branch", text: b, color: "mdHeading" });
+		emitBarUpdate({ id: "git-branch", text: b, color: "mdHeading" });
 	}
 
 
@@ -1791,7 +1792,7 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitThinking(ctx: ExtensionContext): void {
 		const level = sessionThinkingLevel(ctx) ?? ctx.thinkingLevel ?? "off";
-		pi.events.emit("pi-bar:update", { id: "thinking", text: level, color: "text" });
+		emitBarUpdate({ id: "thinking", text: level, color: "text" });
 	}
 
 	function emitTokens(ctx: ExtensionContext): void {
@@ -1820,7 +1821,7 @@ export default function (pi: ExtensionAPI): void {
 			to += m.usage.output;
 		}
 		tokenCache = { idx: entries.length, to, msgCount };
-		pi.events.emit("pi-bar:update", { id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
+		emitBarUpdate({ id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
 	}
 
 	// Live output speed: sampled from streaming deltas during a turn and shown
@@ -1832,7 +1833,7 @@ export default function (pi: ExtensionAPI): void {
 
 	function emitTps(ctx: ExtensionContext, value: number): void {
 		tpsBorderLabel = `${Math.round(value)} t/s`;
-		pi.events.emit("pi-bar:update", { id: "tps", text: tpsBorderLabel, color: "text" });
+		emitBarUpdate({ id: "tps", text: tpsBorderLabel, color: "text" });
 	}
 
 	function emitTpsIdle(ctx: ExtensionContext): void {
@@ -1854,8 +1855,8 @@ export default function (pi: ExtensionAPI): void {
 	function emitContext(ctx: ExtensionContext): void {
 		const u = ctx.getContextUsage();
 		if (!u) {
-			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
-			pi.events.emit("pi-bar:update", { id: "context-tokens", text: undefined });
+			emitBarUpdate({ id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
+			emitBarUpdate({ id: "context-tokens", text: undefined });
 			return;
 		}
 		// The window half is always visible ("used/window"). Before the first
@@ -1863,27 +1864,43 @@ export default function (pi: ExtensionAPI): void {
 		// alone instead of the old "0.0k" placeholder.
 		const windowText = fmtTokens(u.contextWindow);
 		if (u.tokens == null) {
-			pi.events.emit("pi-bar:update", { id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
-			pi.events.emit("pi-bar:update", { id: "context-tokens", text: windowText });
+			emitBarUpdate({ id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
+			emitBarUpdate({ id: "context-tokens", text: windowText });
 			return;
 		}
 		const pct = Math.round((u.tokens / u.contextWindow) * 100);
-		pi.events.emit("pi-bar:update", {
+		emitBarUpdate({
 			id: "context-usage",
 			text: "",
 			suffix: `${pct}%`,
 			bar: pct,
 			color: thresholdColor(pct),
 		});
-		pi.events.emit("pi-bar:update", { id: "context-tokens", text: `${fmtTokens(u.tokens)}/${windowText}` });
+		emitBarUpdate({ id: "context-tokens", text: `${fmtTokens(u.tokens)}/${windowText}` });
 	}
 
 	function emitModel(ctx: ExtensionContext): void {
 	const m = ctx.model;
 	if (!m) return;
 	const raw = m.id.lastIndexOf("/") >= 0 ? m.id.slice(m.id.lastIndexOf("/") + 1) : m.id;
-	pi.events.emit("pi-bar:update", { id: "model", text: raw, color: "thinkingHigh" });
+	emitBarUpdate({ id: "model", text: raw, color: "thinkingHigh" });
 }
+
+	// --- Stale-runtime safety -------------------------------------------------
+	// pi invalidates every captured pi/ctx once the session is replaced or
+	// reloaded; a later emit then throws "This extension ctx is stale after
+	// session replacement or reload." The balance probe is asynchronous and can
+	// outlive its session, so every bar update goes through a guard that stops
+	// the bar instead of letting the error escape as an uncaught exception.
+	const emitBarUpdate = createStaleSafeEmit(
+		(update) => {
+			pi.events.emit("pi-bar:update", update);
+		},
+		() => {
+			stopBalancePolling();
+			currentCtx = undefined;
+		},
+	);
 
 	// --- Sub2API balance (Codex row 1, right side) ---
 	// Any provider may point at a Sub2API deployment, so the bar probes the
@@ -1909,12 +1926,12 @@ export default function (pi: ExtensionAPI): void {
 				? model.baseUrl
 				: typeof providerBaseUrl === "string" ? providerBaseUrl : "";
 			if (settings.appearance !== "codex" || providerId === "" || baseUrl === "") {
-				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+				emitBarUpdate({ id: "balance", text: undefined });
 				return;
 			}
 			if (!balanceProviderAllowed(providerId)) {
 				debugBalance(`provider=${providerId} skipped by balance-providers list`);
-				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+				emitBarUpdate({ id: "balance", text: undefined });
 				return;
 			}
 			// The API key is resolved by pi itself (models.json entry, $ENV ref or
@@ -1922,15 +1939,15 @@ export default function (pi: ExtensionAPI): void {
 			const apiKey = await ctx.modelRegistry?.getApiKeyForProvider?.(providerId);
 			if (!apiKey) {
 				debugBalance(`provider=${providerId} no api key`);
-				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+				emitBarUpdate({ id: "balance", text: undefined });
 				return;
 			}
 			const probe = await balanceCache.get(`${providerId}|${baseUrl}`, () => probeSub2ApiBalance({ baseUrl, apiKey }), { force });
 			debugBalance(`provider=${providerId} status=${probe.status} reason=${probe.reason} label=${probe.snapshot?.label ?? "-"}`);
-			pi.events.emit("pi-bar:update", { id: "balance", text: probe.snapshot?.label, color: "text" });
+			emitBarUpdate({ id: "balance", text: probe.snapshot?.label, color: "text" });
 		} catch (error) {
 			debugBalance(`error=${error instanceof Error ? error.message : String(error)}`);
-			pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
+			emitBarUpdate({ id: "balance", text: undefined });
 		}
 	}
 
@@ -1941,9 +1958,12 @@ export default function (pi: ExtensionAPI): void {
 	// the negative cache still shields a broken endpoint.
 	const BALANCE_POLL_INTERVAL_MS = 5000;
 	let balancePollTimer: ReturnType<typeof setInterval> | undefined;
+	let balanceRetryTimer: ReturnType<typeof setTimeout> | undefined;
 	function stopBalancePolling(): void {
 		if (balancePollTimer !== undefined) clearInterval(balancePollTimer);
 		balancePollTimer = undefined;
+		if (balanceRetryTimer !== undefined) clearTimeout(balanceRetryTimer);
+		balanceRetryTimer = undefined;
 	}
 	function startBalancePolling(ctx: ExtensionContext): void {
 		stopBalancePolling();
@@ -2001,7 +2021,9 @@ export default function (pi: ExtensionAPI): void {
 		void emitBalance(ctx);
 		// The model may not be resolved yet when the session starts; retry once
 		// so the balance appears without waiting for the first turn.
-		if (!ctx.model) setTimeout(() => { void emitBalance(ctx); }, 1500);
+		if (!ctx.model) {
+			balanceRetryTimer = setTimeout(() => { void emitBalance(ctx); }, 1500);
+		}
 		refresh();
 	});
 
