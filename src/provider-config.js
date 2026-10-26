@@ -149,6 +149,21 @@ export function normalizeThinkingLevel(value, fallback = "off") {
   throw new Error(`Unsupported reasoning strength: ${value}`);
 }
 
+/** The five-level map older Axum builds wrote for every reasoning model. */
+const LEGACY_THINKING_LEVEL_MAP = {
+  off: null,
+  minimal: "minimal",
+  low: "low",
+  medium: "medium",
+  high: "high",
+};
+
+function isLegacyThinkingLevelMap(map) {
+  const keys = Object.keys(map);
+  if (keys.length !== Object.keys(LEGACY_THINKING_LEVEL_MAP).length) return false;
+  return keys.every((key) => key in LEGACY_THINKING_LEVEL_MAP && map[key] === LEGACY_THINKING_LEVEL_MAP[key]);
+}
+
 function thinkingLevelMap() {
   return {
     off: null,
@@ -156,6 +171,8 @@ function thinkingLevelMap() {
     low: "low",
     medium: "medium",
     high: "high",
+    xhigh: "xhigh",
+    max: "max",
   };
 }
 
@@ -361,12 +378,17 @@ export function ensureDefaultProviderReasoningSupport(selection, file = getModel
     model.reasoning = true;
     changed = true;
   }
-  // Install the baseline map only when the model declares none: a curated or
-  // upstream-confirmed thinkingLevelMap (e.g. one carrying xhigh/max) must
-  // never be clobbered by the generic five-level startup default.
+  // The baseline map carries the hardcoded xhigh/max rungs, so the built-in
+  // /thinking selector offers them. A curated or upstream-declared map keeps
+  // its own rungs; only the legacy five-level baseline written by older Axum
+  // builds is upgraded in place.
   const map = thinkingLevelMap();
-  if (model.thinkingLevelMap === undefined || model.thinkingLevelMap === null || typeof model.thinkingLevelMap !== "object") {
+  const current = model.thinkingLevelMap;
+  if (current === undefined || current === null || typeof current !== "object") {
     model.thinkingLevelMap = map;
+    changed = true;
+  } else if (isLegacyThinkingLevelMap(current)) {
+    model.thinkingLevelMap = { ...current, ...map };
     changed = true;
   }
   if (provider.compat?.supportsReasoningEffort === false) {

@@ -70,7 +70,7 @@ test("writes reasoning-capable provider config and default thinking level", () =
   const json = JSON.parse(fs.readFileSync(file, "utf8"));
   const model = json.providers.reasoner.models[0];
   assert.equal(model.reasoning, true);
-  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
   assert.deepEqual(json.providers.reasoner.compat, { supportsDeveloperRole: false });
   assert.deepEqual(getDefaultProviderSelection(settings), { provider: "reasoner", model: "reasoner-a", thinkingLevel: "high" });
 });
@@ -146,8 +146,31 @@ test("upgrades legacy default model config for high thinking", () => {
 
   assert.equal(result.changed, true);
   assert.equal(model.reasoning, true);
-  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
   assert.deepEqual(provider.compat, { supportsDeveloperRole: false });
+});
+
+test("ensureDefaultProviderReasoningSupport upgrades the legacy five-level baseline map", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-model-upgrademap-"));
+  const models = getModelsPath({ PI_CODING_AGENT_DIR: dir });
+  fs.mkdirSync(path.dirname(models), { recursive: true });
+  const legacy = { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" };
+  fs.writeFileSync(models, JSON.stringify({
+    providers: {
+      localmock: {
+        baseUrl: "https://api.example.com/v1",
+        api: "openai-completions",
+        apiKey: "sk-test",
+        models: [{ id: "mock-a", name: "Mock A", reasoning: true, thinkingLevelMap: legacy, contextWindow: 128000, maxTokens: 32000 }],
+      },
+    },
+  }));
+
+  const result = ensureDefaultProviderReasoningSupport({ provider: "localmock", model: "mock-a", thinkingLevel: "high" }, models);
+  const model = loadModelsConfig(models).providers.localmock.models[0];
+
+  assert.equal(result.changed, true);
+  assert.deepEqual(model.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
 });
 
 test("ensureDefaultProviderReasoningSupport preserves an existing curated thinkingLevelMap", () => {

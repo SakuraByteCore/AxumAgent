@@ -46,7 +46,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(modelsJson.providers.localmock.models[0].contextWindow, 128000);
     assert.equal(modelsJson.providers.localmock.models[0].maxTokens, 64000);
     assert.equal(modelsJson.providers.localmock.models[0].reasoning, true);
-    assert.deepEqual(modelsJson.providers.localmock.models[0].thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" });
+    assert.deepEqual(modelsJson.providers.localmock.models[0].thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
     assert.equal(modelsJson.providers.localmock.apiKey, "test-key");
     const settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.deepEqual(settingsJson, { defaultProvider: "localmock", defaultModel: "mock-b", defaultThinkingLevel: "medium" });

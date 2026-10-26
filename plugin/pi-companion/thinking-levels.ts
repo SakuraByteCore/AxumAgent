@@ -1,139 +1,62 @@
 /**
- * Upstream-confirmed extended thinking levels (xhigh/max) for the built-in
- * /thinking selector.
+ * Hardcoded extended thinking levels (xhigh/max) for the built-in /thinking
+ * selector.
  *
- * Axum writes a generic five-level map into models.json
- * ({off:null, minimal:"minimal", low:"low", medium:"medium", high:"high"}),
- * so models.json-defined models never offer xhigh/max even when the
- * underlying model accepts them. The upstream per-provider catalog shipped
- * inside the bundled pi-ai package (dist/providers/data/*.json, top-level key
- * = api form) is the only trusted record of which models really do.
+ * The selector derives its rows from the live model's thinkingLevelMap
+ * (pi-ai getSupportedThinkingLevels): xhigh/max only appear when that map
+ * declares the keys. Axum writes models.json models with its own generic
+ * five-level baseline map, so models served by Axum-managed providers never
+ * offered the extended rungs — and the upstream per-provider catalog cannot
+ * confirm a custom model id either.
  *
- * Matching is conservative and fail-closed:
- *   - candidates share the model's api form and the id's last path segment;
- *   - a level is adopted only when some candidate declares it with a non-null
- *     string value and no candidate declares it null (explicitly unsupported);
- *   - a missing key (unknown) never counts as support.
- * Only xhigh/max keys that are absent from the model's map are merged in
- * place — existing entries, including a curated map, are never touched.
+ * The extended rungs are therefore hardcoded onto Axum's own baseline map.
+ * Upstream and curated maps keep exactly the rungs their provider declares:
+ * they do not match the baseline shape and are never touched.
  */
-import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-
-/** The levels upstream catalogs declare beyond Axum's generic five. */
-const EXTENDED_LEVELS = ["xhigh", "max"] as const;
-
-type ThinkingLevelMap = Record<string, string | null>;
-/** api form -> id basename -> declared maps of every matching catalog entry. */
-type CatalogIndex = Map<string, Map<string, ThinkingLevelMap[]>>;
-
 export type EnrichableModel = {
 	id: string;
 	api?: string;
 	reasoning?: boolean;
-	thinkingLevelMap?: ThinkingLevelMap | null;
+	thinkingLevelMap?: Record<string, string | null> | null;
 };
 
-function basename(modelId: string): string {
-	const slash = modelId.lastIndexOf("/");
-	return slash >= 0 ? modelId.slice(slash + 1) : modelId;
-}
+/** The five-level map Axum writes for every reasoning model. */
+const AXUM_BASELINE_LEVEL_MAP: Record<string, string | null> = {
+	off: null,
+	minimal: "minimal",
+	low: "low",
+	medium: "medium",
+	high: "high",
+};
 
-/** Locate the bundled pi-ai model catalog, or null when unresolvable. */
-export function resolveUpstreamCatalogDir(): string | null {
-	try {
-		const entry = fileURLToPath(import.meta.resolve("@earendil-works/pi-ai"));
-		const dataDir = join(dirname(entry), "providers", "data");
-		return existsSync(dataDir) ? dataDir : null;
-	} catch {
-		return null;
-	}
-}
+/** The extended rungs hardcoded onto Axum's baseline map. */
+export const HARDED_EXTENDED_LEVELS: Record<string, string> = {
+	xhigh: "xhigh",
+	max: "max",
+};
 
-/** Index every catalog entry by api form and id basename. */
-export async function buildCatalogIndex(dataDir: string): Promise<CatalogIndex | undefined> {
-	const index: CatalogIndex = new Map();
-	let files: string[];
-	try {
-		files = (await readdir(dataDir)).filter((name) => name.endsWith(".json"));
-	} catch {
-		return undefined;
-	}
-	for (const name of files) {
-		let catalog: Record<string, Record<string, { thinkingLevelMap?: ThinkingLevelMap }>>;
-		try {
-			catalog = JSON.parse(await readFile(join(dataDir, name), "utf8"));
-		} catch {
-			continue;
-		}
-		for (const [api, models] of Object.entries(catalog)) {
-			if (!models || typeof models !== "object") continue;
-			let byBasename = index.get(api);
-			if (!byBasename) {
-				byBasename = new Map();
-				index.set(api, byBasename);
-			}
-			for (const [modelId, info] of Object.entries(models)) {
-				const map = info?.thinkingLevelMap;
-				if (!map || typeof map !== "object") continue;
-				const key = basename(modelId);
-				const maps = byBasename.get(key);
-				if (maps) maps.push(map);
-				else byBasename.set(key, [map]);
-			}
-		}
-	}
-	return index;
-}
-
-let catalogPromise: Promise<CatalogIndex | undefined> | undefined;
-
-function loadCatalog(): Promise<CatalogIndex | undefined> {
-	if (!catalogPromise) {
-		const dir = resolveUpstreamCatalogDir();
-		catalogPromise = dir ? buildCatalogIndex(dir) : Promise.resolve(undefined);
-	}
-	return catalogPromise;
-}
-
-/** The levels upstream confirms for (api, modelId); nothing is fabricated. */
-export function confirmedExtendedLevels(
-	index: CatalogIndex | undefined,
-	api: string | undefined,
-	modelId: string,
-): { xhigh?: string; max?: string } {
-	const confirmed: { xhigh?: string; max?: string } = {};
-	if (!index || !api) return confirmed;
-	const candidates = index.get(api)?.get(basename(modelId));
-	if (!candidates) return confirmed;
-	for (const level of EXTENDED_LEVELS) {
-		const declared = candidates.map((map) => map[level]).filter((value) => value !== undefined);
-		if (declared.includes(null)) continue;
-		const strings = [...new Set(declared.filter((value): value is string => typeof value === "string" && value.length > 0))];
-		if (strings.length === 1) confirmed[level] = strings[0];
-	}
-	return confirmed;
+/** True when the map is exactly Axum's generic five-level baseline. */
+export function isAxumBaselineLevelMap(map: Record<string, unknown>): boolean {
+	const keys = Object.keys(map);
+	if (keys.length !== Object.keys(AXUM_BASELINE_LEVEL_MAP).length) return false;
+	return keys.every((key) => key in AXUM_BASELINE_LEVEL_MAP && map[key] === AXUM_BASELINE_LEVEL_MAP[key]);
 }
 
 /**
- * Merge upstream-confirmed xhigh/max into the live model's thinkingLevelMap —
- * the very object the /thinking selector and the wire mapping both read.
- * Existing keys are never overwritten; returns whether anything was added.
+ * Hardcode xhigh/max into an Axum-generated model's live thinkingLevelMap —
+ * the very object the /thinking selector reads every time it opens.
+ * Returns whether anything was added.
  */
-export async function enrichModelThinkingLevels(
-	model: EnrichableModel | undefined,
-	index?: CatalogIndex,
-): Promise<boolean> {
-	if (!model || !model.reasoning || !model.thinkingLevelMap || typeof model.thinkingLevelMap !== "object") return false;
-	const confirmed = confirmedExtendedLevels(index ?? (await loadCatalog()), model.api, model.id);
+export function enrichModelThinkingLevels(model: EnrichableModel | undefined): boolean {
+	const map = model?.thinkingLevelMap;
+	if (!model || !model.reasoning || !map || typeof map !== "object") return false;
+	if (!isAxumBaselineLevelMap(map)) return false;
 	let changed = false;
-	for (const level of EXTENDED_LEVELS) {
-		const value = confirmed[level];
-		if (value === undefined || model.thinkingLevelMap[level] !== undefined) continue;
-		model.thinkingLevelMap[level] = value;
-		changed = true;
+	for (const [level, value] of Object.entries(HARDED_EXTENDED_LEVELS)) {
+		if (map[level] === undefined) {
+			map[level] = value;
+			changed = true;
+		}
 	}
 	return changed;
 }

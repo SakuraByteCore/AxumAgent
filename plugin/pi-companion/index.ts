@@ -1781,7 +1781,7 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_start", (_event, ctx) => {
 		void maybeCompact(pi, "agent_start", ctx);
-		void enrichModelThinkingLevels(ctx.model);
+		enrichModelThinkingLevels(ctx.model);
 	});
 
 	pi.on("turn_start", (_event, ctx) => {
@@ -1807,7 +1807,7 @@ export default function (pi: ExtensionAPI): void {
 
 pi.on("session_start", async (_event, ctx) => {
   await ensureBundledConfigFile();
-  void enrichModelThinkingLevels(ctx.model);
+  enrichModelThinkingLevels(ctx.model);
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
@@ -1821,7 +1821,7 @@ pi.on("session_start", async (_event, ctx) => {
 });
 
 pi.on("model_select", (_event, ctx) => {
-  void enrichModelThinkingLevels(ctx.model);
+  enrichModelThinkingLevels(ctx.model);
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────
