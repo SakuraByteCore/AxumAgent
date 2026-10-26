@@ -16,10 +16,13 @@ import {
 } from "../plugin/pi-agent/clear.ts";
 import {
   DEFAULT_ORCHESTRATION_BUDGET_MS,
+  DEFAULT_QUICK_BUDGET_MS,
   MAX_ORCHESTRATION_BUDGET_MS,
   buildOrchestrationPrompt,
+  buildQuickSplitPrompt,
   parseOrchestrationArgs,
   registerOrchestrate,
+  registerQuick,
 } from "../plugin/pi-agent/orchestrate.ts";
 import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
 import {
@@ -993,4 +996,20 @@ test("dispatch_agent arms the deadline on the returned agent", async (t) => {
   await pi.tools.get("dispatch_agent").execute("call", { task: "x", timeoutMs: 100 }, undefined, undefined, {});
   t.mock.timers.tick(100);
   assert.equal(aborted, true);
+});
+
+test("parseOrchestrationArgs honors the /quick 5m default and duration overrides", () => {
+  assert.equal(parseOrchestrationArgs("ship the feature", DEFAULT_QUICK_BUDGET_MS).budgetMs, 300000);
+  assert.deepEqual(parseOrchestrationArgs("2m ship it", DEFAULT_QUICK_BUDGET_MS), { budgetMs: 120000, task: "ship it" });
+});
+
+test("buildQuickSplitPrompt leads with split-first parallel dispatch under a deadline", () => {
+  const prompt = buildQuickSplitPrompt({ budgetMs: 300000, task: "add login and billing" }, Date.UTC(2023, 10, 14, 22, 4, 20));
+  assert.ok(prompt.startsWith("[Quick Split Request]\nadd login and billing"));
+  assert.match(prompt, /Wall-clock budget: 300s/);
+  assert.match(prompt, /absolute deadline: 2023-11-14T22:09:20\.000Z/);
+  assert.match(prompt, /partition the requirement into 1-4 independent, non-overlapping/);
+  assert.match(prompt, /all ready dispatch_agent calls at once/);
+  assert.match(prompt, /timeoutMs = positive remaining ms/);
+  assert.match(prompt, /Verify actual diffs/);
 });

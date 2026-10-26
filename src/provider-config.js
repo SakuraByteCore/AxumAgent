@@ -626,6 +626,39 @@ export function ensureWebSearchWorkflowDefault(file = getWebSearchConfigPath()) 
   return { file, seeded: true };
 }
 
+export function getSubagentConfigPath(env = process.env) {
+  if (env.PI_CODING_AGENT_DIR) return path.join(expandTilde(env.PI_CODING_AGENT_DIR), "extensions", "subagent", "config.json");
+  return path.join(os.homedir(), ".pi", "agent", "extensions", "subagent", "config.json");
+}
+
+// pi-subagents' under-editor async widget (the "async subagent worker · background"
+// header row) is opt-out via config.asyncWidget, and background-by-default launches
+// are opt-out via config.asyncByDefault; seed both off defaults so users get a
+// foreground-first out-of-box experience. Only fills missing keys: explicit
+// asyncWidget/asyncByDefault values from the user always win.
+export function ensureSubagentForegroundDefaults(file = getSubagentConfigPath()) {
+  let config;
+  try {
+    config = readJsonFile(file);
+  } catch (error) {
+    // Never overwrite a user file that holds unparseable JSON; pi-subagents
+    // itself falls back to defaults in that case.
+    console.error(`Skipping subagent foreground defaults: ${error.message}`);
+    return { file, seeded: false };
+  }
+  let seeded = false;
+  if (config.asyncWidget === undefined) {
+    config.asyncWidget = false;
+    seeded = true;
+  }
+  if (config.asyncByDefault === undefined) {
+    config.asyncByDefault = false;
+    seeded = true;
+  }
+  if (seeded) writeJsonFile(file, config);
+  return { file, seeded };
+}
+
 export function getUserAgent(file = getAxumConfigPath()) {
   const config = readJsonFile(file);
   return config.userAgent || null;

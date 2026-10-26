@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, cloneProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveModelsConfig, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
+import { API_FORMS, DEFAULT_THINKING_LEVEL, PROVIDER_PRESETS, buildProvider, cloneProvider, deleteProvider, ensureDefaultProviderReasoningSupport, ensureSubagentForegroundDefaults, ensureWebSearchWorkflowDefault, exportProviders, getDefaultProviderSelection, getModelsPath, getRetrySettings, getSettingsPath, getSteeringMode, getSubagentConfigPath, getWebSearchConfigPath, importProviders, listProviders, loadModelsConfig, normalizeBaseUrl, normalizeThinkingLevel, readSettingsRaw, saveDefaultProviderSelection, saveModelsConfig, saveRetrySettings, saveSteeringMode, upsertProvider } from "../src/provider-config.js";
 
 test("writes OpenAI-compatible provider config", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-"));
@@ -324,6 +324,57 @@ test("ensureWebSearchWorkflowDefault leaves malformed JSON untouched", () => {
   assert.equal(result.seeded, false);
   assert.equal(fs.readFileSync(file, "utf8"), broken);
 });
+test("ensureSubagentForegroundDefaults seeds asyncWidget and asyncByDefault false when file is missing", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-widget-new-"));
+  const file = path.join(dir, "extensions", "subagent", "config.json");
+  const result = ensureSubagentForegroundDefaults(file);
+  assert.equal(result.seeded, true);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { asyncWidget: false, asyncByDefault: false });
+});
+
+test("ensureSubagentForegroundDefaults preserves existing keys and fills missing ones", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-widget-merge-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ fleetView: true }));
+  const result = ensureSubagentForegroundDefaults(file);
+  assert.equal(result.seeded, true);
+  const merged = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(merged.asyncWidget, false);
+  assert.equal(merged.asyncByDefault, false);
+  assert.equal(merged.fleetView, true);
+});
+
+test("ensureSubagentForegroundDefaults never overrides an explicit asyncWidget", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-widget-keep-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ asyncWidget: true }));
+  const result = ensureSubagentForegroundDefaults(file);
+  assert.equal(result.seeded, true, "asyncByDefault is still seeded");
+  const merged = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(merged.asyncWidget, true);
+  assert.equal(merged.asyncByDefault, false);
+});
+
+test("ensureSubagentForegroundDefaults never overrides an explicit asyncByDefault", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-async-keep-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ asyncByDefault: true }));
+  const result = ensureSubagentForegroundDefaults(file);
+  assert.equal(result.seeded, true, "asyncWidget is still seeded");
+  const merged = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(merged.asyncByDefault, true);
+  assert.equal(merged.asyncWidget, false);
+});
+
+test("ensureSubagentForegroundDefaults seeds nothing when both keys are explicit", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-subagent-explicit-"));
+  const file = path.join(dir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({ asyncWidget: true, asyncByDefault: true }));
+  const result = ensureSubagentForegroundDefaults(file);
+  assert.equal(result.seeded, false);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { asyncWidget: true, asyncByDefault: true });
+});
+
 test("deleteProvider removes a provider and cleans default pointers", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-del-"));
   const modelsFile = path.join(dir, "models.json");

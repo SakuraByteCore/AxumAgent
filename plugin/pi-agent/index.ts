@@ -1,6 +1,6 @@
 import { registerClear } from "./clear.js";
 import { registerDispatch } from "./dispatch.js";
-import { registerOrchestrate } from "./orchestrate.js";
+import { registerOrchestrate, registerQuick } from "./orchestrate.js";
 import { registerPresets } from "./presets.js";
 import { registerSessionLifecycle } from "./session-lifecycle.js";
 import type {
@@ -108,6 +108,9 @@ export default function userAgent(pi: ExtensionAPI): void {
 	// ── /orchestrate: latency-first orchestration under a wall-clock budget ──
 
 	registerOrchestrate(pi);
+
+	// ── /quick: split-and-ship under a tight wall-clock budget ────────────────
+	registerQuick(pi);
 
 	registerSessionLifecycle(pi, {
 		runningAgents,

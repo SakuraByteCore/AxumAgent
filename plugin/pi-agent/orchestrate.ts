@@ -14,10 +14,13 @@ const UNIT_MS = { h: 3_600_000, m: 60_000, s: 1_000 } as const;
 /**
  * Parse a leading wall-clock budget like "90s", "10m", "1h30m", or bare minutes
  * ("7"); without a duration the default budget is 10m. Returns undefined when no
- * task text remains. Budgets above 24h are clamped to the 24h ceiling
- * (86400000ms).
+ * task text remains. Budgets above 24h are clamped to the pi-subagents
+ * timeout ceiling (86400000ms).
  */
-export function parseOrchestrationArgs(args: string): OrchestrationRequest | undefined {
+export function parseOrchestrationArgs(
+	args: string,
+	defaultBudgetMs: number = DEFAULT_ORCHESTRATION_BUDGET_MS,
+): OrchestrationRequest | undefined {
 	const trimmed = args.trim();
 	if (!trimmed) return undefined;
 	const tokens = trimmed.split(/\s+/);
@@ -42,7 +45,7 @@ export function parseOrchestrationArgs(args: string): OrchestrationRequest | und
 	}
 	const task = tokens.slice(taskOffset).join(" ");
 	if (!task) return undefined;
-	const resolved = budgetMs === undefined ? DEFAULT_ORCHESTRATION_BUDGET_MS : Math.round(budgetMs);
+	const resolved = budgetMs === undefined ? defaultBudgetMs : Math.round(budgetMs);
 	return { budgetMs: Math.min(resolved, MAX_ORCHESTRATION_BUDGET_MS), task };
 }
 
@@ -79,6 +82,45 @@ export function registerOrchestrate(pi: ExtensionAPI): void {
 			}
 			ctx.ui.notify(`Orchestration request sent with a ${Math.round(request.budgetMs / 1000)}s wall-clock budget.`, "info");
 			await pi.sendUserMessage(buildOrchestrationPrompt(request), { streamingBehavior: "followUp" });
+		},
+	});
+}
+
+/** /quick ships a tight default budget: split-and-parallelize within minutes. */
+export const DEFAULT_QUICK_BUDGET_MS = 5 * 60 * 1000;
+
+/** Build the split-first quick-delivery prompt injected into the main agent. */
+export function buildQuickSplitPrompt(request: OrchestrationRequest, now: number = Date.now()): string {
+	const budgetSeconds = Math.round(request.budgetMs / 1000);
+	const deadlineAt = new Date(now + request.budgetMs).toISOString();
+	return [
+		"[Quick Split Request]",
+		request.task,
+		"",
+		"[Quick Split Protocol]",
+		`Split first, ship fast. Wall-clock budget: ${budgetSeconds}s; absolute deadline: ${deadlineAt}. Token cost is irrelevant; wall-clock latency is the only metric.`,
+		"1. In your first tool turn, partition the requirement into 1-4 independent, non-overlapping implementation lanes by file/scope ownership and issue all ready dispatch_agent calls at once (squash=true; isolate=true only for self-contained scopes; timeoutMs = positive remaining ms until the deadline). Skip the planning pass; a trivial single-step task needs no split.",
+		"2. While lanes run, handle the sequential core yourself (integration points, glue, verification prep) instead of waiting idle.",
+		"3. Integrate as results arrive: apply each lane's verified changes, rerun the affected checks, and keep going; never restart the full budget.",
+		"4. Verify actual diffs and core acceptance checks before synthesis; report failures or uncovered shards explicitly instead of retrying silently past the deadline.",
+		"5. Deliver one consolidated result with minimal prose; no process narration, no questions mid-run.",
+		"",
+	].join("\n");
+}
+
+export function registerQuick(pi: ExtensionAPI): void {
+	pi.registerCommand("quick", {
+		description:
+			"Split-and-ship: /quick [duration] <requirement> — the main agent splits the requirement into parallel lanes and implements it fast (duration like 90s, 10m; default 5m)",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			const request = parseOrchestrationArgs(args, DEFAULT_QUICK_BUDGET_MS);
+			if (!request) {
+				ctx.ui.notify("Please provide a requirement: /quick [duration] <requirement> (duration like 90s, 10m; default 5m)", "warning");
+				return;
+			}
+			ctx.ui.notify(`Quick split request sent with a ${Math.round(request.budgetMs / 1000)}s wall-clock budget.`, "info");
+			await pi.sendUserMessage(buildQuickSplitPrompt(request), { streamingBehavior: "followUp" });
 		},
 	});
 }

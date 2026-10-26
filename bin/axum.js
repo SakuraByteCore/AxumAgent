@@ -484,7 +484,7 @@ function buildPiEnv(compileCacheDir) {
 
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureFocusExecutionPolicy }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault, ensureSubagentForegroundDefaults }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureFocusExecutionPolicy, ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
@@ -498,6 +498,7 @@ async function runPi(passthrough) {
   ensureBundledPi(bundledPiOptions);
   ensureTuiModeDefault();
   ensureWebSearchWorkflowDefault();
+  ensureSubagentForegroundDefaults();
   const piCli = resolvePiCli(bundledPiOptions);
   const { safe, piArgs } = splitAxumCodeArgs(passthrough);
   const packageNames = supportedBundledPiPackages(bundledPiOptions);
@@ -509,6 +510,11 @@ async function runPi(passthrough) {
   ensureParallelToolBatchingPolicy(bundledPiOptions);
   // Anti-performance-theater guard also applies to every session.
   ensureFocusExecutionPolicy(bundledPiOptions);
+  // Ship the subagent delegation policy only where pi-subagents loads
+  // (non-safe sessions).
+  if (!safe && packageNames.some((name) => name.startsWith("pi-subagents@"))) {
+    ensureSubagentDelegationPolicy(bundledPiOptions);
+  }
   const extensionArgs = safe ? [] : resolveBundledExtensions(bundledPiOptions).flatMap((file) => ["-e", file]);
   const defaults = getDefaultProviderSelection();
   const hasProviderArg = hasArg(piArgs, "--provider") || hasArg(piArgs, "--model");
