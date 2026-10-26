@@ -46,8 +46,9 @@ import {
 } from "../plugin/pi-companion/kilo-free.ts";
 import { applyFingerprintToChatPayload, describeZenQuotaError } from "../plugin/pi-companion/zen-v2-wire.ts";
 
-// Hermetic tests: the /usemodel opencode + kilo syncs are disabled file-wide;
-// the syncs themselves are covered by the dedicated tests at the bottom.
+// Hermetic tests: the /usemodel Kilo sync is disabled file-wide; the sync
+// itself is covered by the dedicated tests at the bottom. The retired
+// OpenCode Zen lane is no longer reachable from /usemodel at all.
 process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
 process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
 
@@ -1849,103 +1850,40 @@ test("refreshZenProviderLive stamps a failure cooldown and clears it on success"
   }
 });
 
-test("/usemodel shows the selector without waiting on the Zen network sync", async () => {
-  const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-fast-"));
-  const agentDir = path.join(tmpHome, ".pi", "agent");
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
-    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
-  }), "utf8");
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}), "utf8");
-  fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE), JSON.stringify({
-    writtenAt: 0,
-    models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }],
-  }), "utf8");
-  const { ctx, notifications, selectCalls } = createModelSwitchContext({
-    models: [],
-    selectResult: (options) => options[0],
-  });
-  const previousHome = process.env.HOME;
-  const previousFetch = globalThis.fetch;
-  const pendingFetches = [];
-  globalThis.fetch = (url) => {
-    const response = String(url).includes("/inference/v1/models")
-      ? { ok: true, json: async () => ({ data: [{ id: "big-pickle" }] }) }
-      : String(url).includes("api.kilo.ai")
-        ? { ok: true, json: async () => ({ data: [{ id: "kilo-auto/free", isFree: true, context_length: 256000, top_provider: { max_completion_tokens: 32768 }, architecture: { input_modalities: ["text"] } }] }) }
-        : { ok: true, json: async () => MODELS_DEV_FIXTURE };
-    return new Promise((resolve) => pendingFetches.push(() => resolve(response)));
-  };
-  process.env.HOME = tmpHome;
-  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
-  try {
-    await pi.commands.get("usemodel").handler("", ctx);
-
-    assert.equal(selectCalls.length, 1, "the selector opened without awaiting any fetch");
-    assert.ok(selectCalls[0].options.some((option) => option === "opencode/big-pickle"), "cached Zen model is listed instantly");
-    assert.ok(notifications.some((n) => n.level === "info" && /synced 1 free Zen models \(cache\)/.test(n.message)));
-
-    // The mocked fetch never resolves on its own, so the handler having already
-    // returned proves the sync runs detached in the background.
-    const fetchDeadline = Date.now() + 2_000;
-    while (pendingFetches.length === 0 && Date.now() < fetchDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.ok(pendingFetches.length >= 1, "the live Zen sync is pending in the background");
-
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline) {
-      const flush = pendingFetches.splice(0);
-      for (const release of flush) release();
-      if (notifications.some((n) => /in the background/.test(n.message))) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.ok(
-      notifications.some((n) => n.level === "info" && /opencode: synced 1 free models in the background/.test(n.message)),
-      "the background sync toasts once the fresh catalog lands",
-    );
-  } finally {
-    globalThis.fetch = previousFetch;
-    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
-    if (previousHome === undefined) delete process.env.HOME;
-    else process.env.HOME = previousHome;
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
-
-test("/usemodel merges the curated zen floor offline and pins user providers first", async () => {
+test("/usemodel drops the retired opencode lane and keeps the Kilo free floor", async () => {
   const pi = createPi();
   const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-zen-"));
   const agentDir = path.join(tmpHome, ".pi", "agent");
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
-    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
+    providers: {
+      openai: { models: [{ id: "gpt-5", default: true }] },
+      opencode: { baseUrl: ZEN_CHAT_BASE_URL, apiKey: "public", models: [{ id: "big-pickle" }] },
+      opencode2dsh: { models: [{ id: "old-free" }] },
+    },
   }), "utf8");
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}), "utf8");
-  const { ctx, notifications, selectCalls } = createModelSwitchContext({
-    models: [],
-    selectResult: (options) => options[0],
-  });
+  const { ctx, notifications, selectCalls } = createModelSwitchContext({ models: [], selectResult: () => undefined });
   const previousHome = process.env.HOME;
   process.env.HOME = tmpHome;
   delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
-  process.env.PI_COMPANION_ZEN_OFFLINE = "1";
+  delete process.env.PI_COMPANION_KILO_SYNC_DISABLE;
+  process.env.PI_COMPANION_KILO_OFFLINE = "1";
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.equal(selectCalls.length, 1);
-    assert.ok(selectCalls[0].options.some((option) => option === "openai/gpt-5  (default)"), "offline cold start keeps the user provider");
-    assert.ok(selectCalls[0].options.includes("opencode/big-pickle"), "curated static floor injects a live Zen model");
-    assert.ok(!selectCalls[0].options.some((option) => option.startsWith("opencode/ling-3.1-flash-free")), "retired static models stay hidden");
+    const options = selectCalls[0].options;
+    assert.ok(options.includes("openai/gpt-5  (default)"), "user providers stay listed");
+    assert.ok(options.includes("kilo/kilo-auto/free"), "the Kilo free floor is listed");
+    assert.ok(!options.some((option) => option.startsWith("opencode/") || option.startsWith("opencode2dsh/")), "the retired Zen lane stays hidden");
+    assert.ok(!notifications.some((n) => /opencode/i.test(n.message)), "no Zen sync is announced");
+    assert.ok(!fs.existsSync(path.join(agentDir, CATALOG_CACHE_FILE)), "no Zen catalog cache is written");
     const merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
-    assert.ok(merged.providers.opencode, "provider block merged into models.json");
-    assert.equal(merged.providers.openai.models[0].id, "gpt-5", "existing providers untouched");
-    const cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
-    assert.ok(Array.isArray(cache.models) && cache.models.length === STATIC_FREE_MODEL_IDS.length, "bootstrap cache starts from the curated floor");
-    assert.ok(notifications.some((n) => n.level === "info" && new RegExp(`synced ${STATIC_FREE_MODEL_IDS.length} free Zen models \\(static\\)`).test(n.message)));
+    assert.equal(merged.providers.opencode.models.length, 1, "the on-disk opencode block is left untouched");
+    assert.ok(merged.providers.opencode2dsh, "the legacy block stays on disk");
   } finally {
     process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
-    delete process.env.PI_COMPANION_ZEN_OFFLINE;
+    process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
+    delete process.env.PI_COMPANION_KILO_OFFLINE;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
