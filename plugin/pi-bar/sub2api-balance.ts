@@ -196,11 +196,17 @@ export class BalanceCache {
 		this.entries.delete(key);
 	}
 
-	async get(key: string, loader: () => Promise<BalanceProbe>): Promise<BalanceProbe> {
+	async get(key: string, loader: () => Promise<BalanceProbe>, options: { force?: boolean } = {}): Promise<BalanceProbe> {
 		const entry = this.entries.get(key);
 		if (entry) {
 			const age = Date.now() - entry.fetchedAt;
-			if (entry.failed ? age < this.errorTtlMs : age < this.ttlMs) return entry.probe;
+			// A forced refresh bypasses the success TTL so fresh consumption shows
+			// up right away; the negative cache still shields a broken endpoint.
+			if (entry.failed) {
+				if (age < this.errorTtlMs) return entry.probe;
+			} else if (!options.force && age < this.ttlMs) {
+				return entry.probe;
+			}
 		}
 		const pending = this.inflight.get(key);
 		if (pending) return pending;

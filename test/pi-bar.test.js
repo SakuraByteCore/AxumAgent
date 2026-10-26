@@ -76,8 +76,8 @@ test("working indicator shows Reimu frames via host API, with a 1s elapsed timer
   assert.match(statuslineSource, /setWorkingIndicator\(\{ frames: REIMU_FRAMES, intervalMs: REIMU_INTERVAL_MS \}\)/);
   assert.match(statuslineSource, /setWorkingIndicator\(\);/);
   assert.match(statuslineSource, /REIMU_FRAMES/);
-  // A 1-second setInterval drives the real-time working-duration display; it
-  // is the only setInterval in the plugin and is scoped to the working row.
+  // A 1-second setInterval drives the real-time working-duration display and
+  // is scoped to the working row (the balance poll owns the second interval).
   assert.match(statuslineSource, /WORKING_TIMER_INTERVAL_MS = 1000/);
   assert.match(statuslineSource, /setInterval\(tick, WORKING_TIMER_INTERVAL_MS\)/);
   assert.match(statuslineSource, /startWorkingTimer\(\)/);
@@ -87,7 +87,7 @@ test("working indicator shows Reimu frames via host API, with a 1s elapsed timer
   // tight (one space) so the time hugs "Working" on the same line.
   assert.match(statuslineSource, /fmtElapsed\(Date\.now\(\) - start\)/);
   assert.match(statuslineSource, /currentCtx\.ui\.setWorkingMessage\(`Working\.\.\. \(\$\{elapsed\}\)`\)/);
-  // No stray plugin timer beyond the single working-duration interval.
+  // No stray plugin timer beyond the working-duration and balance intervals.
   assert.match(statuslineSource, /let workingTimerId: ReturnType<typeof setInterval> \| undefined/);
 });
 
@@ -491,4 +491,19 @@ test("pi-bar probes any provider but only trusts the Sub2API schema", () => {
 	assert.doesNotMatch(balanceBlock, /console\./);
 	assert.match(statuslineSource, /balanceProviders: \[\]/);
 	assert.match(statuslineSource, /filter\(\(x\) => x !== "tps" && x !== "balance"\)/);
+});
+
+test("balance drains live: turn_end forces a fresh probe and working turns poll", () => {
+  // turn_end must bypass the 60s success TTL, or the pill replays the stale
+  // balance after a consuming turn.
+  assert.match(statuslineSource, /pi\.on\("turn_end", async \(_event, ctx\) => \{[\s\S]*?emitBalance\(ctx, true\)/);
+  // While the agent works the usage endpoint is polled so consumption shows
+  // mid-turn; the timer lives exactly between agent_start and agent_settled.
+  assert.match(statuslineSource, /const BALANCE_POLL_INTERVAL_MS = 5000;/);
+  assert.match(statuslineSource, /let balancePollTimer: ReturnType<typeof setInterval> \| undefined/);
+  assert.match(statuslineSource, /pi\.on\("agent_start", async \(_event, ctx\) => \{[\s\S]*?startBalancePolling\(ctx\)/);
+  assert.match(statuslineSource, /pi\.on\("agent_settled", async \(_event, ctx\) => \{[\s\S]*?stopBalancePolling\(\)/);
+  assert.match(statuslineSource, /pi\.on\("session_shutdown", async \(_event, ctx\) => \{[\s\S]*?stopBalancePolling\(\)/);
+  // The forced path rides on the cache's force option, keeping inflight dedupe.
+  assert.match(statuslineSource, /\{ baseUrl, apiKey \}\), \{ force \}\)/);
 });

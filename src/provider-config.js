@@ -361,8 +361,11 @@ export function ensureDefaultProviderReasoningSupport(selection, file = getModel
     model.reasoning = true;
     changed = true;
   }
+  // Install the baseline map only when the model declares none: a curated or
+  // upstream-confirmed thinkingLevelMap (e.g. one carrying xhigh/max) must
+  // never be clobbered by the generic five-level startup default.
   const map = thinkingLevelMap();
-  if (JSON.stringify(model.thinkingLevelMap || {}) !== JSON.stringify(map)) {
+  if (model.thinkingLevelMap === undefined || model.thinkingLevelMap === null || typeof model.thinkingLevelMap !== "object") {
     model.thinkingLevelMap = map;
     changed = true;
   }

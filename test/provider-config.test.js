@@ -150,6 +150,29 @@ test("upgrades legacy default model config for high thinking", () => {
   assert.deepEqual(provider.compat, { supportsDeveloperRole: false });
 });
 
+test("ensureDefaultProviderReasoningSupport preserves an existing curated thinkingLevelMap", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-model-keepmap-"));
+  const models = getModelsPath({ PI_CODING_AGENT_DIR: dir });
+  fs.mkdirSync(path.dirname(models), { recursive: true });
+  const curated = { off: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" };
+  fs.writeFileSync(models, JSON.stringify({
+    providers: {
+      localmock: {
+        baseUrl: "https://api.example.com/v1",
+        api: "openai-completions",
+        apiKey: "sk-test",
+        models: [{ id: "mock-a", name: "Mock A", reasoning: true, thinkingLevelMap: curated, contextWindow: 128000, maxTokens: 32000 }],
+      },
+    },
+  }));
+
+  const result = ensureDefaultProviderReasoningSupport({ provider: "localmock", model: "mock-a", thinkingLevel: "high" }, models);
+  const model = loadModelsConfig(models).providers.localmock.models[0];
+
+  assert.equal(result.changed, false);
+  assert.deepEqual(model.thinkingLevelMap, curated);
+});
+
 
 test("rejects blank API key", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-blank-key-"));

@@ -45,6 +45,12 @@ import {
   staticKiloCatalog,
 } from "../plugin/pi-companion/kilo-free.ts";
 import { applyFingerprintToChatPayload, describeZenQuotaError } from "../plugin/pi-companion/zen-v2-wire.ts";
+import {
+  buildCatalogIndex,
+  confirmedExtendedLevels,
+  enrichModelThinkingLevels,
+  resolveUpstreamCatalogDir,
+} from "../plugin/pi-companion/thinking-levels.ts";
 
 // Hermetic tests: the /usemodel Kilo sync is disabled file-wide; the sync
 // itself is covered by the dedicated tests at the bottom. The retired
@@ -2313,4 +2319,56 @@ test("ensureKiloProviderLocal discards a cache written by an older catalog versi
 	process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
 	fs.rmSync(tmp, { recursive: true, force: true });
 	}
+});
+
+test("thinking-level enrichment adopts only upstream-confirmed xhigh/max", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-thinking-catalog-"));
+	fs.writeFileSync(path.join(dir, "zai.json"), JSON.stringify({
+		"openai-completions": {
+			"glm-5.3": { thinkingLevelMap: { off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" } },
+			"glm-5.3-air": { reasoning: true },
+		},
+	}));
+	fs.writeFileSync(path.join(dir, "mixed.json"), JSON.stringify({
+		"openai-completions": {
+			"openai/gpt-5.6-sol": { thinkingLevelMap: { xhigh: "xhigh", max: "max" } },
+			"clashing/x": { thinkingLevelMap: { xhigh: "xhigh", max: null } },
+			"other/x": { thinkingLevelMap: { xhigh: null, max: "max" } },
+		},
+		"openai-responses": {
+			"gpt-5.6-sol": { thinkingLevelMap: { xhigh: "xhigh", max: "max" } },
+		},
+	}));
+	try {
+		const index = await buildCatalogIndex(dir);
+		// max confirmed, xhigh explicitly unsupported upstream.
+		assert.deepEqual(confirmedExtendedLevels(index, "openai-completions", "z-ai/glm-5.3"), { max: "max" });
+		// basename match within the same api form; the responses entry never leaks in.
+		assert.deepEqual(confirmedExtendedLevels(index, "openai-completions", "gpt-5.6-sol"), { xhigh: "xhigh", max: "max" });
+		// conflicting declarations across providers: fail closed, adopt nothing.
+		assert.deepEqual(confirmedExtendedLevels(index, "openai-completions", "x"), {});
+		// unknown model, or a candidate without any map: nothing fabricated.
+		assert.deepEqual(confirmedExtendedLevels(index, "openai-completions", "nope-9"), {});
+		assert.deepEqual(confirmedExtendedLevels(index, "openai-completions", "glm-5.3-air"), {});
+
+		// In-place merge: only the missing max key is added.
+		const glm = { id: "z-ai/glm-5.3", api: "openai-completions", reasoning: true, thinkingLevelMap: { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" } };
+		assert.equal(await enrichModelThinkingLevels(glm, index), true);
+		assert.deepEqual(glm.thinkingLevelMap, { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high", max: "max" });
+
+		// A curated map and a non-reasoning model are never touched.
+		const curated = { id: "openai/gpt-5.6-sol", api: "openai-completions", reasoning: true, thinkingLevelMap: { off: null, high: "high", xhigh: "curated", max: "curated" } };
+		assert.equal(await enrichModelThinkingLevels(curated, index), false);
+		const plain = { id: "glm-5.3", api: "openai-completions", reasoning: false, thinkingLevelMap: {} };
+		assert.equal(await enrichModelThinkingLevels(plain, index), false);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("resolveUpstreamCatalogDir finds the bundled pi-ai catalog when present", () => {
+	const dir = resolveUpstreamCatalogDir();
+	// Inside this repo pi-ai is resolvable; elsewhere the helper fails closed.
+	if (dir === null) return;
+	assert.ok(dir.endsWith(path.join("pi-ai", "dist", "providers", "data")));
 });

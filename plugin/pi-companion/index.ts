@@ -9,6 +9,7 @@ import { LEGACY_PROVIDER_ID, ZEN_PROVIDER_ID } from "./opencode-zen.ts";
 import { capKiloMaxTokens, ensureKiloProviderLocal, KILO_PROVIDER_ID, refreshKiloProviderLive } from "./kilo-free.ts";
 import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
 import { registerAgentUi } from "./agentui.ts";
+import { enrichModelThinkingLevels } from "./thinking-levels.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -1780,6 +1781,7 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_start", (_event, ctx) => {
 		void maybeCompact(pi, "agent_start", ctx);
+		void enrichModelThinkingLevels(ctx.model);
 	});
 
 	pi.on("turn_start", (_event, ctx) => {
@@ -1803,8 +1805,9 @@ export default function (pi: ExtensionAPI): void {
 		await maybeRalphContinue(ctx);
 	});
 
-pi.on("session_start", async () => {
+pi.on("session_start", async (_event, ctx) => {
   await ensureBundledConfigFile();
+  void enrichModelThinkingLevels(ctx.model);
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
@@ -1815,6 +1818,10 @@ pi.on("session_start", async () => {
   lastUserMessageWasAutoRetry = false;
   lastAssistantMessage = undefined;
   lastAssistantAlreadyHandled = false;
+});
+
+pi.on("model_select", (_event, ctx) => {
+  void enrichModelThinkingLevels(ctx.model);
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────

@@ -146,3 +146,26 @@ test("BalanceCache caches failures for the error TTL", async () => {
 	assert.equal((await cache.get("k", loader)).reason, "not-sub2api");
 	assert.equal(calls, 1);
 });
+
+test("BalanceCache force bypasses the success TTL but keeps the negative cache", async () => {
+	const cache = new BalanceCache(60_000, 300_000);
+	let calls = 0;
+	const loader = async () => {
+		calls += 1;
+		return { status: 200, reason: "ok", snapshot: { label: "$1.00", mode: "unrestricted", value: 1, unit: "USD" } };
+	};
+	await cache.get("k", loader);
+	await cache.get("k", loader);
+	assert.equal(calls, 1);
+	await cache.get("k", loader, { force: true });
+	assert.equal(calls, 2);
+
+	let failures = 0;
+	const failing = async () => {
+		failures += 1;
+		return { status: 404, reason: "not-sub2api" };
+	};
+	await cache.get("bad", failing);
+	await cache.get("bad", failing, { force: true });
+	assert.equal(failures, 1);
+});

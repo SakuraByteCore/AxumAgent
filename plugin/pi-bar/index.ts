@@ -1900,7 +1900,7 @@ export default function (pi: ExtensionAPI): void {
 		if (settings.balanceProviders.length === 0) return true;
 		return settings.balanceProviders.includes(providerId.toLowerCase());
 	}
-	async function emitBalance(ctx: ExtensionContext): Promise<void> {
+	async function emitBalance(ctx: ExtensionContext, force = false): Promise<void> {
 		try {
 			const model = ctx.model;
 			const providerId = typeof model?.provider === "string" ? model.provider : "";
@@ -1925,13 +1925,32 @@ export default function (pi: ExtensionAPI): void {
 				pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
 				return;
 			}
-			const probe = await balanceCache.get(`${providerId}|${baseUrl}`, () => probeSub2ApiBalance({ baseUrl, apiKey }));
+			const probe = await balanceCache.get(`${providerId}|${baseUrl}`, () => probeSub2ApiBalance({ baseUrl, apiKey }), { force });
 			debugBalance(`provider=${providerId} status=${probe.status} reason=${probe.reason} label=${probe.snapshot?.label ?? "-"}`);
 			pi.events.emit("pi-bar:update", { id: "balance", text: probe.snapshot?.label, color: "text" });
 		} catch (error) {
 			debugBalance(`error=${error instanceof Error ? error.message : String(error)}`);
 			pi.events.emit("pi-bar:update", { id: "balance", text: undefined });
 		}
+	}
+
+	// --- Balance live polling ---
+	// While the agent works the usage endpoint is polled so the balance drains
+	// as tokens are consumed instead of waiting for the turn to end. Every tick
+	// is a forced refresh: the success TTL would otherwise mask each poll, while
+	// the negative cache still shields a broken endpoint.
+	const BALANCE_POLL_INTERVAL_MS = 5000;
+	let balancePollTimer: ReturnType<typeof setInterval> | undefined;
+	function stopBalancePolling(): void {
+		if (balancePollTimer !== undefined) clearInterval(balancePollTimer);
+		balancePollTimer = undefined;
+	}
+	function startBalancePolling(ctx: ExtensionContext): void {
+		stopBalancePolling();
+		if (settings.appearance !== "codex" || !ctx.hasUI) return;
+		balancePollTimer = setInterval(() => {
+			void emitBalance(ctx, true);
+		}, BALANCE_POLL_INTERVAL_MS);
 	}
 
 	// --- Render refresh (coalesced) ---
@@ -1988,6 +2007,7 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		stopWorkingTimer();
+		stopBalancePolling();
 		if (ctx.hasUI) {
 			ctx.ui.setWidget("pi-bar", undefined);
 			ctx.ui.setHeader(undefined);
@@ -2023,6 +2043,7 @@ export default function (pi: ExtensionAPI): void {
 			}
 			startWorkingTimer();
 		}
+		startBalancePolling(ctx);
 		flushIfDirty();
 	});
 
@@ -2030,6 +2051,7 @@ export default function (pi: ExtensionAPI): void {
 		emitContext(ctx);
 		emitTpsIdle(ctx);
 		stopWorkingTimer();
+		stopBalancePolling();
 		if (ctx.hasUI) {
 			ctx.ui.setWorkingIndicator();
 		}
@@ -2052,7 +2074,9 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("turn_end", async (_event, ctx) => {
 		emitTokens(ctx);
 		emitContext(ctx);
-		void emitBalance(ctx);
+		// Consumption just landed on the provider's meter — probe fresh
+		// instead of replaying the 60s success TTL.
+		void emitBalance(ctx, true);
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
