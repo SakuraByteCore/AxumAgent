@@ -1016,6 +1016,17 @@ test("buildQuickSplitPrompt leads with split-first parallel dispatch under a dea
   assert.match(prompt, /reserve 60000ms of the initial 300000ms/);
   assert.match(prompt, /NOT a filesystem sandbox.*not reapplying edits already present/s);
   assert.match(prompt, /Verify actual diffs/);
+  assert.match(prompt, /Time is more valuable than token cost/);
+  assert.match(prompt, /longest independent lane first.*batch independent tool calls/);
+  assert.match(prompt, /without repeating discovery/);
+  assert.match(prompt, /Integrate each completed lane immediately/);
+  assert.doesNotMatch(prompt, /Quick Research|Research deadline|web_search|fetch_content/);
+  assert.match(prompt, /map every requirement to exactly one owner/);
+  assert.match(prompt, /produce working changes, not just a decomposition/);
+  assert.match(prompt, /only dispatch tasks whose prerequisite inputs are ready/);
+  assert.match(prompt, /self-contained task card:.*input\/output interface contract/);
+  assert.match(prompt, /instead of editing another owner's files or spawning more workers/);
+  assert.match(prompt, /Reconcile the requirement-to-owner map with delivered behavior/);
 });
 
 test("registerQuick steers immediately with an exact budget and rejects zero", async () => {
