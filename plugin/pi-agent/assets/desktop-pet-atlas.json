@@ -1,0 +1,36 @@
+{
+  "frameSize": 192,
+  "animations": {
+    "idle": {
+      "row": 0,
+      "frames": 12,
+      "fps": 6
+    },
+    "walk": {
+      "row": 1,
+      "frames": 12,
+      "fps": 12
+    },
+    "wave": {
+      "row": 2,
+      "frames": 12,
+      "fps": 12
+    },
+    "working": {
+      "row": 3,
+      "frames": 12,
+      "fps": 12
+    },
+    "waiting": {
+      "row": 4,
+      "frames": 12,
+      "fps": 6
+    },
+    "failed": {
+      "row": 5,
+      "frames": 12,
+      "fps": 6
+    }
+  },
+  "style": "reference-head-paper-puppet"
+}

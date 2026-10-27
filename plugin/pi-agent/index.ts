@@ -1,3 +1,4 @@
+import { registerDesktopPet } from "./desktop-pet.js";
 import { registerClear } from "./clear.js";
 import { registerDispatch } from "./dispatch.js";
 import { registerOrchestrate, registerQuick } from "./orchestrate.js";
@@ -21,6 +22,7 @@ import { registerUserAgentRenderer } from "./transcript.js";
 import { UserAgentWidget } from "./widget.js";
 
 export default function userAgent(pi: ExtensionAPI): void {
+	registerDesktopPet(pi);
 	const runningAgents = new Set<RunningAgent>();
 	const disabledCommands = new Set<string>();
 	// The session every agent was dispatched from; rebase fast-forwards onto it.
