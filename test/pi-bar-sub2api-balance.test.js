@@ -169,3 +169,28 @@ test("BalanceCache force bypasses the success TTL but keeps the negative cache",
 	await cache.get("bad", failing, { force: true });
 	assert.equal(failures, 1);
 });
+
+test("BalanceCache keeps a transient network failure cached only briefly", async () => {
+	// A transport hiccup must not hide the balance for the whole error TTL.
+	const cache = new BalanceCache(60_000, 300_000, 0);
+	let calls = 0;
+	const flaky = async () => {
+		calls += 1;
+		return { status: 0, reason: "network-error" };
+	};
+	await cache.get("net", flaky);
+	await cache.get("net", flaky);
+	assert.equal(calls, 2);
+});
+
+test("BalanceCache retryFailed re-probes a cached failure on demand", async () => {
+	const cache = new BalanceCache(60_000, 300_000);
+	let calls = 0;
+	const failing = async () => {
+		calls += 1;
+		return { status: 404, reason: "not-sub2api" };
+	};
+	await cache.get("bad", failing);
+	await cache.get("bad", failing, { force: true, retryFailed: true });
+	assert.equal(calls, 2);
+});

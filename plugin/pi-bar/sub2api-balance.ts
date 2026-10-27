@@ -43,7 +43,7 @@ export interface BalanceProbe {
 	reason: string;
 }
 
-const DEFAULT_TIMEOUT_MS = 5000;
+const DEFAULT_TIMEOUT_MS = 8000;
 const USAGE_MODES = new Set(["quota_limited", "unrestricted"]);
 
 function isLoopback(hostname: string): boolean {
@@ -182,10 +182,12 @@ export class BalanceCache {
 	private inflight = new Map<string, Promise<BalanceProbe>>();
 	private ttlMs: number;
 	private errorTtlMs: number;
+	private transientErrorTtlMs: number;
 
-	constructor(ttlMs = 60_000, errorTtlMs = 300_000) {
+	constructor(ttlMs = 60_000, errorTtlMs = 300_000, transientErrorTtlMs = 15_000) {
 		this.ttlMs = ttlMs;
 		this.errorTtlMs = errorTtlMs;
+		this.transientErrorTtlMs = transientErrorTtlMs;
 	}
 
 	invalidate(key?: string): void {
@@ -196,14 +198,22 @@ export class BalanceCache {
 		this.entries.delete(key);
 	}
 
-	async get(key: string, loader: () => Promise<BalanceProbe>, options: { force?: boolean } = {}): Promise<BalanceProbe> {
+	async get(
+		key: string,
+		loader: () => Promise<BalanceProbe>,
+		options: { force?: boolean; retryFailed?: boolean } = {},
+	): Promise<BalanceProbe> {
 		const entry = this.entries.get(key);
 		if (entry) {
 			const age = Date.now() - entry.fetchedAt;
 			// A forced refresh bypasses the success TTL so fresh consumption shows
 			// up right away; the negative cache still shields a broken endpoint.
 			if (entry.failed) {
-				if (age < this.errorTtlMs) return entry.probe;
+				// A transport hiccup is transient: keep it cached only briefly so a
+				// single timeout cannot hide the balance for the whole error TTL.
+				// Structural answers (404/405, foreign schema) keep the long TTL.
+				const ttl = entry.probe.reason === "network-error" ? this.transientErrorTtlMs : this.errorTtlMs;
+				if (age < ttl && !options.retryFailed) return entry.probe;
 			} else if (!options.force && age < this.ttlMs) {
 				return entry.probe;
 			}

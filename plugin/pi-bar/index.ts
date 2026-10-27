@@ -1917,7 +1917,20 @@ export default function (pi: ExtensionAPI): void {
 		if (settings.balanceProviders.length === 0) return true;
 		return settings.balanceProviders.includes(providerId.toLowerCase());
 	}
-	async function emitBalance(ctx: ExtensionContext, force = false): Promise<void> {
+	/**
+	 * Outcome of one balance probe. The reason doubles as the diagnosis the
+	 * /balance command reports when the segment stays empty.
+	 */
+	interface BalanceOutcome {
+		shown: boolean;
+		label?: string;
+		provider?: string;
+		reason?: string;
+	}
+	async function emitBalance(
+		ctx: ExtensionContext,
+		options: { force?: boolean; retryFailed?: boolean } = {},
+	): Promise<BalanceOutcome> {
 		try {
 			const model = ctx.model;
 			const providerId = typeof model?.provider === "string" ? model.provider : "";
@@ -1925,14 +1938,22 @@ export default function (pi: ExtensionAPI): void {
 			const baseUrl = typeof model?.baseUrl === "string" && model.baseUrl
 				? model.baseUrl
 				: typeof providerBaseUrl === "string" ? providerBaseUrl : "";
-			if (settings.appearance !== "codex" || providerId === "" || baseUrl === "") {
+			if (settings.appearance !== "codex") {
 				emitBarUpdate({ id: "balance", text: undefined });
-				return;
+				return { shown: false, provider: providerId, reason: "appearance-not-codex" };
+			}
+			if (providerId === "") {
+				emitBarUpdate({ id: "balance", text: undefined });
+				return { shown: false, reason: "no-provider" };
+			}
+			if (baseUrl === "") {
+				emitBarUpdate({ id: "balance", text: undefined });
+				return { shown: false, provider: providerId, reason: "no-base-url" };
 			}
 			if (!balanceProviderAllowed(providerId)) {
 				debugBalance(`provider=${providerId} skipped by balance-providers list`);
 				emitBarUpdate({ id: "balance", text: undefined });
-				return;
+				return { shown: false, provider: providerId, reason: "provider-not-allowed" };
 			}
 			// The API key is resolved by pi itself (models.json entry, $ENV ref or
 			// stored credential) and is only used as a request header.
@@ -1940,14 +1961,23 @@ export default function (pi: ExtensionAPI): void {
 			if (!apiKey) {
 				debugBalance(`provider=${providerId} no api key`);
 				emitBarUpdate({ id: "balance", text: undefined });
-				return;
+				return { shown: false, provider: providerId, reason: "no-api-key" };
 			}
-			const probe = await balanceCache.get(`${providerId}|${baseUrl}`, () => probeSub2ApiBalance({ baseUrl, apiKey }), { force });
+			const probe = await balanceCache.get(
+				`${providerId}|${baseUrl}`,
+				() => probeSub2ApiBalance({ baseUrl, apiKey }),
+				{ force: options.force, retryFailed: options.retryFailed },
+			);
 			debugBalance(`provider=${providerId} status=${probe.status} reason=${probe.reason} label=${probe.snapshot?.label ?? "-"}`);
 			emitBarUpdate({ id: "balance", text: probe.snapshot?.label, color: "text" });
+			return probe.snapshot
+				? { shown: true, label: probe.snapshot.label, provider: providerId, reason: "ok" }
+				: { shown: false, provider: providerId, reason: probe.reason };
 		} catch (error) {
-			debugBalance(`error=${error instanceof Error ? error.message : String(error)}`);
+			const reason = error instanceof Error ? error.message : String(error);
+			debugBalance(`error=${reason}`);
 			emitBarUpdate({ id: "balance", text: undefined });
+			return { shown: false, reason: `error: ${reason}` };
 		}
 	}
 
@@ -1969,9 +1999,23 @@ export default function (pi: ExtensionAPI): void {
 		stopBalancePolling();
 		if (settings.appearance !== "codex" || !ctx.hasUI) return;
 		balancePollTimer = setInterval(() => {
-			void emitBalance(ctx, true);
+			void emitBalance(ctx, { force: true });
 		}, BALANCE_POLL_INTERVAL_MS);
 	}
+
+	// /balance re-probes the current provider on demand and reports why the
+	// segment is empty, so a missing balance is diagnosable without a restart.
+	pi.registerCommand("balance", {
+		description: "手动刷新 Sub2API 余额并报告不可用原因",
+		async handler(_args: string, ctx: ExtensionContext) {
+			const outcome = await emitBalance(ctx, { force: true, retryFailed: true });
+			if (outcome.shown) {
+				ctx.ui.notify(`余额 ${outcome.label}（${outcome.provider}）`, "info");
+			} else {
+				ctx.ui.notify(`余额不可用：${outcome.reason ?? "unknown"}（provider=${outcome.provider ?? "-"}）`, "warning");
+			}
+		},
+	});
 
 	// --- Render refresh (coalesced) ---
 
@@ -2098,7 +2142,7 @@ export default function (pi: ExtensionAPI): void {
 		emitContext(ctx);
 		// Consumption just landed on the provider's meter — probe fresh
 		// instead of replaying the 60s success TTL.
-		void emitBalance(ctx, true);
+		void emitBalance(ctx, { force: true });
 	});
 
 	pi.on("tool_result", async (event, ctx) => {

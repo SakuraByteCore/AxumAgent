@@ -497,7 +497,7 @@ test("pi-bar probes any provider but only trusts the Sub2API schema", () => {
 test("balance drains live: turn_end forces a fresh probe and working turns poll", () => {
   // turn_end must bypass the 60s success TTL, or the pill replays the stale
   // balance after a consuming turn.
-  assert.match(statuslineSource, /pi\.on\("turn_end", async \(_event, ctx\) => \{[\s\S]*?emitBalance\(ctx, true\)/);
+  assert.match(statuslineSource, /pi\.on\("turn_end", async \(_event, ctx\) => \{[\s\S]*?emitBalance\(ctx, \{ force: true \}\)/);
   // While the agent works the usage endpoint is polled so consumption shows
   // mid-turn; the timer lives exactly between agent_start and agent_settled.
   assert.match(statuslineSource, /const BALANCE_POLL_INTERVAL_MS = 5000;/);
@@ -506,7 +506,7 @@ test("balance drains live: turn_end forces a fresh probe and working turns poll"
   assert.match(statuslineSource, /pi\.on\("agent_settled", async \(_event, ctx\) => \{[\s\S]*?stopBalancePolling\(\)/);
   assert.match(statuslineSource, /pi\.on\("session_shutdown", async \(_event, ctx\) => \{[\s\S]*?stopBalancePolling\(\)/);
   // The forced path rides on the cache's force option, keeping inflight dedupe.
-  assert.match(statuslineSource, /\{ baseUrl, apiKey \}\), \{ force \}\)/);
+  assert.match(statuslineSource, /\{ force: options\.force, retryFailed: options\.retryFailed \}/);
 });
 
 test("stale runtime failures degrade the bar instead of crashing the process", () => {
@@ -531,4 +531,32 @@ test("bar segment updates all pass through the stale-runtime guard", () => {
 	// into a replaced session.
 	assert.match(statuslineSource, /let balanceRetryTimer: ReturnType<typeof setTimeout> \| undefined/);
 	assert.match(statuslineSource, /clearTimeout\(balanceRetryTimer\)/);
+});
+
+test("/balance reports why the balance segment stays empty", async () => {
+	const mod = await import("../plugin/pi-bar/index.ts");
+	const commands = new Map();
+	const fakePi = {
+		on: () => {},
+		events: { emit: () => {}, on: () => () => {} },
+		tools: { register: () => {} },
+		registerCommand: (name, spec) => commands.set(name, spec),
+	};
+	mod.default(fakePi);
+	const notifications = [];
+	const ctx = {
+		hasUI: true,
+		model: { provider: "demo", baseUrl: "https://127.0.0.1:1/v1" },
+		modelRegistry: {
+			getProvider: () => ({ baseUrl: "https://127.0.0.1:1/v1" }),
+			getApiKeyForProvider: async () => "sk-demo",
+		},
+		sessionManager: { getBranch: () => [] },
+		getContextUsage: () => ({ tokens: 0, contextWindow: 100 }),
+		ui: { notify: (message, level) => notifications.push({ message, level }) },
+	};
+	await commands.get("balance").handler("", ctx);
+	assert.equal(notifications.length, 1);
+	assert.match(notifications[0].message, /余额不可用/);
+	assert.match(notifications[0].message, /provider=demo/);
 });
