@@ -1,0 +1,16 @@
+{
+  "name": "openclaw-axum",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "*.js",
+    "openclaw.plugin.json"
+  ],
+  "description": "Axum current-session Weixin bridge",
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

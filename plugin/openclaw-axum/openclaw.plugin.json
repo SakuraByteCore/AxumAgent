@@ -1,0 +1,22 @@
+{
+  "id": "axum-bridge",
+  "name": "Axum Bridge",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "senderId",
+      "accountId"
+    ],
+    "properties": {
+      "senderId": {
+        "type": "string",
+        "minLength": 1
+      },
+      "accountId": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

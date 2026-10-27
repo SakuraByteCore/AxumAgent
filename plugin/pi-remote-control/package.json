@@ -1,0 +1,15 @@
+{
+  "name": "pi-remote-control",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "files": [
+    "*.js"
+  ],
+  "description": "Axum current-session Weixin bridge",
+  "pi": {
+    "extensions": [
+      "./index.js"
+    ]
+  }
+}

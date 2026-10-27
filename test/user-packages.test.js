@@ -163,6 +163,7 @@ pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
 pkg('pi-agent', { 'index.ts': 'export default {};' });
 pkg('pi-subagents', { 'index.js': 'export default {};' });
 pkg('pi-memory', { 'index.ts': 'export default {};' });
+pkg('pi-remote-control', { 'index.js': 'export default {};' });
 pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./index.ts'] } });
 `);
   fs.chmodSync(fakeNpm, 0o755);
@@ -173,7 +174,7 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   ensureBundledPi(options);
   const installLine = fs.readFileSync(calls, "utf8").trim().split("\n").at(-1);
   assert.match(installLine, /pi-foo@1\.0\.0/);
-  assert.equal(existingBundledExtensions(options).length, 8);
+  assert.equal(existingBundledExtensions(options).length, 9);
 
   // Phase 2: discover the entry point, persist, compile, and resolve.
   const entries = loadUserPackages(options);
@@ -181,7 +182,7 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   assert.equal(entries[0].extensionPath, "index.ts");
   saveUserPackages(entries, options);
   compileBundledExtensions(options);
-  assert.equal(existingBundledExtensions(options).length, 9);
+  assert.equal(existingBundledExtensions(options).length, 10);
   const resolved = resolveBundledExtensions(options);
   const userEntry = resolved.find((entry) => entry.replaceAll(path.sep, "/").includes("pi-foo/"));
   assert.ok(userEntry, `pi-foo entry missing from: ${resolved.join(" ")}`);

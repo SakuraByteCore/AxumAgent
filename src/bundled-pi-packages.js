@@ -61,4 +61,6 @@ export const bundledPiPackages = [
   // pulls mem0ai → better-sqlite3 (native, no android-arm64 prebuild) and
   // cannot install on Android/Termux. Single-file, zero native deps.
   { name: "pi-memory@file:plugin/pi-memory", packageName: "pi-memory", extensionPath: "index.ts", android: true },
+  // Explicit /remote on binding; no listener or network activity until enabled.
+  { name: "pi-remote-control@file:plugin/pi-remote-control", packageName: "pi-remote-control", extensionPath: "index.js", android: true },
 ];

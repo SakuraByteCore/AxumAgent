@@ -89,6 +89,7 @@ function writeBundledExtensionFixtures(cache, { includeWindowsBroken = false } =
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
+  writePackage(cache, "pi-remote-control", { "index.js": "" });
   if (includeWindowsBroken) {
     writePackage(cache, "pi-web-access", { "index.ts": "" });
     writePackage(cache, "@ff-labs/pi-fff", { "src/index.ts": "" });
@@ -177,7 +178,7 @@ test("axum code disables ambient extensions before loading bundled extensions", 
   assert.equal(result.status, 0, result.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  const expectedExtensionCount = 8;
+  const expectedExtensionCount = 9;
   assert.equal(argv.filter((arg) => arg === "-e").length, expectedExtensionCount);
   assert.deepEqual(argv.slice(-7), ["--provider", "localmock", "--model", "mock-a", "--thinking", "high", "--help"]);
 });
@@ -357,6 +358,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   writePackage(cache, "pi-agent", { "index.ts": "" });
   writePackage(cache, "pi-subagents", { "index.js": "" });
   writePackage(cache, "pi-memory", { "index.ts": "" });
+  writePackage(cache, "pi-remote-control", { "index.js": "" });
   writeAgentSettings(agentDir);
 
   const result = spawnSync(process.execPath, ["bin/axum.js", "code", "--help"], {
@@ -369,7 +371,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   const compiledIndex = argv.indexOf(path.join(cache, "node_modules", "pi-bar", "index.js"));
   assert.notEqual(compiledIndex, -1);
   assert.equal(argv[compiledIndex - 1], "-e");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 8);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 9);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {
@@ -576,6 +578,7 @@ pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
 pkg('pi-agent', { 'index.ts': 'export default {};' });
 pkg('pi-subagents', { 'index.js': 'export default {};' });
 pkg('pi-memory', { 'index.ts': 'export default {};' });
+pkg('pi-remote-control', { 'index.js': 'export default {};' });
 pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./index.ts'] } });`);
   fs.chmodSync(fakeNpm, 0o755);
   fs.mkdirSync(agentDir, { recursive: true });
@@ -604,7 +607,7 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   assert.equal(codeResult.status, 0, codeResult.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 9);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 10);
   const userEntry = argv.filter((arg) => arg.includes("pi-foo"));
   assert.equal(userEntry.length, 1, `pi-foo missing from argv: ${argv.join(" ")}`);
   assert.equal(path.basename(userEntry[0]), "index.js");
@@ -661,6 +664,7 @@ pkg('@gamaraan/todos-tool', { 'src/index.ts': 'export default {};' });
 pkg('pi-agent', { 'index.ts': 'export default {};' });
 pkg('pi-subagents', { 'index.js': 'export default {};' });
 pkg('pi-memory', { 'index.ts': 'export default {};' });
+pkg('pi-remote-control', { 'index.js': 'export default {};' });
 pkg('pi-foo', { 'index.ts': 'export default {};' });`;
   fs.writeFileSync(fakeNpm, fixtures);
   fs.chmodSync(fakeNpm, 0o755);

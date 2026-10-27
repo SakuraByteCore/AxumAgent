@@ -25,8 +25,9 @@ test("checks available Pi extensions on Android", () => {
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
+    "pi-remote-control@file:plugin/pi-remote-control",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 9);
+  assert.equal(expectedBundledExtensionCount({ platform: "android", env: {} }), 10);
 });
 
 test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
@@ -43,8 +44,9 @@ test("keeps same bundled Pi extensions on Linux desktop platforms", () => {
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
+    "pi-remote-control@file:plugin/pi-remote-control",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 10);
+  assert.equal(expectedBundledExtensionCount({ platform: "linux", env: {} }), 11);
 });
 
 test("Windows excludes bundled extensions that cannot load from published TS sources", () => {
@@ -59,8 +61,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
     "pi-agent@file:plugin/pi-agent",
     "pi-subagents@0.74.0",
     "pi-memory@file:plugin/pi-memory",
+    "pi-remote-control@file:plugin/pi-remote-control",
   ]);
-  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 8);
+  assert.equal(expectedBundledExtensionCount({ platform: "win32", env: {} }), 9);
 });
 
 // Regression guard: localPlugins in ensure-bundled-pi.js used to be a separate
@@ -70,9 +73,9 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
 // Lock the invariant: every file: package is a local plugin, and every local
 // plugin name matches a plugin/ subdir that exists on disk.
 test("localPluginNames covers exactly the file: packages from the registry", () => {
-  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-companion", "pi-agent", "pi-memory"]);
-  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-companion", "pi-agent", "pi-memory"]);
-  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-companion", "pi-agent", "pi-memory"]);
+  assert.deepEqual(localPluginNames({ platform: "android", env: {} }), ["pi-bar", "pi-companion", "pi-agent", "pi-memory", "pi-remote-control"]);
+  assert.deepEqual(localPluginNames({ platform: "linux", env: {} }), ["pi-bar", "pi-companion", "pi-agent", "pi-memory", "pi-remote-control"]);
+  assert.deepEqual(localPluginNames({ platform: "win32", env: {} }), ["pi-bar", "pi-companion", "pi-agent", "pi-memory", "pi-remote-control"]);
 });
 
 test("every local plugin name has a matching plugin/ subdir", () => {
