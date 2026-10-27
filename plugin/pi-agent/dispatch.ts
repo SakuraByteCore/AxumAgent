@@ -1,4 +1,5 @@
 import { Type } from "typebox";
+import { logSteering } from "./shared.ts";
 import type { ExtensionAPI, ExtensionCommandContext, RunningAgent } from "./shared.js";
 
 export const MAX_DISPATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
@@ -67,12 +68,21 @@ export type DispatchDeps = {
 
 /** Deadline belongs to this dispatched lifecycle, not to ordinary /agent sessions. */
 export function armDispatchDeadline(agent: RunningAgent, timeoutMs: number): void {
+	const reportReserveMs = Math.min(30_000, Math.floor(timeoutMs * 0.2));
+	const live = () => !agent.aborted && ["starting", "running"].includes(agent.status);
+	const checkpoint = setTimeout(() => {
+		if (!live() || !agent.session?.isStreaming) return;
+		void agent.session.steer(
+			`Dispatch deadline approaching: ${reportReserveMs}ms remain. Stop starting new work or tools. Save completed changes and return a concise final handoff now: status, changed files, checks, remaining risks. This does not extend the deadline.`,
+		).catch((error) => logSteering(agent.id, "deadline-checkpoint-failed", { error: String(error) }));
+	}, timeoutMs - reportReserveMs);
 	const timer = setTimeout(() => {
-		if (agent.aborted || !["starting", "running"].includes(agent.status)) return;
+		if (!live()) return;
 		agent.timeoutMs = timeoutMs;
+		logSteering(agent.id, "dispatch-deadline-expired", { timeoutMs, streaming: agent.session?.isStreaming });
 		void agent.session?.abort();
 	}, timeoutMs);
-	const clear = () => clearTimeout(timer);
+	const clear = () => { clearTimeout(checkpoint); clearTimeout(timer); };
 	void agent.finished.then(clear, clear);
 }
 

@@ -66,3 +66,16 @@ export function getFinalAssistantText(
 		assistantMessages: assistantMessages.length,
 	});
 }
+
+/** A deadline is partial delivery, not a provider failure or a successful completion. */
+export function dispatchTimeoutReport(agent: {
+	timeoutMs?: number; responseText: string; toolUses: number; turnCount: number;
+}): string {
+	return [
+		`超时 / 部分结果：子代理达到 ${agent.timeoutMs}ms 执行上限，已停止。`,
+		`工具调用 ${agent.toolUses} 次，回合 ${agent.turnCount} 次。`,
+		"已收到的输出（可能被截断，不代表已完成验收）：",
+		agent.responseText || "截止前未收到助手文本；已有文件改动仍需主代理核验。",
+		"剩余风险：任务可能未完成；请核对实际差异与测试后决定是否续跑。",
+	].join("\n\n");
+}

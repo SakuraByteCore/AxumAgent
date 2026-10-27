@@ -88,6 +88,8 @@ export type AgentCommandDetails = {
 	modelLabel: string;
 	task: string;
 	ok: boolean;
+	/** Hard deadline reached; incomplete output must not be treated as success. */
+	partial?: boolean;
 	durationMs?: number;
 	toolUses?: number;
 	turnCount?: number;

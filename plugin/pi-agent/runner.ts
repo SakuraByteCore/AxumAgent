@@ -23,6 +23,7 @@ import { type AgentValueValidator, parseAgentCommand, scanAgentArguments } from 
 import {
 	assistantText,
 	getFinalAssistantText,
+	dispatchTimeoutReport,
 } from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
@@ -786,15 +787,6 @@ function buildInheritedMessages(ctx: ExtensionCommandContext): AgentMessage[] {
 	return structuredClone(buildSessionContext(ctx.sessionManager.getBranch()).messages);
 }
 
-function dispatchTimeoutReport(agent: RunningAgent): string {
-	return JSON.stringify({
-		status: "partial",
-		reason: `Dispatch deadline expired after ${agent.timeoutMs}ms.`,
-		findings: agent.responseText || "No assistant text available before timeout.",
-		evidence: { toolUses: agent.toolUses, turnCount: agent.turnCount },
-		remainingRisks: ["Task interrupted; filesystem changes and tool results require parent verification."],
-	});
-}
 
 async function runAgentLifecycle(
 	pi: ExtensionAPI,

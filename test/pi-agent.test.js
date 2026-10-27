@@ -28,6 +28,7 @@ import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
 import {
 	assistantText,
 	EmptyAgentTextError,
+	dispatchTimeoutReport,
 	getFinalAssistantText,
 	NO_TEXT_RESPONSE_NUDGE,
 } from "../plugin/pi-agent/final-response.ts";
@@ -966,17 +967,18 @@ test("sampleTokensPerSecond derives a 10s-window rate and hides idle/tool phases
 
 test("dispatch deadlines abort active lanes and clear after completion", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  let finish, aborted = 0;
-  const agent = { status: "running", session: { abort: () => { aborted++; } }, finished: new Promise(resolve => { finish = resolve; }) };
-  armDispatchDeadline(agent, 100); t.mock.timers.tick(99);
-  assert.equal(aborted, 0);
+  let finish, aborted = 0, checkpoints = 0;
+  const agent = { status: "running", session: { isStreaming: true, steer: async () => { checkpoints++; }, abort: () => { aborted++; } }, finished: new Promise(resolve => { finish = resolve; }) };
+  armDispatchDeadline(agent, 100); t.mock.timers.tick(79);
+  assert.equal(checkpoints, 0); t.mock.timers.tick(1); assert.equal(checkpoints, 1);
+  t.mock.timers.tick(19); assert.equal(aborted, 0);
   t.mock.timers.tick(1);
   assert.equal(aborted, 1); assert.equal(agent.timeoutMs, 100);
   finish();
   const completed = { ...agent, timeoutMs: undefined, finished: Promise.resolve() };
   armDispatchDeadline(completed, 100); await Promise.resolve();
   t.mock.timers.tick(100);
-  assert.equal(completed.timeoutMs, undefined);
+  assert.equal(completed.timeoutMs, undefined); assert.equal(checkpoints, 1);
 });
 
 test("dispatch_agent rejects invalid deadlines before launch", async () => {
@@ -1019,6 +1021,7 @@ test("buildQuickSplitPrompt leads with split-first parallel dispatch under a dea
   assert.match(prompt, /Time is more valuable than token cost/);
   assert.match(prompt, /longest independent lane first.*batch independent tool calls/);
   assert.match(prompt, /without repeating discovery/);
+  assert.match(prompt, /reserve the last min\(30s, 20%.*concise handoff/);
   assert.match(prompt, /Integrate each completed lane immediately/);
   assert.doesNotMatch(prompt, /Quick Research|Research deadline|web_search|fetch_content/);
   assert.match(prompt, /map every requirement to exactly one owner/);
@@ -1039,4 +1042,11 @@ test("registerQuick steers immediately with an exact budget and rejects zero", a
   await pi.commands.get("quick").handler("0 fix it", ctx);
   assert.equal(pi.messages.length, 1);
   assert.equal(notifications.at(-1).level, "warning");
+});
+
+
+test("dispatch timeout preserves truncated evidence without a raw JSON error", () => {
+ const text=dispatchTimeoutReport({timeoutMs:187153,responseText:"**done｜partial text",toolUses:17,turnCount:12});
+ assert.match(text,/超时 \/ 部分结果/); assert.ok(text.includes("**done｜partial text"));
+ assert.match(text,/可能被截断/); assert.ok(!text.startsWith('{'));
 });

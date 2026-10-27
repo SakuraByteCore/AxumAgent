@@ -91,6 +91,7 @@ export function buildMessageDetails(agent: RunningAgent, ok: boolean): AgentComm
 		task: agent.task,
 		planSourceSessionId: agent.planSourceSessionId,
 		ok,
+		partial: !ok && agent.timeoutMs !== undefined,
 		durationMs: (agent.completedAt ?? Date.now()) - agent.turnStartedAt,
 		toolUses: agent.toolUses,
 		turnCount: agent.turnCount,
@@ -277,8 +278,9 @@ function renderAgentCard(
 ): Container {
 	const ok = details?.ok ?? !content.includes("<user_agent_error");
 	const command = details ? `/${details.command}` : "/agent";
-	const icon = ok ? theme.fg("success", "✓") : theme.fg("error", "✗");
-	const statusText = ok ? theme.fg("dim", "completed") : theme.fg("error", "failed");
+	const partial = details?.partial === true;
+	const icon = partial ? theme.fg("warning", "⚠") : ok ? theme.fg("success", "✓") : theme.fg("error", "✗");
+	const statusText = partial ? theme.fg("warning", "超时 / 部分结果") : ok ? theme.fg("dim", "completed") : theme.fg("error", "failed");
 	const parts = buildRendererParts(content, details);
 	const task = details?.task ?? extractTag(content, "task");
 
@@ -306,10 +308,10 @@ function renderAgentCardBody(
 	if (expanded)
 		return ok
 			? new Markdown(output, 3, 0, getMarkdownTheme())
-			: new Text(theme.fg("error", output), 3, 0);
+			: new Text(theme.fg(details?.partial ? "warning" : "error", output), 3, 0);
 
 	const previewText = `⎿  ${truncatePlain(details?.responsePreview ?? output, 110)}`;
-	if (!ok) return new Text(`  ${theme.fg("error", previewText)}`, 1, 0);
+	if (!ok) return new Text(`  ${theme.fg(details?.partial ? "warning" : "error", previewText)}`, 1, 0);
 	return new Markdown(previewText, 3, 0, getMarkdownTheme(), {
 		color: (value) => theme.fg("dim", value),
 	});
