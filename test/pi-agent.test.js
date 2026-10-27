@@ -1010,6 +1010,22 @@ test("buildQuickSplitPrompt leads with split-first parallel dispatch under a dea
   assert.match(prompt, /absolute deadline: 2023-11-14T22:09:20\.000Z/);
   assert.match(prompt, /partition the requirement into 1-4 independent, non-overlapping/);
   assert.match(prompt, /all ready dispatch_agent calls at once/);
-  assert.match(prompt, /timeoutMs = positive remaining ms/);
+  const implementationDeadlineMs = Date.UTC(2023, 10, 14, 22, 4, 20) + 300000 * (1 - 0.2);
+  assert.ok(prompt.includes(`Implementation deadline: ${new Date(implementationDeadlineMs).toISOString()}`));
+  assert.ok(prompt.includes(`timeoutMs = Math.floor(${implementationDeadlineMs} - currentTimeMs)`));
+  assert.match(prompt, /reserve 60000ms of the initial 300000ms/);
+  assert.match(prompt, /NOT a filesystem sandbox.*not reapplying edits already present/s);
   assert.match(prompt, /Verify actual diffs/);
+});
+
+test("registerQuick steers immediately with an exact budget and rejects zero", async () => {
+  const pi = createPi();
+  registerQuick(pi);
+  const { ctx, notifications } = createCtx();
+  await pi.commands.get("quick").handler("1.5s fix it", ctx);
+  assert.equal(pi.messages[0].options.streamingBehavior, "steer");
+  assert.match(pi.messages[0].message, /Wall-clock budget: 1.5s/);
+  await pi.commands.get("quick").handler("0 fix it", ctx);
+  assert.equal(pi.messages.length, 1);
+  assert.equal(notifications.at(-1).level, "warning");
 });
