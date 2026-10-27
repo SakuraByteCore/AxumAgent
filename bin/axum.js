@@ -484,13 +484,14 @@ function buildPiEnv(compileCacheDir) {
 
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault, ensureSubagentForegroundDefaults }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureFocusExecutionPolicy, ensureSubagentDelegationPolicy }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault, ensureSubagentForegroundDefaults, getAgentDir }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureFocusExecutionPolicy, ensureSubagentDelegationPolicy }, { archivePendingCrashes }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
     import("../src/provider-config.js"),
     import("../src/bundled-pi-platform.js"),
     import("../src/default-system-prompt.js"),
+    import("../src/crash-log-archive.js"),
     import("node:child_process"),
   ]);
 
@@ -531,6 +532,9 @@ async function runPi(passthrough) {
   // every bundled -e entry so a broken extension cannot block startup.
   const args = [piCli, "-ne", ...extensionArgs, ...defaultArgs, ...piArgs];
   const compileCacheDir = path.join(getBundledPiCacheRoot(bundledPiOptions), `v8-compile-cache-${process.version}`);
+  // pi 在启动界面会对未通知的崩溃记录弹出 "pi crashed on ..." 告警；启动前
+  // 先把它们归档到 axum-crashes.json 并标记为已通知，用户不再看到该告警。
+  archivePendingCrashes(getAgentDir(bundledPiOptions.env));
   const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv(compileCacheDir) });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
