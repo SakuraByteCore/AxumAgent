@@ -1,3 +1,4 @@
+import { childRecoveryExtensions, promptChildUntilSettled } from "./child-recovery.js";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readdir } from "node:fs/promises";
@@ -21,11 +22,7 @@ import { chooseDispatchModel, resolveAgentUiModelOverride } from "./agentui-pref
 import { type AgentValueValidator, parseAgentCommand, scanAgentArguments } from "./command-line.js";
 import {
 	assistantText,
-	AgentStopError,
-	EmptyAgentTextError,
-	NoAssistantMessageError,
 	getFinalAssistantText,
-	NO_TEXT_RESPONSE_NUDGE,
 } from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
@@ -762,8 +759,10 @@ export function buildChildResourceLoaderOptions(
 	const options: ChildResourceLoaderOptions = {};
 	if (parsed.systemPrompt !== undefined) options.systemPrompt = parsed.systemPrompt;
 	if (parsed.appendSystemPrompt) options.appendSystemPrompt = parsed.appendSystemPrompt;
-	if (parsed.extensions)
-		options.additionalExtensionPaths = resolveResourcePaths(parsed.extensions, cwd);
+	options.additionalExtensionPaths = childRecoveryExtensions({
+		noExtensions: parsed.noExtensions,
+		extensions: parsed.extensions ? resolveResourcePaths(parsed.extensions, cwd) : [],
+	});
 	if (parsed.skills) options.additionalSkillPaths = resolveResourcePaths(parsed.skills, cwd);
 	if (parsed.promptTemplates)
 		options.additionalPromptTemplatePaths = resolveResourcePaths(parsed.promptTemplates, cwd);
@@ -874,7 +873,7 @@ export async function runChildTurns(
 				streaming: session.isStreaming,
 				instructionLength: instruction.length,
 			});
-			await session.prompt(instruction);
+			await promptChildUntilSettled(session, instruction);
 		}
 		if (runningAgent.timeoutMs !== undefined) throw new Error(dispatchTimeoutReport(runningAgent));
 		if (runningAgent.interruptRequested) {
@@ -903,40 +902,7 @@ export async function runChildTurns(
 			continue;
 		}
 
-		let response: string;
-		try {
-			response = getFinalAssistantText(session, turnMessageStart);
-			// 成功获取响应后重置重试计数
-			runningAgent.retryCount = 0;
-		} catch (error) {
-			// 初始化重试计数
-			if (runningAgent.retryCount === undefined) {
-				runningAgent.retryCount = 0;
-			}
-			
-			// 最多重试 3 次
-			const MAX_RETRIES = 3;
-			if (runningAgent.retryCount < MAX_RETRIES) {
-				runningAgent.retryCount++;
-				logSteering(runningAgent.id, "agent-retry", {
-					errorType: error instanceof Error ? error.name : "unknown",
-					errorMessage: error instanceof Error ? error.message : String(error),
-					retryCount: runningAgent.retryCount,
-					maxRetries: MAX_RETRIES,
-					messageCount: session.agent.state.messages.length,
-				});
-				instruction = NO_TEXT_RESPONSE_NUDGE;
-				continue;
-			}
-			
-			// 达到重试上限，抛出错误
-			logSteering(runningAgent.id, "agent-retry-exhausted", {
-				errorType: error instanceof Error ? error.name : "unknown",
-				retryCount: runningAgent.retryCount,
-				maxRetries: MAX_RETRIES,
-			});
-			throw error;
-		}
+		const response = getFinalAssistantText(session, turnMessageStart);
 		logSteering(runningAgent.id, "turn-prompt-resolved", {
 			responseLength: response.length,
 			messageCount: session.agent.state.messages.length,
