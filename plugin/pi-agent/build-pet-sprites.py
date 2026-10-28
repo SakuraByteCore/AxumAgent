@@ -4,7 +4,7 @@ import json
 import math
 from collections import deque
 from pathlib import Path
-from PIL import Image, ImageDraw
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
 
 ROOT = Path(__file__).resolve().parent / "assets"
 SIZE, SCALE, FRAMES = 192, 2, 12
@@ -14,25 +14,84 @@ CLOTH = "#e6dcd3"
 SHADE = "#bfb7b4"
 SKIN = "#feefe2"
 BOOT = "#493b43"
+HEAD_BOX = (160, 55, 654, 540)
+HEAD_SIZE = 100*SCALE
+BACKGROUND_MIN, BACKGROUND_CHROMA = 232, 24
+MATTE_RADIUS = 2
+WHITE = 255
+HEAD_ORIGIN = (46, 8)
+NECK_ROOT = (96, 108)
+NECK_HALF_WIDTH = 5
+JAW_ANCHOR = (48, 88)
+# 原图坐标：沿发梢与下颌分离衣领，不让矩形裁剪横切下巴或夹带肩部。
+HEAD_OUTLINE = (
+    (160, 55), (654, 55), (654, 486), (645, 494), (635, 488),
+    (620, 477), (605, 464), (590, 452), (574, 443), (550, 439),
+    (509, 434), (500, 447), (488, 461), (473, 475), (454, 487),
+    (432, 498), (414, 506), (402, 509), (388, 505), (369, 497),
+    (351, 503), (331, 510), (315, 512), (301, 508),
+    (298, 520), (287, 515), (277, 510), (273, 520), (260, 514),
+    (252, 508), (240, 518), (224, 534), (207, 539), (160, 539),
+)
+
+
+def background_mask(source):
+    candidate = Image.new("L", source.size)
+    candidate.putdata([int(min(rgb) >= BACKGROUND_MIN and max(rgb)-min(rgb) <= BACKGROUND_CHROMA)
+                       for rgb in source.getdata()])
+    pixels, queue = candidate.load(), deque()
+    width, height = source.size
+    queue.extend((x, y) for x in range(width) for y in (0, height-1))
+    queue.extend((x, y) for y in range(height) for x in (0, width-1))
+    while queue:
+        x, y = queue.popleft()
+        if pixels[x, y] != 1:
+            continue
+        pixels[x, y] = WHITE
+        queue.extend((nx, ny) for nx, ny in ((x-1, y), (x+1, y), (x, y-1), (x, y+1))
+                     if 0 <= nx < width and 0 <= ny < height)
+    return candidate.point(lambda value: WHITE if value == WHITE else 0)
+
+
+def remove_white_matte(source):
+    background = background_mask(source)
+    edge = background.filter(ImageFilter.MaxFilter(MATTE_RADIUS*2+1))
+    local_dark = source.filter(ImageFilter.MinFilter(MATTE_RADIUS*2+1))
+    result = Image.new("RGBA", source.size)
+    pixels = []
+    for rgb, bg, near_bg, dark in zip(source.getdata(), background.getdata(), edge.getdata(), local_dark.getdata()):
+        alpha = 1.0
+        if bg:
+            alpha = 0.0
+        elif near_bg and min(dark) < WHITE:
+            alpha = min(1.0, (WHITE-min(rgb))/(WHITE-min(dark)))
+        color = tuple(round(WHITE+(channel-WHITE)/alpha) for channel in rgb) if alpha else (0, 0, 0)
+        pixels.append((*color, round(alpha*WHITE)))
+    result.putdata(pixels)
+    return result
+
+
+def rounded_contour(points):
+    # 二次角点切分，保持轮廓在原控制多边形内部，不产生曲线过冲。
+    for _ in range(2):
+        pairs = zip(points, points[1:]+points[:1])
+        points = [((1-t)*a[0]+t*b[0], (1-t)*a[1]+t*b[1])
+                  for a, b in pairs for t in (0.25, 0.75)]
+    return points
+
 
 
 def reference_head():
-    source = Image.open(ROOT / "desktop-pet.png").convert("RGBA")
-    pixels = source.load()
-    seen, queue = set(), deque([(0, 0)])
-    while queue:
-        x, y = queue.popleft()
-        if (x, y) in seen or not (0 <= x < source.width and 0 <= y < source.height):
-            continue
-        seen.add((x, y))
-        r, g, b, a = pixels[x, y]
-        if min(r, g, b) < 245:
-            continue
-        pixels[x, y] = (r, g, b, 0)
-        queue.extend(((x-1, y), (x+1, y), (x, y-1), (x, y+1)))
-    # 参考头部采样区；衣服和四肢为重新绘制的纸偶，不切割原图冒充完整骨架。
-    return source.crop((178, 65, 632, 493)).resize((100*SCALE, 100*SCALE), Image.Resampling.LANCZOS)
-
+    source = Image.open(ROOT / "desktop-pet.png").convert("RGB")
+    head = remove_white_matte(source.crop(HEAD_BOX))
+    outline = Image.new("L", head.size)
+    ImageDraw.Draw(outline).polygon([(x-HEAD_BOX[0], y-HEAD_BOX[1]) for x, y in HEAD_OUTLINE], fill=WHITE)
+    outline = outline.filter(ImageFilter.GaussianBlur(0.65))
+    head.putalpha(ImageChops.multiply(head.getchannel("A"), outline))
+    fitted = ImageOps.contain(head, (HEAD_SIZE, HEAD_SIZE), Image.Resampling.LANCZOS)
+    result = Image.new("RGBA", (HEAD_SIZE, HEAD_SIZE))
+    result.alpha_composite(fitted, ((HEAD_SIZE-fitted.width)//2, (HEAD_SIZE-fitted.height)//2))
+    return result
 
 def line(draw, points, color, width):
     draw.line([(round(x*SCALE), round(y*SCALE)) for x, y in points], fill=color, width=round(width*SCALE), joint="curve")
@@ -48,10 +107,11 @@ def polygon(draw, points, color):
 
 
 def limb(draw, points, width, color):
-    line(draw, points, INK, width+2)
-    line(draw, points, color, width)
-    for x, y in points[1:-1]:
-        ellipse(draw, (x-width/2, y-width/2, x+width/2, y+width/2), color)
+    for stroke_width, stroke_color in ((width+2, INK), (width, color)):
+        line(draw, points, stroke_color, stroke_width)
+        radius = stroke_width/2
+        for x, y in points:
+            ellipse(draw, (x-radius, y-radius, x+radius, y+radius), stroke_color)
 
 
 def arm(draw, pose):
@@ -75,30 +135,6 @@ def legs(draw, state, phase):
         ellipse(draw, (foot[0]-7, foot[1]-3, foot[0]+9, foot[1]+4), BOOT, INK)
 
 
-def face(head, state, frame):
-    result = head.copy()
-    draw = ImageDraw.Draw(result)
-    # 局部重绘五官，避免把整张头像压扁来模拟眨眼。
-    ellipse(draw, (29, 64, 72, 96), SKIN)
-    closed = frame in (10, 11) and state in ("idle", "waiting")
-    for x in (40, 61):
-        if state == "failed":
-            line(draw, [(x-4, 77), (x+3, 80)], INK, 2)
-            line(draw, [(x-4, 73), (x+3, 70)], INK, 1.2)
-        elif closed:
-            line(draw, [(x-4, 79), (x+4, 79)], INK, 1.8)
-        else:
-            ellipse(draw, (x-2, 75, x+2, 82), INK)
-            ellipse(draw, (x-1, 75, x+1, 77), "#fff8ef")
-        ellipse(draw, (x-5, 84, x+4, 86), "#e7b2aa")
-    if state == "failed":
-        line(draw, [(46, 91), (50, 88), (55, 91)], INK, 1.3)
-    elif state == "waiting":
-        ellipse(draw, (49, 88, 53, 92), INK)
-    else:
-        line(draw, [(46, 88), (50, 91), (55, 88)], INK, 1.3)
-    return result
-
 
 def arm_poses(state, phase):
     swing = math.sin(phase)
@@ -120,13 +156,29 @@ def arm_poses(state, phase):
     return left, right
 
 
+def draw_neck(draw, tilt, head_y):
+    # 与头像绕中心旋转的变换一致；上端藏在下颌后，下端藏在衣领后。
+    angle = math.radians(tilt)
+    center = HEAD_SIZE/(2*SCALE)
+    dx, dy = JAW_ANCHOR[0]-center, JAW_ANCHOR[1]-center
+    jaw_x = HEAD_ORIGIN[0]+center+dx*math.cos(angle)+dy*math.sin(angle)
+    jaw_y = head_y+center-dx*math.sin(angle)+dy*math.cos(angle)
+    limb(draw, [(jaw_x, jaw_y), NECK_ROOT], NECK_HALF_WIDTH*2, SKIN)
+
+
+
 def render_frame(head, state, frame):
     phase = math.tau*frame/FRAMES
     image = Image.new("RGBA", (SIZE*SCALE, SIZE*SCALE))
     draw = ImageDraw.Draw(image)
     legs(draw, state, phase)
     breath = math.sin(phase) if state == "idle" else 0
-    polygon(draw, [(73, 103), (119, 103), (127, 148), (65, 148)], CLOTH)
+    tilt = -8 if state == "failed" else (7 if state == "waiting" else 0)
+    head_y = HEAD_ORIGIN[1]+(5 if state == "failed" else breath)
+    draw_neck(draw, tilt, head_y)
+    polygon(draw, rounded_contour([(70, 109), (74, 99), (87, 96), (96, 98),
+                                   (105, 96), (117, 101), (122, 109),
+                                   (127, 148), (65, 148)]), CLOTH)
     line(draw, [(96, 109), (96, 143)], SHADE, 2)
     polygon(draw, [(86, 106), (96, 115+breath), (106, 106)], "#eefefe")
     left, right = arm_poses(state, phase)
@@ -136,11 +188,27 @@ def render_frame(head, state, frame):
         for x in range(74, 120, 8):
             line(draw, [(x, 137), (x+2, 143)], "#eefefe", 2)
     arm(draw, right)
-    avatar = face(head, state, frame)
-    tilt = -8 if state == "failed" else (7 if state == "waiting" else 0)
-    avatar = avatar.rotate(tilt, Image.Resampling.BICUBIC, expand=False)
-    image.alpha_composite(avatar, (46*SCALE, round((8+(5 if state == "failed" else breath))*SCALE)))
+    avatar = head.rotate(tilt, Image.Resampling.BICUBIC, expand=True)
+    position = (HEAD_ORIGIN[0]*SCALE+(head.width-avatar.width)//2,
+                round(head_y*SCALE)+(head.height-avatar.height)//2)
+    image.alpha_composite(avatar, position)
     return image.resize((SIZE, SIZE), Image.Resampling.LANCZOS)
+
+
+def save_cutout_review(head):
+    backgrounds = ("#ffffff", "#202632", "#3a8556")
+    label_height = 24
+    review = Image.new("RGB", (SIZE*len(STATES), (SIZE+label_height)*len(backgrounds)))
+    draw = ImageDraw.Draw(review)
+    for row, background in enumerate(backgrounds):
+        for column, state in enumerate(STATES):
+            x, y = column*SIZE, row*(SIZE+label_height)
+            panel = Image.new("RGBA", (SIZE, SIZE+label_height), background)
+            panel.alpha_composite(render_frame(head, state, 0), (0, label_height))
+            review.paste(panel.convert("RGB"), (x, y))
+            draw.text((x+8, y+6), state, fill=INK if row == 0 else "white")
+    review.save(ROOT / "desktop-pet-cutout-review.png", optimize=True)
+
 
 
 def main():
@@ -156,9 +224,10 @@ def main():
         previews.extend(frame for frame in frames for _ in range(2 if animations[state]["fps"] == 6 else 1))
     atlas.save(ROOT / "desktop-pet-atlas.png", optimize=True)
     manifest = {"frameSize": SIZE, "animations": animations, "style": "reference-head-paper-puppet"}
-    (ROOT / "desktop-pet-atlas.json").write_text(json.dumps(manifest, indent=2)+"\n")
+    (ROOT / "desktop-pet-atlas.json").write_text(json.dumps(manifest, indent=2)+"\n", encoding="utf-8", newline="\n")
     previews[0].save(ROOT / "desktop-pet-preview.webp", save_all=True, append_images=previews[1:], duration=83, loop=0, lossless=True)
     print(f"Generated {len(STATES)*FRAMES} character frames; atlas {atlas.size}")
+    save_cutout_review(head)
 
 
 if __name__ == "__main__":
