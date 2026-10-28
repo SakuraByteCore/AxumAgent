@@ -1,3 +1,5 @@
+> Current one-shot runtime contract: [subagent runtimes](../../docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. controlled-pi remains writable via the parent bridge; optional real OAR Claude integration is supplied-text-only, not native writable parity. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+
 <div align="center">
 
 # pi-user-agents
@@ -327,4 +329,4 @@ Codex comparison is pinned to live-main `26ad281fd1ca712e4f0c7920a6273cf18c961b8
 
 `dispatch_agent` is the sole model-callable entrypoint for creating children. `manage_agent` remains for status, wait, continuation of an existing child, interrupt and close; removing it would break cancellation and result collection. Explicit `/agent`, `/spawn`, `/scout`, `/blueprint`, `/dispatch`, `/quick` and `/orchestrate` user commands retain their current pi-agent lifecycle or inject a dispatch-only parent request. They do not expose another model dispatch tool. `/quick` still has no implicit deadline.
 
-Axum no longer bundles or loads `pi-subagents`, including legacy package/settings paths. The SDK extension loader rejects that package before import and blocks legacy supervisor/delegation registrations. Existing user configuration is preserved; unrelated custom packages remain active. This is a registration/loading contract, not an OS sandbox against arbitrary malicious extensions or shell code. Automatic worthwhile parallel decomposition, parent permission checks, writeScope, exact testCommands, batching and same-child continuation remain unchanged.
+Axum no longer bundles or loads `pi-subagents`, including legacy package/settings paths. The SDK extension loader rejects that package before import and blocks legacy supervisor/delegation registrations. Existing user configuration is preserved; unrelated custom packages remain active. This is a registration/loading contract, not an OS sandbox against arbitrary malicious extensions or shell code. Automatic worthwhile parallel decomposition, parent permission checks, writeScope, exact testCommands, batching remain available; new tasks use the one-shot runtime contract.

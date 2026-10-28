@@ -9,7 +9,7 @@ import {compileExtensionPackage} from '../src/compile-bundled-extensions.js';
 const modules=process.env.AXUM_INTEGRATION_NODE_MODULES || resolve('../../refs/axum-validation/pi-cache/node_modules');
 const available=existsSync(join(modules,'@earendil-works/pi-coding-agent/package.json'));
 // Deterministic model decisions; the SDK, index extension, runner and tools are real.
-test('production index dispatch: SDK child, scoped tools, live bridge, send and close', {skip:!available,timeout:30000},async()=>{
+test('production index dispatch: SDK child, scoped tools, live bridge, independent tasks and cleanup', {skip:!available,timeout:30000},async()=>{
  const root=mkdtempSync(join(tmpdir(),'axum-production-sdk-'));
  const saved=Object.fromEntries(['PI_CODING_AGENT_DIR','PI_OFFLINE','AXUM_DESKTOP_PET'].map(k=>[k,process.env[k]]));
  Object.assign(process.env,{PI_CODING_AGENT_DIR:join(root,'agent'),PI_OFFLINE:'1',AXUM_DESKTOP_PET:'0'});
@@ -38,7 +38,8 @@ test('production index dispatch: SDK child, scoped tools, live bridge, send and 
     const lastUser=c.messages.findLastIndex(x=>x.role==='user');
     const followup=JSON.stringify(c.messages[lastUser]).includes('FOLLOWUP');
     const already=c.messages.slice(lastUser+1).some(x=>x.role==='assistant');
-    const content=already?[]:followup?[call('write',{path:'module.mjs',content:'export const value = 2;\n'},'followup-write')]:[
+    const second=JSON.stringify(c.messages[lastUser]).includes('Implement second');
+    const content=already?[]:second?[call('write',{path:'second.mjs',content:'export const second = 2;\n'})]:followup?[call('write',{path:'module.mjs',content:'export const value = 2;\n'},'followup-write')]:[
      call('write',{path:'module.mjs',content:'export const value = 1;\n'}),
      call('write',{path:'escape.txt',content:'bad'},'escape'),
      call('write',{path:'blocked.mjs',content:'bad'},'hook-denied'),
@@ -58,31 +59,37 @@ test('production index dispatch: SDK child, scoped tools, live bridge, send and 
   ({session:parent}=await sdk.createAgentSession({cwd:root,agentDir:join(root,'agent'),modelRuntime:runtime,model,settingsManager:settings,sessionManager:sdk.SessionManager.inMemory(root),resourceLoader:loader,tools:['read','write','bash','dispatch_agent','manage_agent','capture_context']}));
   await parent.bindExtensions({mode:'print'});
   let turn=0;
-  parent.agent.streamFunction=async(m)=>response(m,turn++===0?[call('capture_context',{}),call('dispatch_agent',{task:'Implement module',writeScope:['module.mjs','blocked.mjs'],testCommands:[command],squash:false,batchId:'production'})]:[]);
+  parent.agent.streamFunction=async(m)=>response(m,turn++===0?[call('capture_context',{}),call('dispatch_agent',{task:'Implement module',writeScope:['module.mjs','blocked.mjs'],squash:false,batchId:'production'}),call('dispatch_agent',{task:'Implement second independent module',writeScope:['second.mjs'],squash:false,batchId:'production'})]:[]);
   await parent.prompt('Implement and verify one module using a child.');dispatchReturned=true;
   const dispatch=parent.agent.state.messages.find(x=>x.role==='toolResult'&&x.toolName==='dispatch_agent');
   assert.ok(dispatch&&!dispatch.isError,JSON.stringify(parent.agent.state.messages));
   const id=dispatch.details.agentId;assert.ok(id,JSON.stringify({dispatch,tools:api.getAllTools().filter(t=>['write','read','bash'].includes(t.name)).map(t=>({name:t.name,sourceInfo:t.sourceInfo}))}));assert.ok(captured);
   async function manage(action,extra={}){const out=await captured.executeTool('manage_agent',{action,agentId:id,...extra});assert.equal(out.isError,false,JSON.stringify(out));return out.result;}
+  const before=await manage('wait',{timeoutMs:5});assert.equal(before.details.timedOut,true);
+  const locked=await captured.executeTool('dispatch_agent',{task:'Too early exact tests',writeScope:['.'],testCommands:[command],squash:false});assert.match(locked.result.details.error,/conflict/i);
   releaseChild();
   const waited=await manage('wait',{timeoutMs:10000});assert.equal(waited.details.timedOut,false,JSON.stringify(waited));
+  const all=await captured.executeTool('manage_agent',{action:'wait',batchId:'production',timeoutMs:10000});assert.equal(all.result.details.timedOut,false);
+  assert.equal(readFileSync(join(root,'second.mjs'),'utf8'),'export const second = 2;\n');
+  assert.equal(childContexts.some(c=>JSON.stringify(c).includes('Implement and verify one module using a child.')),false,'no inherited parent transcript');
+  const integrated=await captured.executeTool('write',{path:'index.mjs',content:'export { value } from \'./module.mjs\'; export { second } from \'./second.mjs\';\n'});assert.equal(integrated.isError,false);
   assert.equal(readFileSync(join(root,'module.mjs'),'utf8'),'export const value = 1;\n');
   assert.equal(existsSync(join(root,'escape.txt')),false);assert.equal(existsSync(join(root,'blocked.mjs')),false);
   assert.ok(events.some(e=>e.name==='write'&&e.input.path==='module.mjs'&&e.afterDispatch));
   assert.ok(events.some(e=>e.name==='write'&&e.input.path==='blocked.mjs'));
-  assert.deepEqual(events.filter(e=>e.name==='bash').map(e=>e.input.command),[command]);
+  assert.deepEqual(events.filter(e=>e.name==='bash'),[]);
   assert.ok(childContexts.some(c=>c.messages.some(x=>x.role==='toolResult'&&x.isError)));
-  await manage('send',{input:'FOLLOWUP change value',timeoutMs:10000});await manage('wait',{timeoutMs:10000});
-  assert.equal(readFileSync(join(root,'module.mjs'),'utf8'),'export const value = 2;\n');
-  const state=await manage('status');assert.equal(state.details.records[0].id,id);
+  for(const action of ['send','resume','rebase']){
+   const rejected=await captured.executeTool('manage_agent',{action,agentId:id,input:'FOLLOWUP'});assert.equal(rejected.isError,true,JSON.stringify(rejected));
+  }
+  const state=await manage('status');assert.equal(state.details.records[0].id,id);assert.equal(state.details.records[0].capabilities.oneShot,true);
+  const checked=await captured.executeTool('dispatch_agent',{task:'Run exact checks',writeScope:['.'],testCommands:[command],squash:false,batchId:'production'});
+  assert.equal(checked.isError,false);assert.ok(checked.result.details.agentId,JSON.stringify(checked));
+  await captured.executeTool('manage_agent',{action:'wait',agentId:checked.result.details.agentId,timeoutMs:10000});
+  assert.deepEqual(events.filter(e=>e.name==='bash').map(e=>e.input.command),[command]);
   api.setActiveTools(api.getActiveTools().filter(n=>n!=='write'));
-  const writesBeforeRevocation=events.filter(e=>e.name==='write').length;
-  await manage('send',{input:'FOLLOWUP revoked write',timeoutMs:10000});
-  await manage('wait',{timeoutMs:10000});
-  assert.equal(events.filter(e=>e.name==='write').length,writesBeforeRevocation,'revoked child tool never reaches parent execution');
-  assert.equal(readFileSync(join(root,'module.mjs'),'utf8'),'export const value = 2;\n');
   const revoked=await captured.executeTool('write',{path:'revoked.txt',content:'bad'});assert.equal(revoked.isError,true);assert.equal(existsSync(join(root,'revoked.txt')),false);
-  await manage('close');const closed=await manage('status');assert.equal(closed.details.records[0].state,'closed');
+  await manage('close');const closed=await manage('status');assert.equal(closed.details.records[0].state,'completed');
   parent.dispose();parent=undefined;
   await assert.rejects(captured.executeTool('read',{path:'module.mjs'}),/inactive|disposed|active|stale after session replacement or reload/i);
  }finally{

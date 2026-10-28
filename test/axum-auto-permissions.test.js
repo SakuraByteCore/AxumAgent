@@ -59,7 +59,7 @@ test('completed turn releases lock and continuation reacquires atomically agains
  assert.throws(()=>first.acquireScope(),/conflicts/);assert.equal(first.state,'completed');
  sibling();first.acquireScope();registry.fail(first,'failed');
  locks.acquire('b',['src'],process.cwd())();
- first.acquireScope();registry.shutdown();locks.acquire('b',['src'],process.cwd())();
+ first.acquireScope();registry.shutdown();assert.throws(()=>locks.acquire('b',['src'],process.cwd()),/conflicts/);registry.fail(first,'cleanup finished');locks.acquire('b',['src'],process.cwd())();
 });
 
 test('dangling scope and nested symlinks fail closed; aliases share locks',async()=>{

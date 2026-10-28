@@ -1,3 +1,5 @@
+> Current one-shot runtime contract: [subagent runtimes](subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. controlled-pi remains writable via the parent bridge; optional real OAR Claude integration is supplied-text-only, not native writable parity. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+
 # Codex 子代理契约核实（只读）
 
 基线：openai/codex `26ad281fd1ca712e4f0c7920a6273cf18c961b8a`。独立浅 clone 已实际 `git rev-parse HEAD` 核对，工作树 clean。未运行 Codex 仓库脚本或测试。以下路径均相对 Codex 仓库；源码阅读结论，不冒充运行验证。

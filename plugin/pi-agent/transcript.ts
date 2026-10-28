@@ -81,6 +81,7 @@ export function selectSquashedMessages(messages: readonly AgentMessage[]): Squas
 
 export function buildMessageDetails(agent: RunningAgent, ok: boolean): AgentCommandDetails {
 	return {
+		backend:agent.backend,oneShot:agent.oneShot,runtimeResult:agent.runtimeResult,
 		agentId: agent.id,
 		sessionId: agent.sessionId,
 		command: agent.command,
@@ -91,11 +92,11 @@ export function buildMessageDetails(agent: RunningAgent, ok: boolean): AgentComm
 		task: agent.task,
 		planSourceSessionId: agent.planSourceSessionId,
 		ok,
-		partial: !ok && agent.timeoutMs !== undefined,
+		partial: !ok && (agent.timeoutMs !== undefined || agent.runtimeResult?.partial===true),
 		durationMs: (agent.completedAt ?? Date.now()) - agent.turnStartedAt,
 		toolUses: agent.toolUses,
 		turnCount: agent.turnCount,
-		responseText: ok ? agent.responseText : undefined,
+		responseText: agent.oneShot ? agent.responseText : ok ? agent.responseText : undefined,
 		error: ok ? undefined : agent.error,
 	};
 }
@@ -121,6 +122,7 @@ const SQUASHED_CONVERSATION_PREFACE =
 
 
 export function formatResultMessage(agent: RunningAgent): string {
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; independent context]\nTask: ${agent.task}\n\n${agent.responseText}\n\nIntegrate existing changes; for new requirements dispatch a new incremental task. No automatic side-effect retry.`;
 	const messages = selectSquashedMessages(agent.conversationMessages);
 	const lines = [
 		SQUASHED_CONVERSATION_PREFACE,
@@ -151,6 +153,7 @@ function roleMessageText(message: SquashedMessage): string {
 }
 
 export function formatErrorMessage(agent: RunningAgent, message: string): string {
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}\n\nPartial result (not success):\n${agent.responseText}\n\nCheck existing effects before any new incremental dispatch; no automatic retry.`;
 	return [
 		`<user_agent_error command="/${agent.command}" model="${escapeAttribute(agent.model)}" inherited_context="${agent.inheritedContext}">`,
 		...invocationLines(agent),

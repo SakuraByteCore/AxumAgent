@@ -78,6 +78,9 @@ export type AgentResultMessage = {
 };
 
 export type AgentCommandDetails = {
+ backend?: string;
+ oneShot?: boolean;
+ runtimeResult?: import("./runtime.js").RuntimeResult;
 	agentId?: string;
 	/** The child's own session id — lets /agent resume find the session file of legacy (pre-in-memory) dispatched agents. */
 	sessionId?: string;
@@ -106,6 +109,10 @@ export type AgentCommandDetails = {
 };
 
 export type RunningAgent = {
+ oneShot?: boolean;
+ backend?: "controlled-pi" | "oar-claude-text";
+ runHandle?: import("./runtime.js").RunHandle;
+ runtimeResult?: import("./runtime.js").RuntimeResult;
 	id: string;
 	/** The child's own in-memory Pi session id — no session file is written; legacy children kept one for /resume. */
 	sessionId: string;
@@ -161,6 +168,8 @@ export type RunningAgent = {
 };
 
 export type CompletedAgent = {
+ oneShot?: boolean;
+ backend?: "controlled-pi" | "oar-claude-text";
 	id: string;
 	sessionId: string;
 	command: AgentCommandName;

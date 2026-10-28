@@ -21,13 +21,14 @@ export function registerSessionLifecycle(pi: ExtensionAPI, deps: SessionLifecycl
 		for (const agent of agents) {
 			agent.aborted = true;
 			agent.cancelDeadline?.();
-			if(agent.session) void Promise.resolve(agent.session.abort()).catch(() => {});
+            if(agent.runHandle)void agent.runHandle.cancel();
+			else if(agent.session) void Promise.resolve(agent.session.abort()).catch(() => {});
 			agent.retire?.();
 		}
 		await deps.waitPending?.();
 		await Promise.allSettled(agents.map((agent) => agent.finished));
 		for (const agent of agents) {
-			agent.session?.dispose();
+			if(!agent.runHandle)agent.session?.dispose();
 		}
 		deps.runningAgents.clear();
 	});

@@ -1,3 +1,6 @@
+import { createControlledRuntime } from "./controlled-runtime.js";
+import { randomUUID } from "node:crypto";
+import { assertOarRequest, loadOarTextRuntime } from "./oar.js";
 import { AgentRegistry } from "./registry.js";
 import { armDispatchDeadline } from "./dispatch.js";
 import { inheritedToolCeiling, guardChildTools, bridgedChildTools, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
@@ -100,7 +103,7 @@ export async function handleAgentCommand(
 				throw new Error(
 					'/agent resume takes no arguments. To dispatch a task whose first word is "resume", quote that word: /agent "resume …"',
 			);
-			await resumeFailedAgents(pi, runningAgents, widget, disabledCommands, isShuttingDown, ctx);
+			throw new Error("One-shot tasks cannot resume. Inspect existing results and dispatch a new incremental task; no automatic side-effect retry.");
 			return;
 		}
 		await startUserAgent(
@@ -138,9 +141,10 @@ async function resolveChildDispatchServices(
 ): Promise<ChildDispatchServices> {
 	const parsedForwardedArgs = parseForwardedArgs(forwardedArgs);
 	const agentDir = getAgentDir();
-	const settingsManager = SettingsManager.create(ctx.cwd, agentDir, {
+	const sourceSettings = SettingsManager.create(ctx.cwd, agentDir, {
 		projectTrusted: ctx.isProjectTrusted(),
 	});
+    const settingsManager=SettingsManager.inMemory({...sourceSettings.getGlobalSettings(),...sourceSettings.getProjectSettings(),retry:{enabled:false}});
 	const services = await createAgentSessionServices({
 		cwd: ctx.cwd,
 		agentDir,
@@ -215,8 +219,8 @@ function launchRunningAgent(
 	).finally(() => {
 		logSteering(runningAgent.id, "agent-disposed", { status: runningAgent.status });
 		runningAgent.cancelDeadline?.();
-  agentLedgers.get(runningAgent)?.records.get(runningAgent.id)?.releaseScope?.();
-		runningAgent.session?.dispose();
+  if(!runningAgent.runtimeResult?.cleanupFailure)agentLedgers.get(runningAgent)?.records.get(runningAgent.id)?.releaseScope?.();
+		if(!runningAgent.runHandle)runningAgent.session?.dispose();
 		runningAgents.delete(runningAgent);
 
 		// Check if this command should be auto-disabled
@@ -440,7 +444,8 @@ async function resumeOneFailedAgent(
 			: conversationFingerprint(inheritedMessages),
 	);
 	if(isShuttingDown() || ledger.generation!==generation || record.state==="closed")throw new Error("Session shut down or child closed during resume");
- ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
+ runningAgent.oneShot=true;runningAgent.backend="controlled-pi";
+ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
  widget.removeFailedCompletedById(target.agentId);
 	launchRunningAgent(
 		pi,
@@ -524,6 +529,34 @@ export async function startUserAgent(
  const record=ledger.reserve("user-" + nextAgentNumber().toString(36),batchId);
  let startupDone!:()=>void;const startup=new Promise<void>(resolve=>{startupDone=resolve;});ledger.pendingStarts.add(startup);
  try {
+ if(permissions?.backend === "oar-claude-text") {
+  assertOarRequest(permissions);
+  if(parsed.forwardedArgs.length)throw new Error("OAR text backend does not accept Pi CLI/model flags; native defaults apply.");
+  const nativeModel = {provider:"oar",id:"claude-native",name:"OAR Claude (text only)"} as Model;
+  const agent=createRunningAgent(record.id,randomUUID(),command,nativeModel,{...parsed,isolate:true},invocation,undefined,"[]");
+  agent.oneShot=true;agent.backend="oar-claude-text";agent.status="running";
+  ledger.attach(record,agent);agentLedgers.set(agent,ledger);runningAgents.add(agent);
+  agent.finished=(async()=>{
+   try {
+    const runtime=await loadOarTextRuntime();
+    if(agent.aborted||isShuttingDown()||ledger.generation!==generation)return;
+    agent.runHandle=runtime.start({task:parsed.task,cwd:ctx.cwd,signal:new AbortController().signal,...deadline?{timeoutMs:Math.max(1,deadline.deadlineAt-Date.now())}:{}});
+    const result=await agent.runHandle.result;agent.runtimeResult=result;agent.responseText=result.text;
+    if(result.stopReason==="timeout"){agent.timeoutMs=deadline?.timeoutMs;agent.stopCause="deadline";}
+    if(result.stopReason!=="completed")agent.error=result.diagnostics.map(d=>d.message).join("; ")||"OAR task "+result.stopReason;
+    if(result.cleanupFailure)agent.error=[agent.error,result.cleanupFailure.message].filter(Boolean).join("; ");
+   } catch(error){agent.error=errorMessage(error);}
+   finally {
+    agent.completedAt=Date.now();agent.status="idle";
+    const message=buildAgentResultMessage(agent,agent.error?{ok:false,error:agent.error}:{ok:true,response:agent.responseText},{display:agent.notifyMainAgent});
+    widget.addCompleted(agent,message,{squashable:!agent.notifyMainAgent});
+    postUserAgentResult(pi,()=>isShuttingDown()||ledger.generation!==generation,agent.notifyMainAgent,message);
+    ledger.settle(record);runningAgents.delete(agent);widget.update();
+   }
+  })();
+  return agent;
+ }
+ if(permissions?.backend && permissions.backend!=="controlled-pi")throw new Error("Unknown child backend");
  const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation, permissions);
  const scopes=permissions?.writeScope ?? [];
  if(permissions?.testCommands?.length && !scopes.length)throw new Error("testCommands requires explicit writeScope; shell is not sandboxed");
@@ -532,7 +565,8 @@ export async function startUserAgent(
  record.acquireScope=()=>{record.releaseScope=scopeLocks.acquire(ctx.sessionManager.getSessionId()+":"+record.id,lockScopes,ctx.cwd);};
  record.acquireScope();
  if (isShuttingDown() || ledger.generation!==generation || record.state==="closed") throw new Error("Session shut down or child closed during startup");
- const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
+ parsed.isolate=true;
+ const inheritedMessages: AgentMessage[] = [];
 	// In-memory from birth: the child never writes a session file, so it stays out of /resume
 	// and pi -r; its transcript lives with the widget row and ends with the process.
 	const childSessionManager = SessionManager.inMemory(dispatch.services.cwd);
@@ -546,7 +580,8 @@ export async function startUserAgent(
 		planSourceSessionId,
 		conversationFingerprint(inheritedMessages),
 	);
-if(permissions?.bridge){const bridge=permissions.bridge,validate=bridge.validate;permissions.bridge={get tools(){return bridge.tools;},getActiveTools:bridge.getActiveTools,executeTool:(name,args,options)=>bridge.executeTool(name,args,options),validate:()=>{validate?.();if(ledger.generation!==generation || runningAgent.aborted || record.state==="closed" || record.state==="cancelled" || runningAgent.status==="idle")throw new Error("Child capability is inactive or revoked");}};}
+runningAgent.oneShot=true;runningAgent.backend="controlled-pi";
+if(permissions?.bridge){const bridge=permissions.bridge,validate=bridge.validate;permissions.bridge={get tools(){return bridge.tools;},getActiveTools:bridge.getActiveTools,executeTool:(name,args,options)=>bridge.executeTool(name,args,options),validate:()=>{validate?.();if(ledger.generation!==generation || runningAgent.aborted || runningAgent.interruptRequested || record.state==="closed" || record.state==="cancelled" || runningAgent.status==="idle")throw new Error("Child capability is inactive or revoked");}};}
 ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
  if(deadline){runningAgent.executionTimeoutMs=deadline.timeoutMs;runningAgent.deadlineAt=deadline.deadlineAt;if(Date.now()>=deadline.deadlineAt){runningAgent.timeoutMs=deadline.timeoutMs;runningAgent.stopCause="deadline";}}
  launchRunningAgent(
@@ -554,7 +589,7 @@ ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
   runningAgents,
   widget,
   disabledCommands,
-  isShuttingDown,
+  ()=>isShuttingDown()||ledger.generation!==generation,
   command,
 		dispatch,
 		parsed.warnings,
@@ -564,7 +599,7 @@ ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
 		runningAgent,
 		ctx,
 	);
- if(deadline)armDispatchDeadline(runningAgent,deadline.timeoutMs,deadline.deadlineAt);
+ if(deadline && !runningAgent.oneShot)armDispatchDeadline(runningAgent,deadline.timeoutMs,deadline.deadlineAt);
 	void runningAgent.finished.then(()=>ledger.settle(record),error=>ledger.fail(record,error));
 	return runningAgent;
  } catch(error){record.releaseScope?.();ledger.fail(record,error);throw error;} finally {startupDone();ledger.pendingStarts.delete(startup);}
@@ -636,6 +671,7 @@ export function createRebaseDelivery(
 ): RebaseDelivery {
 	return {
 		canDeliver: (agent) => {
+            if(agent.oneShot)return false;
 			const ctx = getSessionContext();
 			return (
 				ctx !== undefined &&
@@ -643,6 +679,7 @@ export function createRebaseDelivery(
 			);
 		},
 		deliver: (agent, messages) => {
+            if(agent.oneShot)throw new Error("One-shot tasks cannot rebase a conversation; integrate the returned text and existing files.");
 			const ctx = getSessionContext();
 			if (!ctx) throw new Error("No dispatching session context to rebase onto");
 			// The runtime object behind the extension's readonly facade is the writable SessionManager.
@@ -820,7 +857,7 @@ export function buildChildResourceLoaderOptions(
 	if (parsed.systemPrompt !== undefined) options.systemPrompt = parsed.systemPrompt;
 	if (parsed.appendSystemPrompt) options.appendSystemPrompt = parsed.appendSystemPrompt;
 	options.additionalExtensionPaths = childRecoveryExtensions({
-		noExtensions: parsed.noExtensions,
+		noExtensions: true, // One-shot execution never auto-enqueues recovery prompts/retries.
 		extensions: [], // Custom child extensions cannot transfer their parent approval state.
 	});
 	if (parsed.skills) options.additionalSkillPaths = resolveResourcePaths(parsed.skills, cwd);
@@ -860,6 +897,31 @@ async function runAgentLifecycle(
 	runningAgent: RunningAgent,
 	widget: UserAgentWidget,
 ): Promise<void> {
+ if(runningAgent.oneShot){
+  let session:AgentSession|undefined,unsubscribe:(()=>void)|undefined,stopped=false;
+  const runtime=createControlledRuntime({
+   execute:async instruction=>{
+    session=await createChildSession(model,thinkingLevel,forwarded,[],services,childSessionManager,runningAgent,widget);
+    if(stopped||runningAgent.aborted||isShuttingDown())return "";
+    unsubscribe=subscribeToChildSession(session,runningAgent,widget);
+    await promptChildUntilSettled(session,instruction);
+    return getFinalAssistantText(session,0);
+   },
+   partial:()=>session?getPartialAssistantText(session,0)||runningAgent.responseText:runningAgent.responseText,
+   abort:async()=>{stopped=true;runningAgent.interruptRequested=true;await (session??runningAgent.session)?.abort();},
+   dispose:async()=>{unsubscribe?.();const owned=session??runningAgent.session;if(owned){try{await owned.extensionRunner.emit({type:"session_shutdown",reason:"quit"});}finally{owned.dispose();}}},
+  });
+  const controller=new AbortController();if(runningAgent.aborted||isShuttingDown())controller.abort();
+  runningAgent.runHandle=runtime.start({task,cwd:services.cwd,signal:controller.signal,...runningAgent.deadlineAt===undefined?{}:{timeoutMs:Math.max(1,runningAgent.deadlineAt-Date.now())}});
+  const result=await runningAgent.runHandle.result;runningAgent.runtimeResult=result;runningAgent.responseText=result.text;runningAgent.completedAt=Date.now();
+  if(result.stopReason==="timeout"){runningAgent.timeoutMs=runningAgent.executionTimeoutMs;runningAgent.stopCause="deadline";}
+  if(result.stopReason!=="completed")runningAgent.error=result.diagnostics.map(d=>d.message).join("; ")||"Task "+result.stopReason;
+  if(result.cleanupFailure)runningAgent.error=[runningAgent.error,result.cleanupFailure.message].filter(Boolean).join("; ");
+  const message=buildAgentResultMessage(runningAgent,runningAgent.error?{ok:false,error:runningAgent.error}:{ok:true,response:result.text},{display:runningAgent.notifyMainAgent});
+  widget.addCompleted(runningAgent,message,{squashable:!runningAgent.notifyMainAgent});
+  postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,message);
+  runningAgent.status="idle";widget.update();return;
+ }
 	let session: AgentSession | undefined;
 	let unsubscribe: (() => void) | undefined;
 	try {
@@ -927,7 +989,7 @@ export async function runChildTurns(
    const partial=buildAgentResultMessage(runningAgent,{ok:false,error:runningAgent.error},{display:runningAgent.notifyMainAgent});
    postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,partial);
    runningAgent.status="idle";runningAgent.cancelDeadline?.();registryForAgent(runningAgent);widget.update();
-   const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
+   if(runningAgent.oneShot)return;const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
    instruction=`${instruction}\n\n[Continuation after startup deadline]\n${next}`;continue;
   }
 		if (!runningAgent.interruptRequested) {
@@ -945,7 +1007,7 @@ export async function runChildTurns(
     const partial=buildAgentResultMessage(runningAgent,{ok:false,error:runningAgent.error},{display:runningAgent.notifyMainAgent});
     postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,partial);
     runningAgent.status="idle";runningAgent.cancelDeadline?.();registryForAgent(runningAgent);widget.update();
-    const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
+    if(runningAgent.oneShot)return;const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
     instruction=next;continue;
    }
 		}
@@ -971,7 +1033,8 @@ export async function runChildTurns(
 		registryForAgent(runningAgent);
 			logSteering(runningAgent.id, "turn-interrupted", { turnCount: runningAgent.turnCount });
 			widget.update();
-			const next = await waitForInstruction(runningAgent, widget);
+			if(runningAgent.oneShot)return;
+   const next = await waitForInstruction(runningAgent, widget);
 			if (next === undefined) return;
 			instruction = next;
 			continue;
@@ -1001,6 +1064,7 @@ export async function runChildTurns(
 			runningAgent.status = "idle";
 		registryForAgent(runningAgent);
    runningAgent.cancelDeadline?.();
+   if(runningAgent.oneShot)return;
    const next = await waitForInstruction(runningAgent, widget);
    if (next === undefined) return;
    instruction = next;
@@ -1013,7 +1077,8 @@ export async function runChildTurns(
 		registryForAgent(runningAgent);
 		logSteering(runningAgent.id, "agent-idle", { turnCount: runningAgent.turnCount });
 		widget.update();
-		const next = await waitForInstruction(runningAgent, widget);
+		if(runningAgent.oneShot)return;
+   const next = await waitForInstruction(runningAgent, widget);
 		if (next === undefined) return;
 		instruction = next;
 	}

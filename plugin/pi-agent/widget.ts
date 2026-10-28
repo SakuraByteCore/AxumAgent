@@ -109,6 +109,7 @@ export class UserAgentWidget {
 		options: { squashable: boolean },
 	): void {
 		this.completedAgents.push({
+            oneShot:agent.oneShot,backend:agent.backend,
 			id: agent.id,
 			sessionId: agent.sessionId,
 			command: agent.command,
@@ -379,7 +380,7 @@ export class UserAgentWidget {
 	/** Detaching ends the live session and leaves its session file on disk, untouched. */
 	private closeRunning(agent: RunningAgent): void {
 		agent.aborted = true;
-		void agent.session?.abort();
+		if(agent.runHandle)void agent.runHandle.cancel();else void agent.session?.abort();
 		agent.retire?.();
 		this.announceDetached(agent.sessionId, agentDispatchSequence(agent.id));
 		this.update();
@@ -387,7 +388,7 @@ export class UserAgentWidget {
 
 	private interruptRunning(agent: RunningAgent): void {
 		agent.interruptRequested = true;
-		void agent.session?.abort();
+		if(agent.runHandle)void agent.runHandle.cancel();else void agent.session?.abort();
 		this.update();
 	}
 
@@ -459,6 +460,7 @@ export class UserAgentWidget {
 	private rebaseBlockReason(agentId: string): string | undefined {
 		const agent = this.deliverableAgent(agentId);
 		if (!agent) return undefined;
+        if(agent.oneShot)return "one-shot tasks return text only; conversation rebase is unsupported";
 		// The session switch tears the extension runtime down, which would abort a mid-turn sibling.
 		if ([...this.runningAgents].some(isLiveAgent)) return "another agent is mid-turn";
 		if (!this.rebaseDelivery.canDeliver(agent))

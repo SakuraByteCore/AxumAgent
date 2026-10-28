@@ -19,7 +19,7 @@ test('before_agent_start injects default goal delivery and follows live tool ava
  assert.match(result.systemPrompt, /must not recursively dispatch/);
  assert.match(result.systemPrompt, /dispatch_agent is the sole model-callable child dispatch entrypoint/);
  assert.match(result.systemPrompt, /Never use subagent_supervisor.*legacy aliases, shell workers, or direct child processes/);
- assert.match(result.systemPrompt, /manage_agent remains available only for status, wait, same-child continuation, interrupt, and close/);
+ assert.match(result.systemPrompt, /manage_agent remains available only for status, wait, interrupt, and close/);
  assert.match(result.systemPrompt, /critical dependency path.*Integrate each completed lane promptly/s);
  active = ['read'];
  const restricted = await start(event, {});

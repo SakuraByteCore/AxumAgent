@@ -138,8 +138,8 @@ test("buildDispatchPrompt embeds the batch verbatim", () => {
   assert.ok(prompt.startsWith("[Dispatch Request]\ndo A; then B"));
 });
 
-test("buildDispatchArgs: defaults to squash on, isolate off", () => {
-  assert.equal(buildDispatchArgs({ task: "fix the flaky test" }), "-s fix the flaky test");
+test("buildDispatchArgs: defaults to squash on, independent context", () => {
+  assert.equal(buildDispatchArgs({ task: "fix the flaky test" }), "-i -s fix the flaky test");
 });
 
 test("buildDispatchArgs: maps flags and quotes spaced values", () => {
@@ -150,7 +150,7 @@ test("buildDispatchArgs: maps flags and quotes spaced values", () => {
 });
 
 test("buildDispatchArgs: empty model and thinking are dropped", () => {
-  assert.equal(buildDispatchArgs({ task: "x", model: "", thinking: "" }), "-s x");
+  assert.equal(buildDispatchArgs({ task: "x", model: "", thinking: "" }), "-i -s x");
 });
 
 test("dispatch_agent execute starts an agent and reports its id", async () => {
@@ -165,7 +165,7 @@ test("dispatch_agent execute starts an agent and reports its id", async () => {
     {},
   );
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].args, "-s -m gpt-5 fix the flaky test");
+  assert.equal(calls[0].args, "-i -s -m gpt-5 fix the flaky test");
   assert.equal(calls[0].invocation, "dispatch_agent: fix the flaky test");
   assert.deepEqual(result.details, { agentId: "user-1", task: "task" });
   assert.match(result.content[0].text, /user-1/);

@@ -26,11 +26,12 @@ ${TODO_POLICY_END}`;
 
 export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
 const LEGACY_SUBAGENT_POLICY_PAIRS = [
+  ["<!-- axum:subagent-delegation-policy v4 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v3 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v1 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v2 -->", SUBAGENT_POLICY_END],
 ];
-export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v4 -->";
+export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v5 -->";
 
 export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
 ## Subagent Delegation Policy
@@ -44,7 +45,12 @@ dependent work waits for prerequisite evidence. No fixed lane count or relay.
 
 Keep the parent productive on the critical path. Respect parent permissions,
 approvals and shared-worktree ownership; children never recursively dispatch.
-Use manage_agent for status, wait, same-child continuation, interrupt and close.
+Children run one self-contained task in an independent context. Package the full
+goal, necessary context, owned files, interfaces and acceptance checks.
+Use manage_agent only for status, wait, interrupt and close. No send/resume/rebase.
+For new requirements inspect current results and dispatch a new incremental task;
+never automatically repeat side effects. controlled-pi preserves parent-mediated
+writes/tests; optional oar-claude-text uses real OAR with native tools disabled.
 Wait timeouts do not cancel children. Do not invent execution deadlines; /quick
 has no implicit budget. Inspect actual diffs and checks before integrating each
 result; report partial work honestly and never forward raw agent dumps.

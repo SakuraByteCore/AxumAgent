@@ -25,13 +25,13 @@ test('permission ceiling denies write, bash, custom and recursive tools even on 
  await session.extensionRunner.emitToolCall({toolName:'read'});assert.equal(called,1);
  assert.deepEqual(inheritedToolCeiling(['read'],undefined,[],true),[]);
 });
-test('management continues same session, interrupts only turn and closes explicitly',async()=>{
- const r=new AgentRegistry(),record=r.reserve('a','batch');let input,aborts=0,retired=0;
- const a={id:'a',status:'idle',finished:new Promise(()=>{}),resume:s=>input=s,retire:()=>retired++,session:{abort:async()=>aborts++}};r.attach(record,a);
+test('one-shot management rejects continuation and awaits cancellation cleanup',async()=>{
+ const r=new AgentRegistry(),record=r.reserve('a','batch');let cancels=0,retired=0,resolve;
+ const a={id:'a',status:'running',oneShot:true,finished:new Promise(r=>resolve=r),retire:()=>retired++,runHandle:{cancel:async()=>{cancels++;a.status='idle';resolve();}}};r.attach(record,a);
  let tool;registerAgentManagement({registerTool:t=>tool=t},r,new Set([a]));
- await tool.execute('',{action:'send',agentId:'a',input:'continue'});assert.equal(input,'continue');assert.equal(record.state,'running');
- await tool.execute('',{action:'interrupt',agentId:'a'});assert.equal(a.interruptRequested,true);assert.equal(aborts,1);
- await tool.execute('',{action:'close',batchId:'batch'});assert.equal(record.state,'closed');assert.equal(a.aborted,true);assert.equal(retired,1);
+ for(const action of ['send','resume','rebase'])await assert.rejects(tool.execute('',{action,agentId:'a',input:'continue'}),/One-shot/);
+ await tool.execute('',{action:'interrupt',agentId:'a'});assert.equal(a.interruptRequested,true);assert.equal(cancels,1);assert.equal(retired,1);assert.equal(record.state,'cancelled');
+ await tool.execute('',{action:'close',batchId:'batch'});assert.equal(cancels,1);
 });
 
 test('pending close is terminal and shutdown generation fences late startup',async()=>{
@@ -46,9 +46,22 @@ test('real AgentSession pre-tool hook enforces ceiling without companion handler
  const {AgentSession}=await import('@earendil-works/pi-coding-agent');
  const runner={hasHandlers:()=>false,emitToolCall:async()=>undefined};
  const agent={};const session={agent,_extensionRunner:runner,extensionRunner:runner,setActiveToolsByName:()=>{}};
+ session._beforeToolCall=AgentSession.prototype._beforeToolCall;
  AgentSession.prototype._installAgentToolHooks.call(session);
  guardChildTools(session,['read']);
  const denied=await agent.beforeToolCall({toolCall:{id:'x',name:'bash'},args:{command:'echo denied'}});
  assert.equal(denied.block,true);
  assert.equal(await agent.beforeToolCall({toolCall:{id:'y',name:'read'},args:{path:'a'}}),undefined);
+});
+
+test('partial cancellation retains evidence and scope until native cleanup settles',async()=>{
+ const r=new AgentRegistry(),record=r.reserve('partial');let tool,released=0,cleanup;
+ const finished=new Promise(resolve=>cleanup=resolve);
+ const a={id:'partial',status:'running',responseText:'partial evidence',oneShot:true,finished,runHandle:{cancel:()=>finished},retire:()=>{}};
+ record.releaseScope=()=>released++;r.attach(record,a);
+ registerAgentManagement({registerTool:t=>tool=t},r,new Set([a]));
+ const closing=tool.execute('',{action:'close',agentId:a.id});await Promise.resolve();
+ assert.equal(released,0);assert.equal(record.state,'running');
+ a.status='idle';cleanup();await closing;r.refresh();
+ assert.equal(record.state,'closed');assert.equal(r.snapshot()[0].response,'partial evidence');
 });

@@ -1,3 +1,5 @@
+> Current one-shot runtime contract: [subagent runtimes](docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. controlled-pi remains writable via the parent bridge; optional real OAR Claude integration is supplied-text-only, not native writable parity. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
   <a href="https://nodejs.org"> <img src="https://img.shields.io/badge/node-%3E%3D22.19.0-green?style=flat-square" alt="Node"> </a>

@@ -8,6 +8,7 @@ export const MAX_DISPATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 type DispatchAgentParams = {
 	task: string;
+ backend?: "controlled-pi" | "oar-claude-text";
  batchId?: string;
  writeScope?: string[];
  testCommands?: string[];
@@ -19,17 +20,18 @@ type DispatchAgentParams = {
 };
 
 const DISPATCH_AGENT_PARAMETERS = Type.Object({
+ backend: Type.Optional(Type.Union([Type.Literal("controlled-pi"),Type.Literal("oar-claude-text")],{description:"controlled-pi (default): parent-approved scoped writes/tests. oar-claude-text: real external Claude OAR runtime, supplied-text only, no tools/MCP/write/test; requires Node24 and installed authenticated native CLI. Both are independent one-shot tasks."})),
  testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Exact parent-authorized shell commands. NOT sandboxed; whole-workspace lock. Omit to deny bash."})),
  writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Shell/custom mutation takes a workspace-wide lock; shell is parent-policy mediated, not path sandboxed."})),
  batchId: Type.Optional(Type.String({description:"Shared label for a batch ledger; use manage_agent to inspect all members."})),
 	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DISPATCH_TIMEOUT_MS, description: "Host-side execution deadline in milliseconds after dispatch starts. Omit for no deadline; timeout returns partial results." })),
 	task: Type.String({
 		description:
-			"Complete task description for the background agent. The agent inherits this session's conversation unless isolate is true.",
+			"Complete task description for the background agent. The child has an independent context. Include the complete goal, necessary context, owned files, non-goals, interfaces, and acceptance checks.",
 	}),
 	isolate: Type.Optional(
 		Type.Boolean({
-			description: "Start with a blank context instead of inheriting this session's conversation. Defaults to false.",
+			description: "Start with a blank context instead of inheriting this session's conversation. All new tasks are independent; retained for compatibility.",
 		}),
 	),
 	squash: Type.Optional(
@@ -52,7 +54,7 @@ function quoteDispatchValue(value: string): string {
 /** Build the /agent-style argument string for a dispatch_agent tool call. */
 export function buildDispatchArgs(params: DispatchAgentParams): string {
 	const flags: string[] = [];
-	if (params.isolate === true) flags.push("-i");
+	flags.push("-i"); // Independent context for every newly dispatched one-shot task.
 	if (params.squash !== false) flags.push("-s");
 	if (params.model !== undefined && params.model !== "") flags.push("-m", quoteDispatchValue(params.model));
 	if (params.thinking !== undefined && params.thinking !== "") flags.push("--thinking", quoteDispatchValue(params.thinking));
@@ -65,7 +67,7 @@ export function buildDispatchPrompt(batch: string): string {
 		"[Dispatch Request]",
 		batch,
 		"",
-		"[Dispatch Instructions] Break the request above into independent, well-scoped work units. For each unit, call the dispatch_agent tool exactly once, and issue all independent dispatches in the same turn so the background agents run in parallel. Pass isolate=true only for units that do not need this conversation's context; keep squash enabled so every result returns here automatically. Do not perform the dispatched work yourself in this session. After every dispatched agent has reported back, synthesize their results into one consolidated summary for the user.",
+		"[Dispatch Instructions] Break the request above into independent, well-scoped work units. For each unit, call the dispatch_agent tool exactly once, and issue all independent dispatches in the same turn so the background agents run in parallel. Every task has an independent context: include all required context, owned files, interfaces, and checks; keep squash enabled so every result returns here automatically. Do not perform the dispatched work yourself in this session. After every dispatched agent has reported back, synthesize their results into one consolidated summary for the user.",
 	].join("\n");
 }
 
@@ -89,7 +91,7 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 		promptSnippet: "dispatch_agent: run a task in a concurrent background agent",
 		promptGuidelines: [
 			"For batch requests, split the work into independent units and call dispatch_agent once per unit in the same turn; the background agents run in parallel.",
-			"Keep squash enabled so finished results return automatically; pass isolate only when the task does not need this conversation's context.",
+			"Keep squash enabled so finished results return automatically; package the full goal/context/scope/interfaces/acceptance in every task.",
 		],
 		parameters: DISPATCH_AGENT_PARAMETERS,
 		executionMode: "parallel",
@@ -113,13 +115,13 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 					ctx as ExtensionCommandContext,
 					deadline,
 					params.batchId,
-     {writeScope:params.writeScope,testCommands:params.testCommands,bridge:typeof (ctx as any).executeTool === "function" ? {
+     {backend:params.backend,writeScope:params.writeScope,testCommands:params.testCommands,bridge:typeof (ctx as any).executeTool === "function" ? {
       get tools(){return pi.getAllTools();},getActiveTools:()=>pi.getActiveTools(),
       validate:()=>{if(deps.isShuttingDown() || ctx.sessionManager?.getSessionId()!==parentSessionId)throw new Error("Parent session unavailable or changed");},
       executeTool:(name,args,options)=>(ctx as any).executeTool(name,args,options),
      } : undefined},
 				);
-				if (params.timeoutMs !== undefined) armDispatchDeadline(agent, params.timeoutMs, deadline!.deadlineAt);
+				if (params.timeoutMs !== undefined && !agent.oneShot) armDispatchDeadline(agent, params.timeoutMs, deadline!.deadlineAt);
 				return {
 					content: [
 						{
