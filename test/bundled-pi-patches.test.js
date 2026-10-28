@@ -259,12 +259,12 @@ test("patchPiSubagentsLatencyOrchestrator upgrades the proactive protocol into t
   assert.ok(proactive.includes(PI_SUBAGENTS_PROACTIVE_MARKER));
   const patched = patchPiSubagentsLatencyOrchestrator(proactive);
   assert.ok(patched.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER));
-  assert.ok(patched.includes("Latency-first orchestrator: the main agent executes first"));
-  assert.ok(patched.includes("never a decomposition pass or a plan"));
+  assert.ok(patched.includes("Use the existing pi-agent tool by default"));
+  assert.ok(patched.includes("launch independent non-overlapping work promptly"));
   assert.ok(!patched.includes("launch ALL of them in one async workflowScript call in your first action"), "up-front all-at-once dispatch must be gone");
   assert.ok(!patched.includes("Delegate aggressively to subagents"), "proactive snippet must be replaced, not duplicated");
-  assert.ok(patched.includes("Latency-first budget: derive every lane timeout from one wall-clock budget"));
-  assert.ok(patched.includes("Every lane returns a structured envelope: status (done|partial|blocked|failed)"));
+  assert.ok(patched.includes("Respect actual user deadlines and host-enforced resource limits"));
+  assert.ok(patched.includes("relay approval requests through the parent bridge"));
   assert.equal(patchPiSubagentsLatencyOrchestrator(patched), patched, "idempotent");
   const commalessBase = base.replace("workflows\" }.',", "workflows\" }.'");
   const commaless = patchPiSubagentsLatencyOrchestrator(patchPiSubagentsProactiveDelegation(commalessBase));
@@ -466,7 +466,7 @@ test("patchPiInteractiveConnectionDisplay softens every interactive surface and 
   );
 });
 
-test("patchPiSubagentsLatencyOrchestrator upgrades a V1 cache to the execute-first V2 protocol", () => {
+test("patchPiSubagentsLatencyOrchestrator upgrades a V1 cache to the pi-agent default V3 protocol", () => {
   const v1Snippet = 'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Latency-first orchestrator: the main agent decomposes, dispatches, arbitrates, and verifies; subagents do the exploration and fixes. Partition 2+ independent requirements into non-overlapping lanes (scout / implementer / verifier) and launch ALL of them in one async workflowScript call in your first action - token cost is irrelevant, wall-clock latency is the only metric. Set ONE top-level timeoutMs equal to the wall-clock budget; children that omit timeoutMs inherit the host-enforced remaining budget. Steer still-running children to emit best-partial structured results at ~80% of the budget; interrupt redundant lanes once one passes an acceptance-checked verifier. Arbitrate only from structured envelopes (status, changes/findings, evidence, remainingRisks), preferring verified evidence over prose. Never write a long plan before dispatching.";';
   const v1 = [
     "// " + LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": latency-first orchestrator protocol (Axum).",
@@ -480,10 +480,10 @@ test("patchPiSubagentsLatencyOrchestrator upgrades a V1 cache to the execute-fir
   const upgraded = patchPiSubagentsLatencyOrchestrator(v1);
   assert.ok(upgraded.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER), "V2 marker line replaces V1");
   assert.ok(!upgraded.includes(LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ":"), "V1 marker line removed");
-  assert.ok(upgraded.includes("Latency-first orchestrator: the main agent executes first"), "execute-first snippet swapped in");
-  assert.ok(upgraded.includes("never a decomposition pass or a plan"));
+  assert.ok(upgraded.includes("Use the existing pi-agent tool by default"), "execute-first snippet swapped in");
+  assert.ok(upgraded.includes("launch independent non-overlapping work promptly"));
   assert.ok(!upgraded.includes("launch ALL of them in one async workflowScript call"), "up-front dispatch wording gone");
-  assert.ok(upgraded.includes("Latency-first budget: derive every lane timeout"), "budget guideline carried over untouched");
+  assert.ok(upgraded.includes("Respect actual user deadlines"), "budget guideline carried over untouched");
   assert.ok(upgraded.includes("Every lane returns a structured envelope"), "envelope guideline carried over untouched");
   assert.equal(patchPiSubagentsLatencyOrchestrator(upgraded), upgraded, "idempotent after upgrade");
   const drifted = v1.replace("the main agent decomposes", "the main agent restructured");
@@ -491,6 +491,25 @@ test("patchPiSubagentsLatencyOrchestrator upgrades a V1 cache to the execute-fir
 });
 
 test("patchPiExtensionSelectorScroll windows the rendered list and is idempotent", () => {
+// Exact shipped V2 text, including compiled caches whose comments were stripped.
+test("V3 migrates V2 marked and commentless caches without changing execution limits", () => {
+  const snippet = "export const SUBAGENT_TOOL_PROMPT_SNIPPET = \"Latency-first orchestrator: the main agent executes first, splits cheaply while executing, and adds workers progressively; subagents do the exploration and fixes. In your first action start the most direct core step yourself - never a decomposition pass or a plan. As you execute, peel off only obviously independent chunks and dispatch each as an async workflowScript call with top-level timeoutMs equal to the wall-clock budget; children that omit timeoutMs inherit the host-enforced remaining budget. Delegate more only when execution reveals genuinely parallelizable shards or confirmed bottlenecks; never pre-launch speculative lanes. Steer still-running children to emit best-partial structured results at ~80% of the budget; interrupt redundant lanes once one passes an acceptance-checked verifier. Arbitrate only from structured envelopes (status, changes/findings, evidence, remainingRisks), preferring verified evidence over prose.\";";
+  for (const marker of ["// AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V2: latency-first orchestrator protocol (Axum).\n", ""]) {
+    const runtime = "export const enforceDeadline = (deadline, now) => deadline - now;";
+    const input = marker + snippet + "\nexport const SUBAGENT_TOOL_PROMPT_GUIDELINES = [\n" + JSON.stringify("Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.") + ",\n" + JSON.stringify("Latency-first budget: derive every lane timeout from one wall-clock budget. At ~80% of the budget, steer running children.") + ",\n];\n" + runtime;
+    const output = patchPiSubagentsLatencyOrchestrator(input);
+    assert.ok(output.includes("AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V3"));
+    assert.ok(!output.includes("AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V2"));
+    for (const obsolete of ["executes first", "workers progressively", "Default to subagent delegation", "Latency-first budget:", "~80%", "async workflowScript call"]) assert.ok(!output.includes(obsolete), obsolete);
+    assert.ok(output.includes("user explicitly requests an advanced pi-subagents workflow"));
+    assert.ok(output.includes("Never switch to pi-subagents or direct child processes to bypass pi-agent parent permission checks"));
+    assert.ok(output.includes("omitted child timeouts inherit the host-enforced remaining budget"));
+    assert.ok(output.endsWith(runtime));
+    assert.equal(patchPiSubagentsLatencyOrchestrator(output), output);
+    assert.equal(patchPiSubagentsLatencyOrchestrator(input.replace("executes first", "changed upstream")), input.replace("executes first", "changed upstream"));
+  }
+});
+
   const arrow = "\u2192";
   const upstream = [
     "export class ExtensionSelectorComponent extends Container {",

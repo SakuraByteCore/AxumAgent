@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { registerAutonomousPolicy } from '../plugin/pi-agent/autonomous.ts';
+import { parseQuickArgs, registerQuick, buildOrchestrationPrompt } from '../plugin/pi-agent/orchestrate.ts';
+
+test('before_agent_start injects default goal delivery and follows live tool availability', async () => {
+ const hooks = new Map(); let active = ['dispatch_agent'];
+ const pi = { on: (name, handler) => hooks.set(name, handler), getActiveTools: () => active };
+ registerAutonomousPolicy(pi);
+ const start = hooks.get('before_agent_start'); assert.equal(typeof start, 'function');
+ const event = { prompt: 'implement login and billing', systemPrompt: 'original system instructions' };
+ const result = await start(event, {});
+ assert.ok(result.systemPrompt.startsWith(event.systemPrompt));
+ assert.match(result.systemPrompt, /currently available: actively use it/);
+ assert.match(result.systemPrompt, /trivial or indivisible task stays inline/);
+ assert.match(result.systemPrompt, /pass writeScope.*dependency input.output interfaces/s);
+ assert.match(result.systemPrompt, /exact authorized testCommands/);
+ assert.match(result.systemPrompt, /Default independent edit lanes do not receive shell/);
+ assert.match(result.systemPrompt, /must not recursively dispatch/);
+ assert.match(result.systemPrompt, /critical dependency path.*Integrate each completed lane promptly/s);
+ active = ['read'];
+ const restricted = await start(event, {});
+ assert.match(restricted.systemPrompt, /not currently available: perform the work inline/);
+ assert.doesNotMatch(restricted.systemPrompt, /currently available: actively use it/);
+ assert.match(restricted.systemPrompt, /host does not automatically schedule/);
+ assert.equal(event.systemPrompt, 'original system instructions');
+});
+
+test('quick command has concise default without deadline, retains explicit real deadline', async () => {
+ const commands = new Map(), messages = [];
+ registerQuick({registerCommand: (name, cmd) => commands.set(name, cmd), sendUserMessage: async (text, opts) => messages.push({text, opts})});
+ const ctx = { ui: {notify(){}} };
+ await commands.get('quick').handler('deliver login and billing', ctx);
+ assert.match(messages[0].text, /concise.*parallelism/s);
+ assert.doesNotMatch(messages[0].text, /absolute deadline:|300s|timeoutMs/);
+ await commands.get('quick').handler('90s deliver login', ctx);
+ assert.match(messages[1].text, /Wall-clock budget: 90s; absolute deadline: /);
+ assert.match(messages[1].text, /timeoutMs = Math.floor/);
+ assert.equal(messages[0].opts.streamingBehavior, 'steer');
+ assert.deepEqual(parseQuickArgs('ship it'), {task:'ship it'});
+ assert.deepEqual(parseQuickArgs('2m ship it'), {task:'ship it',budgetMs:120000});
+ assert.equal(parseQuickArgs('0 ship it'), undefined);
+ assert.equal(parseQuickArgs(''), undefined);
+ assert.equal(parseQuickArgs('90s'), undefined);
+ const explicit = buildOrchestrationPrompt({task:'ship',budgetMs:90000}, 0);
+ assert.match(explicit, /Wall-clock budget: 90s/);
+ assert.doesNotMatch(explicit, /read.search.only tool ceiling/);
+});

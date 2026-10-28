@@ -55,4 +55,4 @@
 
 ## AxumAgent 本次适配边界
 
-plugin/pi-agent 使用同宿主 Pi SDK 内存 session，不复制 Codex 持久化/residency 系统。本次新增 manage_agent 和批次账本，wait 超时不取消，send 是 trigger-turn/stream steer；interrupt 只终止单路当前 turn，close 明确释放本地 child。六个 pending/running 名额属于 Axum 自定义执行上限，不声称等同 V1 注册线程名额或 V2 residency。回传仍按 squash=true 主动唤醒（保留 Axum 兼容行为，不冒称 V2 queue-only）。SDK 无父审批桥，因此 fail closed 到父 active read/search 工具；递归禁用，与 Codex V2 可无限层身份不等价。硬 deadline 为 Axum 显式扩展，绝不是 Codex wait timeout。内存 continuation 只在同进程保留期内可用；进程重启后不提供冷恢复。
+plugin/pi-agent 使用同宿主 Pi SDK 内存 session，不复制 Codex 持久化/residency 系统。本次新增 manage_agent 和批次账本，wait 超时不取消，send 是 trigger-turn/stream steer；interrupt 只终止单路当前 turn，close 明确释放本地 child。六个 pending/running 名额属于 Axum 自定义执行上限，不声称等同 V1 注册线程名额或 V2 residency。回传仍按 squash=true 主动唤醒（保留 Axum 兼容行为，不冒称 V2 queue-only）。普通 ExtensionContext 无审批策略导出；bundled SDK 0.99.2 的工具上下文 executeTool 已用于父真实工具链桥接，writeScope 和显式 testCommands 受父实时工具/审批检查，旧 SDK 与无桥命令仍 fail closed 到 read/search。shell 非路径沙箱，custom 与递归禁用；与 Codex 权限 profile/隔离及 V2 可无限层身份不等价。硬 deadline 为 Axum 显式扩展，绝不是 Codex wait timeout。内存 continuation 只在同进程保留期内可用；进程重启后不提供冷恢复。

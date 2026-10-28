@@ -93,7 +93,7 @@ The distribution ships these packages, all in one install:
 - `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool` (structured todo tracking: the `todo` tool maintains a plan checklist rendered as a live HUD above the editor, plus the `/todo` and `/todos-configure` commands)
-- `pi-agent` (vendored from @giladbarnea/pi-user-agents: user-triggered background agents with live progress widget, `-P/--plan` for plan-mode background dispatch, one-keystroke `/spawn` `/scout` `/blueprint` presets, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
+- `pi-agent` (vendored from @giladbarnea/pi-user-agents: proactive, goal-driven background delegation with a live progress widget; small tasks stay inline without requiring a special command, `-P/--plan` for plan-mode background dispatch, one-keystroke `/spawn` `/scout` `/blueprint` presets, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
 - `pi-subagents` (single-agent delegation and scripted multi-agent workflows: task delegation, background runs, agent orchestration)
 - `pi-memory` (persistent cross-session memory in a single JSON file: /memory save|list|find|remove|recall|clear; zero native deps)
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）

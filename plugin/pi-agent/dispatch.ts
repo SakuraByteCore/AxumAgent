@@ -1,3 +1,4 @@
+import type { ChildPermissions, ParentToolBridge } from "./permissions.js";
 import { Type } from "typebox";
 import { armExecutionDeadline } from "./child-recovery.ts";
 import { logSteering } from "./shared.ts";
@@ -8,6 +9,8 @@ export const MAX_DISPATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 type DispatchAgentParams = {
 	task: string;
  batchId?: string;
+ writeScope?: string[];
+ testCommands?: string[];
 	isolate?: boolean;
 	squash?: boolean;
 	model?: string;
@@ -16,6 +19,8 @@ type DispatchAgentParams = {
 };
 
 const DISPATCH_AGENT_PARAMETERS = Type.Object({
+ testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Exact parent-authorized shell commands. NOT sandboxed; whole-workspace lock. Omit to deny bash."})),
+ writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Shell/custom mutation takes a workspace-wide lock; shell is parent-policy mediated, not path sandboxed."})),
  batchId: Type.Optional(Type.String({description:"Shared label for a batch ledger; use manage_agent to inspect all members."})),
 	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DISPATCH_TIMEOUT_MS, description: "Host-side execution deadline in milliseconds after dispatch starts. Omit for no deadline; timeout returns partial results." })),
 	task: Type.String({
@@ -66,7 +71,7 @@ export function buildDispatchPrompt(batch: string): string {
 
 export type DispatchDeps = {
 	isShuttingDown: () => boolean;
-	startAgent: (args: string, invocation: string, ctx: ExtensionCommandContext, deadline?: { timeoutMs: number; deadlineAt: number }, batchId?: string) => Promise<RunningAgent>;
+	startAgent: (args: string, invocation: string, ctx: ExtensionCommandContext, deadline?: { timeoutMs: number; deadlineAt: number }, batchId?: string, permissions?: ChildPermissions) => Promise<RunningAgent>;
 };
 
 /** Deadline belongs to this dispatched lifecycle, not to ordinary /agent sessions. */
@@ -98,7 +103,9 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 			if (params.timeoutMs !== undefined && (!Number.isInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_DISPATCH_TIMEOUT_MS)) {
 				return { content: [{ type: "text" as const, text: `timeoutMs must be an integer between 1 and ${MAX_DISPATCH_TIMEOUT_MS}.` }], details: { error: "invalid-timeout" } };
 			}
-			const deadline = params.timeoutMs === undefined ? undefined : { timeoutMs: params.timeoutMs, deadlineAt: Date.now() + params.timeoutMs };
+			if((params.writeScope?.length || params.testCommands?.length) && typeof (ctx as any).executeTool !== "function")throw new Error("Installed Pi SDK/context has no parent executeTool approval bridge; writable dispatch unavailable");
+			const parentSessionId=ctx.sessionManager?.getSessionId();
+   const deadline = params.timeoutMs === undefined ? undefined : { timeoutMs: params.timeoutMs, deadlineAt: Date.now() + params.timeoutMs };
 			try {
 				const agent = await deps.startAgent(
 					buildDispatchArgs(params),
@@ -106,6 +113,11 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 					ctx as ExtensionCommandContext,
 					deadline,
 					params.batchId,
+     {writeScope:params.writeScope,testCommands:params.testCommands,bridge:typeof (ctx as any).executeTool === "function" ? {
+      get tools(){return pi.getAllTools();},getActiveTools:()=>pi.getActiveTools(),
+      validate:()=>{if(deps.isShuttingDown() || ctx.sessionManager?.getSessionId()!==parentSessionId)throw new Error("Parent session unavailable or changed");},
+      executeTool:(name,args,options)=>(ctx as any).executeTool(name,args,options),
+     } : undefined},
 				);
 				if (params.timeoutMs !== undefined) armDispatchDeadline(agent, params.timeoutMs, deadline!.deadlineAt);
 				return {

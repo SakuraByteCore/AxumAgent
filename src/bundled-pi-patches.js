@@ -26,7 +26,7 @@ const PI_SUBAGENTS_PACKAGE = "pi-subagents";
 const LEGACY_PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE";
 const PI_SUBAGENTS_PROACTIVE_MARKER = "AXUM_PI_SUBAGENTS_PROACTIVE_V2";
 const LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER = "AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V1";
-const PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER = "AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V2";
+const PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER = "AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V3";
 const PI_AI_PACKAGE = "@earendil-works/pi-ai";
 const PI_RATE_LIMIT_RETRY_EXEMPT_MARKER = "AXUM_PI_429_RETRY_EXEMPT";
 const PI_RATE_LIMIT_DISPLAY_SOFTENING_MARKER = "AXUM_PI_429_DISPLAY_SOFTENING";
@@ -1802,45 +1802,18 @@ const PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2 =
 
 function patchPiSubagentsLatencyOrchestrator(content) {
   if (content.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER)) return content;
-  const markerLine = "// " + PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": latency-first orchestrator protocol (Axum).";
-  const legacyMarkerLine = "// " + LEGACY_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": latency-first orchestrator protocol (Axum).";
-  if (content.includes(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1)) {
-    // V1 upgrade: swap the snippet for the execute-first rewrite. Detection
-    // keys on the snippet text itself, not the marker line - compiled .js
-    // copies are transpiled from the patched .ts and drop comment markers,
-    // so a marker-line test would strand them on the V1 wording forever.
-    // The budget/envelope guidelines carry over untouched.
-    return content
-      .replace(PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2)
-      .replace(legacyMarkerLine, markerLine);
-  }
-  if (content.includes(legacyMarkerLine)) return content;
-  const snippetNeedles = [
-    'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";',
-  ];
-  const guidelinesNeedles = [
-    "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.',\n];",
-    "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.'\n];",
-  ];
-  const guidelinesReplacement = "For advanced workflows, read the bundled pi-subagents skill or call { action: \"guide\", topic: \"workflows\" }.',\n'Latency-first budget: derive every lane timeout from one wall-clock budget. Set the workflow-level timeoutMs once; omit per-child timeoutMs so lanes inherit the host-enforced remaining budget, or set a deliberately tighter phase cap. At ~80% of the budget, steer running children to emit best-partial structured envelopes; interrupt redundant or losing lanes once one lane passes an acceptance-checked verifier.',\n'Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks. The parent arbitrates only from these fields, prefers verified evidence over prose, and reports uncovered shards explicitly instead of proceeding as if coverage were complete.',\n];";
-  const snippetNeedle = snippetNeedles.find((needle) => content.includes(needle));
-  const guidelinesNeedle = guidelinesNeedles.find((needle) => content.includes(needle));
-  if (snippetNeedle && guidelinesNeedle) {
-    return markerLine + "\n" + content.replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2).replace(guidelinesNeedle, guidelinesReplacement);
-  }
-  // pi-subagents 0.74.0+: the guidelines are a standalone export with
-  // double-quoted elements. Anchor on the proactive line injected by
-  // patchPiSubagentsProactiveDelegation and append the budget/envelope rules.
-  const modernGuidelinesNeedle = '"Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",\n];';
-  if (!snippetNeedle || !content.includes(modernGuidelinesNeedle)) return content;
-  return markerLine + "\n" + content
-    .replace(snippetNeedle, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2)
-    .replace(modernGuidelinesNeedle, [
-      '"Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating.",',
-      '"Latency-first budget: derive every lane timeout from one wall-clock budget. Set the workflow-level timeoutMs once; omit per-child timeoutMs so lanes inherit the host-enforced remaining budget, or set a deliberately tighter phase cap. At ~80% of the budget, steer running children to emit best-partial structured envelopes; interrupt redundant or losing lanes once one lane passes an acceptance-checked verifier.",',
-      '"Every lane returns a structured envelope: status (done|partial|blocked|failed), changes/findings, evidence, remainingRisks. The parent arbitrates only from these fields, prefers verified evidence over prose, and reports uncovered shards explicitly instead of proceeding as if coverage were complete.",',
-      '];',
-    ].join("\n"));
+  const proactiveSnippet = 'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";';
+  const needle = [PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2, proactiveSnippet].find((value) => content.includes(value));
+  if (!needle || !content.includes("export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [")) return content;
+  const policy = "Use the existing pi-agent tool by default for proactive parallel delegation: launch independent non-overlapping work promptly, without a mandatory serial first step or fixed scout/implementer/verifier relay. pi-subagents is compatibility support only when the user explicitly requests an advanced pi-subagents workflow. Never switch to pi-subagents or direct child processes to bypass pi-agent parent permission checks; relay approval requests through the parent bridge.";
+  const deadline = "Respect actual user deadlines and host-enforced resource limits. Do not invent a short wall-clock budget or mandatory phase caps. For an explicitly requested advanced workflow, timeoutMs may express a real deadline or intentional resource cap; omitted child timeouts inherit the host-enforced remaining budget. Report partial results and uncovered work honestly when an actual limit is reached.";
+  let patched = content.replace(needle, "export const SUBAGENT_TOOL_PROMPT_SNIPPET = " + JSON.stringify(policy) + ";");
+  patched = patched.replace(/Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating\./g, policy);
+  // Prompt-only migration preserves actual deadline/resource enforcement.
+  patched = patched.replace(/Latency-first budget: [^'"\n]*/g, deadline);
+  patched = patched.replace("export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [", "export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [\n" + JSON.stringify(policy) + ",\n" + JSON.stringify(deadline) + ",");
+  patched = patched.replace(/^\/\/ AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V[12]: latency-first orchestrator protocol \(Axum\)\.\n?/gm, "");
+  return "// " + PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": pi-agent default; explicit advanced workflow compatibility (Axum).\n" + patched;
 }
 
 function patchPiUserAgent(content) {

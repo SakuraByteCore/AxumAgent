@@ -21,6 +21,7 @@ import {
   buildOrchestrationPrompt,
   buildQuickSplitPrompt,
   parseOrchestrationArgs,
+  parseQuickArgs,
   registerOrchestrate,
   registerQuick,
 } from "../plugin/pi-agent/orchestrate.ts";
@@ -1000,9 +1001,9 @@ test("dispatch_agent arms the deadline on the returned agent", async (t) => {
   assert.equal(aborted, true);
 });
 
-test("parseOrchestrationArgs honors the /quick 5m default and duration overrides", () => {
-  assert.equal(parseOrchestrationArgs("ship the feature", DEFAULT_QUICK_BUDGET_MS).budgetMs, 300000);
-  assert.deepEqual(parseOrchestrationArgs("2m ship it", DEFAULT_QUICK_BUDGET_MS), { budgetMs: 120000, task: "ship it" });
+test("parseQuickArgs has no implicit default and honors duration overrides", () => {
+  assert.deepEqual(parseQuickArgs("ship the feature"), { task: "ship the feature" });
+  assert.deepEqual(parseQuickArgs("2m ship it"), { budgetMs: 120000, task: "ship it" });
 });
 
 test("buildQuickSplitPrompt leads with split-first parallel dispatch under a deadline", () => {
@@ -1010,7 +1011,7 @@ test("buildQuickSplitPrompt leads with split-first parallel dispatch under a dea
   assert.ok(prompt.startsWith("[Quick Split Request]\nadd login and billing"));
   assert.match(prompt, /Wall-clock budget: 300s/);
   assert.match(prompt, /absolute deadline: 2023-11-14T22:09:20\.000Z/);
-  assert.match(prompt, /partition the requirement into 1-4 independent, non-overlapping/);
+  assert.match(prompt, /partition the requirement into worthwhile independent, non-overlapping/);
   assert.match(prompt, /all ready dispatch_agent calls at once/);
   const implementationDeadlineMs = Date.UTC(2023, 10, 14, 22, 4, 20) + 300000 * (1 - 0.2);
   assert.ok(prompt.includes(`Implementation deadline: ${new Date(implementationDeadlineMs).toISOString()}`));

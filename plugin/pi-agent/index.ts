@@ -1,3 +1,4 @@
+import { registerAutonomousPolicy } from "./autonomous.js";
 import { registerAgentManagement } from "./manage.js";
 import { registerDesktopPet } from "./desktop-pet.js";
 import { registerClear } from "./clear.js";
@@ -24,6 +25,7 @@ import { UserAgentWidget } from "./widget.js";
 
 export default function userAgent(pi: ExtensionAPI): void {
 	registerDesktopPet(pi);
+	registerAutonomousPolicy(pi);
 	const runningAgents = new Set<RunningAgent>();
 	registerAgentManagement(pi,registryFor(runningAgents),runningAgents);
 	const disabledCommands = new Set<string>();
@@ -94,7 +96,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	registerDispatch(pi, {
 		isShuttingDown: () => shuttingDown,
-		startAgent: (dispatchArgs, invocation, ctx, deadline, batchId) =>
+		startAgent: (dispatchArgs, invocation, ctx, deadline, batchId, permissions) =>
 			startUserAgent(
 				pi,
 				runningAgents,
@@ -108,6 +110,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 				ctx,
 				deadline,
 				batchId,
+				permissions,
 			),
 	});
 
@@ -115,7 +118,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	registerOrchestrate(pi);
 
-	// ── /quick: split-and-ship under a tight wall-clock budget ────────────────
+	// ── /quick: concise delivery with optional explicit budget ────────────────
 	registerQuick(pi);
 
 	registerSessionLifecycle(pi, {

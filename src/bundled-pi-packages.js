@@ -48,11 +48,11 @@ export const bundledPiPackages = [
   // todos-tool: structured todo list tracking (todo tool + live HUD above editor,
   // /todo and /todos-configure commands). Pure TS, zero dependencies.
   { name: "@gamaraan/todos-tool@0.3.0", packageName: "@gamaraan/todos-tool", extensionPath: "src/index.ts", android: true },
-  // pi-agent: user-triggered background Pi agents (/agent) with a live progress widget,
+  // pi-agent: default proactive parallel delegation and /agent background agents with a live progress widget,
   // vendored from @giladbarnea/pi-user-agents@0.0.5. Parameter-property constructors were
   // rewritten to explicit field assignments so the Windows compile path can strip its TS.
   { name: "pi-agent@file:plugin/pi-agent", packageName: "pi-agent", extensionPath: "index.ts", android: true },
-  // pi-subagents: single-agent delegation and scripted multi-agent workflows
+  // pi-subagents: explicit user-requested advanced workflow compatibility only
   // (task tool, background runs, /agents orchestration). Pure TS with no
   // parameter properties or extensionless relative imports, zero native deps.
   { name: "pi-subagents@0.74.0", packageName: "pi-subagents", extensionPath: "index.js", android: true },

@@ -1,6 +1,6 @@
 import { AgentRegistry } from "./registry.js";
 import { armDispatchDeadline } from "./dispatch.js";
-import { inheritedToolCeiling, guardChildTools } from "./permissions.js";
+import { inheritedToolCeiling, guardChildTools, bridgedChildTools, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
 import { childRecoveryExtensions, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -134,6 +134,7 @@ async function resolveChildDispatchServices(
 	ctx: ExtensionCommandContext,
 	forwardedArgs: string[],
 	invocation: string,
+ permissions?: ChildPermissions,
 ): Promise<ChildDispatchServices> {
 	const parsedForwardedArgs = parseForwardedArgs(forwardedArgs);
 	const agentDir = getAgentDir();
@@ -148,7 +149,14 @@ async function resolveChildDispatchServices(
 		resourceLoaderOptions: buildChildResourceLoaderOptions(parsedForwardedArgs, ctx.cwd),
 	});
 	const forwarded = resolveForwardedOptions(parsedForwardedArgs, services.modelRuntime);
-	forwarded.tools = inheritedToolCeiling(pi.getActiveTools(), forwarded.tools, forwarded.excludeTools, forwarded.noTools !== undefined);
+	forwarded.tools = inheritedToolCeiling(pi.getActiveTools(), forwarded.tools, forwarded.excludeTools, forwarded.noTools !== undefined, !!permissions?.bridge);
+ if(permissions?.bridge){const names=new Set(permissions.bridge.tools.map(t=>t.name));forwarded.tools=forwarded.tools.filter(t=>names.has(t));}
+ if(!permissions?.testCommands?.length)forwarded.tools=forwarded.tools.filter(t=>t!=="bash");
+ if(!permissions?.writeScope?.length)forwarded.tools=forwarded.tools.filter(t=>!["write","edit","bash"].includes(t));
+ if(permissions?.bridge) forwarded.tools = forwarded.tools.filter(name=>permissions.bridge!.tools.some(t=>t.name===name&&t.sourceInfo?.source==="builtin"&&t.sourceInfo?.path==="builtin:"+name));
+ if(permissions?.writeScope?.length && !forwarded.tools.some(name=>name==="write"||name==="edit"))throw new Error("No parent-authorized builtin write/edit tool is available for writable dispatch");
+ if(permissions?.testCommands?.length && !forwarded.tools.includes("bash"))throw new Error("No parent-authorized builtin bash tool is available for testCommands");
+ forwarded.permissions=permissions;
 	forwarded.noTools = forwarded.tools.length === 0 ? "all" : undefined;
 	// /agentui session-scoped override: /spawn and /blueprint presets only; see chooseDispatchModel.
 	const agentUiOverride = resolveAgentUiModelOverride(invocation, ctx.sessionManager.getSessionId());
@@ -207,6 +215,7 @@ function launchRunningAgent(
 	).finally(() => {
 		logSteering(runningAgent.id, "agent-disposed", { status: runningAgent.status });
 		runningAgent.cancelDeadline?.();
+  agentLedgers.get(runningAgent)?.records.get(runningAgent.id)?.releaseScope?.();
 		runningAgent.session?.dispose();
 		runningAgents.delete(runningAgent);
 
@@ -467,6 +476,7 @@ function warnLiveBlueprint(runningAgents: Set<RunningAgent>, ctx: ExtensionComma
 
 const agentLedgers=new WeakMap<RunningAgent,AgentRegistry>();
 function registryForAgent(agent:RunningAgent){const ledger=agentLedgers.get(agent);if(ledger){ledger.refresh();ledger.changed();}}
+const scopeLocks=new WriteScopeLocks();
 const registries = new WeakMap<Set<RunningAgent>, AgentRegistry>();
 export function registryFor(agents: Set<RunningAgent>): AgentRegistry {
  let registry=registries.get(agents);if(!registry){registry=new AgentRegistry();registries.set(agents,registry);}return registry;
@@ -485,6 +495,7 @@ export async function startUserAgent(
 	ctx: ExtensionCommandContext,
  deadline?: {timeoutMs:number;deadlineAt:number},
  batchId?: string,
+ permissions?: ChildPermissions,
 ): Promise<RunningAgent> {
 	if (isShuttingDown()) throw new Error("Session is shutting down");
  const ledger=registryFor(runningAgents);const generation=ledger.generation;
@@ -513,7 +524,13 @@ export async function startUserAgent(
  const record=ledger.reserve("user-" + nextAgentNumber().toString(36),batchId);
  let startupDone!:()=>void;const startup=new Promise<void>(resolve=>{startupDone=resolve;});ledger.pendingStarts.add(startup);
  try {
- const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
+ const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation, permissions);
+ const scopes=permissions?.writeScope ?? [];
+ if(permissions?.testCommands?.length && !scopes.length)throw new Error("testCommands requires explicit writeScope; shell is not sandboxed");
+ if(scopes.length && !permissions?.bridge)throw new Error("Parent tool executor unavailable; cannot delegate writable scope");
+ const lockScopes=dispatch.forwarded.tools?.includes("bash")?[ctx.cwd]:scopes;
+ record.acquireScope=()=>{record.releaseScope=scopeLocks.acquire(ctx.sessionManager.getSessionId()+":"+record.id,lockScopes,ctx.cwd);};
+ record.acquireScope();
  if (isShuttingDown() || ledger.generation!==generation || record.state==="closed") throw new Error("Session shut down or child closed during startup");
  const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
 	// In-memory from birth: the child never writes a session file, so it stays out of /resume
@@ -529,6 +546,7 @@ export async function startUserAgent(
 		planSourceSessionId,
 		conversationFingerprint(inheritedMessages),
 	);
+if(permissions?.bridge){const bridge=permissions.bridge,validate=bridge.validate;permissions.bridge={get tools(){return bridge.tools;},getActiveTools:bridge.getActiveTools,executeTool:(name,args,options)=>bridge.executeTool(name,args,options),validate:()=>{validate?.();if(ledger.generation!==generation || runningAgent.aborted || record.state==="closed" || record.state==="cancelled" || runningAgent.status==="idle")throw new Error("Child capability is inactive or revoked");}};}
 ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
  if(deadline){runningAgent.executionTimeoutMs=deadline.timeoutMs;runningAgent.deadlineAt=deadline.deadlineAt;if(Date.now()>=deadline.deadlineAt){runningAgent.timeoutMs=deadline.timeoutMs;runningAgent.stopCause="deadline";}}
  launchRunningAgent(
@@ -549,7 +567,7 @@ ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
  if(deadline)armDispatchDeadline(runningAgent,deadline.timeoutMs,deadline.deadlineAt);
 	void runningAgent.finished.then(()=>ledger.settle(record),error=>ledger.fail(record,error));
 	return runningAgent;
- } catch(error){ledger.fail(record,error);throw error;} finally {startupDone();ledger.pendingStarts.delete(startup);}
+ } catch(error){record.releaseScope?.();ledger.fail(record,error);throw error;} finally {startupDone();ledger.pendingStarts.delete(startup);}
 }
 
 function createRunningAgent(
@@ -680,6 +698,7 @@ type ChildResourceLoaderOptions = {
 };
 
 type ForwardedOptions = {
+ permissions?: ChildPermissions;
 	model?: Model;
 	thinkingLevel?: ThinkingLevel;
 	tools?: string[];
@@ -1022,12 +1041,15 @@ async function createChildSession(
 ): Promise<AgentSession> {
 	// Built while the session is still empty: that is the only path on which pi records the
 	// model and thinking level, and without those entries a resumed child falls back to defaults.
+	const proxyTools = forwarded.permissions?.bridge ? bridgedChildTools(forwarded.permissions.bridge, forwarded.tools ?? [], forwarded.permissions.writeScope ?? [], services.cwd, forwarded.permissions.testCommands) : undefined;
+	if (proxyTools && (forwarded.tools ?? []).some(name => !proxyTools.some(tool => tool.name === name))) throw new Error("Parent tool provenance unavailable; refusing raw builtin fallback");
 	const { session } = await createAgentSessionFromServices({
 		services,
 		sessionManager: childSessionManager,
 		model,
 		thinkingLevel,
 		tools: forwarded.tools,
+  customTools: proxyTools,
 		excludeTools: forwarded.excludeTools,
 		noTools: forwarded.noTools,
 	});
@@ -1106,7 +1128,7 @@ export function waitForInstruction(
 		agent.resume = (instruction) => {
 			const ledger=agentLedgers.get(agent);ledger?.refresh();
 			if(ledger && [...ledger.records.values()].filter(r=>r.state==="pending"||r.state==="running").length>=ledger.limit)throw new Error("Background agent concurrency limit reached");
-			const record=ledger?.records.get(agent.id);if(record)record.state="running";
+			const record=ledger?.records.get(agent.id);if(record){record.acquireScope?.();record.state="running";}
 			logSteering(agent.id, "agent-resumed", { instructionLength: instruction.length });
 			agent.mainContextState = agent.notifyMainAgent ? "will-squash" : "separate";
 			agent.status = "running";

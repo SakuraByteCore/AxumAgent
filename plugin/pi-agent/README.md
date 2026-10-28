@@ -215,7 +215,18 @@ Heavily inspired by [tintinweb/pi-subagents](https://github.com/tintinweb/pi-sub
 
 ## Batch fan-out (fork addition)
 
-This fork adds `/dispatch`, which hands a batch of tasks to the main agent and lets it fan the
+Ordinary goal requests now receive the built-in autonomous delivery policy on every
+`before_agent_start`: the main model should actively dispatch worthwhile independent work,
+keep small tasks inline, own exclusive file scopes, resolve dependencies first, and integrate
+completed lanes while doing the critical path itself. No special command is required. This is
+a default model policy, not a deterministic host planner: the model still chooses whether and
+how to split; the host enforces tool permissions, admission, and lifecycle constraints.
+
+`/quick <goal>` keeps process prose concise without an implicit deadline or disabling
+parallelism. An explicit `/quick 90s <goal>` retains its real execution-budget protocol;
+`/orchestrate` retains its explicit/default budget compatibility.
+
+The optional `/dispatch` command hands a batch of tasks to the main agent and lets it fan the
 work out to background agents itself.
 
 ```
@@ -304,6 +315,10 @@ This section describes **plugin/pi-agent**, not the separately bundled pi-subage
 
 ### Effective permission boundary
 
-Pi SDK 0.99.2 exposes active tool names but not transferable parent approval handlers or an OS sandbox policy through ExtensionContext. Inheriting conversation/trust alone is not permission inheritance. Until a verifiable policy bridge exists, children fail closed to parent-active builtin `read/grep/find/ls` only, intersected with requested exclusions. Shell, writes, custom tools and recursive delegation are denied at the child tool-call gate; automatic/custom extension loading is disabled (only the bundled response companion is explicit). Main-agent implementation and shell verification remain inline. This conservative limitation is intentional, including when Codex permits deeper recursion. It is **not an OS filesystem sandbox** and does not constrain trusted extension code itself.
+Bundled Pi SDK 0.99.2 provides `ExtensionToolContext.executeTool()`: tool-dispatched children proxy explicitly allowed builtin tools through the live parent validation/hooks/approval chain. The parent active-tool intersection and builtin source metadata are checked; custom tools and recursive delegation are excluded. Writable dispatch requires explicit `writeScope` within cwd; write/edit paths resolve symlinks and reject out-of-scope targets. Overlapping child write scopes reject, terminal turns release locks, and continuation must reacquire them atomically. Parent revocation, replaced/disposed contexts, shutdown and closed child capabilities fail closed; missing proxies never fall back to raw builtin mutation.
+
+By default writable workers have no shell. Explicit `testCommands` grants only exact command strings, still mediated by parent hooks, and takes a workspace-wide exclusive child lock. This is **not a shell/filesystem sandbox**: approved repository code can execute with parent host permissions. The parent must authorize that execution and avoid concurrent parent writes itself. Path guards are not resistant to hostile concurrent filesystem mutation/TOCTOU or hardlinks; use OS isolation for untrusted code. Read tools are not restricted to cwd. Automatic/custom child extension discovery remains disabled; only the bundled response companion is explicit.
+
+Legacy SDKs and slash-command contexts without the parent executor retain read/search-only behavior; a writable request reports an explicit capability error rather than silently pretending to implement. Companion advice alone is not approval. See `docs/autonomous-delegation.md` for evidence and policy limitations.
 
 Codex comparison is pinned to live-main `26ad281fd1ca712e4f0c7920a6273cf18c961b8a`; Axum baseline `1bebf170668557cf0518ed7632836d8fa440ab98`. See `docs/subagent-contract.md` for the verified V1/V2 compatibility boundary.
