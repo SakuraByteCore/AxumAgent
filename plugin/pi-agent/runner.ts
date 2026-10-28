@@ -539,7 +539,10 @@ export async function startUserAgent(
   agent.finished=(async()=>{
    try {
     const runtime=await loadOarTextRuntime();
-    if(agent.aborted||isShuttingDown()||ledger.generation!==generation)return;
+    if(agent.aborted||agent.interruptRequested||isShuttingDown()||ledger.generation!==generation){
+     agent.aborted=true;agent.error="OAR task aborted during initialization; no native task started";
+     agent.runtimeResult={text:"",stopReason:"aborted",partial:false,diagnostics:[]};return;
+    }
     agent.runHandle=runtime.start({task:parsed.task,cwd:ctx.cwd,signal:new AbortController().signal,...deadline?{timeoutMs:Math.max(1,deadline.deadlineAt-Date.now())}:{}});
     const result=await agent.runHandle.result;agent.runtimeResult=result;agent.responseText=result.text;
     if(result.stopReason==="timeout"){agent.timeoutMs=deadline?.timeoutMs;agent.stopCause="deadline";}
@@ -903,6 +906,7 @@ async function runAgentLifecycle(
    execute:async instruction=>{
     session=await createChildSession(model,thinkingLevel,forwarded,[],services,childSessionManager,runningAgent,widget);
     if(stopped||runningAgent.aborted||isShuttingDown())return "";
+    throwIfDispatchDeadline(runningAgent);
     unsubscribe=subscribeToChildSession(session,runningAgent,widget);
     await promptChildUntilSettled(session,instruction);
     return getFinalAssistantText(session,0);
@@ -913,7 +917,9 @@ async function runAgentLifecycle(
   });
   const controller=new AbortController();if(runningAgent.aborted||isShuttingDown())controller.abort();
   runningAgent.runHandle=runtime.start({task,cwd:services.cwd,signal:controller.signal,...runningAgent.deadlineAt===undefined?{}:{timeoutMs:Math.max(1,runningAgent.deadlineAt-Date.now())}});
-  const result=await runningAgent.runHandle.result;runningAgent.runtimeResult=result;runningAgent.responseText=result.text;runningAgent.completedAt=Date.now();
+  const result=await runningAgent.runHandle.result;
+  if(runningAgent.stopCause==="deadline"){result.stopReason="timeout";result.partial=!!result.text;}
+  runningAgent.runtimeResult=result;runningAgent.responseText=result.text;runningAgent.completedAt=Date.now();
   if(result.stopReason==="timeout"){runningAgent.timeoutMs=runningAgent.executionTimeoutMs;runningAgent.stopCause="deadline";}
   if(result.stopReason!=="completed")runningAgent.error=result.diagnostics.map(d=>d.message).join("; ")||"Task "+result.stopReason;
   if(result.cleanupFailure)runningAgent.error=[runningAgent.error,result.cleanupFailure.message].filter(Boolean).join("; ");

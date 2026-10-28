@@ -387,6 +387,7 @@ export class UserAgentWidget {
 	}
 
 	private interruptRunning(agent: RunningAgent): void {
+        if(agent.oneShot)agent.aborted=true; // Persist cancellation even before runtime/session attachment.
 		agent.interruptRequested = true;
 		if(agent.runHandle)void agent.runHandle.cancel();else void agent.session?.abort();
 		this.update();

@@ -10,6 +10,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);fs.appendFileSync(process.env.OAR_FIXTURE_LOG,JSON.stringify({input:m})+'\n');
  if(m.type==='user'){
  send({type:'system',subtype:'init',session_id:'fixture'});
+ if(JSON.stringify(m).includes('hold partial')){
+  send({type:'assistant',uuid:'partial',message:{id:'partial',role:'assistant',content:[{type:'text',text:'partial native evidence'}]}});
+  fs.appendFileSync(process.env.OAR_FIXTURE_LOG,JSON.stringify({partialSent:true})+'\n');return;
+ }
  send({type:'assistant',uuid:'answer',message:{id:'answer',role:'assistant',content:[{type:'text',text:'offline OAR answer'}]}});
  send({type:'result',subtype:'success',is_error:false,result:'offline OAR answer'});
  send({type:'result',subtype:'success',is_error:false,result:'duplicate terminal'});

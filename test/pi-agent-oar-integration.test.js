@@ -106,6 +106,30 @@ test('offline OAR transport through production index (not real provider): SDK ch
   const args=log.find(x=>x.args).args;assert.equal(args.includes('--dangerously-skip-permissions'),false);assert.equal(args[args.indexOf('--permission-mode')+1],'dontAsk');assert.equal(args[args.indexOf('--tools')+1],'');
   for(const flag of ['--strict-mcp-config','--disable-slash-commands','--no-chrome','--no-session-persistence'])assert.ok(args.includes(flag));
   assert.equal(log.filter(x=>x.input?.type==='user').length,1,'one native prompt despite duplicate terminal frame');
+  // Actual vendored native transport cancellation, not only a structural fake Session.
+  const slow=await captured.executeTool('dispatch_agent',{task:'hold partial',backend:'oar-claude-text',squash:false,batchId:'production'});
+  const slowId=slow.result.details.agentId;assert.ok(slowId);
+  const {watch}=await import('node:fs');
+  await new Promise((resolve,reject)=>{
+   const ready=()=>readFileSync(join(root,'native.jsonl'),'utf8').includes('"partialSent":true');
+   const watcher=watch(join(root,'native.jsonl'),()=>{if(ready()){clearTimeout(timer);watcher.close();resolve();}});
+   const timer=setTimeout(()=>{watcher.close();reject(new Error('native partial fixture did not start'));},5000);
+   if(ready()){clearTimeout(timer);watcher.close();resolve();}
+  });
+  // Allow the pipe reader to consume the already-written partial frame before cancellation.
+  await new Promise(resolve=>setTimeout(resolve,30));
+  const slowWait=await captured.executeTool('manage_agent',{action:'wait',agentId:slowId,timeoutMs:5});
+  assert.equal(slowWait.result.details.timedOut,true);
+  const cancelled=await captured.executeTool('manage_agent',{action:'interrupt',agentId:slowId});
+  const cr=cancelled.result.details.records.find(r=>r.id===slowId);
+  assert.equal(cr.state,'cancelled');assert.equal(cr.runtimeResult.stopReason,'aborted');
+  assert.match(cr.response,/partial native evidence/);assert.equal(cr.runtimeResult.partial,true);
+  assert.equal(cr.runtimeResult.cleanupFailure,undefined);
+  assert.equal(cr.runtimeResult.diagnostics.some(d=>d.stage==='dispose'),false);
+  assert.equal(nr.backend,'oar-claude-text');assert.equal(nr.capabilities.rebase,false);
+  const nativeRecords=parent.sessionManager.getEntries().filter(e=>e.type==='custom'&&e.data?.details?.agentId===native.result.details.agentId);
+  assert.ok(nativeRecords.length>0,"native answer is recorded as a result, not a fabricated Pi conversation");
+  for(const entry of nativeRecords)assert.doesNotMatch(entry.data?.content??'',/back and forth|<user_message|<assistant_response/);
   parent.dispose();parent=undefined;
   await assert.rejects(captured.executeTool('read',{path:'module.mjs'}),/inactive|disposed|active|stale after session replacement or reload/i);
  }finally{
