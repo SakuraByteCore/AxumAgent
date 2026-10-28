@@ -382,14 +382,21 @@ async function resumeOneFailedAgent(
 	target: FailedAgentTarget,
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
-	const invocation = target.invocation ?? `/${target.command} ${target.task}`.trim();
+	const ledger=registryFor(runningAgents), generation=ledger.generation;
+ const previous=ledger.records.get(target.agentId);
+ if(previous && (previous.state==="pending"||previous.state==="running"))throw new Error("Child already active");
+ if(previous)ledger.records.delete(target.agentId);
+ const record=ledger.reserve(target.agentId);
+ let startupDone!:()=>void;const startup=new Promise<void>(resolve=>{startupDone=resolve;});ledger.pendingStarts.add(startup);
+ try {
+ const invocation = target.invocation ?? `/${target.command} ${target.task}`.trim();
 	const parsed = parseResumeCommand(target, invocation);
-	if([...runningAgents].filter(a=>a.status==="starting"||a.status==="running").length>=6)throw new Error("Background agent concurrency limit reached");
+
 	const sessionFile = await findChildSessionFile(ctx.cwd, target.sessionId);
 	const plan = planFailedAgentResume(target, sessionFile, parsed.planRef !== undefined);
 	if (plan.mode === "skip") {
 		reportResumeNotice(pi, ctx, `${target.agentId}: ${plan.reason}`, "warning");
-		return;
+		ledger.fail(record,plan.reason);return;
 	}
 	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
 	let childSessionManager: SessionManager;
@@ -423,7 +430,9 @@ async function resumeOneFailedAgent(
 			? RESUME_REBASE_BASE_FINGERPRINT
 			: conversationFingerprint(inheritedMessages),
 	);
-	widget.removeFailedCompletedById(target.agentId);
+	if(isShuttingDown() || ledger.generation!==generation || record.state==="closed")throw new Error("Session shut down or child closed during resume");
+ ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
+ widget.removeFailedCompletedById(target.agentId);
 	launchRunningAgent(
 		pi,
 		runningAgents,
@@ -439,6 +448,8 @@ async function resumeOneFailedAgent(
 		runningAgent,
 		ctx,
 	);
+ void runningAgent.finished.then(()=>ledger.settle(record),error=>ledger.fail(record,error));
+ }catch(error){ledger.fail(record,error);throw error;}finally{startupDone();ledger.pendingStarts.delete(startup);}
 }
 
 /** Warn (without blocking) when a dispatch skips -p while a blueprint is still mid-turn. */
@@ -519,7 +530,7 @@ export async function startUserAgent(
 		conversationFingerprint(inheritedMessages),
 	);
 ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
- if(deadline)runningAgent.deadlineAt=deadline.deadlineAt;
+ if(deadline){runningAgent.deadlineAt=deadline.deadlineAt;if(Date.now()>=deadline.deadlineAt){runningAgent.timeoutMs=deadline.timeoutMs;runningAgent.stopCause="deadline";}}
  launchRunningAgent(
   pi,
   runningAgents,
@@ -891,7 +902,15 @@ export async function runChildTurns(
 	while (true) {
 		if(runningAgent.aborted || isShuttingDown())return;
 		const turnMessageStart = session.agent.state.messages.length;
-		throwIfDispatchDeadline(runningAgent);
+  if(runningAgent.stopCause==="deadline" || (runningAgent.deadlineAt!==undefined && Date.now()>=runningAgent.deadlineAt)){
+   runningAgent.stopCause="deadline";
+   runningAgent.completedAt=Date.now();runningAgent.error=dispatchTimeoutReport(runningAgent);
+   const partial=buildAgentResultMessage(runningAgent,{ok:false,error:runningAgent.error},{display:runningAgent.notifyMainAgent});
+   postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,partial);
+   runningAgent.status="idle";runningAgent.cancelDeadline?.();registryForAgent(runningAgent);widget.update();
+   const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
+   instruction=next;continue;
+  }
 		if (!runningAgent.interruptRequested) {
 			logSteering(runningAgent.id, "turn-prompt-started", {
 				streaming: session.isStreaming,
@@ -1022,7 +1041,6 @@ async function createChildSession(
 	await session.bindExtensions({ mode: "print" });
 	guardChildTools(session, forwarded.tools ?? []);
 	if(runningAgent.aborted)throw new Error("Child closed during startup");
-	throwIfDispatchDeadline(runningAgent);
 	logSteering(runningAgent.id, "session-bound", { streaming: session.isStreaming });
 	if (inheritedMessages.length > 0) {
 		persistMessages(childSessionManager, inheritedMessages, []);
