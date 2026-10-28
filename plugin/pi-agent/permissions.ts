@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { realpathSync } from "node:fs";
+import { realpathSync, lstatSync } from "node:fs";
 /** Legacy command contexts have no nested executor: never silently grant raw tools. */
 export const SAFE_CHILD_TOOLS = new Set(["read", "grep", "find", "ls"]);
 export const BUILTIN_CHILD_TOOLS = new Set([...SAFE_CHILD_TOOLS, "write", "edit", "bash"]);
@@ -14,7 +14,9 @@ export function inheritedToolCeiling(parentTools: readonly string[], requested?:
 /** Resolve existing ancestors too, preventing symlink and ../ scope escapes. */
 export function canonicalScope(value:string,cwd:string):string {
  let current=path.resolve(cwd,value),tail:string[]=[];
- while(true){try{return path.join(realpathSync(current),...tail);}catch(error:any){if(error.code!=="ENOENT")throw error;const parent=path.dirname(current);if(parent===current)throw error;tail.unshift(path.basename(current));current=parent;}}
+ while(true){try{return path.join(realpathSync(current),...tail);}catch(error:any){if(error.code!=="ENOENT")throw error;
+   try { if(lstatSync(current).isSymbolicLink())throw new Error("Dangling symlink is not an authorized scope path"); } catch(statError:any) { if(statError.code!=="ENOENT")throw statError; }
+   const parent=path.dirname(current);if(parent===current)throw error;tail.unshift(path.basename(current));current=parent;}}
 }
 function contains(root:string,target:string){const relative=path.relative(root,target);return relative===""||(!relative.startsWith(".."+path.sep)&&relative!==".."&&!path.isAbsolute(relative));}
 export class WriteScopeLocks {
