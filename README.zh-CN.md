@@ -1,4 +1,4 @@
-> Current one-shot runtime contract: [subagent runtimes](docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. Default workers use real OAR Codex with mandatory container isolation, strict native sandbox, independent project snapshots and owned-file diff integration. Missing prerequisites fail closed; controlled-pi is explicit compatibility only. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+> 子任务默认使用内置 `controlled-pi`，沿用主 Agent 已配置的模型、Provider 与认证，无需 Docker、外部 CLI 或额外 API Key。每次派发都是独立的一次性任务；`manage_agent` 仅支持 `status` / `wait` / `interrupt` / `close`，不支持 `send` / `resume` / `rebase`。
 
 # Axum Agent
 
@@ -17,7 +17,7 @@
 
 - **一条命令，全家桶就位** —— Pi 本体与 12 个打包扩展（快捷指令、后台 Agent、持久记忆、todo、Web 工具）同装同启；自包含运行时存于用户缓存，重装不重复首次安装流程。
 - **手机上也能跑** —— 一等支持 Android/Termux：同一条命令把 Termux 变成编码代理。
-- **一键后台 Agent** —— `/spawn`（继承会话）、`/scout`（空白上下文）、`/blueprint`（规划模式）一键发射后台 Agent，实时进度挂件 + 结果自动回传。
+- **一键后台 Agent** —— `/spawn`（独立任务）、`/scout`（独立调研）、`/blueprint`（规划模式）一键发射后台 Agent，实时进度挂件 + 结果自动回传。
 - **跨会话持久记忆** —— `pi-memory` 以单个 JSON 文件持久化记忆，零原生依赖（/memory save|find|recall|clear）。
 - **MCP 开箱即用** —— `axum mcp add` 添加即生效；配置格式与 Cursor、Claude Code、Codex 通用。
 - **Web 配置 + 安全模式** —— Provider、重试与系统提示词设置均在本地 Web UI 完成；任何损坏的扩展都可被跳过，仅启动 Pi 本体。
@@ -48,7 +48,7 @@
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（结构化 todo 追踪：todo 工具维护计划清单并以实时 HUD 显示在编辑器上方，另含 /todo 与 /todos-configure 命令）
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：默认由主 Agent 按目标主动分派独立任务，带实时进度挂件；简单任务直接执行，无需用户选择拆分命令；支持 `/agent -P/--plan` 以后台方式执行规划；一键预设命令 `/spawn` `/scout` `/blueprint`；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
-- 派发入口统一为 `dispatch_agent`；`manage_agent` 保留等待、取消、续跑与批次管理。旧 `pi-subagents` 加载及 supervisor 工具已禁用。
+- 派发入口统一为 `dispatch_agent`；`manage_agent` 仅保留 `status`、`wait`、`interrupt`、`close` 生命周期及批次管理。旧 `pi-subagents` 加载及 supervisor 工具已禁用。
 - `pi-memory`（单 JSON 文件持久化跨会话记忆：/memory save|list|find|remove|recall|clear；零原生依赖）
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
 - `@ff-labs/pi-fff`（仅桌面端：带频率排序的 FFF 文件搜索；Android 与 Windows 不包含）
@@ -223,6 +223,8 @@ axum code
 
 ## 一键后台 Agent
 
+目标有两个或更多值得并行的独立文件、模块或验证通道时，主 Agent 应尽早派发，提供上下文、独占文件范围、接口与验收条件，并自行推进关键路径。主 Agent 收集结果、修复遗漏或冲突并统一验证；简单或紧耦合任务内联完成。共享文件归单一负责人，依赖通道等待前置证据。这是模型策略，不是确定性调度器。新需求应先检查已有副作用，再另派增量任务，不续跑旧任务。
+
 三条预设命令固化了 `/agent` 的高频参数组合，发起后台任务零参数决策：
 
 ```text
@@ -231,11 +233,11 @@ axum code
 /blueprint add dark mode        # 等价 /agent -P -s add dark mode
 ```
 
-- `/spawn <任务>` —— 继承当前会话上下文，完成后结果自动回投主会话。
-- `/scout <任务>` —— 以空白上下文隔离启动，不继承会话。
+- `/spawn <任务>` —— 派发独立的一次性任务，完成后结果自动回投主会话；必须明确提供必要上下文。
+- `/scout <任务>` —— 派发独立的一次性调研任务，不继承会话历史。
 - `/blueprint <任务>` —— 以后台计划模式运行，完成后自动原样回投成稿方案。
 
-追加参数仍可组合：`/spawn -m gpt-5 …` 有效，因为预设只是共享 `/agent` 解析器、挂件与生命周期之上的参数前缀。原有 `/agent [options] <任务>` 命令行为不变。
+追加参数仍可组合：`/spawn -m gpt-5 …` 有效，因为预设只是共享 `/agent` 解析器、挂件与生命周期之上的参数前缀。`/agent [options] <任务>` 同样遵循一次性任务契约。
 
 ## 用 `/usemodel` 切换模型
 

@@ -24,9 +24,7 @@
     "node": ">=22.19.0"
   },
   "dependencies": {
-    "@agegr/pi-web": "^0.8.11",
-    "cross-spawn": "7.0.6",
-    "which": "2.0.2"
+    "@agegr/pi-web": "^0.8.11"
   },
   "files": [
     "bin/",

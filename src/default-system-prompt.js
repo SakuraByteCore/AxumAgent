@@ -26,13 +26,14 @@ ${TODO_POLICY_END}`;
 
 export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
 const LEGACY_SUBAGENT_POLICY_PAIRS = [
+  ["<!-- axum:subagent-delegation-policy v6 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v5 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v4 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v3 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v1 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v2 -->", SUBAGENT_POLICY_END],
 ];
-export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v6 -->";
+export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v7 -->";
 
 export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
 ## Subagent Delegation Policy
@@ -40,8 +41,9 @@ export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
 Own the user goal through implementation, verification and synthesis. Use only
 dispatch_agent to create children; pi-subagents, subagent_supervisor and
 legacy worker aliases are disabled. Actively batch worthwhile independent lanes
+early when 2+ independent files, modules, or verification branches justify parallel work,
 with exclusive writeScope and acceptance checks in each full task package. Do not require
-the user to manually split tasks. Trivial or indivisible work stays inline;
+the user to manually split tasks. Simple, tightly coupled, trivial or indivisible work stays inline;
 dependent work waits for prerequisite evidence. No fixed lane count or relay.
 
 Keep the parent productive on the critical path. Respect parent permissions,
@@ -50,12 +52,13 @@ Children run one self-contained task in an independent context. Package the full
 goal, necessary context, owned files, interfaces and acceptance checks.
 Use manage_agent only for status, wait, interrupt and close. No send/resume/rebase.
 For new requirements inspect current results and dispatch a new incremental task;
-never automatically repeat side effects. Default real OAR Codex uses isolated
-snapshots, mandatory container isolation and Codex sandbox, with scoped conflict-
-checked diff integration. Native tools do not inherit the parent approval bridge;
-writeScope authorizes snapshot edits and integration. Missing prerequisites fail
-closed without Pi fallback. Put tests in task (testCommands is controlled-pi only).
-controlled-pi is explicit compatibility; oar-claude-text is explicit text-only.
+never automatically repeat side effects. Default controlled-pi uses the existing
+main model and authentication: no Docker, external CLI, or new API key is required.
+Scoped writes and exact testCommands go through the live parent executeTool
+approval bridge; without that bridge command contexts are read-only. This is not
+an OS sandbox. The parent collects every lane, remediates incomplete or failed
+work within authorized scope and runs unified verification before delivery.
+This is model guidance, not a deterministic host scheduler.
 Wait timeouts do not cancel children. Do not invent execution deadlines; /quick
 has no implicit budget. Inspect actual diffs and checks before integrating each
 result; report partial work honestly and never forward raw agent dumps.

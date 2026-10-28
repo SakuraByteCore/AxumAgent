@@ -165,13 +165,16 @@ test("v3 managed policy migrates without replacing custom user instructions", (t
  assert.equal(ensureSubagentDelegationPolicy({env}).changed,false);
 });
 
-test("v5 controlled default migrates to native OAR without clobbering custom text",t=>{
+for (const version of [5, 6]) test(`v${version} migrates to controlled-pi v7 without clobbering custom text`,t=>{
  const env=withTempEnv(t), target=resolveAppendSystemPromptFile(env);
- fs.writeFileSync(target,"Custom before\n<!-- axum:subagent-delegation-policy v5 -->\ncontrolled-pi default\n"+SUBAGENT_POLICY_END+"\nCustom after\n");
+ fs.writeFileSync(target,`Custom before\n<!-- axum:subagent-delegation-policy v${version} -->\nstale managed runtime\n`+SUBAGENT_POLICY_END+"\nCustom after\n");
  ensureSubagentDelegationPolicy({env});
  const content=fs.readFileSync(target,"utf8");
  assert.match(content,/Custom before/);assert.match(content,/Custom after/);
- assert.doesNotMatch(content,/policy v5|controlled-pi default/);
- assert.match(content,/Default real OAR Codex/);assert.match(content,/without Pi fallback/);
+ assert.doesNotMatch(content,/policy v[56]|stale managed runtime|OAR/);
+ assert.match(content,/policy v7/);assert.match(content,/Default controlled-pi/);
+ assert.match(content,/no Docker, external CLI, or new API key/);
+ assert.match(content,/2\+ independent files, modules, or verification branches/);
+ assert.match(content,/unified verification/);
  assert.equal(ensureSubagentDelegationPolicy({env}).changed,false);
 });

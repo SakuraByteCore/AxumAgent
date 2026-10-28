@@ -110,7 +110,7 @@ export type AgentCommandDetails = {
 
 export type RunningAgent = {
  oneShot?: boolean;
- backend?: "oar-codex" | "controlled-pi" | "oar-claude-text";
+ backend?: "controlled-pi";
  runHandle?: import("./runtime.js").RunHandle;
  runtimeResult?: import("./runtime.js").RuntimeResult;
 	id: string;
@@ -169,7 +169,7 @@ export type RunningAgent = {
 
 export type CompletedAgent = {
  oneShot?: boolean;
- backend?: "oar-codex" | "controlled-pi" | "oar-claude-text";
+ backend?: "controlled-pi";
 	id: string;
 	sessionId: string;
 	command: AgentCommandName;

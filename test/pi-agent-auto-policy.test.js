@@ -14,8 +14,12 @@ test('before_agent_start injects default goal delivery and follows live tool ava
  assert.match(result.systemPrompt, /currently available: actively use it/);
  assert.match(result.systemPrompt, /trivial or indivisible task stays inline/);
  assert.match(result.systemPrompt, /pass writeScope.*dependency input.output interfaces/s);
- assert.match(result.systemPrompt, /testCommands \(controlled-pi compatibility only\)/);
- assert.match(result.systemPrompt, /Default workers use real OAR Codex in isolated project snapshots/);
+ assert.match(result.systemPrompt, /exact testCommands/);
+ assert.match(result.systemPrompt, /Default workers use controlled-pi with the existing main model and authentication/);
+ assert.match(result.systemPrompt, /2\+ independent files, modules, or verification branches/);
+ assert.match(result.systemPrompt, /no Docker, external CLI, or new API key/);
+ assert.match(result.systemPrompt, /remediate failed or incomplete lanes.*unified verification/);
+ assert.doesNotMatch(result.systemPrompt, /OAR|snapshot/);
  assert.match(result.systemPrompt, /must not recursively dispatch/);
  assert.match(result.systemPrompt, /dispatch_agent is the sole model-callable child dispatch entrypoint/);
  assert.match(result.systemPrompt, /Never use subagent_supervisor.*legacy aliases, shell workers, or direct child processes/);

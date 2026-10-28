@@ -12,7 +12,7 @@ export const AGENT_PRESETS: readonly AgentPreset[] = [
 		name: "spawn",
 		flags: ["-s"],
 		description:
-			"Run an independent OAR task (read-only shortcut) and deliver its result automatically: /spawn <task>. Add -p to relay the latest /blueprint plan instead of writing a new task: /spawn -p [note]",
+			"Run an independent controlled-pi task (read-only shortcut) and deliver its result automatically: /spawn <task>. Add -p to relay the latest /blueprint plan instead of writing a new task: /spawn -p [note]",
 	},
 	{
 		name: "scout",

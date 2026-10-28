@@ -1,8 +1,4 @@
 import { createControlledRuntime } from "./controlled-runtime.js";
-import { randomUUID } from "node:crypto";
-import { assertOarRequest, loadOarTextRuntime } from "./oar.js";
-import { loadOarCodingRuntime } from "./oar-codex.js";
-import { prepareOarWorkspace } from "./oar-workspace.js";
 import { AgentRegistry } from "./registry.js";
 import { armDispatchDeadline } from "./dispatch.js";
 import { inheritedToolCeiling, guardChildTools, bridgedChildTools, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
@@ -531,62 +527,7 @@ export async function startUserAgent(
  const record=ledger.reserve("user-" + nextAgentNumber().toString(36),batchId);
  let startupDone!:()=>void;const startup=new Promise<void>(resolve=>{startupDone=resolve;});ledger.pendingStarts.add(startup);
  try {
- const backend = permissions?.backend ?? "oar-codex";
- if(backend === "oar-codex" || backend === "oar-claude-text") {
-  const coding = backend === "oar-codex";
-  if(!coding)assertOarRequest(permissions);
-  if(parsed.forwardedArgs.length)throw new Error("OAR does not accept Pi CLI/model flags; configure the deployment native model instead.");
-  const scopes=[...(permissions?.writeScope ?? [])];
-  if(coding && permissions?.testCommands?.length)throw new Error("OAR cannot enforce exact testCommands; include acceptance checks in task. Native tests run only inside the isolated snapshot, never through parent approval.");
-  if(coding){
-   record.acquireScope=()=>{record.releaseScope=scopeLocks.acquire(ctx.sessionManager.getSessionId()+":"+record.id,scopes,ctx.cwd);};
-   record.acquireScope();
-  }
-  const nativeModel = {provider:"oar",id:coding?"codex-native":"claude-native",name:coding?"OAR Codex (isolated coding)":"OAR Claude (text only)"} as Model;
-  const agent=createRunningAgent(record.id,randomUUID(),command,nativeModel,{...parsed,isolate:true},invocation,undefined,"[]");
-  agent.oneShot=true;agent.backend=backend;agent.status="running";
-  ledger.attach(record,agent);agentLedgers.set(agent,ledger);runningAgents.add(agent);
-  agent.finished=(async()=>{
-   let workspace: Awaited<ReturnType<typeof prepareOarWorkspace>> | undefined;
-   let integrationFailed=false;
-   try {
-    if(coding)workspace=await prepareOarWorkspace(ctx.cwd,scopes);
-    const runtime=coding?await loadOarCodingRuntime({cwd:workspace!.cwd,writable:scopes.length>0}):await loadOarTextRuntime();
-    if(agent.aborted||agent.interruptRequested||isShuttingDown()||ledger.generation!==generation){
-     agent.aborted=true;agent.error="OAR task aborted during initialization; no native task started";
-     agent.runtimeResult={text:"",stopReason:"aborted",partial:false,diagnostics:[]};return;
-    }
-    if(deadline && Date.now()>=deadline.deadlineAt){
-     agent.timeoutMs=deadline.timeoutMs;agent.stopCause="deadline";agent.error="OAR deadline expired during initialization; no native task started";
-     agent.runtimeResult={text:"",stopReason:"timeout",partial:true,diagnostics:[]};return;
-    }
-    agent.runHandle=runtime.start({task:relayInstruction ?? parsed.task,cwd:workspace?.cwd ?? ctx.cwd,signal:new AbortController().signal,...deadline?{timeoutMs:Math.max(1,deadline.deadlineAt-Date.now())}:{}});
-    const result=await agent.runHandle.result;agent.runtimeResult=result;agent.responseText=result.text;
-    if(result.stopReason==="timeout"){agent.timeoutMs=deadline?.timeoutMs;agent.stopCause="deadline";}
-    if(result.stopReason!=="completed")agent.error=result.diagnostics.map(d=>d.message).join("; ")||"OAR task "+result.stopReason;
-    if(result.cleanupFailure)agent.error=[agent.error,result.cleanupFailure.message].filter(Boolean).join("; ");
-    if(workspace && !result.cleanupFailure){
-     if(isShuttingDown()||ledger.generation!==generation)throw new Error("Parent session changed: snapshot changes were not integrated");
-     let integration;try{integration=await workspace.integrate();}catch(error){integrationFailed=true;throw new Error(errorMessage(error)+". Snapshot retained at "+workspace.cwd+"; inspect existing effects and integrate/clean up explicitly, do not automatically retry.");}
-     agent.responseText += "\n\nIntegrated snapshot files: " + (integration.changedFiles.join(", ") || "none");
-    }
-   } catch(error){agent.error=errorMessage(error);}
-   finally {
-    if(workspace && !integrationFailed && !agent.runtimeResult?.cleanupFailure){try{await workspace.dispose();}catch{
-     const cleanupFailure={stage:"dispose" as const,message:"OAR snapshot cleanup failed"};
-     agent.runtimeResult={...(agent.runtimeResult ?? {text:agent.responseText,stopReason:"error" as const,partial:true,diagnostics:[]}),cleanupFailure};
-     agent.error=[agent.error,cleanupFailure.message].filter(Boolean).join("; ");
-    }}
-    agent.completedAt=Date.now();agent.status="idle";
-    const message=buildAgentResultMessage(agent,agent.error?{ok:false,error:agent.error}:{ok:true,response:agent.responseText},{display:agent.notifyMainAgent});
-    widget.addCompleted(agent,message,{squashable:!agent.notifyMainAgent});
-    postUserAgentResult(pi,()=>isShuttingDown()||ledger.generation!==generation,agent.notifyMainAgent,message);
-    ledger.settle(record);runningAgents.delete(agent);widget.update();
-   }
-  })();
-  return agent;
- }
- if(permissions?.backend && permissions.backend!=="controlled-pi")throw new Error("Unknown child backend");
+ if(permissions?.backend && permissions.backend!=="controlled-pi")throw new Error("Native OAR backends were retired: remove backend from dispatch configuration to use bundled controlled-pi with the current model. No task started.");
  const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation, permissions);
  const scopes=permissions?.writeScope ?? [];
  if(permissions?.testCommands?.length && !scopes.length)throw new Error("testCommands requires explicit writeScope; shell is not sandboxed");

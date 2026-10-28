@@ -1,4 +1,4 @@
-> Current one-shot runtime contract: [subagent runtimes](subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. controlled-pi remains writable via the parent bridge; optional real OAR Claude integration is supplied-text-only, not native writable parity. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+> 当前契约：[subagent runtime](subagent-runtime.md)。默认 controlled-pi 使用当前主代理模型与认证，无需 Docker、新密钥或外部 CLI；OAR 已放弃。dispatch 为独立上下文的一次性任务，manage 仅 status/wait/interrupt/close。写入必须经 live parent executeTool 桥、显式 writeScope，shell 仅精确 testCommands；不是 OS sandbox，无桥的 legacy slash 上下文只读。managed policy v1–v6 迁移至 v7 并保留周围自定义文本。以下 Codex 源码对照仅作历史参考，涉及 Axum send/resume/rebase、continuation 或上下文继承的旧描述均已被当前契约取代。
 
 # Codex 子代理契约核实（只读）
 
@@ -55,6 +55,8 @@
 
 应分开建模 AgentIdentity/loaded residency/active turn/accepted delivery/terminal turn/explicit Closed；区分 queue-only、trigger-turn、interrupt、tree-shutdown；父 cancel 的 provisional 与 accepted 边界要保留。不要把 V2 unlimited identity + bounded running/resident 错写成 V1 open-thread cap，也不要把 V2 max_depth、旧 CSV deadline 或 wait(ids) 从历史版本搬进当前契约。
 
-## AxumAgent 本次适配边界
+## 历史 AxumAgent 适配边界（已被 one-shot 契约取代）
 
-plugin/pi-agent 使用同宿主 Pi SDK 内存 session，不复制 Codex 持久化/residency 系统。本次新增 manage_agent 和批次账本，wait 超时不取消，send 是 trigger-turn/stream steer；interrupt 只终止单路当前 turn，close 明确释放本地 child。六个 pending/running 名额属于 Axum 自定义执行上限，不声称等同 V1 注册线程名额或 V2 residency。回传仍按 squash=true 主动唤醒（保留 Axum 兼容行为，不冒称 V2 queue-only）。普通 ExtensionContext 无审批策略导出；bundled SDK 0.99.2 的工具上下文 executeTool 已用于父真实工具链桥接，writeScope 和显式 testCommands 受父实时工具/审批检查，旧 SDK 与无桥命令仍 fail closed 到 read/search。shell 非路径沙箱，custom 与递归禁用；与 Codex 权限 profile/隔离及 V2 可无限层身份不等价。硬 deadline 为 Axum 显式扩展，绝不是 Codex wait timeout。内存 continuation 只在同进程保留期内可用；进程重启后不提供冷恢复。
+以下记录描述旧版适配，不代表当前 API 或恢复能力；当前实现以文首链接为准。
+
+旧版 plugin/pi-agent 使用同宿主 Pi SDK 内存 session，不复制 Codex 持久化/residency 系统。本次新增 manage_agent 和批次账本，wait 超时不取消，send 是 trigger-turn/stream steer；interrupt 只终止单路当前 turn，close 明确释放本地 child。六个 pending/running 名额属于 Axum 自定义执行上限，不声称等同 V1 注册线程名额或 V2 residency。回传仍按 squash=true 主动唤醒（保留 Axum 兼容行为，不冒称 V2 queue-only）。普通 ExtensionContext 无审批策略导出；bundled SDK 0.99.2 的工具上下文 executeTool 已用于父真实工具链桥接，writeScope 和显式 testCommands 受父实时工具/审批检查，旧 SDK 与无桥命令仍 fail closed 到 read/search。shell 非路径沙箱，custom 与递归禁用；与 Codex 权限 profile/隔离及 V2 可无限层身份不等价。硬 deadline 为 Axum 显式扩展，绝不是 Codex wait timeout。内存 continuation 只在同进程保留期内可用；进程重启后不提供冷恢复。

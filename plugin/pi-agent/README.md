@@ -1,332 +1,54 @@
-> Current one-shot runtime contract: [subagent runtimes](../../docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. Default workers use real OAR Codex with mandatory container isolation, strict native sandbox, independent project snapshots and owned-file diff integration. Missing prerequisites fail closed; controlled-pi is explicit compatibility only. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+# pi-agent — Axum bundled fork
 
-<div align="center">
+Vendored from [@giladbarnea/pi-user-agents](https://github.com/giladbarnea/pi-user-agents). This guide describes the current Axum fork, not the upstream interactive-session lifecycle.
 
-# pi-user-agents
+## Default runtime
 
-> **You deserve your own agents, too. It's only fair.**
+`controlled-pi` is the built-in default. Workers use the main agent’s configured model, provider and authentication; no Docker, external CLI, separate login or extra API key is required. This is a controlled Pi SDK child, not an OS/container sandbox.
 
-[![pi extension](https://img.shields.io/badge/pi-extension-blueviolet)](https://github.com/earendil-works/pi)
-[![npm version](https://img.shields.io/npm/v/%40giladbarnea%2Fpi-user-agents?logo=npm)](https://www.npmjs.com/package/@giladbarnea/pi-user-agents)
-[![tests](https://img.shields.io/github/actions/workflow/status/giladbarnea/pi-user-agents/test.yml?branch=main&label=tests&logo=github)](https://github.com/giladbarnea/pi-user-agents/actions/workflows/test.yml)
-[![license](https://img.shields.io/github/license/giladbarnea/pi-user-agents)](LICENSE)
-[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![tested with Bun](https://img.shields.io/badge/tested_with-Bun-14151A?logo=bun&logoColor=white)](https://bun.sh/)
+Every dispatch is an independent **one-shot task**, not a fork of the conversation. Supply the complete goal, necessary source context, owned files, interface constraints, non-goals and acceptance checks explicitly. Model/provider configuration reuse does not imply conversation-history inheritance.
 
-**No token tax. No derailed turns. No trace — unless you say so.**
+## Delegation policy
 
-Pi extensions give your agent subagents. This one gives **you** — the user — your own: background agents you dispatch mid-turn, watch live, steer, and whose results stay **out of the main agent's context** until you decide otherwise.
+For two or more worthwhile independent file, module or validation lanes, the parent should dispatch early and keep working on the critical path. Give each writable lane exclusive ownership; assign shared files to one owner and let dependency consumers wait for prerequisite evidence. Simple or tightly coupled tasks stay inline.
 
-</div>
+The parent collects results, reviews edits and evidence, remediates omissions or conflicts, integrates the work and performs unified verification before reporting completion. Child completion alone is not acceptance. This is model policy, not a deterministic scheduler: the model decides whether splitting is worthwhile; the host enforces permissions, admission and lifecycle constraints.
 
----
+## Commands and tools
 
-## Why
-
-You're watching your agent grind through phase 1, and you already know what phase 2 needs.
-
-You have two options, and both are bad. Steer — and derail the work in progress with an errand. Wait — and carry the thought in your head for twenty more minutes.
-
-Now there's a third:
-
-```
-/agent plan the next phase and write it to phase-2.md
+```text
+/spawn fix the login bug        # /agent -s: one-shot task, automatic result delivery
+/scout explain parser behavior  # /agent -i: independent research
+/blueprint add dark mode        # /agent -P -s: one-shot planning
 ```
 
-The instant you press Enter, a background agent forks off with a snapshot of the current conversation and gets to work — while your main agent keeps going, none the wiser.
+`/agent [options] <task>` uses the same one-shot lifecycle. Presets do not inherit conversation history. `/dispatch` asks the parent to split worthwhile independent work and use `dispatch_agent`, the sole model-callable child creation entrypoint. `/quick <goal>` requests concise process prose without an implicit deadline or disabling parallelism; an explicit budget remains an explicit budget.
 
-**A second pair of hands with the same memory — and a separate token budget.**
+`-P` / `--plan` wraps the task in the plan template from `~/.pi/agent/plan-prompt.md`, or the built-in template if absent. A present template must be non-empty and contain `{{requirement}}`. `/blueprint` returns its finished plan verbatim. A subsequent implementation is a new task with the plan and required context supplied explicitly.
 
-## Install
+## Lifecycle and result collection
 
-```sh
-pi install npm:@giladbarnea/pi-user-agents
-```
+`dispatch_agent` returns a stable session-local agent ID; an optional `batchId` groups tasks. `manage_agent` supports only:
 
-## The loop
+- `status`: inspect task or batch state and available evidence.
+- `wait`: collect results; a wait timeout only ends observation, not execution.
+- `interrupt`: stop active work; inspect partial effects before another dispatch.
+- `close`: stop/dispose the selected task or batch.
 
-### 1. Dispatch
+There is no `send`, `resume` or `rebase`, no interactive steering or second turn on an old child, and no automatic replay of historical tasks. New requirements or remediation require a new incremental task after checking existing file effects. Explicit `timeoutMs` is an execution deadline including startup, not a collection budget; deadline/cancellation evidence is partial, not successful completion. Cancelling a parent wait does not itself cancel accepted work. The parent owns collection, outstanding-lane cleanup and final synthesis.
 
-`/agent <task>` starts a background agent with the current conversation as its starting context — it knows everything the main agent knows up to that moment. `/agent -i <task>` starts one with a blank slate instead. Dispatch as many as you like; they run concurrently.
+Squash-enabled results return automatically. `squash=false` leaves a user-visible transcript entry without automatically injecting it into model context or triggering a parent turn; collect through explicit management. Memory children do not survive process restart; persisted result cards are not resumable workers.
 
-Classic dispatches:
+## Permissions and validation
 
-```
-/agent write a handoff document for the work currently in progress
-/agent -i -m flash summarize what PARSER_SPEC.md guarantees
-/agent -s --thinking high find the root cause of the flaky widget test
-```
+Writable dispatch requires an explicit `writeScope` within the project and the live parent `executeTool` approval bridge. Omit the scope for read-only work. Allowed builtin tools pass through parent validation/hooks/approval; custom tools and recursive delegation are excluded. Overlapping active child write scopes reject. The parent must also coordinate its own writes. Missing writable capabilities fail explicitly rather than silently bypassing approvals.
 
-The first preserves the session's knowledge before the context window fills, without interrupting the main agent to do it. The second is a cheap, isolated errand. The third auto-squashes: its findings are delivered into the main conversation when it finishes.
+Workers have no shell by default. `testCommands` authorizes exact command strings via parent hooks and requires a workspace-wide exclusive child lock. Approved repository code executes with host permissions: this is **not a filesystem or shell sandbox**. Read tools are not restricted to cwd; path guards do not defend against hostile concurrent filesystem mutation or hardlinks. Do not delegate untrusted execution on this basis.
 
-### 2. Watch
+Slash-command or legacy contexts without the live parent executor remain read/search-only; companion advice is not approval. Automatic/custom child extension discovery is disabled.
 
-Every agent gets a row in a widget under the editor: status, task, model, turn count, tool uses, elapsed time, a one-cell context meter, and the last line of live activity.
+## Compatibility boundary
 
-<a href="screenshots/below-editor-widget.png">
-  <img src="screenshots/below-editor-widget.png" width="100%" alt="The user agents widget under the editor, showing one finished agent and its latest output">
-</a>
+Old upstream descriptions of inherited conversation snapshots, steering, multi-turn continuation, `/agent resume` and raw-history rebase are historical and do not describe this fork’s current contract. Existing historical data is not replayed. Legacy `pi-subagents` loading and supervisor/delegation tool aliases are blocked; unrelated custom packages are not disabled. This loading restriction is not an OS sandbox against malicious extensions.
 
-<div align="center"><em>The widget sits under the editor and stays out of your way.</em></div>
-
-<br>
-
-Press `←` or `↓` from the editor to focus the widget, pick an agent, press `Enter`, and its overlay opens: the full conversation, streaming live, following the tail as it grows. Tool calls render as proper views — `read`, `edit`, `write`, `grep`, `find`, `ls`, and `bash` each get a dedicated format, everything else a readable generic one.
-
-<a href="screenshots/overlay.png">
-  <img src="screenshots/overlay.png" width="100%" alt="The agent overlay: a rendered bash call, its output, a todo update, and the final response, over the dimmed main conversation">
-</a>
-
-<div align="center"><em>The overlay, over a main conversation that never paused.</em></div>
-
-### 3. Steer
-
-A background agent is not fire-and-forget — it's a session you can talk to.
-
-Press `Enter` in the overlay to open the steer composer. Mid-turn, your message queues in after the current tool batch, before the next model call — exactly like steering the main agent. After the turn completes, the same composer starts **another turn** on the same live session. Follow up as many times as you need; every completed turn posts its own result card.
-
-`Ctrl+x` interrupts only the current turn — the agent goes idle and stays available for steering, squashing, or detaching. In fact, nothing ends an agent except you: pressing `d` twice, squashing or rebasing it, or ending the Pi session.
-
-### 4. Detach
-
-When a row has served its purpose, press `d` twice: the agent stops and its row leaves the widget. The transcript records which one it was:
-
-```
-Detached session 0199c4f2-8b1a-7c3d-9e05-6a2f18d7b4ce
-```
-
-A dispatched agent's session lives in memory only — there is no session file on disk. Once detached, its transcript is gone: keep the row alive, or squash the result into your context, while you still need it.
-
-### 5. Squash — or don't
-
-This is what makes user agents different from subagents: **by default, the main agent never learns any of this happened.**
-
-Each completed turn posts a result card into your transcript — metadata, a collapsed preview, expandable to the full Markdown response. The card is TUI-only: you read it, expand it, copy it, and the main agent's context is untouched. Ask an agent ten questions and your main agent's token budget doesn't move.
-
-When a result does belong in the main conversation, squash it in:
-
-- Dispatch with `-s`/`--squash` and the result is delivered automatically on completion.
-- Or press `s` in the overlay of any completed agent, whenever you decide it earned its place.
-
-A squash delivers a compact record, not a transcript dump: every message you sent the agent and the final answer to each — no thinking, no tool traffic. The record is rebuilt from the agent's full history at squash time, so early turns survive even after the agent compacts its own context. If the main agent is mid-turn, the record is steered in; if idle, it triggers a turn. A squashed agent retires; its overlay stays readable.
-
-### 6. Or rebase — rewrite history
-
-Squash has a raw sibling. Press `r` in the overlay and the agent's whole conversation — prompts, replies, tool calls and their results — is appended to the main session as ordinary messages, exactly as if you had prompted the main agent all along. The dispatch preamble is stripped, nothing is wrapped or summarized, and no trace remains that a background agent ever existed.
-
-Everything the agent lived through rides along untouched. If it compacted its own context mid-run, the compaction rides along too, and the main conversation's context picks up exactly where the agent's left off. The transcript redraws with the conversation inline, plus one dim provenance line:
-
-```
-Rebased session 01a0534e-9fa7-7d6f-bd44-b85fba1f5e05 into this conversation (added 32 messages, ~135K tokens, 1 compaction event)
-```
-
-Rebase is a fast-forward, in the git sense: the agent forked from the main conversation's tip, and its history can graft back only while that tip hasn't moved. Send the main agent anything after the dispatch and `r` disappears, leaving `s` — which always works — as the way in. Press `r` anyway and the footer tells you why not.
-
-Delivering the rebase switches the session in place — same file, same session id, transcript redrawn — so `r` is withheld while any agent is mid-turn, and parked agents are detached first, each leaving its `Detached session …` line behind. When siblings would be detached, the first `r` warns with the count and a second `r` confirms.
-
-## The mechanics
-
-### 🎛️ Per-dispatch configuration
-
-Each agent takes its own configuration, using the same flags as the `pi` CLI:
-
-```
-/agent -m opus --thinking high design the caching layer
-/agent --tools read,grep,find audit the error handling in src/
-/agent -i --system-prompt "be terse" what does the session-format doc guarantee?
-```
-
-Options come first; everything after them is your task, verbatim. The full grammar lives in [PARSER_SPEC.md](PARSER_SPEC.md) — not that you'll need it.
-
-### ✨ The fanciest autocomplete in the Pi universe
-
-You'll rarely type any of this by hand. The moment you type `-`, a completion menu opens — no Tab needed. Anywhere the set of valid values is finite, the editor hands it to you: models, providers, thinking levels, the session's tools, even skill and prompt-template paths. You pick from what actually exists instead of typing and hoping.
-
-And what you do type by hand is checked live, as you type. Valid options and values light up in your theme's syntax colors; anything that won't parse — a blocked option, a model that doesn't resolve, an option stranded after the task began — shows in the error color before you ever press Enter. **A `/agent` line that looks right is right.**
-
-### 🧱 Agents stay out of your session list
-
-Every dispatch runs on an in-memory child session — no session file is written, so dispatched agents never appear in `/resume` or `pi -r`; that list stays yours alone. (Agents dispatched by older versions wrote real session files; those legacy files remain on disk and still show up.)
-
-Result cards persist across session reloads; the widget doesn't. After a reload you keep every card, but the steerable rows and live transcripts are gone — child sessions live in memory only.
-
-### ♻️ `/agent resume` — restart every failed agent
-
-When a background agent fails — a model error, an empty final response after retries, a session-creation failure — its failure card stays in the transcript. `/agent resume` restarts **every** failed agent of this session in one shot:
-
-- The agent **keeps its own id**. When a legacy session file (written by an older version of this plugin) is still on disk, it **continues that very session**: the agent picks up its prior turns, tool results, and file edits, told only that its last attempt failed and the task is not complete.
-- Otherwise the agent is **re-dispatched from scratch** from its original command line, with a notice. Plan-relay (`-p`) agents cannot be re-dispatched — the relayed plan lived only in their (in-memory) session — so those are skipped with a warning; re-run `/agent -p` instead.
-
-Resume works across session reloads too: the restart pool is scanned from the session's persisted result entries (the latest status per agent wins — an agent that later succeeded is not restarted), merged with the widget's live failure cards. An agent that fails again after a resume simply shows up as failed again and can be resumed once more. Rebase (`r`) stays blocked for continued agents — their fork point is the old main context — but squash (`s`) works as always. `/agent resume` takes no arguments; to dispatch a task whose first word is literally `resume`, quote that word: `/agent "resume the failing test"`.
-
-### 🌡️ A context meter in one cell
-
-Each row carries the agent's own footer gauge: it fills `▁▂▃▄▅▆▇█` against that agent's model context window and shifts color through the same stages as Pi's footer — dim, then muted at 40%, warning at 65%, error at 85%. You see an agent approaching its limit before it becomes a problem.
-
-## Reference
-
-The general form is one command: `/agent [options] <task>`. Three one-keystroke front doors bake in the common combinations — `/spawn <task>` (`-s`: on this conversation, result delivered back automatically), `/scout <task>` (`-i`: isolated, blank context), `/blueprint <task>` (`-P -s`: plan mode, finished plan delivered back). One bare subcommand exists: `/agent resume` restarts every failed background agent of this session (see *♻️ `/agent resume`* above).
-
-One cleanup command exists: `/aclear` detaches every running background agent and dismisses every completed card in a single keystroke — the same effect as pressing `d` `d` on each row, one after the other. Detached agents are simply gone; their sessions were in memory only.
-
-| Flag | Effect |
-|---|---|
-| `-i`, `--isolate` | Start without the conversation snapshot |
-| `-s`, `--squash` | Deliver the result into the main context on completion |
-| `-P`, `--plan` | Wrap the task in the plan prompt template (see *Plan mode* below) |
-| `-p`, `--plan-relay` | Relay the latest finished blueprint's plan verbatim instead of a new task; add a short note to append extra instruction (`-p=<agentId>` picks a specific blueprint) |
-| `-m MODEL` | Model for this agent (alias of Pi's `--model`) |
-| *pi CLI options* | Forwarded to the agent — `--thinking`, `--tools`, `--system-prompt`, … |
-
-| Where | Key | Action |
-|---|---|---|
-| Editor | `←` / `↓` | Focus the agents widget |
-| Widget | `↑` `↓` · `Enter` | Select an agent · open its overlay |
-| Widget / overlay | `Ctrl+x` | Interrupt the current turn (agent stays alive) |
-| Widget / overlay | `d` `d` | Detach the agent, keeping its session (twice to confirm) |
-| Widget / overlay | `Esc` | Back |
-| Overlay | `Enter` | Steer mid-turn, or start another turn when idle |
-| Overlay | `s` | Squash the conversation into the main context |
-| Overlay | `r` | Rebase the raw conversation into the main context (fast-forward only) |
-| Overlay | `c` | Copy the latest response |
-| Overlay | scroll · `End` | Pause tail-following · resume it |
-
-## Good to know
-
-- Some accepted `pi` options have no effect on a background run (the session, approval, offline, and API-key families). They parse; they just don't do anything yet.
-- `c` copies via `pbcopy`, so it's macOS-only for now.
-- The overlay caps very large tool outputs and omits thinking entries.
-
-## Roadmap
-
-- [x] Agents stay alive until you end them — steer, interrupt, resume, across turns.
-- [x] Squash: a compact record of the exchange, delivered into the main context.
-- [x] Rebase: the raw conversation grafted onto the main session — fast-forward only, compaction-faithful.
-- [x] Live syntax coloring and eager autocomplete for the `/agent` line.
-- [ ] Render an agent's compaction event in the overlay.
-- [ ] Wire the accepted-but-inert `pi` options.
-- [ ] Clipboard support beyond macOS.
-
-## Under the hood
-
-Design notes — result delivery through the Pi SDK, the squashed-message format, the rebase mechanism, runtime sharing, model resolution, and editor internals — live in [INTERNALS.md](INTERNALS.md). The complete command grammar lives in [PARSER_SPEC.md](PARSER_SPEC.md).
-
----
-
-Heavily inspired by [tintinweb/pi-subagents](https://github.com/tintinweb/pi-subagents).
-
-## Batch fan-out (fork addition)
-
-Ordinary goal requests now receive the built-in autonomous delivery policy on every
-`before_agent_start`: the main model should actively dispatch worthwhile independent work,
-keep small tasks inline, own exclusive file scopes, resolve dependencies first, and integrate
-completed lanes while doing the critical path itself. No special command is required. This is
-a default model policy, not a deterministic host planner: the model still chooses whether and
-how to split; the host enforces tool permissions, admission, and lifecycle constraints.
-
-`/quick <goal>` keeps process prose concise without an implicit deadline or disabling
-parallelism. An explicit `/quick 90s <goal>` retains its real execution-budget protocol;
-`/orchestrate` retains its explicit/default budget compatibility.
-
-The optional `/dispatch` command hands a batch of tasks to the main agent and lets it fan the
-work out to background agents itself.
-
-```
-/dispatch fix the flaky login test
-          write a README section for pi-bar
-          bump plugin versions to 0.1.15
-```
-
-The command injects the batch as a user message asking the agent to split it into independent
-units and to spawn one background agent per unit via the new `dispatch_agent` tool
-(`executionMode: "parallel"`, so several dispatches in one turn truly run concurrently). Each
-spawned agent is a regular `/agent` instance: it shows in the agents widget, and its result is
-delivered back into this conversation on completion (squash semantics). The tool accepts the
-same knobs as `/agent`: `isolate` (blank context), `squash` (default on), `model`, and
-`thinking`.
-
-## Plan mode (fork addition)
-
-This fork also adds the extension-owned `-P`/`--plan` flag, which wraps the task in the same
-plan prompt that `pi-companion`'s `/plan` command builds ([Requirement] / [Objective] / [Rules]),
-and dispatches it as a background agent — planning happens off the main conversation.
-
-```
-/agent -s -P add streaming support to the web chat endpoint
-```
-
-The requirement text replaces `{{requirement}}` in the template at `~/.pi/agent/plan-prompt.md`
-if that file exists; otherwise a built-in skeleton identical to `/plan`'s is used. The flag
-composes freely with the others (as above, `-s` squashes the finished plan back into the main
-conversation). A template file that is empty or lacks `{{requirement}}` aborts the dispatch
-with an error instead of sending a malformed prompt. Lowercase `-p` used to be blocked (it is pi's
-`--print`); it now belongs to plan-relay — see *Plan relay* below — and only `--print` stays
-blocked.
-
-## Plan relay (fork addition)
-
-`-p`/`--plan-relay` turns a finished plan into work without retyping it. After `/blueprint
-<task>` delivers a plan, dispatch `/spawn -p` (optionally with a short note: `/spawn -p use
-Postgres`) and the spawned agent receives the plan verbatim as its first instruction, with a
-directive to implement it exactly and not re-plan. If the blueprint is still mid-turn when you
-dispatch, the spawn waits for that turn to settle — whether the blueprint then retires with the
-plan delivered back (`/blueprint`) or parks idle as an interactive plan agent (`/agent -P`) — and
-relays the finished plan. `-p=<agentId>` (or
-`--plan-relay=<agentId>`) targets a specific blueprint instead of the most recent one. Plans
-that failed, were interrupted, or never finished are rejected with an error — nothing is
-silently improvised. Without `-p`, dispatching while a blueprint is still running shows a
-non-blocking warning suggesting `-p`. The spawned agent's transcript details carry the source
-blueprint's session id for traceability.
-
-## One-keystroke presets (fork addition)
-
-This fork also adds three commands that bake in the common `/agent` flag combinations, so
-dispatching a background agent takes zero flag decisions:
-
-```
-/spawn fix the login bug        # = /agent -s fix the login bug
-/scout why does the build fail  # = /agent -i why does the build fail
-/blueprint add dark mode        # = /agent -P -s add dark mode
-```
-
-`/spawn` inherits the conversation and delivers the finished result back into it automatically;
-`/scout` starts from a blank context; `/blueprint` runs plan mode in the background and returns
-the plan. Extra flags still compose — `/spawn -m gpt-5 …` works, the preset is just a prefix
-over the shared `/agent` parser, widget, and lifecycle.
-
-A plan-mode result (`/blueprint`, or `/agent -P -s`) is annotated with a relay directive that
-tells the main agent to present the finished plan verbatim rather than summarizing it, so its
-output stays close to what `/plan` produces even though it was answered by a background agent.
-
-A finished turn does not fail just because its final assistant message carries only thinking
-or tool parts: the delivered result falls back to the last non-empty text from the same turn,
-and a turn that produced no text at all receives exactly one follow-up instruction asking for a
-plain-text final answer before the agent reports an error.
-
-
-## Managed SDK child lifecycle
-
-This section describes **plugin/pi-agent**, not the separately bundled pi-subagents package.
-
-- `dispatch_agent` returns a stable session-local agent ID; optional `batchId` groups members in a pending/terminal ledger. `manage_agent` supports `status`, `wait`, `send`, `interrupt` and `close` (agent or batch). All new /agent, /spawn and tool dispatches share six active/pending slots. Idle children release execution slots.
-- A collection `wait` timeout is only an observation timeout: `timedOut:true` leaves work running, and later completion still returns. Cancelling the main turn cancels its wait, not accepted children. Explicit close stops selected children; host shutdown stops all children.
-- `dispatch_agent.timeoutMs` is a **hard execution deadline**, measured from dispatch acceptance including startup. It is not a wait budget. The host requests a handoff before cutoff, then aborts the active turn. Deadline output is incomplete (`ok:false, partial:true`), not provider failure or success. Genuine provider/tool failures retain their errors.
-- Completed and deadline-stopped in-memory children remain available for same-session `send` for 15 idle minutes, then retire/dispose. Sending renews the execution budget (default 5 minutes, explicit timeout accepted); never silently renew a /quick budget. The main agent must integrate, verify, close outstanding lanes and report incomplete work at its final budget. There is no process-wide /quick watchdog.
-- `squash=false` writes a user-visible transcript entry only: it does **not** automatically inject into model context or trigger a main turn. Status/explicit management is available when requested. Squash-enabled results auto-return, but the parent still owns final synthesis.
-- Live `send` continues the actual memory session. Legacy `/agent resume` continues a saved child file when one exists; otherwise it explicitly **redispatches** from the recorded task/current parent snapshot. Memory children do not survive process restart; there is no new persistence subsystem or crash-resume claim.
-
-### Effective permission boundary
-
-Bundled Pi SDK 0.99.2 provides `ExtensionToolContext.executeTool()`: tool-dispatched children proxy explicitly allowed builtin tools through the live parent validation/hooks/approval chain. The parent active-tool intersection and builtin source metadata are checked; custom tools and recursive delegation are excluded. Writable dispatch requires explicit `writeScope` within cwd; write/edit paths resolve symlinks and reject out-of-scope targets. Overlapping child write scopes reject, terminal turns release locks, and continuation must reacquire them atomically. Parent revocation, replaced/disposed contexts, shutdown and closed child capabilities fail closed; missing proxies never fall back to raw builtin mutation.
-
-By default writable workers have no shell. Explicit `testCommands` grants only exact command strings, still mediated by parent hooks, and takes a workspace-wide exclusive child lock. This is **not a shell/filesystem sandbox**: approved repository code can execute with parent host permissions. The parent must authorize that execution and avoid concurrent parent writes itself. Path guards are not resistant to hostile concurrent filesystem mutation/TOCTOU or hardlinks; use OS isolation for untrusted code. Read tools are not restricted to cwd. Automatic/custom child extension discovery remains disabled; only the bundled response companion is explicit.
-
-Legacy SDKs and slash-command contexts without the parent executor retain read/search-only behavior; a writable request reports an explicit capability error rather than silently pretending to implement. Companion advice alone is not approval. See `docs/autonomous-delegation.md` for evidence and policy limitations.
-
-Codex comparison is pinned to live-main `26ad281fd1ca712e4f0c7920a6273cf18c961b8a`; Axum baseline `1bebf170668557cf0518ed7632836d8fa440ab98`. See `docs/subagent-contract.md` for the verified V1/V2 compatibility boundary.
-
-### Dispatch-only runtime policy
-
-`dispatch_agent` is the sole model-callable entrypoint for creating children. `manage_agent` remains for status, wait, continuation of an existing child, interrupt and close; removing it would break cancellation and result collection. Explicit `/agent`, `/spawn`, `/scout`, `/blueprint`, `/dispatch`, `/quick` and `/orchestrate` user commands retain their current pi-agent lifecycle or inject a dispatch-only parent request. They do not expose another model dispatch tool. `/quick` still has no implicit deadline.
-
-Axum no longer bundles or loads `pi-subagents`, including legacy package/settings paths. The SDK extension loader rejects that package before import and blocks legacy supervisor/delegation registrations. Existing user configuration is preserved; unrelated custom packages remain active. This is a registration/loading contract, not an OS sandbox against arbitrary malicious extensions or shell code. Automatic worthwhile parallel decomposition, writeScope and batching remain available. Default OAR uses isolated snapshots and checked owned diffs, not parent per-tool approvals; exact testCommands and the live parent bridge belong only to explicit controlled-pi compatibility.
+For parser implementation details see [PARSER_SPEC.md](PARSER_SPEC.md); older parser/internal design notes may describe historical behavior and do not override the one-shot contract above.

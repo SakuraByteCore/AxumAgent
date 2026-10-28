@@ -8,7 +8,7 @@ export const MAX_DISPATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 type DispatchAgentParams = {
 	task: string;
- backend?: "oar-codex" | "controlled-pi" | "oar-claude-text";
+ backend?: "controlled-pi";
  batchId?: string;
  writeScope?: string[];
  testCommands?: string[];
@@ -20,9 +20,9 @@ type DispatchAgentParams = {
 };
 
 const DISPATCH_AGENT_PARAMETERS = Type.Object({
- backend: Type.Optional(Type.Union([Type.Literal("oar-codex"),Type.Literal("controlled-pi"),Type.Literal("oar-claude-text")],{description:"oar-codex (default): real native coding in a required isolated container; owned file diffs are conflict-checked and integrated. controlled-pi: explicit parent-approved compatibility. oar-claude-text: real external Claude OAR runtime, supplied-text only, no tools/MCP/write/test; requires Node24 and installed authenticated native CLI. Both are independent one-shot tasks."})),
- testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"controlled-pi only: exact parent-authorized shell commands, not sandboxed. OAR: put acceptance checks in task; native tests run in isolated snapshot."})),
- writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Default OAR merges only these snapshot paths with conflict checks; omit for read-only."})),
+ backend: Type.Optional(Type.Literal("controlled-pi",{description:"Built-in default; inherits current model/provider authentication. No extra login or deployment."})),
+ testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Exact parent-authorized shell commands; requires explicit writeScope and live parent approval bridge. Not sandboxed."})),
+ writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Writes use the live parent permission bridge; omit for read-only."})),
  batchId: Type.Optional(Type.String({description:"Shared label for a batch ledger; use manage_agent to inspect all members."})),
 	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DISPATCH_TIMEOUT_MS, description: "Host-side execution deadline in milliseconds after dispatch starts. Omit for no deadline; timeout returns partial results." })),
 	task: Type.String({
@@ -40,7 +40,7 @@ const DISPATCH_AGENT_PARAMETERS = Type.Object({
 		}),
 	),
 	model: Type.Optional(
-		Type.String({ description: "Model override for the background agent. controlled-pi only; OAR uses deployment model configuration." }),
+		Type.String({ description: "Model override for the background agent. Defaults to current parent model/provider authentication." }),
 	),
 	thinking: Type.Optional(
 		Type.String({ description: "Thinking level override (minimal, low, medium, high, xhigh, max)." }),
@@ -90,12 +90,13 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 			"Run a task in a background agent that works concurrently with this session and gets its own token budget. Use it to fan independent work out in parallel: issue several dispatch_agent calls in one turn and the agents run concurrently. Finished results are delivered back into this conversation unless squash is false.",
 		promptSnippet: "dispatch_agent: run a task in a concurrent background agent",
 		promptGuidelines: [
-			"For batch requests, split the work into independent units and call dispatch_agent once per unit in the same turn; the background agents run in parallel.",
+			"When a goal has two or more independent file/module/verification lanes worth parallelizing, dispatch ready lanes early after minimal orientation; keep the parent on the critical path. Do not wait for exhaustive investigation, use fixed counts, split tightly coupled/simple work, or assign the same writable file to multiple owners.",
 			"Keep squash enabled so finished results return automatically; package the full goal/context/scope/interfaces/acceptance in every task.",
 		],
 		parameters: DISPATCH_AGENT_PARAMETERS,
 		executionMode: "parallel",
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+   if(params.backend && params.backend!=="controlled-pi")throw new Error("Native OAR backend retired. Remove backend to use bundled controlled-pi with your current model/provider; no task started.");
 			if (deps.isShuttingDown()) {
 				return {
 					content: [{ type: "text" as const, text: "The session is shutting down; cannot dispatch a background agent." }],
@@ -105,7 +106,7 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 			if (params.timeoutMs !== undefined && (!Number.isInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_DISPATCH_TIMEOUT_MS)) {
 				return { content: [{ type: "text" as const, text: `timeoutMs must be an integer between 1 and ${MAX_DISPATCH_TIMEOUT_MS}.` }], details: { error: "invalid-timeout" } };
 			}
-			if(params.backend === "controlled-pi" && (params.writeScope?.length || params.testCommands?.length) && typeof (ctx as any).executeTool !== "function")throw new Error("Installed Pi SDK/context has no parent executeTool approval bridge; writable dispatch unavailable");
+			if((params.writeScope?.length || params.testCommands?.length) && typeof (ctx as any).executeTool !== "function")throw new Error("Installed Pi SDK/context has no parent executeTool approval bridge; writable dispatch unavailable");
 			const parentSessionId=ctx.sessionManager?.getSessionId();
    const deadline = params.timeoutMs === undefined ? undefined : { timeoutMs: params.timeoutMs, deadlineAt: Date.now() + params.timeoutMs };
 			try {

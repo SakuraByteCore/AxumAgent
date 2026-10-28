@@ -264,7 +264,11 @@ test("patchPiSubagentsLatencyOrchestrator upgrades the proactive protocol into t
   assert.ok(!patched.includes("launch ALL of them in one async workflowScript call in your first action"), "up-front all-at-once dispatch must be gone");
   assert.ok(!patched.includes("Delegate aggressively to subagents"), "proactive snippet must be replaced, not duplicated");
   assert.ok(patched.includes("Respect actual user deadlines and host-enforced resource limits"));
-  assert.ok(patched.includes("relay approval requests through the parent bridge"));
+  assert.ok(patched.includes("exact testCommands use the live parent approval bridge"));
+  assert.ok(patched.includes("Default controlled-pi uses the existing main model and authentication"));
+  assert.ok(patched.includes("2+ worthwhile independent files, modules, or verification branches"));
+  assert.ok(patched.includes("unified verification"));
+  assert.ok(!patched.includes("Default real OAR Codex"));
   assert.equal(patchPiSubagentsLatencyOrchestrator(patched), patched, "idempotent");
   const commalessBase = base.replace("workflows\" }.',", "workflows\" }.'");
   const commaless = patchPiSubagentsLatencyOrchestrator(patchPiSubagentsProactiveDelegation(commalessBase));

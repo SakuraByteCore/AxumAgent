@@ -1051,3 +1051,18 @@ test("dispatch timeout preserves truncated evidence without a raw JSON error", (
  assert.match(text,/超时 \/ 部分结果/); assert.ok(text.includes("**done｜partial text"));
  assert.match(text,/可能被截断/); assert.ok(!text.startsWith('{'));
 });
+
+
+test("retired explicit native backend fails before starting or silently switching runtime", async () => {
+ const pi=createPi(), {deps,calls}=createDeps();registerDispatch(pi,deps);
+ for(const backend of ['oar-codex','oar-claude-text']) {
+  await assert.rejects(pi.tools.get('dispatch_agent').execute('old-config',{task:'change files',backend},undefined,undefined,createCtx().ctx),/retired.*Remove backend/i);
+ }
+ assert.equal(calls.length,0);
+});
+test("default writable dispatch without live parent bridge fails accurately without widening permissions", async () => {
+ const pi=createPi(),{deps,calls}=createDeps();registerDispatch(pi,deps);
+ await assert.rejects(pi.tools.get('dispatch_agent').execute('no-bridge',{task:'change file',writeScope:['owned.txt']},undefined,undefined,createCtx().ctx),/no parent executeTool approval bridge/);
+ assert.equal(calls.length,0);
+ assert.equal(pi.tools.get('dispatch_agent').parameters.properties.backend.const,'controlled-pi');
+});

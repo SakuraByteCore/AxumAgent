@@ -5,7 +5,7 @@ export const SAFE_CHILD_TOOLS = new Set(["read", "grep", "find", "ls"]);
 export const BUILTIN_CHILD_TOOLS = new Set([...SAFE_CHILD_TOOLS, "write", "edit", "bash"]);
 const DELEGATION = new Set(["dispatch_agent", "manage_agent", "orchestrate", "quick", "agent"]);
 export type ParentToolBridge = { tools: readonly any[]; getActiveTools?:()=>readonly string[]; validate?:()=>void; executeTool(name:string,args:unknown,options?:any):Promise<any> };
-export type ChildPermissions = { backend?: "oar-codex" | "controlled-pi" | "oar-claude-text"; writeScope?: string[]; testCommands?: string[]; bridge?: ParentToolBridge };
+export type ChildPermissions = { backend?: "controlled-pi"; writeScope?: string[]; testCommands?: string[]; bridge?: ParentToolBridge };
 export function inheritedToolCeiling(parentTools: readonly string[], requested?: readonly string[], excluded: readonly string[] = [], noTools = false, bridged = false): string[] {
  if(noTools)return [];
  const parent=new Set(parentTools), deny=new Set(excluded);

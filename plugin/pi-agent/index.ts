@@ -47,7 +47,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	pi.registerCommand("agent", {
 		description:
-			"Run one independent real OAR Codex task (mandatory isolated runtime; read-only here). Use dispatch_agent with owned writeScope for edits; Pi CLI/model flags are not native overrides.",
+			"Run one independent controlled-pi task using the current model and authentication (read-only command context). Use dispatch_agent with owned writeScope for parent-bridged edits.",
 		handler: async (args, ctx) => {
 			mainSessionContext = ctx;
 			await handleAgentCommand(

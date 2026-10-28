@@ -1,4 +1,4 @@
-> Current one-shot runtime contract: [subagent runtimes](docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. Default workers use real OAR Codex with mandatory container isolation, strict native sandbox, independent project snapshots and owned-file diff integration. Missing prerequisites fail closed; controlled-pi is explicit compatibility only. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+> Subagents default to built-in `controlled-pi`, using the main agent’s configured model, provider and authentication. No Docker, external CLI or extra API key is required. Each dispatch is an independent one-shot task; `manage_agent` supports only `status` / `wait` / `interrupt` / `close`, not `send` / `resume` / `rebase`.
 
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
@@ -21,7 +21,7 @@
 
 - **One command, full toolkit** — the Pi core and 12 bundled extensions (slash shortcuts, background agents, persistent memory, todos, web tools) install and start together; the self-contained runtime lives in your user cache, so reinstalls skip first-run setup.
 - **Runs on your phone** — first-class Android/Termux support: the same one-liner turns Termux into a coding agent.
-- **Background agents at one keystroke** — `/spawn` (inherits the session), `/scout` (blank context), `/blueprint` (plan mode) each fire a background agent with a live progress widget and deliver the finished result back automatically.
+- **Background agents at one keystroke** — `/spawn` (independent task), `/scout` (independent research), `/blueprint` (plan mode) each fire a background agent with a live progress widget and deliver the finished result back automatically.
 - **Persistent cross-session memory** — `pi-memory` keeps memory in a single JSON file with zero native deps (`/memory save|find|recall|clear`).
 - **MCP built in** — `axum mcp add` and you are done; servers use the standard `mcpServers` format shared with Cursor, Claude Code, and Codex.
 - **Web-based config + safe mode** — provider, retry, and system-prompt settings live in a local web UI; any broken extension can be bypassed to launch only the Pi core.
@@ -219,6 +219,8 @@ Talk the technical solution through and finalize it: make the details clear, mak
 
 ## One-Keystroke Background Agents
 
+For two or more worthwhile independent file, module or validation lanes, the parent should dispatch early with explicit context, exclusive file ownership, interfaces and acceptance checks, while doing the critical path itself. The parent collects results, remediates omissions or conflicts and performs unified verification. Simple or tightly coupled work stays inline; shared files have one owner and dependent lanes wait for prerequisite evidence. This is model policy, not a deterministic scheduler. New requirements need a new incremental task after inspecting existing effects, not continuation of an old child.
+
 Three preset commands bake in the common `/agent` flag combinations, so dispatching a background agent takes zero flag decisions:
 
 ```text
@@ -227,11 +229,11 @@ Three preset commands bake in the common `/agent` flag combinations, so dispatch
 /blueprint add dark mode        # = /agent -P -s add dark mode
 ```
 
-- `/spawn <task>` — inherits the current conversation and delivers the finished result back automatically.
-- `/scout <task>` — starts isolated, with a blank context and no session inheritance.
+- `/spawn <task>` — dispatches an independent one-shot task and delivers the result back automatically; provide necessary context explicitly.
+- `/scout <task>` — starts independent research without conversation history.
 - `/blueprint <task>` — runs in plan mode in the background and delivers the finished plan back verbatim.
 
-Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is just a prefix over the shared `/agent` parser, widget, and lifecycle. The original `/agent [options] <task>` command is unchanged.
+Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is just a prefix over the shared `/agent` parser, widget, and lifecycle. `/agent [options] <task>` follows the same one-shot contract.
 
 ## Switch Models with `/usemodel`
 
