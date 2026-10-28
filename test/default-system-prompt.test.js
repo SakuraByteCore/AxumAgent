@@ -130,13 +130,14 @@ test("subagent delegation policy: creates the file, is idempotent, and stores mo
   assert.equal(result.changed, true);
   assert.ok(content.includes(SUBAGENT_POLICY_BEGIN));
   assert.ok(content.includes(SUBAGENT_POLICY_END));
-  assert.ok(content.includes("Delegate only when it pays"));
-  assert.ok(content.includes("Foreground first"));
+  assert.ok(content.includes("dispatch_agent to create children"));
+  assert.ok(content.includes("Actively batch worthwhile independent lanes"));
+  assert.ok(!content.includes("at most one subagent"));
   assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
   assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent second run");
 });
 
-test("subagent delegation policy: cleans up orphaned v1/v2 blocks while refreshing to v3", (t) => {
+test("subagent delegation policy: cleans up orphaned v1/v2/v3 blocks while refreshing to v4", (t) => {
   const env = withTempEnv(t);
   const target = resolveAppendSystemPromptFile(env);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -148,7 +149,18 @@ test("subagent delegation policy: cleans up orphaned v1/v2 blocks while refreshi
   assert.ok(!content.includes("stale v1 guidance"));
   assert.ok(!content.includes("axum:subagent-delegation-policy v2"), "legacy v2 block removed");
   assert.ok(!content.includes("stale v2 guidance"));
-  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "v3 block installed");
+  assert.ok(content.includes(SUBAGENT_POLICY_BEGIN), "v4 block installed");
   assert.ok(content.includes("My custom rules."), "surrounding user content untouched");
   assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent after cleanup");
+});
+
+test("v3 managed policy migrates without replacing custom user instructions", (t) => {
+ const env=withTempEnv(t), target=resolveAppendSystemPromptFile(env);
+ fs.writeFileSync(target, "Custom before\n<!-- axum:subagent-delegation-policy v3 -->\nOne request warrants at most one subagent.\n"+SUBAGENT_POLICY_END+"\nCustom after\n");
+ ensureSubagentDelegationPolicy({env});
+ const content=fs.readFileSync(target,"utf8");
+ assert.match(content,/Custom before/); assert.match(content,/Custom after/);
+ assert.doesNotMatch(content,/at most one subagent|async: false|policy v3/);
+ assert.match(content,/dispatch_agent to create children/);
+ assert.equal(ensureSubagentDelegationPolicy({env}).changed,false);
 });

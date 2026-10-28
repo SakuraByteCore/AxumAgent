@@ -26,43 +26,28 @@ ${TODO_POLICY_END}`;
 
 export const SUBAGENT_POLICY_END = "<!-- /axum:subagent-delegation-policy -->";
 const LEGACY_SUBAGENT_POLICY_PAIRS = [
+  ["<!-- axum:subagent-delegation-policy v3 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v1 -->", SUBAGENT_POLICY_END],
   ["<!-- axum:subagent-delegation-policy v2 -->", SUBAGENT_POLICY_END],
 ];
-export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v3 -->";
+export const SUBAGENT_POLICY_BEGIN = "<!-- axum:subagent-delegation-policy v4 -->";
 
 export const SUBAGENT_DELEGATION_POLICY = `${SUBAGENT_POLICY_BEGIN}
 ## Subagent Delegation Policy
 
-The \`subagent\` tool is an opt-in delegation mechanism, not a default execution
-engine. Run work inline by default; the main thread owns exploration, edits,
-verification, and synthesis. Delegate only when parallelism or isolation
-genuinely helps.
+Own the user goal through implementation, verification and synthesis. Use only
+dispatch_agent to create children; pi-subagents, subagent_supervisor and
+legacy worker aliases are disabled. Actively batch worthwhile independent lanes
+with exclusive writeScope and exact testCommands where needed. Do not require
+the user to manually split tasks. Trivial or indivisible work stays inline;
+dependent work waits for prerequisite evidence. No fixed lane count or relay.
 
-### Delegate only when it pays
-
-- Delegate when the user explicitly asks for a subagent or background
-  execution, or when two or more strictly independent chunks of work (separate
-  files, separate research questions) can run concurrently with zero data
-  dependency between them.
-- Trivial single-step actions (one read, a one-line edit, a single command)
-  always stay inline.
-- Sequential hard data dependencies stay sequential: a task that consumes
-  another task's output gains nothing from delegation.
-
-### Foreground first
-
-- Launch subagents with \`async: false\` (or omit \`async\`) unless the user
-  explicitly asked for background execution. Foreground results return in the
-  same turn and stay visible in the transcript.
-- Never fan out fleets unprompted: no "scout + implementer + verifier" chains
-  and no best-of-N races. One request warrants at most one subagent.
-
-### After a delegation
-
-- Cross-check the child's report against the actual diff or output before
-  acting on it; verified evidence beats prose. Never forward raw agent dumps
-  to the user.
+Keep the parent productive on the critical path. Respect parent permissions,
+approvals and shared-worktree ownership; children never recursively dispatch.
+Use manage_agent for status, wait, same-child continuation, interrupt and close.
+Wait timeouts do not cancel children. Do not invent execution deadlines; /quick
+has no implicit budget. Inspect actual diffs and checks before integrating each
+result; report partial work honestly and never forward raw agent dumps.
 ${SUBAGENT_POLICY_END}`;
 
 export const PARALLEL_POLICY_BEGIN = "<!-- axum:parallel-tool-batching-policy v1 -->";
