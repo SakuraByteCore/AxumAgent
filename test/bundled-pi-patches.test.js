@@ -501,7 +501,7 @@ test("V3 migrates V2 marked and commentless caches without changing execution li
     assert.ok(output.includes("AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V3"));
     assert.ok(!output.includes("AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V2"));
     for (const obsolete of ["executes first", "workers progressively", "Default to subagent delegation", "Latency-first budget:", "~80%", "async workflowScript call"]) assert.ok(!output.includes(obsolete), obsolete);
-    assert.ok(output.includes("user explicitly requests an advanced pi-subagents workflow"));
+    assert.ok(output.includes("pi-subagents and subagent_supervisor are disabled even if legacy configuration requests them"));
     assert.ok(output.includes("Never switch to pi-subagents or direct child processes to bypass pi-agent parent permission checks"));
     assert.ok(output.includes("omitted child timeouts inherit the host-enforced remaining budget"));
     assert.ok(output.endsWith(runtime));

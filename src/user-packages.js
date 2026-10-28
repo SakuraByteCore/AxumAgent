@@ -43,6 +43,11 @@ export function parsePackageSpec(spec) {
   return { name: bare, packageName };
 }
 
+// Retired package entries are filtered in memory only; never rewrite the manifest.
+function isRetiredPackage(entry) {
+  return entry.packageName === "pi-subagents" || /^(?:npm:)?pi-subagents(?:@|$)/.test(entry.name);
+}
+
 export function loadUserPackages(options = {}) {
   const file = getUserPackagesPath(options);
   if (!fs.existsSync(file)) return [];
@@ -67,7 +72,7 @@ export function loadUserPackages(options = {}) {
       throw new Error(`user packages manifest ${file}: entry ${index} must include string "name" and "packageName"`);
     }
     return { ...entry };
-  });
+  }).filter((entry) => !isRetiredPackage(entry));
 }
 
 export function saveUserPackages(packages, options = {}) {

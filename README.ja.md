@@ -45,7 +45,7 @@
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（構造化 todo トラッキング: todo ツールがエディタ上部に計画チェックリストをライブ HUD 表示、/todo と /todos-configure コマンド付き）
 - `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 目標に応じた自発的な並列委譲 + ライブ進捗ウィジェット（小さなタスクは直接実行、専用コマンド不要）。`/agent -P/--plan` によるプランモードのバックグラウンド実行、ワンキー起動プリセット `/spawn` `/scout` `/blueprint` に対応。さらに `/dispatch` コマンドと `dispatch_agent` ツールによるエージェント主導のバッチ分散に対応)
-- `pi-subagents`（単一エージェント委譲とスクリプト化されたマルチエージェントワークフロー: タスク委譲・バックグラウンド実行・オーケストレーション）
+- 子エージェント生成のモデル用入口は `dispatch_agent` のみ。`manage_agent` による待機・中断・継続管理は維持し、旧 `pi-subagents` と supervisor ツールは無効化。
 - `pi-memory`（単一 JSON ファイルに永続化されるセッション横断メモリ: /memory save|list|find|remove|recall|clear、ネイティブ依存ゼロ）
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
 - `@ff-labs/pi-fff`（デスクトップ限定: フリークエンシー付き FFF ファイル検索。Android と Windows では除外）

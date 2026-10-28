@@ -322,3 +322,9 @@ By default writable workers have no shell. Explicit `testCommands` grants only e
 Legacy SDKs and slash-command contexts without the parent executor retain read/search-only behavior; a writable request reports an explicit capability error rather than silently pretending to implement. Companion advice alone is not approval. See `docs/autonomous-delegation.md` for evidence and policy limitations.
 
 Codex comparison is pinned to live-main `26ad281fd1ca712e4f0c7920a6273cf18c961b8a`; Axum baseline `1bebf170668557cf0518ed7632836d8fa440ab98`. See `docs/subagent-contract.md` for the verified V1/V2 compatibility boundary.
+
+### Dispatch-only runtime policy
+
+`dispatch_agent` is the sole model-callable entrypoint for creating children. `manage_agent` remains for status, wait, continuation of an existing child, interrupt and close; removing it would break cancellation and result collection. Explicit `/agent`, `/spawn`, `/scout`, `/blueprint`, `/dispatch`, `/quick` and `/orchestrate` user commands retain their current pi-agent lifecycle or inject a dispatch-only parent request. They do not expose another model dispatch tool. `/quick` still has no implicit deadline.
+
+Axum no longer bundles or loads `pi-subagents`, including legacy package/settings paths. The SDK extension loader rejects that package before import and blocks legacy supervisor/delegation registrations. Existing user configuration is preserved; unrelated custom packages remain active. This is a registration/loading contract, not an OS sandbox against arbitrary malicious extensions or shell code. Automatic worthwhile parallel decomposition, parent permission checks, writeScope, exact testCommands, batching and same-child continuation remain unchanged.

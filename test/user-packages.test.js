@@ -174,7 +174,7 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   ensureBundledPi(options);
   const installLine = fs.readFileSync(calls, "utf8").trim().split("\n").at(-1);
   assert.match(installLine, /pi-foo@1\.0\.0/);
-  assert.equal(existingBundledExtensions(options).length, 9);
+  assert.equal(existingBundledExtensions(options).length, 8);
 
   // Phase 2: discover the entry point, persist, compile, and resolve.
   const entries = loadUserPackages(options);
@@ -182,9 +182,29 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   assert.equal(entries[0].extensionPath, "index.ts");
   saveUserPackages(entries, options);
   compileBundledExtensions(options);
-  assert.equal(existingBundledExtensions(options).length, 10);
+  assert.equal(existingBundledExtensions(options).length, 9);
   const resolved = resolveBundledExtensions(options);
   const userEntry = resolved.find((entry) => entry.replaceAll(path.sep, "/").includes("pi-foo/"));
   assert.ok(userEntry, `pi-foo entry missing from: ${resolved.join(" ")}`);
   assert.equal(userEntry.replaceAll(path.sep, "/").endsWith("pi-foo/index.js"), true);
+});
+
+test("legacy pi-subagents manifest entries are ignored without changing custom entries or disk", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-legacy-packages-"));
+  const file = path.join(dir, "packages.json");
+  const custom = { name: "pi-custom@1.0.0", packageName: "pi-custom", extensionPath: "index.js", custom: { keep: true } };
+  const packages = [
+    { name: "pi-subagents@0.74.0", packageName: "pi-subagents", extensionPath: "index.js" },
+    { name: "npm:pi-subagents@latest", packageName: "legacy-alias", extensionPath: "index.js" },
+    custom,
+  ];
+  for (const data of [{ packages, extra: "preserve" }, packages]) {
+    const raw = JSON.stringify(data, null, 4) + "\n";
+    fs.writeFileSync(file, raw);
+    const options = { env: { AXUM_USER_PACKAGES_FILE: file } };
+    assert.deepEqual(loadUserPackages(options), [custom]);
+    assert.deepEqual(userPackageNames(options), [custom.name]);
+    assert.deepEqual(userPackageExtensionEntries(options), [custom]);
+    assert.equal(fs.readFileSync(file, "utf8"), raw);
+  }
 });

@@ -260,6 +260,27 @@ function patchPiGoalAutoResume(content) {
   return content.replace(needle, branch);
 }
 
+// Security policy: unlike cosmetic patches, SDK drift must stop startup.
+export function patchPiDispatchOnlyLoader(content) {
+  const marker = "AXUM_DISPATCH_ONLY_LOADER_V1";
+  if (content.includes(marker)) return content;
+  const anchors = [
+    'async function loadExtensionModule(extensionPath, cacheToken) {',
+    'async function initializeExtension(factory, extensionPath, resolvedPath, cwd, eventBus, runtime) {',
+    '        registerTool(tool) {',
+    '        const factory = await loadExtensionModule(resolvedPath, cacheToken);',
+  ];
+  for (const anchor of anchors) {
+    if (content.split(anchor).length !== 2) throw new Error("unable to patch dispatch-only extension loader: missing or ambiguous anchor: " + anchor);
+  }
+  const helper = "// AXUM_DISPATCH_ONLY_LOADER_V1\nimport * as axumPolicyFs from \"node:fs\";\nimport * as axumPolicyPath from \"node:path\";\nimport { fileURLToPath as axumPolicyFilePath } from \"node:url\";\nfunction axumAssertDispatchExtension(entry, cwd = process.cwd()) {\n if (typeof entry !== \"string\" || entry.startsWith(\"<\")) return;\n const location = entry.startsWith(\"file:\") ? axumPolicyFilePath(entry) : axumPolicyPath.resolve(cwd, entry);\n const inspect = candidate => {\n  if (candidate.split(/[\\\\/]/).includes(\"pi-subagents\")) throw new Error(\"Axum dispatch-only policy: pi-subagents is disabled\");\n  for (let dir = candidate; ; dir = axumPolicyPath.dirname(dir)) {\n   const manifest = axumPolicyPath.join(dir, \"package.json\");\n   if (axumPolicyFs.existsSync(manifest)) {\n    const pkg = JSON.parse(axumPolicyFs.readFileSync(manifest, \"utf8\"));\n    if (pkg.name === \"pi-subagents\" || pkg.name?.endsWith(\"/pi-subagents\")) throw new Error(\"Axum dispatch-only policy: pi-subagents is disabled\");\n   }\n   if (axumPolicyPath.dirname(dir) === dir) break;\n  }\n };\n inspect(location);\n if (axumPolicyFs.existsSync(location)) inspect(axumPolicyFs.realpathSync(location));\n}\nfunction axumForbiddenDelegationTool(name) {\n return typeof name === \"string\" && /^(?:subagent(?:s)?(?:_|$)|supervisor(?:_|$)|contact_supervisor$)/i.test(name) || [\"agent\", \"quick\", \"orchestrate\"].includes(name);\n}\n";
+  return helper + content
+    .replace(anchors[0], anchors[0] + '\n    axumAssertDispatchExtension(extensionPath);')
+    .replace(anchors[1], anchors[1] + '\n    axumAssertDispatchExtension(extensionPath, cwd);\n    axumAssertDispatchExtension(resolvedPath, cwd);')
+    .replace(anchors[2], anchors[2] + '\n            if (axumForbiddenDelegationTool(tool?.name)) return;')
+    .replace(anchors[3], '        axumAssertDispatchExtension(resolvedPath, cwd);\n' + anchors[3]);
+}
+
 function patchPiJitiLazyLoader(content) {
   if (content.includes(PI_JITI_LAZY_LOADER_MARKER)) return content;
 
@@ -1805,15 +1826,15 @@ function patchPiSubagentsLatencyOrchestrator(content) {
   const proactiveSnippet = 'export const SUBAGENT_TOOL_PROMPT_SNIPPET = "Delegate aggressively to subagents; orchestrate in one workflowScript call. Partition any request with 2+ independent tasks, files, or questions into non-overlapping scopes and launch ALL of them in one async workflow in your first action - token cost is irrelevant, wall-clock latency is the only metric. One complex task still splits into scout + implementer + verifier lanes. Never write a long plan before dispatching.";';
   const needle = [PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V1, PI_SUBAGENTS_LATENCY_ORCHESTRATOR_SNIPPET_V2, proactiveSnippet].find((value) => content.includes(value));
   if (!needle || !content.includes("export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [")) return content;
-  const policy = "Use the existing pi-agent tool by default for proactive parallel delegation: launch independent non-overlapping work promptly, without a mandatory serial first step or fixed scout/implementer/verifier relay. pi-subagents is compatibility support only when the user explicitly requests an advanced pi-subagents workflow. Never switch to pi-subagents or direct child processes to bypass pi-agent parent permission checks; relay approval requests through the parent bridge.";
-  const deadline = "Respect actual user deadlines and host-enforced resource limits. Do not invent a short wall-clock budget or mandatory phase caps. For an explicitly requested advanced workflow, timeoutMs may express a real deadline or intentional resource cap; omitted child timeouts inherit the host-enforced remaining budget. Report partial results and uncovered work honestly when an actual limit is reached.";
+  const policy = "Use the existing pi-agent tool by default for proactive parallel delegation: launch independent non-overlapping work promptly, without a mandatory serial first step or fixed scout/implementer/verifier relay. dispatch_agent is the sole model-callable child dispatch entrypoint; pi-subagents and subagent_supervisor are disabled even if legacy configuration requests them. Never switch to pi-subagents or direct child processes to bypass pi-agent parent permission checks; relay approval requests through the parent bridge.";
+  const deadline = "Respect actual user deadlines and host-enforced resource limits. Do not invent a short wall-clock budget or mandatory phase caps. For dispatch_agent, timeoutMs may express a real deadline or intentional resource cap; omitted child timeouts inherit the host-enforced remaining budget. Report partial results and uncovered work honestly when an actual limit is reached.";
   let patched = content.replace(needle, "export const SUBAGENT_TOOL_PROMPT_SNIPPET = " + JSON.stringify(policy) + ";");
   patched = patched.replace(/Default to subagent delegation: launch async lanes in your first action; idle waiting is worse than over-delegating\./g, policy);
   // Prompt-only migration preserves actual deadline/resource enforcement.
   patched = patched.replace(/Latency-first budget: [^'"\n]*/g, deadline);
   patched = patched.replace("export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [", "export const SUBAGENT_TOOL_PROMPT_GUIDELINES = [\n" + JSON.stringify(policy) + ",\n" + JSON.stringify(deadline) + ",");
   patched = patched.replace(/^\/\/ AXUM_PI_SUBAGENTS_LATENCY_ORCHESTRATOR_V[12]: latency-first orchestrator protocol \(Axum\)\.\n?/gm, "");
-  return "// " + PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": pi-agent default; explicit advanced workflow compatibility (Axum).\n" + patched;
+  return "// " + PI_SUBAGENTS_LATENCY_ORCHESTRATOR_MARKER + ": dispatch_agent only; retired workflow prompt migration (Axum).\n" + patched;
 }
 
 function patchPiUserAgent(content) {
@@ -2087,7 +2108,7 @@ export function applyBundledPiPatches(options) {
   const piInteractiveModePath = path.join(piRoot, "dist", "modes", "interactive", "interactive-mode.js");
   const piExtensionLoaderPath = path.join(piRoot, "dist", "core", "extensions", "loader.js");
   if (fs.existsSync(piExtensionLoaderPath)) {
-    results.push(patchFileInPlace(piExtensionLoaderPath, patchPiJitiLazyLoader));
+    results.push(patchFileInPlace(piExtensionLoaderPath, patchPiDispatchOnlyLoader, patchPiJitiLazyLoader));
   }
   results.push(fs.existsSync(piInteractiveModePath)
     ? patchFileInPlace(piInteractiveModePath, patchPiVersionNotificationSuppress, patchPiLoadedSkillsExtensionsHide, patchPiStartupChangelogCollapse, patchPiAltScreenScrollOnSubmit, patchPiSubagentsCommandsAutocompleteHide, patchPiMemoryDispatchCommandsAutocompleteHide, patchPiModelTodoCommandsAutocompleteHide, patchPiExtensionTerminalInputFocusGate)

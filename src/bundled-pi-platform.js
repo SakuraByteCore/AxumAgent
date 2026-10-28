@@ -69,11 +69,30 @@ export function expectedBundledExtensionCount(options) {
   return supportedBundledPiExtensions(options).length;
 }
 
+// Reject stale copies by lexical/real path or package identity, including renamed
+// copies and symlinks. Unrelated plugins without a manifest remain supported.
+function isRetiredPlugin(pluginDir) {
+  const retiredPath = (value) => value.split(/[\\/]/).includes("pi-subagents");
+  if (retiredPath(pluginDir)) return true;
+  try {
+    if (retiredPath(fs.realpathSync(pluginDir))) return true;
+  } catch { /* normal discovery handles missing paths */ }
+  let current = pluginDir;
+  while (true) {
+    try {
+      if (JSON.parse(fs.readFileSync(path.join(current, "package.json"), "utf8")).name === "pi-subagents") return true;
+    } catch { /* a package manifest is optional */ }
+    const parent = path.dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
+
 // User plugin discovery: scan ~/.axum/plugins/ for user-defined extensions.
 // Each plugin directory must contain an index.ts entry point.
 // Returns plugin metadata compatible with bundled plugin format.
 export function getUserPluginPaths(options = {}) {
-  const homeDir = process.env.HOME || os.homedir();
+  const homeDir = options.env?.HOME || process.env.HOME || os.homedir();
   const userPluginsDir = path.join(homeDir, ".axum", "plugins");
   
   if (!fs.existsSync(userPluginsDir)) {
@@ -86,7 +105,7 @@ export function getUserPluginPaths(options = {}) {
         const pluginDir = path.join(userPluginsDir, name);
         const stat = fs.statSync(pluginDir);
         const hasIndex = fs.existsSync(path.join(pluginDir, "index.ts")) || fs.existsSync(path.join(pluginDir, "index.js"));
-        return stat.isDirectory() && hasIndex;
+        return stat.isDirectory() && hasIndex && !isRetiredPlugin(pluginDir);
       })
       .map((name) => {
         const pluginDir = path.join(userPluginsDir, name);
@@ -122,7 +141,7 @@ export function getProjectPluginPaths(options = {}) {
         const pluginDir = path.join(projectPluginsDir, name);
         const stat = fs.statSync(pluginDir);
         const hasIndex = fs.existsSync(path.join(pluginDir, "index.ts")) || fs.existsSync(path.join(pluginDir, "index.js"));
-        return stat.isDirectory() && hasIndex;
+        return stat.isDirectory() && hasIndex && !isRetiredPlugin(pluginDir);
       })
       .map((name) => {
         const pluginDir = path.join(projectPluginsDir, name);

@@ -371,7 +371,7 @@ test("axum code prefers compiled extension JS over TS sources", () => {
   const compiledIndex = argv.indexOf(path.join(cache, "node_modules", "pi-bar", "index.js"));
   assert.notEqual(compiledIndex, -1);
   assert.equal(argv[compiledIndex - 1], "-e");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 9);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 8);
 });
 
 test("axum web does not fall through to bundled Pi install", async () => {
@@ -607,7 +607,7 @@ pkg('pi-foo', { 'index.ts': 'export default {};' }, { pi: { extensions: ['./inde
   assert.equal(codeResult.status, 0, codeResult.stderr);
   const argv = JSON.parse(fs.readFileSync(argvFile, "utf8"));
   assert.equal(argv[0], "-ne");
-  assert.equal(argv.filter((arg) => arg === "-e").length, 10);
+  assert.equal(argv.filter((arg) => arg === "-e").length, 9);
   const userEntry = argv.filter((arg) => arg.includes("pi-foo"));
   assert.equal(userEntry.length, 1, `pi-foo missing from argv: ${argv.join(" ")}`);
   assert.equal(path.basename(userEntry[0]), "index.js");
@@ -677,4 +677,10 @@ pkg('pi-foo', { 'index.ts': 'export default {};' });`;
   assert.notEqual(result.status, 0, result.stdout);
   assert.match(result.stderr, /declares no "pi"\.extensions entry point/);
   assert.deepEqual(JSON.parse(fs.readFileSync(manifest, "utf8")).packages, []);
+});
+
+test("install rejects retired pi-subagents before touching configuration", () => {
+  const result = run(["install", "pi-subagents@0.74.0"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr + result.stdout, /pi-subagents is disabled; use dispatch_agent/);
 });

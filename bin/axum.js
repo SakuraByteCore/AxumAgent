@@ -373,6 +373,9 @@ async function runInstallPackages(specs) {
     .reduce((byName, spec) => byName.set(spec.packageName, spec), new Map())
     .values()];
   for (const { packageName } of requested) {
+    if (packageName === "pi-subagents") {
+      throw new Error("pi-subagents is disabled; use dispatch_agent for child dispatch");
+    }
     if (bundledPiPackages.some((pkg) => pkg.packageName === packageName)) {
       throw new Error(`${packageName} is already part of Axum's bundled extension set; Axum manages its version`);
     }

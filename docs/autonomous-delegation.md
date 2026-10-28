@@ -6,6 +6,10 @@
 
 `/quick` 默认仅减少过程说明，不隐式设置五分钟 deadline，不关闭并行。显式 duration 仍保留执行预算。wait 的观察超时不会取消 child；真实执行 deadline、失败、关闭和 shutdown 语义保留。
 
+## 唯一模型派发入口
+
+创建子代理只暴露 `dispatch_agent`。`manage_agent` 保留等待、状态、取消、关闭和同一 child 续跑，不创建替代派发通道。显式用户 slash 快捷命令保留，默认普通目标仍自动按需拆分，并不要求用户手动拆分。旧 `pi-subagents` 包及其 supervisor、worker/别名入口从注册和加载路径禁用；旧配置按加载视图兼容过滤，不覆盖用户自定义文件。此契约不是防恶意插件执行任意代码的 OS sandbox。
+
 ## SDK 能力证据
 
 发布的 bundled Pi 为 0.99.2。`ExtensionToolContext.executeTool()` 会进入父 session 的 validation、tool_call/tool_result hooks 和权限检查；不是复制父审批配置，也不是调用裸 builtin executor。pi-companion 的 watcher 本身仅 advisory，并不充当审批器；若父安装真正审批 handler，桥接调用同样必须经过该 handler。

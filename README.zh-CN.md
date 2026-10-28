@@ -46,7 +46,7 @@
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（结构化 todo 追踪：todo 工具维护计划清单并以实时 HUD 显示在编辑器上方，另含 /todo 与 /todos-configure 命令）
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：默认由主 Agent 按目标主动分派独立任务，带实时进度挂件；简单任务直接执行，无需用户选择拆分命令；支持 `/agent -P/--plan` 以后台方式执行规划；一键预设命令 `/spawn` `/scout` `/blueprint`；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
-- `pi-subagents`（单 Agent 委托与脚本化多 Agent 工作流：task 委托、后台运行、多代理编排）
+- 派发入口统一为 `dispatch_agent`；`manage_agent` 保留等待、取消、续跑与批次管理。旧 `pi-subagents` 加载及 supervisor 工具已禁用。
 - `pi-memory`（单 JSON 文件持久化跨会话记忆：/memory save|list|find|remove|recall|clear；零原生依赖）
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
 - `@ff-labs/pi-fff`（仅桌面端：带频率排序的 FFF 文件搜索；Android 与 Windows 不包含）
