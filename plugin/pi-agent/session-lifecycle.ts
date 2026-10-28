@@ -2,6 +2,7 @@ import type { ExtensionAPI, ExtensionCommandContext, RunningAgent } from "./shar
 
 export interface SessionLifecycleDeps {
 	runningAgents: Set<RunningAgent>;
+ waitPending?: () => Promise<unknown>;
 	setShuttingDown: (value: boolean) => void;
 	setMainSessionContext: (ctx: ExtensionCommandContext) => void;
 	disposeWidget: () => void;
@@ -18,9 +19,12 @@ export function registerSessionLifecycle(pi: ExtensionAPI, deps: SessionLifecycl
 		deps.disposeWidget();
 		const agents = [...deps.runningAgents];
 		for (const agent of agents) {
-			void agent.session?.abort();
+			agent.aborted = true;
+			agent.cancelDeadline?.();
+			if(agent.session) void Promise.resolve(agent.session.abort()).catch(() => {});
 			agent.retire?.();
 		}
+		await deps.waitPending?.();
 		await Promise.allSettled(agents.map((agent) => agent.finished));
 		for (const agent of agents) {
 			agent.session?.dispose();

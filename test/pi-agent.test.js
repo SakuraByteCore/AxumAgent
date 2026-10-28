@@ -129,7 +129,7 @@ test("/dispatch sends a fan-out prompt containing the batch and dispatch_agent i
   const { message, options } = pi.messages[0];
   assert.ok(message.includes("task one\ntask two"));
   assert.ok(message.includes("dispatch_agent"));
-  assert.deepEqual(options, { streamingBehavior: "followUp" });
+  assert.deepEqual(options, { streamingBehavior: "followUp", deliverAs: "followUp" });
 });
 
 test("buildDispatchPrompt embeds the batch verbatim", () => {
@@ -966,7 +966,7 @@ test("sampleTokensPerSecond derives a 10s-window rate and hides idle/tool phases
 
 
 test("dispatch deadlines abort active lanes and clear after completion", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
   let finish, aborted = 0, checkpoints = 0;
   const agent = { status: "running", session: { isStreaming: true, steer: async () => { checkpoints++; }, abort: () => { aborted++; } }, finished: new Promise(resolve => { finish = resolve; }) };
   armDispatchDeadline(agent, 100); t.mock.timers.tick(79);

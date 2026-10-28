@@ -1,3 +1,4 @@
+import { registerAgentManagement } from "./manage.js";
 import { registerDesktopPet } from "./desktop-pet.js";
 import { registerClear } from "./clear.js";
 import { registerDispatch } from "./dispatch.js";
@@ -9,7 +10,7 @@ import type {
 	MessageEndEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { registerAgentAutocomplete } from "./autocomplete.js";
-import { createRebaseDelivery, handleAgentCommand, startUserAgent } from "./runner.js";
+import { createRebaseDelivery, handleAgentCommand, startUserAgent, registryFor } from "./runner.js";
 import type {
 	AgentCommandDetails,
 	DetachedEntryData,
@@ -24,6 +25,7 @@ import { UserAgentWidget } from "./widget.js";
 export default function userAgent(pi: ExtensionAPI): void {
 	registerDesktopPet(pi);
 	const runningAgents = new Set<RunningAgent>();
+	registerAgentManagement(pi,registryFor(runningAgents),runningAgents);
 	const disabledCommands = new Set<string>();
 	// The session every agent was dispatched from; rebase fast-forwards onto it.
 	let mainSessionContext: ExtensionCommandContext | undefined;
@@ -92,7 +94,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	registerDispatch(pi, {
 		isShuttingDown: () => shuttingDown,
-		startAgent: (dispatchArgs, invocation, ctx) =>
+		startAgent: (dispatchArgs, invocation, ctx, deadline, batchId) =>
 			startUserAgent(
 				pi,
 				runningAgents,
@@ -104,6 +106,8 @@ export default function userAgent(pi: ExtensionAPI): void {
 				dispatchArgs,
 				invocation,
 				ctx,
+				deadline,
+				batchId,
 			),
 	});
 
@@ -116,7 +120,8 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	registerSessionLifecycle(pi, {
 		runningAgents,
-		setShuttingDown: (value) => { shuttingDown = value; },
+		waitPending: () => Promise.allSettled([...registryFor(runningAgents).pendingStarts]),
+		setShuttingDown: (value) => { shuttingDown = value; if(value)registryFor(runningAgents).shutdown(); },
 		setMainSessionContext: (ctx) => { mainSessionContext = ctx; },
 		disposeWidget: () => widget.dispose(),
 	});

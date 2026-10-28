@@ -150,6 +150,11 @@ export type RunningAgent = {
 	aborted?: boolean;
 	/** Set only when a dispatch deadline expires; unlike aborted, still reports partial results. */
 	timeoutMs?: number;
+	/** Absolute dispatch execution cutoff, including session startup. */
+	deadlineAt?: number;
+	stopCause?: "deadline";
+	/** Clear on turn settlement, cancel, retirement, and before resume. */
+	cancelDeadline?: () => void;
 	/** Set when the user interrupts only the active turn, leaving the child session alive. */
 	interruptRequested?: boolean;
 };

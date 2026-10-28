@@ -289,3 +289,21 @@ A finished turn does not fail just because its final assistant message carries o
 or tool parts: the delivered result falls back to the last non-empty text from the same turn,
 and a turn that produced no text at all receives exactly one follow-up instruction asking for a
 plain-text final answer before the agent reports an error.
+
+
+## Managed SDK child lifecycle
+
+This section describes **plugin/pi-agent**, not the separately bundled pi-subagents package.
+
+- `dispatch_agent` returns a stable session-local agent ID; optional `batchId` groups members in a pending/terminal ledger. `manage_agent` supports `status`, `wait`, `send`, `interrupt` and `close` (agent or batch). All new /agent, /spawn and tool dispatches share six active/pending slots. Idle children release execution slots.
+- A collection `wait` timeout is only an observation timeout: `timedOut:true` leaves work running, and later completion still returns. Cancelling the main turn cancels its wait, not accepted children. Explicit close stops selected children; host shutdown stops all children.
+- `dispatch_agent.timeoutMs` is a **hard execution deadline**, measured from dispatch acceptance including startup. It is not a wait budget. The host requests a handoff before cutoff, then aborts the active turn. Deadline output is incomplete (`ok:false, partial:true`), not provider failure or success. Genuine provider/tool failures retain their errors.
+- Completed and deadline-stopped in-memory children remain available for same-session `send` for 15 idle minutes, then retire/dispose. Sending renews the execution budget (default 5 minutes, explicit timeout accepted); never silently renew a /quick budget. The main agent must integrate, verify, close outstanding lanes and report incomplete work at its final budget. There is no process-wide /quick watchdog.
+- `squash=false` writes a user-visible transcript entry only: it does **not** automatically inject into model context or trigger a main turn. Status/explicit management is available when requested. Squash-enabled results auto-return, but the parent still owns final synthesis.
+- Live `send` continues the actual memory session. Legacy `/agent resume` continues a saved child file when one exists; otherwise it explicitly **redispatches** from the recorded task/current parent snapshot. Memory children do not survive process restart; there is no new persistence subsystem or crash-resume claim.
+
+### Effective permission boundary
+
+Pi SDK 0.99.2 exposes active tool names but not transferable parent approval handlers or an OS sandbox policy through ExtensionContext. Inheriting conversation/trust alone is not permission inheritance. Until a verifiable policy bridge exists, children fail closed to parent-active builtin `read/grep/find/ls` only, intersected with requested exclusions. Shell, writes, custom tools and recursive delegation are denied at the child tool-call gate; automatic/custom extension loading is disabled (only the bundled response companion is explicit). Main-agent implementation and shell verification remain inline. This conservative limitation is intentional, including when Codex permits deeper recursion. It is **not an OS filesystem sandbox** and does not constrain trusted extension code itself.
+
+Codex comparison is pinned to live-main `26ad281fd1ca712e4f0c7920a6273cf18c961b8a`; Axum baseline `1bebf170668557cf0518ed7632836d8fa440ab98`. See `docs/subagent-contract.md` for the verified V1/V2 compatibility boundary.

@@ -1,4 +1,7 @@
-import { childRecoveryExtensions, promptChildUntilSettled } from "./child-recovery.js";
+import { AgentRegistry } from "./registry.js";
+import { armDispatchDeadline } from "./dispatch.js";
+import { inheritedToolCeiling, guardChildTools } from "./permissions.js";
+import { childRecoveryExtensions, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readdir } from "node:fs/promises";
@@ -24,6 +27,7 @@ import {
 	assistantText,
 	getFinalAssistantText,
 	dispatchTimeoutReport,
+	getPartialAssistantText, isDispatchDeadlineFailure,
 } from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
@@ -144,6 +148,8 @@ async function resolveChildDispatchServices(
 		resourceLoaderOptions: buildChildResourceLoaderOptions(parsedForwardedArgs, ctx.cwd),
 	});
 	const forwarded = resolveForwardedOptions(parsedForwardedArgs, services.modelRuntime);
+	forwarded.tools = inheritedToolCeiling(pi.getActiveTools(), forwarded.tools, forwarded.excludeTools, forwarded.noTools !== undefined);
+	forwarded.noTools = forwarded.tools.length === 0 ? "all" : undefined;
 	// /agentui session-scoped override: /spawn and /blueprint presets only; see chooseDispatchModel.
 	const agentUiOverride = resolveAgentUiModelOverride(invocation, ctx.sessionManager.getSessionId());
 	const selectedModel = chooseDispatchModel({
@@ -200,6 +206,7 @@ function launchRunningAgent(
 		widget,
 	).finally(() => {
 		logSteering(runningAgent.id, "agent-disposed", { status: runningAgent.status });
+		runningAgent.cancelDeadline?.();
 		runningAgent.session?.dispose();
 		runningAgents.delete(runningAgent);
 
@@ -377,6 +384,7 @@ async function resumeOneFailedAgent(
 ): Promise<void> {
 	const invocation = target.invocation ?? `/${target.command} ${target.task}`.trim();
 	const parsed = parseResumeCommand(target, invocation);
+	if([...runningAgents].filter(a=>a.status==="starting"||a.status==="running").length>=6)throw new Error("Background agent concurrency limit reached");
 	const sessionFile = await findChildSessionFile(ctx.cwd, target.sessionId);
 	const plan = planFailedAgentResume(target, sessionFile, parsed.planRef !== undefined);
 	if (plan.mode === "skip") {
@@ -446,6 +454,13 @@ function warnLiveBlueprint(runningAgents: Set<RunningAgent>, ctx: ExtensionComma
 	);
 }
 
+const agentLedgers=new WeakMap<RunningAgent,AgentRegistry>();
+function registryForAgent(agent:RunningAgent){const ledger=agentLedgers.get(agent);if(ledger){ledger.refresh();ledger.changed();}}
+const registries = new WeakMap<Set<RunningAgent>, AgentRegistry>();
+export function registryFor(agents: Set<RunningAgent>): AgentRegistry {
+ let registry=registries.get(agents);if(!registry){registry=new AgentRegistry();registries.set(agents,registry);}return registry;
+}
+
 export async function startUserAgent(
 	pi: ExtensionAPI,
 	runningAgents: Set<RunningAgent>,
@@ -457,7 +472,11 @@ export async function startUserAgent(
 	args: string,
 	invocation: string,
 	ctx: ExtensionCommandContext,
+ deadline?: {timeoutMs:number;deadlineAt:number},
+ batchId?: string,
 ): Promise<RunningAgent> {
+	if (isShuttingDown()) throw new Error("Session is shutting down");
+ const ledger=registryFor(runningAgents);const generation=ledger.generation;
 	const parsed = parseAgentCommand(args, command);
 	const userSupplement = parsed.task;
 	let relayInstruction: string | undefined;
@@ -479,13 +498,18 @@ export async function startUserAgent(
 	if (parsed.plan) {
 		parsed.task = await buildPlanPrompt(parsed.task);
 	}
-	const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
-	const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
+	if(ledger.generation!==generation || isShuttingDown())throw new Error("Session changed during dispatch preparation");
+ const record=ledger.reserve("user-" + nextAgentNumber().toString(36),batchId);
+ let startupDone!:()=>void;const startup=new Promise<void>(resolve=>{startupDone=resolve;});ledger.pendingStarts.add(startup);
+ try {
+ const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation);
+ if (isShuttingDown() || ledger.generation!==generation || record.state==="closed") throw new Error("Session shut down or child closed during startup");
+ const inheritedMessages = parsed.isolate ? [] : buildInheritedMessages(ctx);
 	// In-memory from birth: the child never writes a session file, so it stays out of /resume
 	// and pi -r; its transcript lives with the widget row and ends with the process.
 	const childSessionManager = SessionManager.inMemory(dispatch.services.cwd);
 	const runningAgent = createRunningAgent(
-		`user-${nextAgentNumber().toString(36)}`,
+		record.id,
 		childSessionManager.getSessionId(),
 		command,
 		dispatch.model,
@@ -494,13 +518,15 @@ export async function startUserAgent(
 		planSourceSessionId,
 		conversationFingerprint(inheritedMessages),
 	);
-	launchRunningAgent(
-		pi,
-		runningAgents,
-		widget,
-		disabledCommands,
-		isShuttingDown,
-		command,
+ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
+ if(deadline)runningAgent.deadlineAt=deadline.deadlineAt;
+ launchRunningAgent(
+  pi,
+  runningAgents,
+  widget,
+  disabledCommands,
+  isShuttingDown,
+  command,
 		dispatch,
 		parsed.warnings,
 		relayInstruction ?? parsed.task,
@@ -509,7 +535,10 @@ export async function startUserAgent(
 		runningAgent,
 		ctx,
 	);
+ if(deadline)armDispatchDeadline(runningAgent,deadline.timeoutMs,deadline.deadlineAt);
+	void runningAgent.finished.then(()=>ledger.settle(record),error=>ledger.fail(record,error));
 	return runningAgent;
+ } catch(error){ledger.fail(record,error);throw error;} finally {startupDone();ledger.pendingStarts.delete(startup);}
 }
 
 function createRunningAgent(
@@ -762,12 +791,12 @@ export function buildChildResourceLoaderOptions(
 	if (parsed.appendSystemPrompt) options.appendSystemPrompt = parsed.appendSystemPrompt;
 	options.additionalExtensionPaths = childRecoveryExtensions({
 		noExtensions: parsed.noExtensions,
-		extensions: parsed.extensions ? resolveResourcePaths(parsed.extensions, cwd) : [],
+		extensions: [], // Custom child extensions cannot transfer their parent approval state.
 	});
 	if (parsed.skills) options.additionalSkillPaths = resolveResourcePaths(parsed.skills, cwd);
 	if (parsed.promptTemplates)
 		options.additionalPromptTemplatePaths = resolveResourcePaths(parsed.promptTemplates, cwd);
-	if (parsed.noExtensions) options.noExtensions = true;
+	options.noExtensions = true; // Disable auto-discovery, including recursive pi-agent copies. Companion is explicit.
 	if (parsed.noSkills) options.noSkills = true;
 	if (parsed.noPromptTemplates) options.noPromptTemplates = true;
 	if (parsed.noThemes) options.noThemes = true;
@@ -821,7 +850,9 @@ async function runAgentLifecycle(
 			logSteering(runningAgent.id, "agent-aborted");
 			return;
 		}
-		const message = runningAgent.timeoutMs === undefined ? errorMessage(error) : dispatchTimeoutReport(runningAgent);
+		const partial = isDispatchDeadlineFailure(runningAgent,error);
+		if(!partial){runningAgent.timeoutMs=undefined;runningAgent.stopCause=undefined;}
+		const message = partial ? dispatchTimeoutReport(runningAgent) : errorMessage(error);
 		logSteering(runningAgent.id, "agent-error", { error: message });
 		runningAgent.status = "error";
 		runningAgent.completedAt = Date.now();
@@ -858,16 +889,29 @@ export async function runChildTurns(
 ): Promise<void> {
 	let instruction = `You are running in an ephemeral, forked background process now, concurrently with the main session. ${task}`;
 	while (true) {
+		if(runningAgent.aborted || isShuttingDown())return;
 		const turnMessageStart = session.agent.state.messages.length;
-		if (runningAgent.timeoutMs !== undefined) throw new Error(dispatchTimeoutReport(runningAgent));
+		throwIfDispatchDeadline(runningAgent);
 		if (!runningAgent.interruptRequested) {
 			logSteering(runningAgent.id, "turn-prompt-started", {
 				streaming: session.isStreaming,
 				instructionLength: instruction.length,
 			});
-			await promptChildUntilSettled(session, instruction);
+			try { await promptChildUntilSettled(session, instruction); }
+   catch (error) { if (!isDispatchDeadlineFailure(runningAgent,error)) throw error; }
+   if (runningAgent.aborted || isShuttingDown()) return;
+   if (runningAgent.stopCause === "deadline") {
+    runningAgent.responseText=getPartialAssistantText(session,turnMessageStart) || runningAgent.responseText;
+    runningAgent.completedAt=Date.now();
+    runningAgent.error=dispatchTimeoutReport(runningAgent);
+    const partial=buildAgentResultMessage(runningAgent,{ok:false,error:runningAgent.error},{display:runningAgent.notifyMainAgent});
+    postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,partial);
+    runningAgent.status="idle";runningAgent.cancelDeadline?.();registryForAgent(runningAgent);widget.update();
+    const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
+    instruction=next;continue;
+   }
 		}
-		if (runningAgent.timeoutMs !== undefined) throw new Error(dispatchTimeoutReport(runningAgent));
+		throwIfDispatchDeadline(runningAgent);
 		if (runningAgent.interruptRequested) {
 			const response = interruptedTurnResponse(session, turnMessageStart);
 			runningAgent.interruptRequested = false;
@@ -886,6 +930,7 @@ export async function runChildTurns(
 				: resultMessage;
 			if (isShuttingDown()) return;
 			runningAgent.status = "idle";
+		registryForAgent(runningAgent);
 			logSteering(runningAgent.id, "turn-interrupted", { turnCount: runningAgent.turnCount });
 			widget.update();
 			const next = await waitForInstruction(runningAgent, widget);
@@ -915,13 +960,19 @@ export async function runChildTurns(
 			}
 			widget.addCompleted(runningAgent, resultMessage, { squashable: false });
 			const posted = postUserAgentResult(pi, isShuttingDown, true, resultMessage);
-			runningAgent.status = posted ? "posted" : runningAgent.status;
-			return;
+			runningAgent.status = "idle";
+		registryForAgent(runningAgent);
+   runningAgent.cancelDeadline?.();
+   const next = await waitForInstruction(runningAgent, widget);
+   if (next === undefined) return;
+   instruction = next;
+   continue;
 		}
 		postUserAgentResult(pi, isShuttingDown, false, resultMessage);
 		runningAgent.pendingSquashMessage = resultMessage;
 		if (isShuttingDown()) return;
 		runningAgent.status = "idle";
+		registryForAgent(runningAgent);
 		logSteering(runningAgent.id, "agent-idle", { turnCount: runningAgent.turnCount });
 		widget.update();
 		const next = await waitForInstruction(runningAgent, widget);
@@ -965,10 +1016,13 @@ async function createChildSession(
 	runningAgent.session = session;
 	runningAgent.status = "running";
 	logSteering(runningAgent.id, "session-created", { streaming: session.isStreaming });
-	if (runningAgent.aborted) void session.abort();
+	if (runningAgent.aborted) { await session.abort(); throw new Error("Child closed during startup"); }
 	widget.update();
 
 	await session.bindExtensions({ mode: "print" });
+	guardChildTools(session, forwarded.tools ?? []);
+	if(runningAgent.aborted)throw new Error("Child closed during startup");
+	throwIfDispatchDeadline(runningAgent);
 	logSteering(runningAgent.id, "session-bound", { streaming: session.isStreaming });
 	if (inheritedMessages.length > 0) {
 		persistMessages(childSessionManager, inheritedMessages, []);
@@ -1024,21 +1078,28 @@ export function waitForInstruction(
 	widget: { update(): void },
 ): Promise<string | undefined> {
 	return new Promise((resolve) => {
+		const idleTimer=setTimeout(()=>settle(undefined),15*60*1000);
 		const settle = (instruction: string | undefined) => {
+			clearTimeout(idleTimer);
 			agent.resume = undefined;
 			agent.retire = undefined;
 			resolve(instruction);
 		};
 		agent.resume = (instruction) => {
+			const ledger=agentLedgers.get(agent);ledger?.refresh();
+			if(ledger && [...ledger.records.values()].filter(r=>r.state==="pending"||r.state==="running").length>=ledger.limit)throw new Error("Background agent concurrency limit reached");
+			const record=ledger?.records.get(agent.id);if(record)record.state="running";
 			logSteering(agent.id, "agent-resumed", { instructionLength: instruction.length });
 			agent.mainContextState = agent.notifyMainAgent ? "will-squash" : "separate";
 			agent.status = "running";
-			agent.turnStartedAt = Date.now();
+			agent.cancelDeadline?.();agent.timeoutMs=undefined;agent.deadlineAt=undefined;agent.stopCause=undefined;agent.error=undefined;
+   agent.turnStartedAt = Date.now();
 			agent.completedAt = undefined;
 			settle(instruction);
 			widget.update();
 		};
 		agent.retire = () => {
+			agent.cancelDeadline?.();
 			logSteering(agent.id, "agent-retired", { status: agent.status });
 			settle(undefined);
 		};

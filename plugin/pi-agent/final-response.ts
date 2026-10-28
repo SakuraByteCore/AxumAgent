@@ -1,3 +1,4 @@
+import { DispatchDeadlineError } from "./child-recovery.ts";
 import type { AgentMessage, AgentSession } from "./shared.js";
 
 /** Follow-up instruction for a child that finished a turn without any text response. */
@@ -78,4 +79,18 @@ export function dispatchTimeoutReport(agent: {
 		agent.responseText || "截止前未收到助手文本；已有文件改动仍需主代理核验。",
 		"剩余风险：任务可能未完成；请核对实际差异与测试后决定是否续跑。",
 	].join("\n\n");
+}
+
+/** Only deadline sentinel/abort is partial; provider/tool failures always retain their error. */
+export function isDispatchDeadlineFailure(agent: { stopCause?: string }, error: unknown): boolean {
+ return agent.stopCause === "deadline" && (error instanceof DispatchDeadlineError ||
+  (error instanceof AgentStopError && error.stopReason === "aborted"));
+}
+
+/** Recover available text without hiding a genuine provider failure behind a timeout. */
+export function getPartialAssistantText(session: AgentSession, turnMessageStart: number): string {
+ const messages = session.agent.state.messages.slice(turnMessageStart).filter(message => message.role === "assistant");
+ const last = messages.at(-1);
+ if (last?.stopReason === "error") throw new AgentStopError({ stopReason: "error", errorMessage: last.errorMessage });
+ return messages.map(message => assistantText(message).trim()).findLast(text => text.length > 0) ?? "";
 }
