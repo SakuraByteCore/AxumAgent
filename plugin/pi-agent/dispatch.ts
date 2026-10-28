@@ -8,7 +8,7 @@ export const MAX_DISPATCH_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 type DispatchAgentParams = {
 	task: string;
- backend?: "controlled-pi" | "oar-claude-text";
+ backend?: "oar-codex" | "controlled-pi" | "oar-claude-text";
  batchId?: string;
  writeScope?: string[];
  testCommands?: string[];
@@ -20,9 +20,9 @@ type DispatchAgentParams = {
 };
 
 const DISPATCH_AGENT_PARAMETERS = Type.Object({
- backend: Type.Optional(Type.Union([Type.Literal("controlled-pi"),Type.Literal("oar-claude-text")],{description:"controlled-pi (default): parent-approved scoped writes/tests. oar-claude-text: real external Claude OAR runtime, supplied-text only, no tools/MCP/write/test; requires Node24 and installed authenticated native CLI. Both are independent one-shot tasks."})),
- testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Exact parent-authorized shell commands. NOT sandboxed; whole-workspace lock. Omit to deny bash."})),
- writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Shell/custom mutation takes a workspace-wide lock; shell is parent-policy mediated, not path sandboxed."})),
+ backend: Type.Optional(Type.Union([Type.Literal("oar-codex"),Type.Literal("controlled-pi"),Type.Literal("oar-claude-text")],{description:"oar-codex (default): real native coding in a required isolated container; owned file diffs are conflict-checked and integrated. controlled-pi: explicit parent-approved compatibility. oar-claude-text: real external Claude OAR runtime, supplied-text only, no tools/MCP/write/test; requires Node24 and installed authenticated native CLI. Both are independent one-shot tasks."})),
+ testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"controlled-pi only: exact parent-authorized shell commands, not sandboxed. OAR: put acceptance checks in task; native tests run in isolated snapshot."})),
+ writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Default OAR merges only these snapshot paths with conflict checks; omit for read-only."})),
  batchId: Type.Optional(Type.String({description:"Shared label for a batch ledger; use manage_agent to inspect all members."})),
 	timeoutMs: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_DISPATCH_TIMEOUT_MS, description: "Host-side execution deadline in milliseconds after dispatch starts. Omit for no deadline; timeout returns partial results." })),
 	task: Type.String({
@@ -40,7 +40,7 @@ const DISPATCH_AGENT_PARAMETERS = Type.Object({
 		}),
 	),
 	model: Type.Optional(
-		Type.String({ description: "Model override for the background agent. Defaults to the current model." }),
+		Type.String({ description: "Model override for the background agent. controlled-pi only; OAR uses deployment model configuration." }),
 	),
 	thinking: Type.Optional(
 		Type.String({ description: "Thinking level override (minimal, low, medium, high, xhigh, max)." }),
@@ -105,7 +105,7 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 			if (params.timeoutMs !== undefined && (!Number.isInteger(params.timeoutMs) || params.timeoutMs < 1 || params.timeoutMs > MAX_DISPATCH_TIMEOUT_MS)) {
 				return { content: [{ type: "text" as const, text: `timeoutMs must be an integer between 1 and ${MAX_DISPATCH_TIMEOUT_MS}.` }], details: { error: "invalid-timeout" } };
 			}
-			if((params.writeScope?.length || params.testCommands?.length) && typeof (ctx as any).executeTool !== "function")throw new Error("Installed Pi SDK/context has no parent executeTool approval bridge; writable dispatch unavailable");
+			if(params.backend === "controlled-pi" && (params.writeScope?.length || params.testCommands?.length) && typeof (ctx as any).executeTool !== "function")throw new Error("Installed Pi SDK/context has no parent executeTool approval bridge; writable dispatch unavailable");
 			const parentSessionId=ctx.sessionManager?.getSessionId();
    const deadline = params.timeoutMs === undefined ? undefined : { timeoutMs: params.timeoutMs, deadlineAt: Date.now() + params.timeoutMs };
 			try {

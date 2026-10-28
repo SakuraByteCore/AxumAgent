@@ -47,7 +47,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	pi.registerCommand("agent", {
 		description:
-			"Run a background SDK agent with current session context; forwards pi CLI options like --thinking (-i/--isolate for none)",
+			"Run one independent real OAR Codex task (mandatory isolated runtime; read-only here). Use dispatch_agent with owned writeScope for edits; Pi CLI/model flags are not native overrides.",
 		handler: async (args, ctx) => {
 			mainSessionContext = ctx;
 			await handleAgentCommand(

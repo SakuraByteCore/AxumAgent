@@ -59,14 +59,14 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
   ({session:parent}=await sdk.createAgentSession({cwd:root,agentDir:join(root,'agent'),modelRuntime:runtime,model,settingsManager:settings,sessionManager:sdk.SessionManager.inMemory(root),resourceLoader:loader,tools:['read','write','bash','dispatch_agent','manage_agent','capture_context']}));
   await parent.bindExtensions({mode:'print'});
   let turn=0;
-  parent.agent.streamFunction=async(m)=>response(m,turn++===0?[call('capture_context',{}),call('dispatch_agent',{task:'Implement module',writeScope:['module.mjs','blocked.mjs'],squash:false,batchId:'production'}),call('dispatch_agent',{task:'Implement second independent module',writeScope:['second.mjs'],squash:false,batchId:'production'})]:[]);
+  parent.agent.streamFunction=async(m)=>response(m,turn++===0?[call('capture_context',{}),call('dispatch_agent',{backend:'controlled-pi',task:'Implement module',writeScope:['module.mjs','blocked.mjs'],squash:false,batchId:'production'}),call('dispatch_agent',{backend:'controlled-pi',task:'Implement second independent module',writeScope:['second.mjs'],squash:false,batchId:'production'})]:[]);
   await parent.prompt('Implement and verify one module using a child.');dispatchReturned=true;
   const dispatch=parent.agent.state.messages.find(x=>x.role==='toolResult'&&x.toolName==='dispatch_agent');
   assert.ok(dispatch&&!dispatch.isError,JSON.stringify(parent.agent.state.messages));
   const id=dispatch.details.agentId;assert.ok(id,JSON.stringify({dispatch,tools:api.getAllTools().filter(t=>['write','read','bash'].includes(t.name)).map(t=>({name:t.name,sourceInfo:t.sourceInfo}))}));assert.ok(captured);
   async function manage(action,extra={}){const out=await captured.executeTool('manage_agent',{action,agentId:id,...extra});assert.equal(out.isError,false,JSON.stringify(out));return out.result;}
   const before=await manage('wait',{timeoutMs:5});assert.equal(before.details.timedOut,true);
-  const locked=await captured.executeTool('dispatch_agent',{task:'Too early exact tests',writeScope:['.'],testCommands:[command],squash:false});assert.match(locked.result.details.error,/conflict/i);
+  const locked=await captured.executeTool('dispatch_agent',{backend:'controlled-pi',task:'Too early exact tests',writeScope:['.'],testCommands:[command],squash:false});assert.match(locked.result.details.error,/conflict/i);
   releaseChild();
   const waited=await manage('wait',{timeoutMs:10000});assert.equal(waited.details.timedOut,false,JSON.stringify(waited));
   const all=await captured.executeTool('manage_agent',{action:'wait',batchId:'production',timeoutMs:10000});assert.equal(all.result.details.timedOut,false);
@@ -83,7 +83,7 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
    const rejected=await captured.executeTool('manage_agent',{action,agentId:id,input:'FOLLOWUP'});assert.equal(rejected.isError,true,JSON.stringify(rejected));
   }
   const state=await manage('status');assert.equal(state.details.records[0].id,id);assert.equal(state.details.records[0].capabilities.oneShot,true);
-  const checked=await captured.executeTool('dispatch_agent',{task:'Run exact checks',writeScope:['.'],testCommands:[command],squash:false,batchId:'production'});
+  const checked=await captured.executeTool('dispatch_agent',{backend:'controlled-pi',task:'Run exact checks',writeScope:['.'],testCommands:[command],squash:false,batchId:'production'});
   assert.equal(checked.isError,false);assert.ok(checked.result.details.agentId,JSON.stringify(checked));
   await captured.executeTool('manage_agent',{action:'wait',agentId:checked.result.details.agentId,timeoutMs:10000});
   assert.deepEqual(events.filter(e=>e.name==='bash').map(e=>e.input.command),[command]);

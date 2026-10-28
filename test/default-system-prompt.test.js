@@ -164,3 +164,14 @@ test("v3 managed policy migrates without replacing custom user instructions", (t
  assert.match(content,/dispatch_agent to create children/);
  assert.equal(ensureSubagentDelegationPolicy({env}).changed,false);
 });
+
+test("v5 controlled default migrates to native OAR without clobbering custom text",t=>{
+ const env=withTempEnv(t), target=resolveAppendSystemPromptFile(env);
+ fs.writeFileSync(target,"Custom before\n<!-- axum:subagent-delegation-policy v5 -->\ncontrolled-pi default\n"+SUBAGENT_POLICY_END+"\nCustom after\n");
+ ensureSubagentDelegationPolicy({env});
+ const content=fs.readFileSync(target,"utf8");
+ assert.match(content,/Custom before/);assert.match(content,/Custom after/);
+ assert.doesNotMatch(content,/policy v5|controlled-pi default/);
+ assert.match(content,/Default real OAR Codex/);assert.match(content,/without Pi fallback/);
+ assert.equal(ensureSubagentDelegationPolicy({env}).changed,false);
+});

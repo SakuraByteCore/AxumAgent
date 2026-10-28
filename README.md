@@ -1,4 +1,4 @@
-> Current one-shot runtime contract: [subagent runtimes](docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. controlled-pi remains writable via the parent bridge; optional real OAR Claude integration is supplied-text-only, not native writable parity. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
+> Current one-shot runtime contract: [subagent runtimes](docs/subagent-runtime.md). New dispatches are independent one-shot tasks; manage supports status/wait/interrupt/close only. Default workers use real OAR Codex with mandatory container isolation, strict native sandbox, independent project snapshots and owned-file diff integration. Missing prerequisites fail closed; controlled-pi is explicit compatibility only. Historical behavior described below is superseded where it discusses send/resume/rebase or inherited context.
 
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
