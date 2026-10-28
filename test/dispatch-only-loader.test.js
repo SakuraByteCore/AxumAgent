@@ -33,16 +33,17 @@ for (const real of [false, true]) test(real ? 'real isolated SDK loader dispatch
    loaderPath = path.join(root,'loader.mjs'); fs.writeFileSync(loaderPath, patchPiDispatchOnlyLoader(synthetic));
   }
   const loader = await import(pathToFileURL(loaderPath).href);
-  const names = ['subagent_supervisor','subagent','subagents_enable','contact_supervisor','supervisor','subagent_alias','agent','quick','orchestrate'];
+  const names = ['subagent_supervisor','subagent','subagents_enable','contact_supervisor','workflowScript'];
+  const allowed = ['dispatch_agent','manage_agent','structured_output','read','supervisor_status','subagent_metrics','agent','quick','orchestrate'];
   const runtime = loader.createExtensionRuntime?.();
   let api, executed = 0;
   const extension = await loader.loadExtensionFromFactory(pi => {
    api = pi;
-   for (const name of [...names,'dispatch_agent','manage_agent','structured_output','read']) pi.registerTool({name, parameters:{type:'object'},execute:()=>{executed++;}});
+   for (const name of [...names,...allowed]) pi.registerTool({name, parameters:{type:'object'},execute:()=>{executed++;}});
   }, root, undefined, runtime);
-  assert.deepEqual([...extension.tools.keys()], ['dispatch_agent','manage_agent','structured_output','read']);
-  api.registerTool({name:'subagent_late',execute:()=>{executed++;}});
-  assert.equal(extension.tools.has('subagent_late'),false);
+  assert.deepEqual([...extension.tools.keys()], allowed);
+  api.registerTool({name:'subagent_supervisor',execute:()=>{executed++;}});
+  assert.equal(extension.tools.has('subagent_supervisor'),false);
   assert.equal(executed,0);
   for (const [dir, manifest] of [['pi-subagents',{}],['renamed',{name:'pi-subagents'}],['scoped',{name:'@vendor/pi-subagents'}]]) {
    const base = path.join(root,dir); fs.mkdirSync(path.join(base,'src'),{recursive:true});
@@ -55,6 +56,7 @@ for (const real of [false, true]) test(real ? 'real isolated SDK loader dispatch
    assert.doesNotMatch(JSON.stringify(result.errors), /SIDE EFFECT/);
    await assert.rejects(loader.loadExtensionFromFactory(()=>{throw Error('FACTORY RAN');},root,undefined,undefined,entry), /dispatch-only policy/);
   }
+  fs.writeFileSync(path.join(root,'package.json'), '{ malformed optional ancestor');
   const good = path.join(root,'good.mjs');
   fs.writeFileSync(good, 'export default pi => pi.registerTool({name:"read",parameters:{type:"object"}});');
   assert.equal((await loader.loadExtensions([good],root)).extensions.length,1);
