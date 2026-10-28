@@ -530,7 +530,7 @@ export async function startUserAgent(
 		conversationFingerprint(inheritedMessages),
 	);
 ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
- if(deadline){runningAgent.deadlineAt=deadline.deadlineAt;if(Date.now()>=deadline.deadlineAt){runningAgent.timeoutMs=deadline.timeoutMs;runningAgent.stopCause="deadline";}}
+ if(deadline){runningAgent.executionTimeoutMs=deadline.timeoutMs;runningAgent.deadlineAt=deadline.deadlineAt;if(Date.now()>=deadline.deadlineAt){runningAgent.timeoutMs=deadline.timeoutMs;runningAgent.stopCause="deadline";}}
  launchRunningAgent(
   pi,
   runningAgents,
@@ -903,13 +903,13 @@ export async function runChildTurns(
 		if(runningAgent.aborted || isShuttingDown())return;
 		const turnMessageStart = session.agent.state.messages.length;
   if(runningAgent.stopCause==="deadline" || (runningAgent.deadlineAt!==undefined && Date.now()>=runningAgent.deadlineAt)){
-   runningAgent.stopCause="deadline";
+   runningAgent.stopCause="deadline";runningAgent.timeoutMs ??= runningAgent.executionTimeoutMs ?? 0;
    runningAgent.completedAt=Date.now();runningAgent.error=dispatchTimeoutReport(runningAgent);
    const partial=buildAgentResultMessage(runningAgent,{ok:false,error:runningAgent.error},{display:runningAgent.notifyMainAgent});
    postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,partial);
    runningAgent.status="idle";runningAgent.cancelDeadline?.();registryForAgent(runningAgent);widget.update();
    const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
-   instruction=next;continue;
+   instruction=`${instruction}\n\n[Continuation after startup deadline]\n${next}`;continue;
   }
 		if (!runningAgent.interruptRequested) {
 			logSteering(runningAgent.id, "turn-prompt-started", {

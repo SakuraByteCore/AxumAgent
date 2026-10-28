@@ -152,6 +152,7 @@ export type RunningAgent = {
 	timeoutMs?: number;
 	/** Absolute dispatch execution cutoff, including session startup. */
 	deadlineAt?: number;
+ executionTimeoutMs?: number;
 	stopCause?: "deadline";
 	/** Clear on turn settlement, cancel, retirement, and before resume. */
 	cancelDeadline?: () => void;
