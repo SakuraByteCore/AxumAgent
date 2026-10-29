@@ -24,7 +24,11 @@ export function resolvePiWebBin(options = {}) {
 
 export function runPiWebChat(argv) {
   const bin = resolvePiWebBin();
-  const child = spawn(process.execPath, [bin, ...argv], { stdio: "inherit" });
+  const preload = new URL("./pi-web-fast-loader.js", import.meta.url).href;
+  const nodeOptions = [process.env.NODE_OPTIONS, `--import=${preload}`].filter(Boolean).join(" ");
+  const child = spawn(process.execPath, [bin, ...argv], {
+    stdio: "inherit", env: { ...process.env, NODE_OPTIONS: nodeOptions },
+  });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
     process.exit(code ?? 1);
