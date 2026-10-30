@@ -474,6 +474,8 @@ function splitAxumCodeArgs(passthrough) {
 
 function buildPiEnv(compileCacheDir) {
   const env = { ...process.env, AXUM_BUNDLED_PI: "1" };
+  const fastLoader = new URL("../src/pi-web-fast-loader.js", import.meta.url).href;
+  env.NODE_OPTIONS = [env.NODE_OPTIONS, "--import=" + JSON.stringify(fastLoader)].filter(Boolean).join(" ");
   if (compileCacheDir && !env.NODE_COMPILE_CACHE) env.NODE_COMPILE_CACHE = compileCacheDir;
   if (!env.JITI_TRY_NATIVE) env.JITI_TRY_NATIVE = "1";
   // 传递用户配置的 User-Agent 给 Pi（本文件为 ESM，require 不可用，须用静态 import）

@@ -1,4 +1,4 @@
-import { DispatchDeadlineError } from "./child-recovery.ts";
+import { DispatchDeadlineError } from "./child-recovery.js";
 import type { AgentMessage, AgentSession } from "./shared.js";
 
 /** Follow-up instruction for a child that finished a turn without any text response. */
@@ -26,6 +26,7 @@ export class NoAssistantMessageError extends Error {
 /** Thrown when the agent stops with an error or aborted status. */
 export class AgentStopError extends Error {
 	public readonly stopReason: "error" | "aborted";
+	public partialText = "";
 	constructor(detail: { stopReason: "error" | "aborted"; errorMessage?: string }) {
 		super(detail.errorMessage || `User agent ${detail.stopReason}`);
 		this.name = "AgentStopError";
@@ -91,6 +92,11 @@ export function isDispatchDeadlineFailure(agent: { stopCause?: string }, error: 
 export function getPartialAssistantText(session: AgentSession, turnMessageStart: number): string {
  const messages = session.agent.state.messages.slice(turnMessageStart).filter(message => message.role === "assistant");
  const last = messages.at(-1);
- if (last?.stopReason === "error") throw new AgentStopError({ stopReason: "error", errorMessage: last.errorMessage });
- return messages.map(message => assistantText(message).trim()).findLast(text => text.length > 0) ?? "";
+ const text = messages.map(message => assistantText(message).trim()).findLast(text => text.length > 0) ?? "";
+ if (last?.stopReason === "error") {
+  const error = new AgentStopError({ stopReason: "error", errorMessage: last.errorMessage });
+  error.partialText = text;
+  throw error;
+ }
+ return text;
 }

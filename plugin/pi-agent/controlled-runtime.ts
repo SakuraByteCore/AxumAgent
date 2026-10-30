@@ -1,4 +1,6 @@
 import type { Runtime, RuntimeResult } from './runtime.js';
+import { AgentStopError } from './final-response.js';
+import { DispatchDeadlineError } from './child-recovery.js';
 /** Existing parent-mediated SDK execution behind the same one-shot contract.
  * Cancellation owns cleanup, never prompts again and never retries side effects.
  */
@@ -20,7 +22,14 @@ export function createControlledRuntime(ops: {
   const result=(async():Promise<RuntimeResult>=>{
    let text='',stopReason:RuntimeResult['stopReason']='completed';
    try {if(!stopped)text=await ops.execute(request.task);if(stopped){text=ops.partial();stopReason=stopped;}}
-   catch {text=ops.partial();stopReason=stopped??'error';if(!stopped)diagnostics.push({stage:'turn',message:'Controlled SDK task failed'});}
+   catch (error) {
+    stopReason=error instanceof DispatchDeadlineError ? 'timeout' :
+     error instanceof AgentStopError && error.stopReason==='aborted' ? stopped??'aborted' :
+     stopped && error instanceof Error && error.name==='AbortError' ? stopped : 'error';
+    diagnostics.push({stage:'turn',message:error instanceof Error?error.message:String(error)});
+    try {text=ops.partial();}
+    catch (partialError) {if(partialError instanceof AgentStopError)text=partialError.partialText||text;stopReason='error';diagnostics.push({stage:'turn',message:partialError instanceof Error?partialError.message:String(partialError)});}
+   }
    finally{done=true;clearTimeout(timer);request.signal.removeEventListener('abort',onAbort);await abort;await dispose();}
    return {text,stopReason,partial:stopReason!=='completed'&&!!text,diagnostics:[...diagnostics],...cleanupFailure?{cleanupFailure}:{}};
   })();

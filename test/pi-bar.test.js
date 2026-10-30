@@ -155,17 +155,15 @@ test("model segment shows the full unprefixed model id without truncation", () =
  assert.match(statuslineSource, /emitBarUpdate\(\{ id: "model", text: raw, color: "thinkingHigh" \}\)/);
  assert.doesNotMatch(statuslineSource, /MAX_MODEL_WIDTH/);
 });
-test("tps segment replaces tokens-down with a live tokens-per-second pill", () => {
+test("tps segment replaces tokens-down with a tokens-per-second label", () => {
   // tokens-down is fully retired: no update emissions and no palette entry.
   assert.doesNotMatch(statuslineSource, /id: "tokens-down"/);
-  // Idle state shows an explicit 0 t/s (session start and agent settle).
-  assert.match(statuslineSource, /function emitTpsIdle\(ctx: ExtensionContext\): void \{[\s\S]*?emitTps\(ctx, 0\);/);
-  assert.match(statuslineSource, /pi\.on\("agent_settled"[\s\S]*?emitTpsIdle\(ctx\);/);
+  // Unknown throughput is not presented as a measured zero.
+  assert.match(statuslineSource, /function emitTpsIdle\(ctx: ExtensionContext\): void \{[\s\S]*?emitTps\(ctx, "— t\/s"\);/);
+  assert.match(statuslineSource, /pi\.on\("turn_start"[\s\S]*?if \(!tpsBorderLabel\) emitTpsIdle\(ctx\);/);
   assert.match(statuslineSource, /emitThinking\(ctx\);[\s\S]*?emitTpsIdle\(ctx\);/);
-  // Live value is sampled from streaming deltas with a throttle window.
-  assert.match(statuslineSource, /const TPS_SAMPLE_MS = 250;/);
-  assert.match(statuslineSource, /text_delta" \|\| ev\.type === "thinking_delta" \|\| ev\.type === "toolcall_delta"/);
-  assert.match(statuslineSource, /emitTpsDelta\(ctx, ev\.delta\);/);
+  // Only real provider usage may be labelled as token throughput.
+  assert.doesNotMatch(statuslineSource, /emitTpsDelta|TPS_SAMPLE_MS|字符\/s|均值 /);
   assert.match(statuslineSource, /\{ id: "tps", text: tpsBorderLabel, color: "text" \}/);
   // The t/s readout is embedded into the input box's TOP border at the left
   // end — no background, label goes through the border colour callback —
@@ -173,7 +171,7 @@ test("tps segment replaces tokens-down with a live tokens-per-second pill", () =
   assert.match(statuslineSource, /function fitTpsBorder\(label: string, width: number, border: ColorFn\): string \{/);
   assert.match(statuslineSource, /const TPS_BORDER_MIN_GAP = 1;/);
   assert.match(statuslineSource, /let tpsBorderLabel = "";/);
-  assert.match(statuslineSource, /tpsBorderLabel = `\$\{Math\.round\(value\)\} t\/s`;/);
+  assert.match(statuslineSource, /tpsBorderLabel = label;/);
   assert.match(statuslineSource, /if \(tpsBorderLabel && stripSgr\(lines\[0\]\) === rule\) \{/);
   assert.match(statuslineSource, /lines\[0\] = fitTpsBorder\(border\(` \$\{tpsBorderLabel\} `\), width, border\);/);
   assert.match(statuslineSource, /split\(s\["left"\], DEFAULTS\.left\.join\(","\)\)\.filter\(\(x\) => x !== "tps" && x !== "balance"\)/);
@@ -559,4 +557,42 @@ test("/balance reports why the balance segment stays empty", async () => {
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0].message, /余额不可用/);
 	assert.match(notifications[0].message, /provider=demo/);
+});
+
+
+test("throughput shows only t/s from request usage and isolates tools", async (t) => {
+  const { default: install } = await import("../plugin/pi-bar/index.ts");
+  const handlers = new Map(), labels = [];
+  install({ on: (name, fn) => handlers.set(name, fn), registerCommand() {},
+    events: { on() {}, emit: (_name, value) => { if (value.id === "tps") labels.push(value.text); } } });
+  let now = 1000;
+  t.mock.method(Date, "now", () => now);
+  const ctx = { hasUI: false, getContextUsage: () => undefined };
+  const call = (name, message = {}) => handlers.get(name)({ message }, ctx);
+  const delta = (type, text) => handlers.get("message_update")({ assistantMessageEvent: { type, delta: text } }, ctx);
+  await call("turn_start");
+  assert.equal(labels.at(-1), "— t/s");
+  await call("message_start", { role: "assistant" });
+  await delta("text_delta", "中😀"); now += 250;
+  await delta("toolcall_delta", "ab");
+  assert.equal(labels.at(-1), "— t/s");
+  now = 11000;
+  await call("message_end", { role: "assistant", timestamp: 1000, usage: { output: 100, reasoning: 80 }, stopReason: "toolUse" });
+  assert.equal(labels.at(-1), "10.0 t/s");
+  now += 30000;
+  await call("message_end", { role: "toolResult" });
+  await call("agent_settled");
+  assert.equal(labels.at(-1), "10.0 t/s");
+  await call("turn_start");
+  await call("message_start", { role: "assistant" });
+  await delta("thinking_delta", "abcd"); now += 250;
+  await delta("text_delta", "abcd");
+  assert.equal(labels.at(-1), "10.0 t/s");
+  now = 51000;
+  await call("message_end", { role: "assistant", timestamp: 41000, usage: { output: 200 }, stopReason: "stop" });
+  assert.equal(labels.at(-1), `${(200 / ((now - 41000) / 1000)).toFixed(1)} t/s`);
+  for (const message of [{ usage: { output: 0 } }, { usage: { output: 100 }, stopReason: "error" }, { usage: { output: 100 }, stopReason: "aborted" }]) {
+    await call("message_end", { role: "assistant", timestamp: 1000, ...message });
+    assert.equal(labels.at(-1), "— t/s");
+  }
 });

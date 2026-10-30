@@ -1,9 +1,28 @@
 import * as path from "node:path";
+import { createRequire } from "node:module";
 import { realpathSync, lstatSync } from "node:fs";
 /** Legacy command contexts have no nested executor: never silently grant raw tools. */
 export const SAFE_CHILD_TOOLS = new Set(["read", "grep", "find", "ls"]);
 export const BUILTIN_CHILD_TOOLS = new Set([...SAFE_CHILD_TOOLS, "write", "edit", "bash"]);
 const DELEGATION = new Set(["dispatch_agent", "manage_agent", "orchestrate", "quick", "agent"]);
+const require = createRequire(import.meta.url);
+/** Preserve builtin provenance; allow only the installed hashline read/search replacements. */
+export function isDelegableParentTool(tool: any): boolean {
+ if(!BUILTIN_CHILD_TOOLS.has(tool.name))return false;
+ const source=tool.sourceInfo;
+ if(source?.source==="builtin" && source.path===`builtin:${tool.name}`)return true;
+ if(!["read","grep"].includes(tool.name) || typeof source?.path!=="string")return false;
+ try {
+  const root=path.dirname(require.resolve("pi-hashline-edit-pro/package.json"));
+  const entry=path.resolve(source.path);
+  if(entry!==path.join(root,"index.js") && entry!==path.join(root,"index.ts"))return false;
+  return realpathSync(entry)===path.join(realpathSync(root),path.basename(entry));
+ } catch(error:any) {
+  if(error.code==="MODULE_NOT_FOUND" || error.code==="ENOENT")return false;
+  throw error;
+ }
+}
+
 export type ParentToolBridge = { tools: readonly any[]; getActiveTools?:()=>readonly string[]; validate?:()=>void; executeTool(name:string,args:unknown,options?:any):Promise<any> };
 export type ChildPermissions = { backend?: "controlled-pi"; writeScope?: string[]; testCommands?: string[]; bridge?: ParentToolBridge };
 export function inheritedToolCeiling(parentTools: readonly string[], requested?: readonly string[], excluded: readonly string[] = [], noTools = false, bridged = false): string[] {
@@ -32,8 +51,8 @@ export class WriteScopeLocks {
 /** No tool implementation is invoked directly: every operation re-enters parent hooks/approval. */
 export function bridgedChildTools(bridge:ParentToolBridge,allowed:readonly string[],scopes:readonly string[],cwd:string,testCommands:readonly string[]=[]){
  const ceiling=new Set(allowed);
- return bridge.tools.filter(tool=>ceiling.has(tool.name)&&BUILTIN_CHILD_TOOLS.has(tool.name)&&tool.sourceInfo?.source==="builtin"&&tool.sourceInfo?.path===`builtin:${tool.name}`).map(tool=>({
-  name:tool.name,label:tool.label??tool.name,description:tool.description,parameters:tool.parameters,
+ return bridge.tools.filter(tool=>ceiling.has(tool.name)&&BUILTIN_CHILD_TOOLS.has(tool.name)&&isDelegableParentTool(tool)).map(tool=>({
+  name:tool.name,label:tool.label??tool.name,description:tool.description,parameters:tool.parameters,promptGuidelines:tool.promptGuidelines,
   async execute(_id:string,args:any,signal:AbortSignal,onUpdate:any){
    bridge.validate?.();
    if(!bridge.getActiveTools?.().includes(tool.name))throw new Error("Parent tool no longer active");
@@ -45,7 +64,7 @@ export function bridgedChildTools(bridge:ParentToolBridge,allowed:readonly strin
    // Shell cannot be path-sandboxed by a string allowlist. It remains parent-policy mediated;
    // writable scopes take a workspace-wide lock while bash is enabled.
    if(!SAFE_CHILD_TOOLS.has(tool.name)&&scopes.length===0)throw new Error("Mutating tools require explicit writeScope");
-   if(!bridge.tools.some(t=>t.name===tool.name&&t.sourceInfo?.source==="builtin"&&t.sourceInfo?.path==="builtin:"+tool.name))throw new Error("Parent tool no longer available");
+   if(!bridge.tools.some(t=>t.name===tool.name&&isDelegableParentTool(t)&&t.sourceInfo.path===tool.sourceInfo.path))throw new Error("Parent tool no longer available");
    const outcome=await bridge.executeTool(tool.name,args,{signal,onUpdate});
    if(outcome.isError)throw new Error(outcome.result.content?.filter((c:any)=>c.type==="text").map((c:any)=>c.text).join("\n")||"Parent tool denied");
    return outcome.result;

@@ -137,6 +137,7 @@ const CUSTOM_PROMPT_RESERVED_NAMES: ReadonlySet<string> = new Set([
   "ralph",
   "rules",
   "usemodel",
+  "fast",
   "agentui",
   "plugin-create-mode",
   "plugin",
@@ -1095,6 +1096,44 @@ export default function (pi: ExtensionAPI): void {
 			ralphContinueTimer = undefined;
 		}
 	}
+
+	pi.registerCommand("fast", {
+		description: "设置当前模型的 Fast 请求等级：/fast on|off|status",
+		getArgumentCompletions: () => null,
+		async handler(args: string, ctx) {
+			const action = args.trim() || "status";
+			const usage = "用法：/fast on|off|status；无参数显示状态。";
+			if (!["on", "off", "status"].includes(action)) {
+				ctx.ui.notify(usage, "warning");
+				return;
+			}
+			const model = ctx.model;
+			if (!model) {
+				ctx.ui.notify("当前会话没有模型。" + usage, "warning");
+				return;
+			}
+			type FastControl = {
+				sdkDecorated: boolean;
+				status(model: { provider: string; id: string; api: string }): { enabled: boolean; supported: boolean };
+				set(model: { provider: string; id: string; api: string }, enabled: boolean): void;
+			};
+			const bridge = (globalThis as unknown as Record<symbol, FastControl | undefined>)[Symbol.for("axum.fast-service-tier.control")];
+			const identity = "provider=" + model.provider + " model=" + model.id + " api=" + model.api;
+			if (!bridge) {
+				ctx.ui.notify(identity + "\n偏好：未读取；注入能力：控制桥未加载。请重启升级后的 Axum 终端；未修改配置。\n" + usage, "warning");
+				return;
+			}
+			try {
+				if (action !== "status") bridge.set(model, action === "on");
+				const status = bridge.status(model);
+				const capability = !status.supported ? "当前协议不支持" : bridge.sdkDecorated ? "SDK 已装饰" : "helper 已加载，SDK 尚未命中";
+				ctx.ui.notify(identity + "\n偏好：" + (status.enabled ? "on" : "off") + "；注入能力：" + capability +
+					"。\n偏好按 provider/model 跨会话保存；已装饰 SDK 的下一请求生效，不追溯当前请求。Fast 不保证上游支持或提速。\n" + usage, "info");
+			} catch (error) {
+				ctx.ui.notify(identity + "\nFast 操作失败：" + (error instanceof Error ? error.message : String(error)), "error");
+			}
+		},
+	});
 
 	pi.registerCommand("clear", {
 		description: "Delete the current conversation session and start a fresh one",

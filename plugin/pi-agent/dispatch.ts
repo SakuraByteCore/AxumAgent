@@ -20,7 +20,7 @@ type DispatchAgentParams = {
 };
 
 const DISPATCH_AGENT_PARAMETERS = Type.Object({
- backend: Type.Optional(Type.Literal("controlled-pi",{description:"Built-in default; inherits current model/provider authentication. No extra login or deployment."})),
+ backend: Type.Optional(Type.Literal("controlled-pi",{description:"Built-in default; inherits current model/provider authentication and available read/search tools. No extra login or deployment."})),
  testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Exact parent-authorized shell commands; requires explicit writeScope and live parent approval bridge. Not sandboxed."})),
  writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Writes use the live parent permission bridge; omit for read-only."})),
  batchId: Type.Optional(Type.String({description:"Shared label for a batch ledger; use manage_agent to inspect all members."})),
@@ -92,6 +92,7 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 		promptGuidelines: [
 			"When a goal has two or more independent file/module/verification lanes worth parallelizing, dispatch ready lanes early after minimal orientation; keep the parent on the critical path. Do not wait for exhaustive investigation, use fixed counts, split tightly coupled/simple work, or assign the same writable file to multiple owners.",
 			"Keep squash enabled so finished results return automatically; package the full goal/context/scope/interfaces/acceptance in every task.",
+			"Read/search tools work without writeScope. When a task needs commands, include exact testCommands and explicit writeScope at dispatch time; task prose alone does not authorize bash. Do not ask users to install or configure child tools.",
 		],
 		parameters: DISPATCH_AGENT_PARAMETERS,
 		executionMode: "parallel",

@@ -1,7 +1,7 @@
 import { createControlledRuntime } from "./controlled-runtime.js";
 import { AgentRegistry } from "./registry.js";
 import { armDispatchDeadline } from "./dispatch.js";
-import { inheritedToolCeiling, guardChildTools, bridgedChildTools, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
+import { inheritedToolCeiling, guardChildTools, bridgedChildTools, isDelegableParentTool, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
 import { childRecoveryExtensions, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -25,7 +25,7 @@ import {
 import { chooseDispatchModel, resolveAgentUiModelOverride } from "./agentui-prefs.js";
 import { type AgentValueValidator, parseAgentCommand, scanAgentArguments } from "./command-line.js";
 import {
-	assistantText,
+	assistantText, AgentStopError,
 	getFinalAssistantText,
 	dispatchTimeoutReport,
 	getPartialAssistantText, isDispatchDeadlineFailure,
@@ -155,9 +155,10 @@ async function resolveChildDispatchServices(
  if(permissions?.bridge){const names=new Set(permissions.bridge.tools.map(t=>t.name));forwarded.tools=forwarded.tools.filter(t=>names.has(t));}
  if(!permissions?.testCommands?.length)forwarded.tools=forwarded.tools.filter(t=>t!=="bash");
  if(!permissions?.writeScope?.length)forwarded.tools=forwarded.tools.filter(t=>!["write","edit","bash"].includes(t));
- if(permissions?.bridge) forwarded.tools = forwarded.tools.filter(name=>permissions.bridge!.tools.some(t=>t.name===name&&t.sourceInfo?.source==="builtin"&&t.sourceInfo?.path==="builtin:"+name));
+ if(permissions?.bridge) forwarded.tools = forwarded.tools.filter(name=>permissions.bridge!.tools.some(t=>t.name===name&&isDelegableParentTool(t)));
  if(permissions?.writeScope?.length && !forwarded.tools.some(name=>name==="write"||name==="edit"))throw new Error("No parent-authorized builtin write/edit tool is available for writable dispatch");
  if(permissions?.testCommands?.length && !forwarded.tools.includes("bash"))throw new Error("No parent-authorized builtin bash tool is available for testCommands");
+ if(!forwarded.tools.length && forwarded.noTools===undefined)throw new Error("No parent-authorized read/search tools are available; dispatch was not started. Enable read/grep in the parent session or use explicit --no-tools for a text-only task.");
  forwarded.permissions=permissions;
 	forwarded.noTools = forwarded.tools.length === 0 ? "all" : undefined;
 	// /agentui session-scoped override: /spawn and /blueprint presets only; see chooseDispatchModel.
@@ -872,11 +873,20 @@ async function runAgentLifecycle(
   let session:AgentSession|undefined,unsubscribe:(()=>void)|undefined,stopped=false;
   const runtime=createControlledRuntime({
    execute:async instruction=>{
+    throwIfDispatchDeadline(runningAgent);
     session=await createChildSession(model,thinkingLevel,forwarded,[],services,childSessionManager,runningAgent,widget);
     if(stopped||runningAgent.aborted||isShuttingDown())return "";
     throwIfDispatchDeadline(runningAgent);
     unsubscribe=subscribeToChildSession(session,runningAgent,widget);
-    await promptChildUntilSettled(session,instruction);
+    const capabilities = [
+     "[Child tool capabilities]",
+     `Available tools: ${session.getActiveToolNames().join(", ") || "none (explicit text-only mode)"}.`,
+     forwarded.tools?.includes("bash")
+      ? `Authorized shell commands (exact match): ${JSON.stringify(forwarded.permissions?.testCommands)}.`
+      : "Shell is unavailable for this task. Use read/grep for inspection; if commands are required, report the exact command to the parent for a new authorized dispatch.",
+     "Use the tools actually provided; do not report missing read/search capabilities without checking this list.",
+    ].join("\n");
+    await promptChildUntilSettled(session,`${capabilities}\n\n${instruction}`);
     return getFinalAssistantText(session,0);
    },
    partial:()=>session?getPartialAssistantText(session,0)||runningAgent.responseText:runningAgent.responseText,
@@ -886,10 +896,12 @@ async function runAgentLifecycle(
   const controller=new AbortController();if(runningAgent.aborted||isShuttingDown())controller.abort();
   runningAgent.runHandle=runtime.start({task,cwd:services.cwd,signal:controller.signal,...runningAgent.deadlineAt===undefined?{}:{timeoutMs:Math.max(1,runningAgent.deadlineAt-Date.now())}});
   const result=await runningAgent.runHandle.result;
-  if(runningAgent.stopCause==="deadline"){result.stopReason="timeout";result.partial=!!result.text;}
+  if(result.stopReason!=="timeout"){runningAgent.timeoutMs=undefined;runningAgent.stopCause=undefined;}
+  if(!result.text && result.stopReason!=="completed"){result.text=runningAgent.responseText;result.partial=!!result.text;}
   runningAgent.runtimeResult=result;runningAgent.responseText=result.text;runningAgent.completedAt=Date.now();
   if(result.stopReason==="timeout"){runningAgent.timeoutMs=runningAgent.executionTimeoutMs;runningAgent.stopCause="deadline";}
-  if(result.stopReason!=="completed")runningAgent.error=result.diagnostics.map(d=>d.message).join("; ")||"Task "+result.stopReason;
+  if(result.stopReason==="timeout")runningAgent.error=[dispatchTimeoutReport(runningAgent),...result.diagnostics.map(d=>d.message)].join("\n\n");
+  else if(result.stopReason!=="completed")runningAgent.error=result.diagnostics.map(d=>d.message).join("; ")||"Task "+result.stopReason;
   if(result.cleanupFailure)runningAgent.error=[runningAgent.error,result.cleanupFailure.message].filter(Boolean).join("; ");
   const message=buildAgentResultMessage(runningAgent,runningAgent.error?{ok:false,error:runningAgent.error}:{ok:true,response:result.text},{display:runningAgent.notifyMainAgent});
   widget.addCompleted(runningAgent,message,{squashable:!runningAgent.notifyMainAgent});
@@ -1096,12 +1108,14 @@ async function createChildSession(
 	runningAgent.session = session;
 	runningAgent.status = "running";
 	logSteering(runningAgent.id, "session-created", { streaming: session.isStreaming });
-	if (runningAgent.aborted) { await session.abort(); throw new Error("Child closed during startup"); }
+	if (runningAgent.aborted) { await session.abort(); throw new AgentStopError({stopReason:"aborted",errorMessage:"Child closed during startup"}); }
 	widget.update();
 
 	await session.bindExtensions({ mode: "print" });
 	guardChildTools(session, forwarded.tools ?? []);
-	if(runningAgent.aborted)throw new Error("Child closed during startup");
+	const missingTools = (forwarded.tools ?? []).filter(name => !session.getActiveToolNames().includes(name));
+	if (missingTools.length) throw new Error(`Child tool registration failed: ${missingTools.join(", ")}`);
+	if(runningAgent.aborted)throw new AgentStopError({stopReason:"aborted",errorMessage:"Child closed during startup"});
 	logSteering(runningAgent.id, "session-bound", { streaming: session.isStreaming });
 	if (inheritedMessages.length > 0) {
 		persistMessages(childSessionManager, inheritedMessages, []);

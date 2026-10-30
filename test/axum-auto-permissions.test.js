@@ -37,8 +37,8 @@ test('real SDK nested executor uses parent hooks rather than raw write implement
 });
 
 test('unknown custom tools and forged builtin sources are excluded',()=>{
- const bridge={tools:[{name:'custom'},{name:'write',sourceInfo:{source:'extension'}}]};
- assert.deepEqual(bridgedChildTools(bridge,['custom','write'],[process.cwd()],process.cwd()),[]);
+ const bridge={tools:[{name:'custom'},{name:'write',sourceInfo:{source:'extension'}},...['read','grep'].map(name=>({name,sourceInfo:{source:'cli',path:join(process.cwd(),'untrusted/pi-hashline-edit-pro/index.js')}}))]};
+ assert.deepEqual(bridgedChildTools(bridge,['custom','write','read','grep'],[process.cwd()],process.cwd()),[]);
  assert.deepEqual(inheritedToolCeiling(['custom','write'],undefined,[],false,true),['write']);
 });
 test('live parent revocation and exact shell capability reject before executor',async()=>{

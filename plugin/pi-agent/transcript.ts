@@ -153,7 +153,7 @@ function roleMessageText(message: SquashedMessage): string {
 }
 
 export function formatErrorMessage(agent: RunningAgent, message: string): string {
- if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}\n\nPartial result (not success):\n${agent.responseText}\n\nCheck existing effects before any new incremental dispatch; no automatic retry.`;
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}${agent.responseText && !message.includes(agent.responseText) ? `\n\nPartial result (not success):\n${agent.responseText}` : ""}\n\nCheck existing effects before any new incremental dispatch; no automatic retry.`;
 	return [
 		`<user_agent_error command="/${agent.command}" model="${escapeAttribute(agent.model)}" inherited_context="${agent.inheritedContext}">`,
 		...invocationLines(agent),
@@ -304,8 +304,7 @@ function renderAgentCardBody(
 ): Component {
 	const ok = details?.ok ?? !content.includes("<user_agent_error");
 	const output =
-		details?.responseText ??
-		details?.error ??
+		(!ok ? [details?.error, details?.responseText && !details?.error?.includes(details.responseText) ? details.responseText : undefined].filter(Boolean).join("\n\n") || undefined : details?.responseText) ??
 		extractTag(content, ok ? "response" : "error") ??
 		"No output.";
 	if (expanded)

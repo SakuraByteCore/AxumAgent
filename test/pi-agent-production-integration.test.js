@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,cpSync,rmSync,symlinkSync,existsSync,readFileSync} from 'node:fs';
+import {mkdtempSync,cpSync,rmSync,symlinkSync,existsSync,readFileSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -16,8 +16,8 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
  Object.assign(process.env,{PI_CODING_AGENT_DIR:join(root,'agent'),PI_OFFLINE:'1',AXUM_DESKTOP_PET:'0'});
  let parent,api,captured;
  try{
-  symlinkSync(modules,join(root,'node_modules'),'dir');
-  cpSync(resolve('plugin/pi-agent'),join(root,'plugin'),{recursive:true});
+  symlinkSync(modules,join(root,'node_modules'),'junction');
+  cpSync(resolve('plugin/pi-agent'),join(root,'plugin'),{recursive:true,filter:source=>!source.split(/[\\/]/).some(part=>['node_modules','assets','desktop-pet-cubism-source','desktop-pet-love','__pycache__','dist','build'].includes(part))&&(statSync(source).isDirectory() || /\.(ts|js|json)$/.test(source))});
   compileExtensionPackage({packageRoot:join(root,'plugin')});
   const sdk=await import(pathToFileURL(join(modules,'@earendil-works/pi-coding-agent/dist/index.js')).href);
   const ai=await import(pathToFileURL(join(modules,'@earendil-works/pi-ai/dist/index.js')).href);
@@ -40,7 +40,8 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
     const followup=JSON.stringify(c.messages[lastUser]).includes('FOLLOWUP');
     const already=c.messages.slice(lastUser+1).some(x=>x.role==='assistant');
     const second=JSON.stringify(c.messages[lastUser]).includes('Implement second');
-    const content=already?[]:second?[call('write',{path:'second.mjs',content:'export const second = 2;\n'})]:followup?[call('write',{path:'module.mjs',content:'export const value = 2;\n'},'followup-write')]:[
+    const readOnly=JSON.stringify(c.messages[lastUser]).includes('READONLY');
+    const content=already?[]:readOnly?[call('read',{path:'module.mjs'}),call('grep',{path:'module.mjs',pattern:'export'})]:second?[call('write',{path:'second.mjs',content:'export const second = 2;\n'})]:followup?[call('write',{path:'module.mjs',content:'export const value = 2;\n'},'followup-write')]:[
      call('write',{path:'module.mjs',content:'export const value = 1;\n'}),
      call('write',{path:'escape.txt',content:'bad'},'escape'),
      call('write',{path:'blocked.mjs',content:'bad'},'hook-denied'),
@@ -56,8 +57,8 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
    pi.on('tool_call',e=>{events.push({name:e.toolName,input:e.input,afterDispatch:dispatchReturned});if(e.toolName==='write'&&e.input.path==='blocked.mjs')return {block:true,reason:'production parent hook denied'};});
    pi.registerTool({name:'capture_context',label:'capture',description:'Capture real durable tool context',parameters:{type:'object',properties:{}},execute:async(_id,_args,_signal,_update,ctx)=>{captured=ctx;return {content:[{type:'text',text:'captured'}]};}});
   };
-  const loader=new sdk.DefaultResourceLoader({cwd:root,agentDir:join(root,'agent'),settingsManager:settings,noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,extensionFactories:[extension]});await loader.reload();
-  ({session:parent}=await sdk.createAgentSession({cwd:root,agentDir:join(root,'agent'),modelRuntime:runtime,model,settingsManager:settings,sessionManager:sdk.SessionManager.inMemory(root),resourceLoader:loader,tools:['read','write','bash','dispatch_agent','manage_agent','capture_context']}));
+  const loader=new sdk.DefaultResourceLoader({cwd:root,agentDir:join(root,'agent'),settingsManager:settings,noExtensions:true,noSkills:true,noPromptTemplates:true,noThemes:true,additionalExtensionPaths:[join(modules,'pi-hashline-edit-pro/index.js')],extensionFactories:[extension]});await loader.reload();
+  ({session:parent}=await sdk.createAgentSession({cwd:root,agentDir:join(root,'agent'),modelRuntime:runtime,model,settingsManager:settings,sessionManager:sdk.SessionManager.inMemory(root),resourceLoader:loader}));
   await parent.bindExtensions({mode:'print'});
   let turn=0;
   parent.agent.streamFunction=async(m)=>response(m,turn++===0?[call('capture_context',{}),call('dispatch_agent',{task:'Implement module',writeScope:['module.mjs','blocked.mjs'],batchId:'production'}),call('dispatch_agent',{task:'Implement second independent module',writeScope:['second.mjs'],squash:false,batchId:'production'})]:[]);
@@ -91,6 +92,24 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
   assert.equal(checked.isError,false);assert.ok(checked.result.details.agentId,JSON.stringify(checked));
   await captured.executeTool('manage_agent',{action:'wait',agentId:checked.result.details.agentId,timeoutMs:10000});
   assert.deepEqual(events.filter(e=>e.name==='bash').map(e=>e.input.command),[command]);
+  // Fresh default installation includes hashline overrides, not only native SDK tools.
+  const reader=await captured.executeTool('dispatch_agent',{task:'READONLY inspect module.mjs',squash:false,batchId:'production'});
+  assert.ok(reader.result.details.agentId,JSON.stringify(reader));
+  const readResult=await captured.executeTool('manage_agent',{action:'wait',agentId:reader.result.details.agentId,timeoutMs:10000});
+  assert.equal(readResult.result.details.timedOut,false);
+  assert.ok(api.getAllTools().find(t=>t.name==='read').sourceInfo.path.includes('pi-hashline-edit-pro'));
+  const readerContext=childContexts.findLast(c=>JSON.stringify(c.messages).includes('READONLY'));
+  assert.match(JSON.stringify(readerContext.messages),/Available tools: (read, grep|grep, read)/);
+  for(const name of ['read','grep'])assert.ok(readerContext.messages.some(m=>m.role==='toolResult'&&m.toolName===name&&!m.isError&&JSON.stringify(m.content).includes('export const value')));
+  assert.match(JSON.stringify(readerContext.messages),/Shell is unavailable for this task/);
+  assert.ok(events.some(e=>e.name==='read'&&e.input.path==='module.mjs'));
+  assert.ok(events.some(e=>e.name==='grep'&&e.input.path==='module.mjs'));
+  const parentTools=api.getActiveTools();api.setActiveTools(['dispatch_agent','manage_agent','capture_context']);
+  const empty=await captured.executeTool('dispatch_agent',{task:'READONLY must not run without tools',squash:false});
+  assert.match(empty.result.details.error,/No parent-authorized read\/search tools/);
+  api.setActiveTools(parentTools);
+
+
   // A simple request may be answered inline with no dispatch or new child.
   const childrenBefore=childContexts.length;
   const dispatchesBefore=parent.agent.state.messages.filter(x=>x.role==='toolResult'&&x.toolName==='dispatch_agent').length;

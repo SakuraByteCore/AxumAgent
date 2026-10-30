@@ -1238,7 +1238,7 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 	// truncated) whenever it would collide with either neighbour.
 	const margin = width > 2 ? 1 : 0;
 	const contentWidth = Math.max(0, width - margin * 2);
-	const tps = truncateDisplayToWidth(segs.get("tps")?.text || "0 t/s", contentWidth, "…");
+	const tps = truncateDisplayToWidth(segs.get("tps")?.text || "— t/s", contentWidth, "…");
 	const tpsWidth = visibleWidth(tps);
 	const uaRoom = Math.min(CODEX_UA_MAX_WIDTH, Math.max(0, contentWidth - tpsWidth - 2));
 	const ua = uaShortLabel(getUserAgent());
@@ -1824,32 +1824,37 @@ export default function (pi: ExtensionAPI): void {
 		emitBarUpdate({ id: "messages", text: `#${msgCount}`, color: "thinkingMedium" });
 	}
 
-	// Live output speed: sampled from streaming deltas during a turn and shown
-	// as an approximate tokens-per-second figure (chars/4 heuristic); idle
-	// shows 0 t/s. Sampling is windowed and throttled so the per-delta event
-	// storm never reaches the widget refresh path more than a few times/s.
-	const TPS_SAMPLE_MS = 250;
-	let tpsSamples: { chars: number; start: number } | undefined;
+	// Only provider output tokens are labelled t/s; streaming characters are not tokens.
 
-	function emitTps(ctx: ExtensionContext, value: number): void {
-		tpsBorderLabel = `${Math.round(value)} t/s`;
+	function emitTps(ctx: ExtensionContext, label: string): void {
+		tpsBorderLabel = label;
 		emitBarUpdate({ id: "tps", text: tpsBorderLabel, color: "text" });
 	}
 
 	function emitTpsIdle(ctx: ExtensionContext): void {
-		tpsSamples = undefined;
-		emitTps(ctx, 0);
+		emitTps(ctx, "— t/s");
 	}
 
-	function emitTpsDelta(ctx: ExtensionContext, delta: string): void {
-		const now = Date.now();
-		if (!tpsSamples) tpsSamples = { chars: 0, start: now };
-		tpsSamples.chars += delta.length / 4;
-		if (now - tpsSamples.start < TPS_SAMPLE_MS) return;
-		const seconds = (now - tpsSamples.start) / 1000;
-		emitTps(ctx, seconds > 0 ? tpsSamples.chars / seconds : 0);
-		tpsSamples = { chars: 0, start: now };
-	}
+	pi.on("message_start", async (event, ctx) => {
+		if (event.message.role !== "assistant") return;
+		// Keep the last measured request rate while awaiting fresh provider usage.
+		if (!tpsBorderLabel) emitTpsIdle(ctx);
+	});
+
+	pi.on("message_end", async (event, ctx) => {
+		const message = event.message;
+		if (message.role !== "assistant") return;
+		// The provider timestamp precedes the HTTP request, unlike message_start
+		// which can arrive only after response headers. Tools execute afterwards.
+		const elapsed = Date.now() - message.timestamp;
+		const output = message.usage?.output;
+		if (message.stopReason === "error" || message.stopReason === "aborted"
+			|| !(output > 0) || !(elapsed > 0)) {
+			emitTps(ctx, "— t/s");
+			return;
+		}
+		emitTps(ctx, `${(output / (elapsed / 1000)).toFixed(1)} t/s`);
+	});
 
 
 	function emitContext(ctx: ExtensionContext): void {
@@ -2082,7 +2087,6 @@ export default function (pi: ExtensionAPI): void {
 		currentCtx = undefined;
 		segs.clear();
 		lastGitCwd = undefined;
-		tpsSamples = undefined;
 		tokenCache = undefined;
 		balanceCache.invalidate();
 	});
@@ -2115,7 +2119,6 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("agent_settled", async (_event, ctx) => {
 		emitContext(ctx);
-		emitTpsIdle(ctx);
 		stopWorkingTimer();
 		stopBalancePolling();
 		if (ctx.hasUI) {
@@ -2123,16 +2126,12 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("message_update", async (event, ctx) => {
+	pi.on("message_update", async (_event, ctx) => {
 		emitContext(ctx);
-		const ev = (event as { assistantMessageEvent?: { type?: string; delta?: unknown } }).assistantMessageEvent;
-		if (ev && typeof ev.delta === "string"
-			&& (ev.type === "text_delta" || ev.type === "thinking_delta" || ev.type === "toolcall_delta")) {
-			emitTpsDelta(ctx, ev.delta);
-		}
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
+		if (!tpsBorderLabel) emitTpsIdle(ctx);
 		emitContext(ctx);
 		emitModel(ctx);
 	});

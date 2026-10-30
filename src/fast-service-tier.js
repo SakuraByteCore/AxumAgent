@@ -4,6 +4,23 @@ import { getAxumConfigPath } from "./provider-config.js";
 
 const OPENAI_APIS = new Set(["openai-completions", "openai-responses"]);
 
+// 缓存内 companion 通过 preload 的进程桥复用此控制器。
+export const fastControl = {
+  sdkDecorated: false,
+  status(model) {
+    const selected = readFastModels()[model.provider];
+    return { enabled: Array.isArray(selected) && selected.includes(model.id), supported: OPENAI_APIS.has(model.api) };
+  },
+  set(model, enabled) {
+    if (enabled && !OPENAI_APIS.has(model.api)) throw new Error("当前协议不支持 Fast 注入");
+    const selected = readFastModels()[model.provider];
+    const models = new Set(Array.isArray(selected) ? selected : []);
+    if (enabled) models.add(model.id);
+    else models.delete(model.id);
+    saveFastModels(model.provider, [...models], models.size > 0);
+  },
+};
+
 export function readFastModels(file = getAxumConfigPath()) {
   try {
     const config = JSON.parse(fs.readFileSync(file, "utf8"));
