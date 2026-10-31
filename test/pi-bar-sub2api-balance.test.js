@@ -194,3 +194,25 @@ test("BalanceCache retryFailed re-probes a cached failure on demand", async () =
 	await cache.get("bad", failing, { force: true, retryFailed: true });
 	assert.equal(calls, 2);
 });
+
+test("BalanceCache retains a marked recent balance only for transient failures", async (t) => {
+	let now = 1000;
+	t.mock.method(Date, "now", () => now);
+	const cache = new BalanceCache(60_000, 300_000, 15_000);
+	const snapshot = { label: "$1.00", value: 1, mode: "unrestricted", unit: "USD" };
+	const success = async () => ({ status: 200, reason: "ok", snapshot });
+	await cache.get("k", success);
+	for (const status of [0, 429, 503]) {
+		const probe = await cache.get("k", async () => ({ status, reason: status ? "http-error" : "network-error" }), { force: true, retryFailed: true });
+		assert.equal(probe.snapshot, snapshot);
+		assert.equal(probe.stale, true);
+	}
+	assert.equal((await cache.get("other", async () => ({ status: 0, reason: "network-error" }))).snapshot, undefined);
+	now += 60_000;
+	assert.equal((await cache.get("k", async () => ({ status: 0, reason: "network-error" }))).snapshot, undefined);
+	assert.equal((await cache.get("k", success, { retryFailed: true })).stale, undefined);
+	assert.equal((await cache.get("k", async () => ({ status: 401, reason: "http-error" }), { force: true })).snapshot, undefined);
+	await cache.get("k", success, { retryFailed: true });
+	cache.invalidate();
+	assert.equal((await cache.get("k", async () => { throw new Error("offline"); })).snapshot, undefined);
+});

@@ -100,11 +100,3 @@ export function resolveModelSelection(label: string): ModelSelection | null {
   if (!provider || !model) return null;
   return { provider, model };
 }
-
-/** Merge a { provider, model } selection into a settings object, preserving other keys. */
-export function applyDefaultSelection(
-  config: Record<string, unknown>,
-  selection: { provider: string; model: string },
-): Record<string, unknown> {
-  return { ...config, defaultProvider: selection.provider, defaultModel: selection.model };
-}

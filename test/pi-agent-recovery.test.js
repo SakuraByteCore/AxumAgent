@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { childRecoveryExtensions, promptChildUntilSettled } from '../plugin/pi-agent/child-recovery.ts';
+import { buildChildSettings, childRecoveryExtensions, promptChildUntilSettled } from '../plugin/pi-agent/child-recovery.ts';
 
 test('children load the main companion guard exactly once and honor -ne', () => {
  const [guard] = childRecoveryExtensions({});
@@ -40,4 +40,11 @@ test('child delivery awaits queued recovery and never retries a rejected prompt 
  let attempts=0;
  await assert.rejects(promptChildUntilSettled({prompt:async()=>{attempts++;throw new Error('auth failed');},waitForIdle:()=>assert.fail('not reached')},'task'),/auth failed/);
  assert.equal(attempts,1);
+});
+
+test('child settings inherit retry policy and honor explicit project disable',()=>{
+ const global={retry:{enabled:true,maxRetries:4,baseDelayMs:1000}};
+ assert.deepEqual(buildChildSettings(global,{}).retry,global.retry);
+ assert.deepEqual(buildChildSettings(global,{retry:{enabled:false}}).retry,{...global.retry,enabled:false});
+ assert.equal(global.retry.enabled,true);
 });

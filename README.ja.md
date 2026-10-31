@@ -45,6 +45,7 @@
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（構造化 todo トラッキング: todo ツールがエディタ上部に計画チェックリストをライブ HUD 表示、/todo と /todos-configure コマンド付き）
 - `pi-agent`（@giladbarnea/pi-user-agents からの同梱フォーク: 目標に応じた自発的な並列委譲 + ライブ進捗ウィジェット（小さなタスクは直接実行、専用コマンド不要）。`/agent -P/--plan` によるプランモードのバックグラウンド実行、ワンキー起動プリセット `/spawn` `/scout` `/blueprint` に対応。さらに `/dispatch` コマンドと `dispatch_agent` ツールによるエージェント主導のバッチ分散に対応)
+- `/agent` は親の承認経路で有効な全ツールを継承。`outputSchema` による結果検証、再起動後の `history` 照会、`lsp` 診断・定義・参照・ホバーに対応。一括並列起動・役割プリセット、実行時間制限の撤廃、AST 編集、Node Inspector デバッグも対応。詳細は [pi-agent](plugin/pi-agent/README.md)。
 - 子エージェント生成のモデル用入口は `dispatch_agent` のみ。`manage_agent` による待機・中断・継続管理は維持し、旧 `pi-subagents` と supervisor ツールは無効化。
 - `pi-memory`（単一 JSON ファイルに永続化されるセッション横断メモリ: /memory save|list|find|remove|recall|clear、ネイティブ依存ゼロ）
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
@@ -198,7 +199,7 @@ axum code
 ```
 
 各エントリは `provider/model` の形式で表示され、デフォルトには `  (default)` が付きます。任意のモデルを選ぶと即座に切り替わります。
-選択は `~/.pi/agent/settings.json` の `defaultProvider`/`defaultModel` に書き込まれ、次回起動時に `axum` が `--provider`/`--model` として渡します。
+切り替えは現在のセッションにのみ適用されます。`~/.pi/agent/settings.json` の `defaultProvider`/`defaultModel` は変更しないため、実行中の他のセッションや後続セッションのモデルには影響しません。
 
 ## Doctor
 

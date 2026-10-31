@@ -16,5 +16,8 @@
     "@earendil-works/pi-tui": ">=0.74.0",
     "typebox": "*"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "typescript": "5.9.3"
+  }
 }

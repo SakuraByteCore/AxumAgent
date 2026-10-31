@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
+import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { AgentSession } from "./shared.js";
 
 /** Reuse the exact companion guard loaded by the main Axum session. */
@@ -16,6 +17,14 @@ export function childRecoveryExtensions(options: {
 		entry === companionDirectory || (path.dirname(entry) === companionDirectory && /^index\.(ts|js)$/.test(path.basename(entry))),
 	);
 	return alreadyLoaded ? extensions : [...extensions, companion];
+}
+
+/** Inherit configured SDK retries; this does not enqueue task-level recovery prompts. */
+export function buildChildSettings(
+ globalSettings: ReturnType<SettingsManager["getGlobalSettings"]>,
+ projectSettings: ReturnType<SettingsManager["getProjectSettings"]>,
+): ReturnType<SettingsManager["getGlobalSettings"]> {
+ return {...globalSettings, ...projectSettings, retry: {...globalSettings.retry, ...projectSettings.retry}};
 }
 
 /** Guard follow-ups can outlive the initial prompt; do not deliver intermediate errors. */

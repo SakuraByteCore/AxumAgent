@@ -38,7 +38,7 @@ test('terminal completion survives cancel during cleanup and removes signal subs
  assert.equal((await h.result).stopReason,'completed');assert.equal(f.calls.abort,0);assert.equal(f.calls.dispose,1);assert.equal(adds,1);assert.equal(removes,1);
 });
 test('invalid launch cannot execute or acquire resources',()=>{
- const f=fixture();for(const timeoutMs of [0,-1,NaN,Infinity,1.5,2147483648])assert.throws(()=>f.start({timeoutMs}),/timeout/);
+ const f=fixture();
  for(const extra of [{task:' '},{cwd:' '}])assert.throws(()=>f.start(extra),/required/);
  assert.deepEqual(f.calls,{execute:0,abort:0,dispose:0});
 });

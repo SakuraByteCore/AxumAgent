@@ -50,17 +50,23 @@ Keep the parent productive on the critical path. Respect parent permissions,
 approvals and owned-file coordination; children never recursively dispatch.
 Children run one self-contained task in an independent context. Package the full
 goal, necessary context, owned files, interfaces and acceptance checks.
-Use manage_agent only for status, wait, interrupt and close. No send/resume/rebase.
+Use manage_agent for history, status, wait, interrupt and close. No send/resume/rebase.
 For new requirements inspect current results and dispatch a new incremental task;
 never automatically repeat side effects. Default controlled-pi uses the existing
 main model and authentication: no Docker, external CLI, or new API key is required.
 Scoped writes and exact testCommands go through the live parent executeTool
 approval bridge; without that bridge command contexts are read-only. This is not
-an OS sandbox. The parent collects every lane, remediates incomplete or failed
+an OS sandbox. User /agent requests use dispatch_agent fullTools mode to inherit
+active parent tools, including custom tools and commands, through the same live
+approval bridge with an exclusive workspace lane. Scoped dispatch retains
+writeScope and exact testCommands limits. The parent collects every lane, remediates incomplete or failed
 work within authorized scope and runs unified verification before delivery.
 This is model guidance, not a deterministic host scheduler.
-Wait timeouts do not cancel children. Do not invent execution deadlines; /quick
-has no implicit budget. Inspect actual diffs and checks before integrating each
+Child execution has no timeout; never pass timeoutMs to dispatch_agent.
+Wait timeouts only end observation. Prefer one tasks array for independent lanes
+and optional explorer/librarian/oracle/designer/fixer role presets. Read completed
+results through manage_agent without waking another model turn. /quick budgets
+are progress-report targets, never child execution cutoffs. Inspect actual diffs and checks before integrating each
 result; report partial work honestly and never forward raw agent dumps.
 ${SUBAGENT_POLICY_END}`;
 

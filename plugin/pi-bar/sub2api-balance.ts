@@ -35,8 +35,9 @@ export interface BalanceSnapshot {
 
 /** Outcome of one usage probe, including why a balance is missing. */
 export interface BalanceProbe {
-	/** Parsed snapshot; present only when a usable remainder was returned. */
+	/** Parsed remainder, or the last successful remainder when stale is true. */
 	snapshot?: BalanceSnapshot;
+	stale?: boolean;
 	/** HTTP status code; 0 when the request never reached the server. */
 	status: number;
 	/** "ok" | "invalid-url" | "network-error" | "http-error" | "not-sub2api" | "no-balance". */
@@ -170,6 +171,7 @@ interface CacheEntry {
 	probe: BalanceProbe;
 	fetchedAt: number;
 	failed: boolean;
+	succeededAt?: number;
 }
 
 /**
@@ -177,6 +179,11 @@ interface CacheEntry {
  * success TTL and a longer negative TTL so a broken or non-Sub2API endpoint is
  * not hammered on every turn.
  */
+function isTransientProbe(probe: BalanceProbe): boolean {
+	return probe.reason === "network-error"
+		|| (probe.reason === "http-error" && (probe.status === 429 || probe.status >= 500));
+}
+
 export class BalanceCache {
 	private entries = new Map<string, CacheEntry>();
 	private inflight = new Map<string, Promise<BalanceProbe>>();
@@ -198,6 +205,19 @@ export class BalanceCache {
 		this.entries.delete(key);
 	}
 
+	private storeProbe(key: string, probe: BalanceProbe): BalanceProbe {
+		const previous = this.entries.get(key);
+		const now = Date.now();
+		const failed = probe.snapshot === undefined;
+		const succeededAt = failed ? previous?.succeededAt : now;
+		if (failed && isTransientProbe(probe) && previous?.probe.snapshot
+			&& succeededAt !== undefined && now - succeededAt < this.ttlMs) {
+			probe = { ...probe, snapshot: previous.probe.snapshot, stale: true };
+		}
+		this.entries.set(key, { probe, fetchedAt: now, failed, succeededAt });
+		return probe;
+	}
+
 	async get(
 		key: string,
 		loader: () => Promise<BalanceProbe>,
@@ -205,14 +225,18 @@ export class BalanceCache {
 	): Promise<BalanceProbe> {
 		const entry = this.entries.get(key);
 		if (entry) {
-			const age = Date.now() - entry.fetchedAt;
+			const now = Date.now();
+			const age = now - entry.fetchedAt;
+			if (entry.probe.stale && now - entry.succeededAt! >= this.ttlMs) {
+				entry.probe = { status: entry.probe.status, reason: entry.probe.reason };
+			}
 			// A forced refresh bypasses the success TTL so fresh consumption shows
 			// up right away; the negative cache still shields a broken endpoint.
 			if (entry.failed) {
 				// A transport hiccup is transient: keep it cached only briefly so a
 				// single timeout cannot hide the balance for the whole error TTL.
 				// Structural answers (404/405, foreign schema) keep the long TTL.
-				const ttl = entry.probe.reason === "network-error" ? this.transientErrorTtlMs : this.errorTtlMs;
+				const ttl = isTransientProbe(entry.probe) ? this.transientErrorTtlMs : this.errorTtlMs;
 				if (age < ttl && !options.retryFailed) return entry.probe;
 			} else if (!options.force && age < this.ttlMs) {
 				return entry.probe;
@@ -221,18 +245,8 @@ export class BalanceCache {
 		const pending = this.inflight.get(key);
 		if (pending) return pending;
 		const request = loader()
-			.then((probe) => {
-				this.entries.set(key, { probe, fetchedAt: Date.now(), failed: probe.snapshot === undefined });
-				return probe;
-			})
-			.catch(() => {
-				this.entries.set(key, {
-					probe: { status: 0, reason: "network-error" },
-					fetchedAt: Date.now(),
-					failed: true,
-				});
-				return { status: 0, reason: "network-error" } as BalanceProbe;
-			})
+			.catch(() => ({ status: 0, reason: "network-error" } as BalanceProbe))
+			.then((probe) => this.storeProbe(key, probe))
 			.finally(() => {
 				this.inflight.delete(key);
 			});

@@ -175,6 +175,7 @@ pkg("@earendil-works/pi-coding-agent", {
   "node_modules/undici/lib/web/webidl/index.js": "webidl.util.markAsUncloneable = markAsUncloneable\\n",
 });
 pkg("@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": piUserAgentBrowserSafe });
+pkg("typescript", { "dist/index.js": "" });
 pkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 pkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 pkg("pi-bar", { "index.ts": "" });
@@ -225,6 +226,7 @@ class StdinBuffer {
     "node_modules/chalk/package.json": JSON.stringify({ name: "chalk", version: "5.5.1", type: "module", main: "index.js" }),
   });
   writePackage(cache, "@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": PI_USER_AGENT_BROWSER_SAFE_UPSTREAM });
+  writePackage(cache, "typescript", { "dist/index.js": "" });
   writePackage(cache, "@earendil-works/pi-agent-core", { "dist/index.js": "" });
   writePackage(cache, "@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
   writePackage(cache, "pi-bar", { "index.ts": "" });
@@ -489,6 +491,7 @@ fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)}, 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
 pkg('@earendil-works/pi-ai', { 'dist/index.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)} });
+pkg("typescript", { "dist/index.js": "" });
 pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
 pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(`const ESC = "\\x1b";
 const BRACKETED_PASTE_START = "\\x1b[200~";
@@ -591,6 +594,7 @@ writePkg("@earendil-works/pi-coding-agent", {
   "node_modules/undici/lib/web/webidl/index.js": "webidl.util.markAsUncloneable = markAsUncloneable\\n",
 });
 writePkg("@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": piUserAgentBrowserSafe });
+writePkg("typescript", { "dist/index.js": "" });
 writePkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 writePkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 writePkg("pi-bar", { "index.ts": "" });

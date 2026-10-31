@@ -23,7 +23,7 @@ test('before_agent_start injects default goal delivery and follows live tool ava
  assert.match(result.systemPrompt, /must not recursively dispatch/);
  assert.match(result.systemPrompt, /dispatch_agent is the sole model-callable child dispatch entrypoint/);
  assert.match(result.systemPrompt, /Never use subagent_supervisor.*legacy aliases, shell workers, or direct child processes/);
- assert.match(result.systemPrompt, /manage_agent remains available only for status, wait, interrupt, and close/);
+ assert.match(result.systemPrompt, /manage_agent supports history queries and status, wait, interrupt, and close/);
  assert.match(result.systemPrompt, /critical dependency path.*Integrate each completed lane promptly/s);
  active = ['read'];
  const restricted = await start(event, {});
@@ -39,10 +39,10 @@ test('quick command has concise default without deadline, retains explicit real 
  const ctx = { ui: {notify(){}} };
  await commands.get('quick').handler('deliver login and billing', ctx);
  assert.match(messages[0].text, /concise.*parallelism/s);
- assert.doesNotMatch(messages[0].text, /absolute deadline:|300s|timeoutMs/);
+ assert.doesNotMatch(messages[0].text, /reporting target:|300s|timeoutMs/);
  await commands.get('quick').handler('90s deliver login', ctx);
- assert.match(messages[1].text, /Wall-clock budget: 90s; absolute deadline: /);
- assert.match(messages[1].text, /timeoutMs = Math.floor/);
+ assert.match(messages[1].text, /Wall-clock budget: 90s; reporting target: /);
+ assert.match(messages[1].text, /Child execution has no timeout/);
  assert.equal(messages[0].opts.streamingBehavior, 'steer');
  assert.deepEqual(parseQuickArgs('ship it'), {task:'ship it'});
  assert.deepEqual(parseQuickArgs('2m ship it'), {task:'ship it',budgetMs:120000});

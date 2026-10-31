@@ -213,7 +213,9 @@ function packageImportEntryReady(packageRoot) {
 function bundledRuntimeDepsReady(cacheRoot) {
   const rootNodeModules = path.join(cacheRoot, "node_modules");
   const piCodingAgentNodeModules = path.join(rootNodeModules, "@earendil-works", "pi-coding-agent", "node_modules");
-  return requiredBundledPiRuntimePackages.every((packageParts) => {
+  const astParserReady = packageImportEntryReady(path.join(cacheRoot, "plugin", "pi-agent", "node_modules", "typescript"))
+    || packageImportEntryReady(path.join(rootNodeModules, "typescript"));
+  return astParserReady && requiredBundledPiRuntimePackages.every((packageParts) => {
     const nestedPackageRoot = path.join(piCodingAgentNodeModules, ...packageParts);
     if (fs.existsSync(nestedPackageRoot)) return packageImportEntryReady(nestedPackageRoot);
     return packageImportEntryReady(path.join(rootNodeModules, ...packageParts));

@@ -1,4 +1,4 @@
-> 子任务默认使用内置 `controlled-pi`，沿用主 Agent 已配置的模型、Provider 与认证，无需 Docker、外部 CLI 或额外 API Key。每次派发都是独立的一次性任务；`manage_agent` 仅支持 `status` / `wait` / `interrupt` / `close`，不支持 `send` / `resume` / `rebase`。
+> 子任务默认使用内置 `controlled-pi`，沿用主 Agent 已配置的模型、Provider 与认证，无需 Docker、外部 CLI 或额外 API Key。每次派发都是独立的一次性任务；`manage_agent` 仅支持 `status` / `wait` / `interrupt` / `close` / `history`，不支持 `send` / `resume` / `rebase`。
 
 # Axum Agent
 
@@ -48,7 +48,8 @@
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（结构化 todo 追踪：todo 工具维护计划清单并以实时 HUD 显示在编辑器上方，另含 /todo 与 /todos-configure 命令）
 - `pi-agent`（本地打包自 @giladbarnea/pi-user-agents：默认由主 Agent 按目标主动分派独立任务，带实时进度挂件；简单任务直接执行，无需用户选择拆分命令；支持 `/agent -P/--plan` 以后台方式执行规划；一键预设命令 `/spawn` `/scout` `/blueprint`；另提供 `/dispatch` 命令与 `dispatch_agent` 工具，由主 Agent 智能批量分发任务）
-- 派发入口统一为 `dispatch_agent`；`manage_agent` 仅保留 `status`、`wait`、`interrupt`、`close` 生命周期及批次管理。旧 `pi-subagents` 加载及 supervisor 工具已禁用。
+- `/agent` 支持通过父审批桥继承全部已启用工具；新增子任务 `outputSchema` 结果校验，以及 `lsp` 诊断、定义、引用和悬浮查询。支持一次批量派发及短角色模板，子任务不设执行超时；新增 AST 查询/预览/编辑和 Node 断点调试。详情见 [pi-agent](plugin/pi-agent/README.md)。
+- 派发入口统一为 `dispatch_agent`；`manage_agent` 仅保留 `status`、`wait`、`interrupt`、`close` 生命周期及批次管理，新增跨重启 `history` 查询。旧 `pi-subagents` 加载及 supervisor 工具已禁用。
 - `pi-memory`（单 JSON 文件持久化跨会话记忆：/memory save|list|find|remove|recall|clear；零原生依赖）
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
 - `@ff-labs/pi-fff`（仅桌面端：带频率排序的 FFF 文件搜索；Android 与 Windows 不包含）
@@ -248,7 +249,7 @@ axum code
 ```
 
 每一项以 `provider/model` 显示，默认模型带 `  (default)` 标记。任选一个模型即可立即切换。
-选择会写入 `~/.pi/agent/settings.json` 的 `defaultProvider`/`defaultModel`，下次启动 `axum` 会将其作为 `--provider`/`--model` 传入。
+切换仅作用于当前会话，不会修改 `~/.pi/agent/settings.json` 中的 `defaultProvider`/`defaultModel`，因此不会影响其他正在运行的会话或之后新开的会话。
 
 ## Doctor
 

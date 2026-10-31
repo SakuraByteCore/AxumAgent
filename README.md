@@ -1,4 +1,4 @@
-> Subagents default to built-in `controlled-pi`, using the main agent’s configured model, provider and authentication. No Docker, external CLI or extra API key is required. Each dispatch is an independent one-shot task; `manage_agent` supports only `status` / `wait` / `interrupt` / `close`, not `send` / `resume` / `rebase`.
+> Subagents default to built-in `controlled-pi`, using the main agent’s configured model, provider and authentication. No Docker, external CLI or extra API key is required. Each dispatch is an independent one-shot task; `manage_agent` supports only `status` / `wait` / `interrupt` / `close` / `history`, not `send` / `resume` / `rebase`.
 
 <p align="center">
   <a href="./LICENSE"> <img src="https://img.shields.io/badge/license-FSL--1.1--ALv2-blue?style=flat-square" alt="License"> </a>
@@ -96,6 +96,7 @@ The distribution ships these packages, all in one install:
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool` (structured todo tracking: the `todo` tool maintains a plan checklist rendered as a live HUD above the editor, plus the `/todo` and `/todos-configure` commands)
 - `pi-agent` (vendored from @giladbarnea/pi-user-agents: proactive, goal-driven background delegation with a live progress widget; small tasks stay inline without requiring a special command, `-P/--plan` for plan-mode background dispatch, one-keystroke `/spawn` `/scout` `/blueprint` presets, plus `/dispatch` and the `dispatch_agent` tool for agent-driven batch fan-out)
+- `/agent` now inherits all active tools through parent approval; `outputSchema` validates child results, `history` queries persisted tasks, and `lsp` provides diagnostics and navigation. Batch dispatch and role presets reduce repeated setup; child execution has no timeout. AST query/preview/edit and Node Inspector debugging are included. See [pi-agent](plugin/pi-agent/README.md).
 - `pi-agent`: `dispatch_agent` is the only model-callable child dispatch entrypoint; `manage_agent` retains lifecycle management. Legacy `pi-subagents` loading and supervisor tools are disabled.
 - `pi-memory` (persistent cross-session memory in a single JSON file: /memory save|list|find|remove|recall|clear; zero native deps)
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
@@ -244,8 +245,7 @@ Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is j
 ```
 
 Each entry is shown as `provider/model`, and the default is marked `  (default)`. Pick any model to switch to it immediately.
-
-The selection is written to `defaultProvider`/`defaultModel` in `~/.pi/agent/settings.json`, so `axum` passes it as `--provider`/`--model` on the next launch.
+The switch applies to the current session only. It does not change `defaultProvider`/`defaultModel` in `~/.pi/agent/settings.json`, so other running sessions and later sessions keep their existing model defaults.
 
 ## Doctor
 

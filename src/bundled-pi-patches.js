@@ -1886,6 +1886,36 @@ function patchPiAiUserAgent(content) {
   return content.replace(needle, replacement);
 }
 
+// readline's iterator can return before its input reaches EOF. Close both
+// resources before a later selector cancellation aborts the abandoned stream.
+export function patchPiSessionReadStreamCleanup(content) {
+  const marker = "AXUM_PI_SESSION_READ_STREAM_CLEANUP";
+  if (content.includes(marker)) return content;
+  const start = content.indexOf("async function buildSessionInfo(");
+  const end = content.indexOf("\nconst MAX_CONCURRENT_SESSION_INFO_LOADS", start);
+  const input = '            input: createReadStream(filePath, { encoding: "utf8", signal }),';
+  const setup = "        const rl = createInterface({";
+  const loop = "        for await (const line of rl) {";
+  const afterLoop = "        if (!header)\n            return null;";
+  const original = content.slice(start, end);
+  if (start < 0 || end < 0 || ![input, setup, loop, afterLoop].every((anchor) => original.includes(anchor))) {
+    throw new Error("unable to patch bundled Pi session stream cleanup: buildSessionInfo anchors not found");
+  }
+  const patched = original
+    .replace(setup, `        // ${marker}\n        const input = createReadStream(filePath, { encoding: "utf8", signal });\n${setup}`)
+    .replace(input, "            input,")
+    .replace(loop, `        try {\n${loop}`)
+    .replace(afterLoop, [
+      "        } finally {",
+      "            rl.close();",
+      "            input.destroy();",
+      "            signal?.throwIfAborted();",
+      "        }",
+      afterLoop,
+    ].join("\n"));
+  return content.slice(0, start) + patched + content.slice(end);
+}
+
 // The /resume list builds its rows from buildSessionInfo, which only records
 // the session's opening line. For long-running chats that line is stale, so
 // collect the latest user message during the same streaming pass (zero extra
@@ -2065,7 +2095,7 @@ export function applyBundledPiPatches(options) {
   // Soft-guarded: upstream layout drift skips the patch instead of failing.
   const sessionManagerPath = path.join(piRoot, "dist", "core", "session-manager.js");
   if (fs.existsSync(sessionManagerPath)) {
-    results.push(patchFileInPlace(sessionManagerPath, patchPiSessionLastUserMessage));
+    results.push(patchFileInPlace(sessionManagerPath, patchPiSessionLastUserMessage, patchPiSessionReadStreamCleanup));
   }
   const sessionSelectorPath = path.join(piRoot, "dist", "modes", "interactive", "components", "session-selector.js");
   if (fs.existsSync(sessionSelectorPath)) {

@@ -10,6 +10,17 @@ test('compiled runner preserves original task and partial metadata when clock be
  try{
   cpSync('plugin/pi-agent',join(root,'pi-agent'),{recursive:true});compileExtensionPackage({packageRoot:join(root,'pi-agent')});
   const {runChildTurns}=await import(pathToFileURL(join(root,'pi-agent/runner.js')).href);
+  const {formatResultMessage,formatErrorMessage}=await import(pathToFileURL(join(root,'pi-agent/transcript.js')).href);
+  const {PLAN_RESULT_DIRECTIVE}=await import(pathToFileURL(join(root,'pi-agent/result-message.js')).href);
+  const {mainContextLabel}=await import(pathToFileURL(join(root,'pi-agent/shared.js')).href);
+  assert.deepEqual(['will-squash','squashed','separate'].map(mainContextLabel),['等待回传主线程','已回传主线程，待汇总',undefined]);
+  for(const oneShot of [true,false]){
+   const task={oneShot,id:'a',backend:'controlled-pi',model:'fixture',invocation:'/agent compare projects',task:'compare projects',responseText:'missing upstream evidence',planMode:true,conversationMessages:[{role:'user',content:'compare projects'},{role:'assistant',content:'missing upstream evidence'}]};
+   const success=formatResultMessage(task),failure=formatErrorMessage(task,'network failed');
+   for(const text of [success,failure]){assert.match(text,/Address this task explicitly in your next user-visible response/);assert.match(text,/essential evidence is missing/);}
+   assert.ok(success.includes(PLAN_RESULT_DIRECTIVE));assert.ok(!failure.includes(PLAN_RESULT_DIRECTIVE));
+   assert.match(success,/missing upstream evidence/);assert.match(failure,/Report failure or partial completion explicitly/);
+  }
   const messages=[],posts=[],prompts=[];
   const session={agent:{state:{messages}},prompt:async text=>{prompts.push(text);messages.push({role:'assistant',content:[{type:'text',text:'done'}],stopReason:'stop'});},waitForIdle:async()=>{}};
   const a={id:'a',sessionId:'s',command:'agent',task:'original requirement',model:'m',modelLabel:'m',notifyMainAgent:true,status:'running',deadlineAt:Date.now()-1,executionTimeoutMs:123,responseText:'',toolUses:0,turnCount:0,turnStartedAt:Date.now(),startedAt:Date.now(),activeTools:new Map(),conversationMessages:[],finished:new Promise(()=>{})};

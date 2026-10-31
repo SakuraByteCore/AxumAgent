@@ -10,7 +10,7 @@ import shortcuts, {
   discoverCustomPromptTemplates,
   registerCustomPromptCommands,
 } from "../plugin/pi-companion/index.ts";
-import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
+import { buildModelOptions, findCurrentModelIndex, parseModelManifest, resolveModelSelection } from "../plugin/pi-companion/model-switch.ts";
 import {
   CATALOG_CACHE_FILE,
   LIVE_FETCH_FAILURE_COOLDOWN_MS,
@@ -1077,14 +1077,6 @@ test("resolveModelSelection parses plain and default-annotated labels", () => {
   assert.equal(resolveModelSelection("   "), null);
 });
 
-test("applyDefaultSelection preserves existing settings keys", () => {
-  const config = { defaultProvider: "a", defaultModel: "b", defaultThinkingLevel: "high", other: 1 };
-  const next = applyDefaultSelection(config, { provider: "openai", model: "gpt-5" });
-  assert.equal(next.defaultProvider, "openai");
-  assert.equal(next.defaultModel, "gpt-5");
-  assert.equal(next.defaultThinkingLevel, "high");
-  assert.equal(next.other, 1);
-});
 
 test("/usemodel warns when no models are configured", async () => {
   const pi = createPi();
@@ -1117,13 +1109,14 @@ test("/usemodel lists all models and switches on selection", async () => {
       anthropic: { models: [{ id: "claude-sonnet" }] },
     },
   }), "utf8");
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultThinkingLevel: "high" }), "utf8");
+  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "original", defaultModel: "original-model", defaultThinkingLevel: "high" }), "utf8");
   const { ctx, notifications, selectCalls } = createModelSwitchContext({
     models: [
       { provider: "openai", id: "gpt-5", name: "gpt-5" },
-      { provider: "openai", id: "gpt-4", name: "gpt-4" },
+      { provider: "openai", id: "gpt-4", name: "gpt-4", contextWindow: 128000 },
       { provider: "anthropic", id: "claude-sonnet", name: "claude-sonnet" },
     ],
+    currentModel: { provider: "openai", id: "gpt-5", contextWindow: 200000 },
     selectResult: (options) => options.find((o) => o.startsWith("openai/gpt-4")),
   });
   const previousHome = process.env.HOME;
@@ -1141,11 +1134,13 @@ test("/usemodel lists all models and switches on selection", async () => {
     assert.equal(pi.setModelCalls.length, 1);
     assert.equal(pi.setModelCalls[0].provider, "openai");
     assert.equal(pi.setModelCalls[0].id, "gpt-4");
-    assert.ok(notifications.some((n) => n.level === "info" && /persisted as default/.test(n.message)));
+    assert.equal(ctx.modelRegistry.find("openai", "gpt-4").contextWindow, 128000);
+    assert.equal(pi.setModelCalls[0].contextWindow, ctx.model.contextWindow);
+    assert.ok(notifications.some((n) => n.level === "info" && /for this session only/.test(n.message)));
 
     const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
-    assert.equal(settings.defaultProvider, "openai");
-    assert.equal(settings.defaultModel, "gpt-4");
+    assert.equal(settings.defaultProvider, "original");
+    assert.equal(settings.defaultModel, "original-model");
     assert.equal(settings.defaultThinkingLevel, "high");
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
@@ -1304,7 +1299,7 @@ test("/usemodel reloads models.json so providers added by other processes become
     assert.equal(pi.setModelCalls.length, 1);
     assert.equal(pi.setModelCalls[0].provider, "maxx");
     assert.equal(pi.setModelCalls[0].id, "grok-4.6");
-    assert.ok(notifications.some((n) => n.level === "info" && /persisted as default/.test(n.message)));
+    assert.ok(notifications.some((n) => n.level === "info" && /for this session only/.test(n.message)));
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;

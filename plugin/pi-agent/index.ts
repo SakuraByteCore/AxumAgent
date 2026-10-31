@@ -1,8 +1,11 @@
+import { registerAstTools } from "./ast.ts";
+import { registerDebuggerTools } from "./debugger.ts";
 import { registerAutonomousPolicy } from "./autonomous.js";
 import { registerAgentManagement } from "./manage.js";
 import { registerDesktopPet } from "./desktop-pet.js";
 import { registerClear } from "./clear.js";
-import { registerDispatch } from "./dispatch.js";
+import { registerLanguageTools } from "./lsp.ts";
+import { buildAgentCommandRequest, registerDispatch } from "./dispatch.js";
 import { registerOrchestrate, registerQuick } from "./orchestrate.js";
 import { registerPresets } from "./presets.js";
 import { registerSessionLifecycle } from "./session-lifecycle.js";
@@ -24,6 +27,9 @@ import { registerUserAgentRenderer } from "./transcript.js";
 import { UserAgentWidget } from "./widget.js";
 
 export default function userAgent(pi: ExtensionAPI): void {
+	registerAstTools(pi);
+ registerDebuggerTools(pi);
+ registerLanguageTools(pi);
 	registerDesktopPet(pi);
 	registerAutonomousPolicy(pi);
 	const runningAgents = new Set<RunningAgent>();
@@ -47,9 +53,13 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	pi.registerCommand("agent", {
 		description:
-			"Run one independent controlled-pi task using the current model and authentication (read-only command context). Use dispatch_agent with owned writeScope for parent-bridged edits.",
+			"Run an independent task with all active parent tools through the live approval bridge. Preserves /agent flags; recursive delegation stays in the parent.",
 		handler: async (args, ctx) => {
 			mainSessionContext = ctx;
+			if(args.trim() && !/^resume(?:\s|$)/.test(args.trim())){
+				await pi.sendUserMessage(buildAgentCommandRequest(args), {deliverAs:"followUp"});
+				return;
+			}
 			await handleAgentCommand(
 				pi,
 				runningAgents,

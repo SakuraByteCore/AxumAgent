@@ -26,7 +26,7 @@ import {
 	REBASED_ENTRY_TYPE,
 	truncatePlain,
 } from "./shared.js";
-import { planResultDirectiveLines } from "./result-message.js";
+import { parentResultDirectiveLines } from "./result-message.js";
 
 export function reportCommandError(
 	pi: ExtensionAPI,
@@ -81,7 +81,7 @@ export function selectSquashedMessages(messages: readonly AgentMessage[]): Squas
 
 export function buildMessageDetails(agent: RunningAgent, ok: boolean): AgentCommandDetails {
 	return {
-		backend:agent.backend,oneShot:agent.oneShot,runtimeResult:agent.runtimeResult,
+		structuredResult:agent.structuredResult,backend:agent.backend,oneShot:agent.oneShot,runtimeResult:agent.runtimeResult,
 		agentId: agent.id,
 		sessionId: agent.sessionId,
 		command: agent.command,
@@ -122,11 +122,11 @@ const SQUASHED_CONVERSATION_PREFACE =
 
 
 export function formatResultMessage(agent: RunningAgent): string {
- if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; independent context]\nTask: ${agent.task}\n\n${agent.responseText}\n\nIntegrate existing changes; for new requirements dispatch a new incremental task. No automatic side-effect retry.`;
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; independent context]\nTask: ${agent.task}\n\n${agent.responseText}${agent.structuredResult ? `\nOutput schema: ${agent.structuredResult.valid ? "valid" : "invalid"}` : ""}\n\n${parentResultDirectiveLines(agent.planMode, true).join("\n")}`;
 	const messages = selectSquashedMessages(agent.conversationMessages);
 	const lines = [
 		SQUASHED_CONVERSATION_PREFACE,
-		...(planResultDirectiveLines(agent.planMode)),
+		...parentResultDirectiveLines(agent.planMode, true),
 		`<user_agent model="${escapeAttribute(agent.model)}" inherited_context="${agent.inheritedContext}">`,
 	];
 	let firstUserMessage = true;
@@ -153,8 +153,9 @@ function roleMessageText(message: SquashedMessage): string {
 }
 
 export function formatErrorMessage(agent: RunningAgent, message: string): string {
- if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}${agent.responseText && !message.includes(agent.responseText) ? `\n\nPartial result (not success):\n${agent.responseText}` : ""}\n\nCheck existing effects before any new incremental dispatch; no automatic retry.`;
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}${agent.responseText && !message.includes(agent.responseText) ? `\n\nPartial result (not success):\n${agent.responseText}` : ""}\n\n${parentResultDirectiveLines(agent.planMode, false).join("\n")}`;
 	return [
+		...parentResultDirectiveLines(agent.planMode, false),
 		`<user_agent_error command="/${agent.command}" model="${escapeAttribute(agent.model)}" inherited_context="${agent.inheritedContext}">`,
 		...invocationLines(agent),
 		"<task>",

@@ -1974,9 +1974,10 @@ export default function (pi: ExtensionAPI): void {
 				{ force: options.force, retryFailed: options.retryFailed },
 			);
 			debugBalance(`provider=${providerId} status=${probe.status} reason=${probe.reason} label=${probe.snapshot?.label ?? "-"}`);
-			emitBarUpdate({ id: "balance", text: probe.snapshot?.label, color: "text" });
+			const label = probe.snapshot ? `${probe.stale ? "~" : ""}${probe.snapshot.label}` : undefined;
+			emitBarUpdate({ id: "balance", text: label, color: "text" });
 			return probe.snapshot
-				? { shown: true, label: probe.snapshot.label, provider: providerId, reason: "ok" }
+				? { shown: true, label, provider: providerId, reason: probe.reason }
 				: { shown: false, provider: providerId, reason: probe.reason };
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
@@ -2015,7 +2016,8 @@ export default function (pi: ExtensionAPI): void {
 		async handler(_args: string, ctx: ExtensionContext) {
 			const outcome = await emitBalance(ctx, { force: true, retryFailed: true });
 			if (outcome.shown) {
-				ctx.ui.notify(`余额 ${outcome.label}（${outcome.provider}）`, "info");
+				const stale = outcome.reason !== "ok";
+				ctx.ui.notify(`余额 ${outcome.label}（${outcome.provider}）${stale ? "，未刷新：" + outcome.reason : ""}`, stale ? "warning" : "info");
 			} else {
 				ctx.ui.notify(`余额不可用：${outcome.reason ?? "unknown"}（provider=${outcome.provider ?? "-"}）`, "warning");
 			}

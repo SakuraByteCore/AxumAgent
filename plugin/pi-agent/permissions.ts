@@ -1,13 +1,22 @@
 import * as path from "node:path";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { realpathSync, lstatSync } from "node:fs";
 /** Legacy command contexts have no nested executor: never silently grant raw tools. */
 export const SAFE_CHILD_TOOLS = new Set(["read", "grep", "find", "ls"]);
+const READ_ONLY_PARENT_TOOLS = new Set(["web_search","fetch_content","get_search_content","source_check","lsp"]);
 export const BUILTIN_CHILD_TOOLS = new Set([...SAFE_CHILD_TOOLS, "write", "edit", "bash"]);
 const DELEGATION = new Set(["dispatch_agent", "manage_agent", "orchestrate", "quick", "agent"]);
 const require = createRequire(import.meta.url);
 /** Preserve builtin provenance; allow only the installed hashline read/search replacements. */
 export function isDelegableParentTool(tool: any): boolean {
+ if(READ_ONLY_PARENT_TOOLS.has(tool.name)){
+  if(typeof tool.sourceInfo?.path!=="string")return false;
+  try {
+   const root=tool.name==="lsp" ? path.dirname(fileURLToPath(import.meta.url)) : path.dirname(require.resolve("pi-web-access/package.json"));
+   return ["index.ts","index.js"].some(entry=>path.resolve(tool.sourceInfo.path)===path.join(root,entry)&&realpathSync(tool.sourceInfo.path)===path.join(realpathSync(root),entry));
+  }catch(error:any){if(error.code==="MODULE_NOT_FOUND"||error.code==="ENOENT")return false;throw error;}
+ }
  if(!BUILTIN_CHILD_TOOLS.has(tool.name))return false;
  const source=tool.sourceInfo;
  if(source?.source==="builtin" && source.path===`builtin:${tool.name}`)return true;
@@ -24,11 +33,11 @@ export function isDelegableParentTool(tool: any): boolean {
 }
 
 export type ParentToolBridge = { tools: readonly any[]; getActiveTools?:()=>readonly string[]; validate?:()=>void; executeTool(name:string,args:unknown,options?:any):Promise<any> };
-export type ChildPermissions = { backend?: "controlled-pi"; writeScope?: string[]; testCommands?: string[]; bridge?: ParentToolBridge };
-export function inheritedToolCeiling(parentTools: readonly string[], requested?: readonly string[], excluded: readonly string[] = [], noTools = false, bridged = false): string[] {
+export type ChildPermissions = { role?: import("./roles.ts").AgentRole; backend?: "controlled-pi"; outputSchema?: import("./structured-output.ts").OutputSchema; fullTools?: boolean; writeScope?: string[]; testCommands?: string[]; bridge?: ParentToolBridge };
+export function inheritedToolCeiling(parentTools: readonly string[], requested?: readonly string[], excluded: readonly string[] = [], noTools = false, bridged = false, fullTools = false): string[] {
  if(noTools)return [];
  const parent=new Set(parentTools), deny=new Set(excluded);
- return [...new Set(requested ?? parentTools)].filter(name=>parent.has(name)&&!DELEGATION.has(name)&&(bridged ? BUILTIN_CHILD_TOOLS.has(name) : SAFE_CHILD_TOOLS.has(name))&&!deny.has(name));
+ return [...new Set(requested ?? parentTools)].filter(name=>parent.has(name)&&!DELEGATION.has(name)&&(bridged ? fullTools || BUILTIN_CHILD_TOOLS.has(name) || READ_ONLY_PARENT_TOOLS.has(name) : SAFE_CHILD_TOOLS.has(name))&&!deny.has(name));
 }
 /** Resolve existing ancestors too, preventing symlink and ../ scope escapes. */
 export function canonicalScope(value:string,cwd:string):string {
@@ -49,22 +58,22 @@ export class WriteScopeLocks {
  }
 }
 /** No tool implementation is invoked directly: every operation re-enters parent hooks/approval. */
-export function bridgedChildTools(bridge:ParentToolBridge,allowed:readonly string[],scopes:readonly string[],cwd:string,testCommands:readonly string[]=[]){
+export function bridgedChildTools(bridge:ParentToolBridge,allowed:readonly string[],scopes:readonly string[],cwd:string,testCommands:readonly string[]=[],fullTools=false){
  const ceiling=new Set(allowed);
- return bridge.tools.filter(tool=>ceiling.has(tool.name)&&BUILTIN_CHILD_TOOLS.has(tool.name)&&isDelegableParentTool(tool)).map(tool=>({
+ return bridge.tools.filter(tool=>ceiling.has(tool.name)&&!DELEGATION.has(tool.name)&&(fullTools || isDelegableParentTool(tool))).map(tool=>({
   name:tool.name,label:tool.label??tool.name,description:tool.description,parameters:tool.parameters,promptGuidelines:tool.promptGuidelines,
   async execute(_id:string,args:any,signal:AbortSignal,onUpdate:any){
    bridge.validate?.();
    if(!bridge.getActiveTools?.().includes(tool.name))throw new Error("Parent tool no longer active");
    if(scopes.some(root=>!contains(canonicalScope(cwd,cwd),canonicalScope(root,cwd))))throw new Error("writeScope must remain within cwd");
-   if(tool.name==="bash" && (typeof args?.command!=="string" || !testCommands.includes(args.command)))throw new Error("Shell command not in explicitly authorized testCommands (not sandboxed)");
-   if(tool.name==="write"||tool.name==="edit"){
+   if(!fullTools && tool.name==="bash" && (typeof args?.command!=="string" || !testCommands.includes(args.command)))throw new Error("Shell command not in explicitly authorized testCommands (not sandboxed)");
+   if(!fullTools && (tool.name==="write"||tool.name==="edit")){
     if(typeof args?.path!=="string"||!scopes.some(root=>contains(canonicalScope(root,cwd),canonicalScope(args.path,cwd))))throw new Error("Write outside assigned writeScope");
    }
    // Shell cannot be path-sandboxed by a string allowlist. It remains parent-policy mediated;
    // writable scopes take a workspace-wide lock while bash is enabled.
-   if(!SAFE_CHILD_TOOLS.has(tool.name)&&scopes.length===0)throw new Error("Mutating tools require explicit writeScope");
-   if(!bridge.tools.some(t=>t.name===tool.name&&isDelegableParentTool(t)&&t.sourceInfo.path===tool.sourceInfo.path))throw new Error("Parent tool no longer available");
+   if(!fullTools && !SAFE_CHILD_TOOLS.has(tool.name)&&!READ_ONLY_PARENT_TOOLS.has(tool.name)&&scopes.length===0)throw new Error("Mutating tools require explicit writeScope");
+   if(!bridge.tools.some(t=>t.name===tool.name&&(fullTools || isDelegableParentTool(t))&&t.sourceInfo?.path===tool.sourceInfo?.path))throw new Error("Parent tool no longer available");
    const outcome=await bridge.executeTool(tool.name,args,{signal,onUpdate});
    if(outcome.isError)throw new Error(outcome.result.content?.filter((c:any)=>c.type==="text").map((c:any)=>c.text).join("\n")||"Parent tool denied");
    return outcome.result;

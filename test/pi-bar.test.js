@@ -531,7 +531,7 @@ test("bar segment updates all pass through the stale-runtime guard", () => {
 	assert.match(statuslineSource, /clearTimeout\(balanceRetryTimer\)/);
 });
 
-test("/balance reports why the balance segment stays empty", async () => {
+test("/balance reports unavailable probes and marks a retained balance", async (t) => {
 	const mod = await import("../plugin/pi-bar/index.ts");
 	const commands = new Map();
 	const fakePi = {
@@ -553,6 +553,13 @@ test("/balance reports why the balance segment stays empty", async () => {
 		getContextUsage: () => ({ tokens: 0, contextWindow: 100 }),
 		ui: { notify: (message, level) => notifications.push({ message, level }) },
 	};
+	t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ mode: "unrestricted", balance: 3.5 }), { status: 200 }));
+	await commands.get("balance").handler("", ctx);
+	assert.match(notifications.pop().message, /余额 \$3.50/);
+	t.mock.method(globalThis, "fetch", async () => { throw new Error("offline"); });
+	await commands.get("balance").handler("", ctx);
+	assert.match(notifications.pop().message, /~\$3.50.*未刷新/);
+	t.mock.method(globalThis, "fetch", async () => new Response("", { status: 401 }));
 	await commands.get("balance").handler("", ctx);
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0].message, /余额不可用/);

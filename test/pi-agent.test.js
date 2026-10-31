@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-  armDispatchDeadline,
   buildDispatchArgs,
   buildDispatchPrompt,
   registerDispatch,
@@ -482,7 +481,7 @@ test("getFinalAssistantText throws a diagnosable error when the turn has no text
 
 test("getFinalAssistantText surfaces error and abort stop reasons", () => {
   const errored = fakeSession([assistantMessage([TEXT_PART("partial")], "error", "boom")]);
-  assert.throws(() => getFinalAssistantText(errored, 0), /boom/);
+  assert.throws(() => getFinalAssistantText(errored, 0), {name:"AgentStopError",message:"boom",partialText:"partial"});
   const aborted = fakeSession([assistantMessage([TEXT_PART("partial")], "aborted")]);
   assert.throws(() => getFinalAssistantText(aborted, 0), /User agent aborted/);
 });
@@ -860,8 +859,8 @@ test("buildOrchestrationPrompt embeds the budget, absolute deadline, and protoco
   const prompt = buildOrchestrationPrompt({ budgetMs: 60000, task: "audit the retry paths" }, 1700000000000);
   assert.ok(prompt.startsWith("[Orchestration Request]\naudit the retry paths"));
   assert.match(prompt, /Wall-clock budget: 60s/);
-  assert.match(prompt, /absolute deadline: 2023-11-14T22:14:20\.000Z/);
-  assert.match(prompt, /dispatch_agent call must pass timeoutMs/);
+  assert.match(prompt, /reporting target: 2023-11-14T22:14:20\.000Z/);
+  assert.match(prompt, /Never pass timeoutMs/);
   assert.match(prompt, /Initial total budget: 60000ms/);
   assert.match(prompt, /last 20%/);
   assert.match(prompt, /status \(done\|partial\|blocked\|failed\)/);
@@ -966,39 +965,13 @@ test("sampleTokensPerSecond derives a 10s-window rate and hides idle/tool phases
 });
 
 
-test("dispatch deadlines abort active lanes and clear after completion", async (t) => {
-  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
-  let finish, aborted = 0, checkpoints = 0;
-  const agent = { status: "running", session: { isStreaming: true, steer: async () => { checkpoints++; }, abort: () => { aborted++; } }, finished: new Promise(resolve => { finish = resolve; }) };
-  armDispatchDeadline(agent, 100); t.mock.timers.tick(79);
-  assert.equal(checkpoints, 0); t.mock.timers.tick(1); assert.equal(checkpoints, 1);
-  t.mock.timers.tick(19); assert.equal(aborted, 0);
-  t.mock.timers.tick(1);
-  assert.equal(aborted, 1); assert.equal(agent.timeoutMs, 100);
-  finish();
-  const completed = { ...agent, timeoutMs: undefined, finished: Promise.resolve() };
-  armDispatchDeadline(completed, 100); await Promise.resolve();
-  t.mock.timers.tick(100);
-  assert.equal(completed.timeoutMs, undefined); assert.equal(checkpoints, 1);
-});
-
-test("dispatch_agent rejects invalid deadlines before launch", async () => {
-  const pi = createPi(), { deps, calls } = createDeps();
-  registerDispatch(pi, deps);
-  const result = await pi.tools.get("dispatch_agent").execute("call", { task: "x", timeoutMs: 0 }, undefined, undefined, {});
-  assert.equal(result.details.error, "invalid-timeout"); assert.equal(calls.length, 0);
-});
-
-
-test("dispatch_agent arms the deadline on the returned agent", async (t) => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  let aborted = false;
-  const agent = { id: "user-1", status: "running", session: { abort: () => { aborted = true; } }, finished: new Promise(() => {}) };
-  const pi = createPi();
-  registerDispatch(pi, createDeps({ startAgent: async () => agent }).deps);
-  await pi.tools.get("dispatch_agent").execute("call", { task: "x", timeoutMs: 100 }, undefined, undefined, {});
-  t.mock.timers.tick(100);
-  assert.equal(aborted, true);
+test("dispatch has no execution timeout, including legacy timeout input", async (t) => {
+ t.mock.timers.enable({apis:["setTimeout"]});let aborted=0,deadline;
+ const pi=createPi();const agent={id:"long",status:"running",session:{abort:()=>aborted++},finished:new Promise(()=>{})};
+ registerDispatch(pi,createDeps({startAgent:async(_a,_i,_ctx,d)=>{deadline=d;return agent;}}).deps);
+ const tool=pi.tools.get("dispatch_agent");assert.equal(tool.parameters.properties.timeoutMs,undefined);
+ await tool.execute("call",{task:"long task",timeoutMs:1},undefined,undefined,{});
+ t.mock.timers.tick(86400000);assert.equal(aborted,0);assert.equal(deadline,undefined);
 });
 
 test("parseQuickArgs has no implicit default and honors duration overrides", () => {
@@ -1010,19 +983,19 @@ test("buildQuickSplitPrompt leads with split-first parallel dispatch under a dea
   const prompt = buildQuickSplitPrompt({ budgetMs: 300000, task: "add login and billing" }, Date.UTC(2023, 10, 14, 22, 4, 20));
   assert.ok(prompt.startsWith("[Quick Split Request]\nadd login and billing"));
   assert.match(prompt, /Wall-clock budget: 300s/);
-  assert.match(prompt, /absolute deadline: 2023-11-14T22:09:20\.000Z/);
+  assert.match(prompt, /reporting target: 2023-11-14T22:09:20\.000Z/);
   assert.match(prompt, /partition the requirement into worthwhile independent, non-overlapping/);
   assert.match(prompt, /all ready dispatch_agent calls at once/);
   const implementationDeadlineMs = Date.UTC(2023, 10, 14, 22, 4, 20) + 300000 * (1 - 0.2);
-  assert.ok(prompt.includes(`Implementation deadline: ${new Date(implementationDeadlineMs).toISOString()}`));
-  assert.ok(prompt.includes(`timeoutMs = Math.floor(${implementationDeadlineMs} - currentTimeMs)`));
+  assert.ok(prompt.includes(`Implementation progress target: ${new Date(implementationDeadlineMs).toISOString()}`));
+  assert.match(prompt, /Child execution has no timeout/);
   assert.match(prompt, /reserve 60000ms of the initial 300000ms/);
   assert.match(prompt, /NOT a filesystem sandbox.*not reapplying edits already present/s);
   assert.match(prompt, /Verify actual diffs/);
   assert.match(prompt, /Time is more valuable than token cost/);
   assert.match(prompt, /longest independent lane first.*batch independent tool calls/);
   assert.match(prompt, /without repeating discovery/);
-  assert.match(prompt, /reserve the last min\(30s, 20%.*concise handoff/);
+  assert.match(prompt, /requested reporting time must not terminate child execution/);
   assert.match(prompt, /Integrate each completed lane immediately/);
   assert.doesNotMatch(prompt, /Quick Research|Research deadline|web_search|fetch_content/);
   assert.match(prompt, /map every requirement to exactly one owner/);

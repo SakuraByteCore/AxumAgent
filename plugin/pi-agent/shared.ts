@@ -78,6 +78,7 @@ export type AgentResultMessage = {
 };
 
 export type AgentCommandDetails = {
+ structuredResult?: import("./structured-output.ts").StructuredResult;
  backend?: string;
  oneShot?: boolean;
  runtimeResult?: import("./runtime.js").RuntimeResult;
@@ -109,6 +110,7 @@ export type AgentCommandDetails = {
 };
 
 export type RunningAgent = {
+ structuredResult?: import("./structured-output.ts").StructuredResult;
  oneShot?: boolean;
  backend?: "controlled-pi";
  runHandle?: import("./runtime.js").RunHandle;
@@ -293,8 +295,8 @@ export function contextLabel(inheritedContext: boolean): string {
 }
 
 export function mainContextLabel(state: MainContextState | undefined): string | undefined {
-	if (state === "will-squash") return "will squash into context";
-	if (state === "squashed") return "squashed messages into context";
+	if (state === "will-squash") return "等待回传主线程";
+	if (state === "squashed") return "已回传主线程，待汇总";
 	if (state === "rebased") return "rebased into context";
 	return undefined;
 }

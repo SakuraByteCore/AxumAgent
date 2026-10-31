@@ -4,7 +4,7 @@ import { access, copyFile, mkdir, readFile, rename, writeFile } from "node:fs/pr
 import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
-import { applyDefaultSelection, buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
+import { buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
 import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
 import { capKiloMaxTokens, ensureKiloProviderLocal, KILO_PROVIDER_ID, refreshKiloProviderLive } from "./kilo-free.ts";
 import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
@@ -1398,7 +1398,7 @@ pi.registerCommand("claude", {
 		},
 	});
 
-	// ── /usemodel: switch the current model and persist it as the default. ──
+	// ── /usemodel: switch the current model for this session only. ──
 
 	const modelSwitchAgentDir = () => join(homedir(), ".pi", "agent");
 
@@ -1450,12 +1450,11 @@ pi.registerCommand("claude", {
 	};
 
 	pi.registerCommand("usemodel", {
-		description: "Interactively switch the current model and persist it as the default",
+		description: "Interactively switch the current model for this session only",
 		getArgumentCompletions: () => null,
 		async handler(_args: string, ctx) {
 			const agentDir = modelSwitchAgentDir();
 			const modelsPath = join(agentDir, "models.json");
-			const settingsPath = join(agentDir, "settings.json");
 
 			// Open the selector instantly: merge whatever the on-disk catalog caches
 			// (any age; stale still beats the compile-time static floors) or the static
@@ -1529,24 +1528,23 @@ pi.registerCommand("claude", {
 				return;
 			}
 
-			const applied = await pi.setModel(model);
+			// Switching providers must not reset the session's effective /ctx value.
+			// Clone the target so a failed switch cannot alter the registry defaults.
+			const contextWindow = ctx.model?.contextWindow;
+			const selectedModel = contextWindow === undefined
+				? model
+				: { ...model, contextWindow };
+			if (contextWindow !== undefined && selectedModel.provider === KILO_PROVIDER_ID) {
+				const capped = capKiloMaxTokens(contextWindow, selectedModel.maxTokens);
+				if (capped !== undefined) selectedModel.maxTokens = capped;
+			}
+
+			const applied = await pi.setModel(selectedModel);
 			if (!applied) {
 				ctx.ui.notify(`Failed to switch to ${entry.provider}/${entry.model} (no API key available).`, "error");
 				return;
 			}
-
-			try {
-				const settings = await readJsonObject(settingsPath);
-				const next = applyDefaultSelection(settings, { provider: entry.provider, model: entry.model });
-				await mkdir(dirname(settingsPath), { recursive: true });
-				await writeFile(settingsPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} but failed to persist default: ${message}`, "warning");
-				return;
-			}
-
-			ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} and persisted as default.`, "info");
+			ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} for this session only.`, "info");
 		},
 	});
 

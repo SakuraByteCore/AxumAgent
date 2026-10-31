@@ -1,8 +1,9 @@
+import { roleInstruction } from "./roles.ts";
+import { compileOutputSchema, outputSchemaInstruction } from "./structured-output.ts";
 import { createControlledRuntime } from "./controlled-runtime.js";
 import { AgentRegistry } from "./registry.js";
-import { armDispatchDeadline } from "./dispatch.js";
 import { inheritedToolCeiling, guardChildTools, bridgedChildTools, isDelegableParentTool, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
-import { childRecoveryExtensions, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
+import { buildChildSettings, childRecoveryExtensions, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readdir } from "node:fs/promises";
@@ -142,7 +143,10 @@ async function resolveChildDispatchServices(
 	const sourceSettings = SettingsManager.create(ctx.cwd, agentDir, {
 		projectTrusted: ctx.isProjectTrusted(),
 	});
-    const settingsManager=SettingsManager.inMemory({...sourceSettings.getGlobalSettings(),...sourceSettings.getProjectSettings(),retry:{enabled:false}});
+	const settingsManager = SettingsManager.inMemory(buildChildSettings(
+		sourceSettings.getGlobalSettings(),
+		sourceSettings.getProjectSettings(),
+	));
 	const services = await createAgentSessionServices({
 		cwd: ctx.cwd,
 		agentDir,
@@ -151,11 +155,11 @@ async function resolveChildDispatchServices(
 		resourceLoaderOptions: buildChildResourceLoaderOptions(parsedForwardedArgs, ctx.cwd),
 	});
 	const forwarded = resolveForwardedOptions(parsedForwardedArgs, services.modelRuntime);
-	forwarded.tools = inheritedToolCeiling(pi.getActiveTools(), forwarded.tools, forwarded.excludeTools, forwarded.noTools !== undefined, !!permissions?.bridge);
+	forwarded.tools = inheritedToolCeiling(pi.getActiveTools(), forwarded.tools, forwarded.excludeTools, forwarded.noTools !== undefined, !!permissions?.bridge, !!permissions?.fullTools);
  if(permissions?.bridge){const names=new Set(permissions.bridge.tools.map(t=>t.name));forwarded.tools=forwarded.tools.filter(t=>names.has(t));}
- if(!permissions?.testCommands?.length)forwarded.tools=forwarded.tools.filter(t=>t!=="bash");
- if(!permissions?.writeScope?.length)forwarded.tools=forwarded.tools.filter(t=>!["write","edit","bash"].includes(t));
- if(permissions?.bridge) forwarded.tools = forwarded.tools.filter(name=>permissions.bridge!.tools.some(t=>t.name===name&&isDelegableParentTool(t)));
+ if(!permissions?.fullTools && !permissions?.testCommands?.length)forwarded.tools=forwarded.tools.filter(t=>t!=="bash");
+ if(!permissions?.fullTools && !permissions?.writeScope?.length)forwarded.tools=forwarded.tools.filter(t=>!["write","edit","bash"].includes(t));
+ if(permissions?.bridge && !permissions.fullTools) forwarded.tools = forwarded.tools.filter(name=>permissions.bridge!.tools.some(t=>t.name===name&&isDelegableParentTool(t)));
  if(permissions?.writeScope?.length && !forwarded.tools.some(name=>name==="write"||name==="edit"))throw new Error("No parent-authorized builtin write/edit tool is available for writable dispatch");
  if(permissions?.testCommands?.length && !forwarded.tools.includes("bash"))throw new Error("No parent-authorized builtin bash tool is available for testCommands");
  if(!forwarded.tools.length && forwarded.noTools===undefined)throw new Error("No parent-authorized read/search tools are available; dispatch was not started. Enable read/grep in the parent session or use explicit --no-tools for a text-only task.");
@@ -497,7 +501,7 @@ export async function startUserAgent(
 	args: string,
 	invocation: string,
 	ctx: ExtensionCommandContext,
- deadline?: {timeoutMs:number;deadlineAt:number},
+ _deadline?: {timeoutMs:number;deadlineAt:number},
  batchId?: string,
  permissions?: ChildPermissions,
 ): Promise<RunningAgent> {
@@ -525,12 +529,13 @@ export async function startUserAgent(
 		parsed.task = await buildPlanPrompt(parsed.task);
 	}
 	if(ledger.generation!==generation || isShuttingDown())throw new Error("Session changed during dispatch preparation");
+ ledger.bindHistory(getAgentDir(),ctx.cwd,ctx.sessionManager.getSessionId());
  const record=ledger.reserve("user-" + nextAgentNumber().toString(36),batchId);
  let startupDone!:()=>void;const startup=new Promise<void>(resolve=>{startupDone=resolve;});ledger.pendingStarts.add(startup);
  try {
  if(permissions?.backend && permissions.backend!=="controlled-pi")throw new Error("Native OAR backends were retired: remove backend from dispatch configuration to use bundled controlled-pi with the current model. No task started.");
  const dispatch = await resolveChildDispatchServices(pi, ctx, parsed.forwardedArgs, invocation, permissions);
- const scopes=permissions?.writeScope ?? [];
+ const scopes=permissions?.fullTools ? [ctx.cwd] : permissions?.writeScope ?? [];
  if(permissions?.testCommands?.length && !scopes.length)throw new Error("testCommands requires explicit writeScope; shell is not sandboxed");
  if(scopes.length && !permissions?.bridge)throw new Error("Parent tool executor unavailable; cannot delegate writable scope");
  const lockScopes=dispatch.forwarded.tools?.includes("bash")?[ctx.cwd]:scopes;
@@ -555,7 +560,6 @@ export async function startUserAgent(
 runningAgent.oneShot=true;runningAgent.backend="controlled-pi";
 if(permissions?.bridge){const bridge=permissions.bridge,validate=bridge.validate;permissions.bridge={get tools(){return bridge.tools;},getActiveTools:bridge.getActiveTools,executeTool:(name,args,options)=>bridge.executeTool(name,args,options),validate:()=>{validate?.();if(ledger.generation!==generation || runningAgent.aborted || runningAgent.interruptRequested || record.state==="closed" || record.state==="cancelled" || runningAgent.status==="idle")throw new Error("Child capability is inactive or revoked");}};}
 ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
- if(deadline){runningAgent.executionTimeoutMs=deadline.timeoutMs;runningAgent.deadlineAt=deadline.deadlineAt;if(Date.now()>=deadline.deadlineAt){runningAgent.timeoutMs=deadline.timeoutMs;runningAgent.stopCause="deadline";}}
  launchRunningAgent(
   pi,
   runningAgents,
@@ -571,7 +575,6 @@ ledger.attach(record,runningAgent);agentLedgers.set(runningAgent,ledger);
 		runningAgent,
 		ctx,
 	);
- if(deadline && !runningAgent.oneShot)armDispatchDeadline(runningAgent,deadline.timeoutMs,deadline.deadlineAt);
 	void runningAgent.finished.then(()=>ledger.settle(record),error=>ledger.fail(record,error));
 	return runningAgent;
  } catch(error){record.releaseScope?.();ledger.fail(record,error);throw error;} finally {startupDone();ledger.pendingStarts.delete(startup);}
@@ -829,7 +832,7 @@ export function buildChildResourceLoaderOptions(
 	if (parsed.systemPrompt !== undefined) options.systemPrompt = parsed.systemPrompt;
 	if (parsed.appendSystemPrompt) options.appendSystemPrompt = parsed.appendSystemPrompt;
 	options.additionalExtensionPaths = childRecoveryExtensions({
-		noExtensions: true, // One-shot execution never auto-enqueues recovery prompts/retries.
+		noExtensions: true, // No extension recovery prompts; SDK retries inherit configured settings.
 		extensions: [], // Custom child extensions cannot transfer their parent approval state.
 	});
 	if (parsed.skills) options.additionalSkillPaths = resolveResourcePaths(parsed.skills, cwd);
@@ -870,6 +873,8 @@ async function runAgentLifecycle(
 	widget: UserAgentWidget,
 ): Promise<void> {
  if(runningAgent.oneShot){
+  const schema=forwarded.permissions?.outputSchema;
+  const validateOutput=schema === undefined ? undefined : compileOutputSchema(schema);
   let session:AgentSession|undefined,unsubscribe:(()=>void)|undefined,stopped=false;
   const runtime=createControlledRuntime({
    execute:async instruction=>{
@@ -882,11 +887,11 @@ async function runAgentLifecycle(
      "[Child tool capabilities]",
      `Available tools: ${session.getActiveToolNames().join(", ") || "none (explicit text-only mode)"}.`,
      forwarded.tools?.includes("bash")
-      ? `Authorized shell commands (exact match): ${JSON.stringify(forwarded.permissions?.testCommands)}.`
+      ? forwarded.permissions?.fullTools ? "All active parent tools are inherited through the live approval bridge. Recursive delegation is unavailable." : `Authorized shell commands (exact match): ${JSON.stringify(forwarded.permissions?.testCommands)}.`
       : "Shell is unavailable for this task. Use read/grep for inspection; if commands are required, report the exact command to the parent for a new authorized dispatch.",
      "Use the tools actually provided; do not report missing read/search capabilities without checking this list.",
     ].join("\n");
-    await promptChildUntilSettled(session,`${capabilities}\n\n${instruction}`);
+    await promptChildUntilSettled(session,`${capabilities}\n\n${roleInstruction(forwarded.permissions?.role)}${instruction}${schema === undefined ? "" : outputSchemaInstruction(schema)}`);
     return getFinalAssistantText(session,0);
    },
    partial:()=>session?getPartialAssistantText(session,0)||runningAgent.responseText:runningAgent.responseText,
@@ -894,7 +899,7 @@ async function runAgentLifecycle(
    dispose:async()=>{unsubscribe?.();const owned=session??runningAgent.session;if(owned){try{await owned.extensionRunner.emit({type:"session_shutdown",reason:"quit"});}finally{owned.dispose();}}},
   });
   const controller=new AbortController();if(runningAgent.aborted||isShuttingDown())controller.abort();
-  runningAgent.runHandle=runtime.start({task,cwd:services.cwd,signal:controller.signal,...runningAgent.deadlineAt===undefined?{}:{timeoutMs:Math.max(1,runningAgent.deadlineAt-Date.now())}});
+  runningAgent.runHandle=runtime.start({task,cwd:services.cwd,signal:controller.signal});
   const result=await runningAgent.runHandle.result;
   if(result.stopReason!=="timeout"){runningAgent.timeoutMs=undefined;runningAgent.stopCause=undefined;}
   if(!result.text && result.stopReason!=="completed"){result.text=runningAgent.responseText;result.partial=!!result.text;}
@@ -902,6 +907,10 @@ async function runAgentLifecycle(
   if(result.stopReason==="timeout"){runningAgent.timeoutMs=runningAgent.executionTimeoutMs;runningAgent.stopCause="deadline";}
   if(result.stopReason==="timeout")runningAgent.error=[dispatchTimeoutReport(runningAgent),...result.diagnostics.map(d=>d.message)].join("\n\n");
   else if(result.stopReason!=="completed")runningAgent.error=result.diagnostics.map(d=>d.message).join("; ")||"Task "+result.stopReason;
+  if(validateOutput){
+   runningAgent.structuredResult=validateOutput(result.text);
+   if(result.stopReason==="completed" && !runningAgent.structuredResult.valid)runningAgent.error=[runningAgent.error,"Output schema validation failed: "+runningAgent.structuredResult.errors.join("; ")].filter(Boolean).join("; ");
+  }
   if(result.cleanupFailure)runningAgent.error=[runningAgent.error,result.cleanupFailure.message].filter(Boolean).join("; ");
   const message=buildAgentResultMessage(runningAgent,runningAgent.error?{ok:false,error:runningAgent.error}:{ok:true,response:result.text},{display:runningAgent.notifyMainAgent});
   widget.addCompleted(runningAgent,message,{squashable:!runningAgent.notifyMainAgent});
@@ -1092,7 +1101,7 @@ async function createChildSession(
 ): Promise<AgentSession> {
 	// Built while the session is still empty: that is the only path on which pi records the
 	// model and thinking level, and without those entries a resumed child falls back to defaults.
-	const proxyTools = forwarded.permissions?.bridge ? bridgedChildTools(forwarded.permissions.bridge, forwarded.tools ?? [], forwarded.permissions.writeScope ?? [], services.cwd, forwarded.permissions.testCommands) : undefined;
+	const proxyTools = forwarded.permissions?.bridge ? bridgedChildTools(forwarded.permissions.bridge, forwarded.tools ?? [], forwarded.permissions.writeScope ?? [], services.cwd, forwarded.permissions.testCommands, forwarded.permissions.fullTools) : undefined;
 	if (proxyTools && (forwarded.tools ?? []).some(name => !proxyTools.some(tool => tool.name === name))) throw new Error("Parent tool provenance unavailable; refusing raw builtin fallback");
 	const { session } = await createAgentSessionFromServices({
 		services,

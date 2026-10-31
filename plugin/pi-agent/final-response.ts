@@ -1,4 +1,4 @@
-import { DispatchDeadlineError } from "./child-recovery.js";
+import { DispatchDeadlineError } from "./child-recovery.ts";
 import type { AgentMessage, AgentSession } from "./shared.js";
 
 /** Follow-up instruction for a child that finished a turn without any text response. */
@@ -54,15 +54,17 @@ export function getFinalAssistantText(
 		.filter((message) => message.role === "assistant");
 	const lastMessage = assistantMessages.at(-1);
 	if (!lastMessage) throw new NoAssistantMessageError();
-	if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
-		throw new AgentStopError({
-			stopReason: lastMessage.stopReason,
-			errorMessage: lastMessage.errorMessage,
-		});
-	}
 	const text = assistantMessages
 		.map((message) => assistantText(message).trim())
 		.findLast((candidate) => candidate.length > 0);
+	if (lastMessage.stopReason === "error" || lastMessage.stopReason === "aborted") {
+		const error = new AgentStopError({
+			stopReason: lastMessage.stopReason,
+			errorMessage: lastMessage.errorMessage,
+		});
+		error.partialText = text ?? "";
+		throw error;
+	}
 	if (text) return text;
 	throw new EmptyAgentTextError({
 		assistantMessages: assistantMessages.length,
