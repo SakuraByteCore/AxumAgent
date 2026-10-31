@@ -247,6 +247,33 @@ Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is j
 Each entry is shown as `provider/model`, and the default is marked `  (default)`. Pick any model to switch to it immediately.
 The switch applies to the current session only. It does not change `defaultProvider`/`defaultModel` in `~/.pi/agent/settings.json`, so other running sessions and later sessions keep their existing model defaults.
 
+## Separate Vision Provider (`/vision`)
+
+When the current model cannot accept images, route them to a dedicated vision model: run `/vision` to pick one from a selector (same interaction style as `/usemodel`), and the picture is sent to that model while its textual description is injected into the current session. Images returned by the `read` tool are handled the same way.
+
+```text
+/vision                         # open the vision model picker (same style as `/usemodel`)
+/vision list                    # list models that declare image input as plain text
+/vision on | off                # toggle the fallback
+/vision status                  # show the current state
+```
+
+The configuration lives in `~/.pi/agent/axum.json`:
+
+```json
+{
+  "vision": {
+    "enabled": true,
+    "provider": "kilo",
+    "model": "nvidia/nemotron-3.5-super-vl:free",
+    "prompt": "optional, overrides the default description prompt",
+    "maxTokens": 1024
+  }
+}
+```
+
+The vision model itself is configured like any other provider in `~/.pi/agent/models.json`, and its model entry must declare `"input": ["text", "image"]`. When the current model already accepts images, no fallback runs and no extra request is sent.
+
 ## Doctor
 
 ```bash

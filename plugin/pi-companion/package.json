@@ -1,11 +1,18 @@
 {
   "name": "pi-companion",
   "version": "0.3.2",
-  "description": "Bundled companion plugin for pi-coding-agent \u2014 slash shortcuts (/plan, /clear, /ralph, /rules, /claude, /plugin-create-mode), auto-continue response guard, and advisory watcher in one single-file extension, zero native deps",
+  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan /clear /ralph /rules /claude /plugin-create-mode /vision), auto-continue response guard, separate vision-provider fallback, and advisory watcher, zero native deps",
   "type": "module",
   "main": "index.ts",
   "files": [
     "index.ts",
+    "agentui.ts",
+    "kilo-free.ts",
+    "model-switch.ts",
+    "opencode-zen.ts",
+    "thinking-levels.ts",
+    "vision-fallback.ts",
+    "zen-v2-wire.ts",
     "LICENSE",
     "config.json",
     "skills"
@@ -25,6 +32,8 @@
     "clear",
     "ralph",
     "response-guard",
+    "vision",
+    "vision-fallback",
     "advisor",
     "android",
     "termux"

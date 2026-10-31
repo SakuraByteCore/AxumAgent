@@ -201,6 +201,33 @@ axum code
 各エントリは `provider/model` の形式で表示され、デフォルトには `  (default)` が付きます。任意のモデルを選ぶと即座に切り替わります。
 切り替えは現在のセッションにのみ適用されます。`~/.pi/agent/settings.json` の `defaultProvider`/`defaultModel` は変更しないため、実行中の他のセッションや後続セッションのモデルには影響しません。
 
+## 独立の Vision Provider（`/vision`）
+
+現在のモデルが画像入力に対応していない場合、単独の Vision モデルへ画像を転送できます。`/vision` で選択リストを開きます（`/usemodel` と同じ操作感）。画像は Vision モデルへ送信され、説明文が現在のセッションへ注入されます。`read` ツールが返した画像も同様に処理されます。
+
+```text
+/vision                         # Vision モデルの選択リストを開く（`/usemodel` と同じ形式）
+/vision list                    # 画像入力対応と宣言されたモデル一覧をテキスト表示
+/vision on | off                # フォールバックの有効・無効
+/vision status                  # 現在の状態を表示
+```
+
+設定は `~/.pi/agent/axum.json` に置きます：
+
+```json
+{
+  "vision": {
+    "enabled": true,
+    "provider": "kilo",
+    "model": "nvidia/nemotron-3.5-super-vl:free",
+    "prompt": "任意。既定の説明プロンプトを上書きします",
+    "maxTokens": 1024
+  }
+}
+```
+
+Vision モデル自体は `~/.pi/agent/models.json` の `providers` に通常どおり設定し、モデルエントリに `"input": ["text", "image"]` の宣言が必要です。現在のモデルが画像入力に対応している場合はフォールバックも追加リクエストも発生しません。
+
 ## Doctor
 
 ```bash

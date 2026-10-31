@@ -251,6 +251,33 @@ axum code
 每一项以 `provider/model` 显示，默认模型带 `  (default)` 标记。任选一个模型即可立即切换。
 切换仅作用于当前会话，不会修改 `~/.pi/agent/settings.json` 中的 `defaultProvider`/`defaultModel`，因此不会影响其他正在运行的会话或之后新开的会话。
 
+## 独立视觉提供商（`/vision`）
+
+当前模型不支持图片输入时，可单独指定一个视觉模型：执行 `/vision` 打开选择器挑一个（与 `/usemodel` 同一交互风格），图片先发给该视觉模型，再把文字描述注入当前会话；`read` 工具读到的图片同样适用。
+
+```text
+/vision                         # 打开列表选择视觉模型（与 `/usemodel` 同风格）
+/vision list                    # 以纯文本列出支持图片输入的模型
+/vision on | off                # 启停回退
+/vision status                  # 查看当前状态
+```
+
+配置写在 `~/.pi/agent/axum.json`：
+
+```json
+{
+  "vision": {
+    "enabled": true,
+    "provider": "kilo",
+    "model": "nvidia/nemotron-3.5-super-vl:free",
+    "prompt": "可选，覆盖默认描述提示词",
+    "maxTokens": 1024
+  }
+}
+```
+
+视觉模型本身仍按常规方式配置在 `~/.pi/agent/models.json` 的 `providers` 中，模型条目需声明 `"input": ["text", "image"]`。当前模型原生支持图片时不触发回退，也不会产生额外请求。
+
 ## Doctor
 
 ```bash

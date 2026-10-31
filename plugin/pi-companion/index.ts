@@ -10,6 +10,7 @@ import { capKiloMaxTokens, ensureKiloProviderLocal, KILO_PROVIDER_ID, refreshKil
 import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
 import { registerAgentUi } from "./agentui.ts";
 import { enrichModelThinkingLevels } from "./thinking-levels.ts";
+import { registerVisionFallback } from "./vision-fallback.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -1214,6 +1215,9 @@ pi.registerCommand("plan", {
 // ── Custom *-prompt.md commands: registered only while their file exists ──
 
 registerCustomPromptCommands(pi);
+
+	// ── 独立视觉提供商回退（当前模型不支持图片时）─────────────────────────────
+	registerVisionFallback(pi);
 
 pi.registerCommand("claude", {
   description: "Delegate the requirement to the Claude Code CLI via the claude-driver skill: /claude <requirement>",
