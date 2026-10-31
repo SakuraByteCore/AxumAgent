@@ -1,6 +1,6 @@
 {
   "name": "pi-companion",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan /clear /ralph /rules /claude /plugin-create-mode /vision), auto-continue response guard, separate vision-provider fallback, and advisory watcher, zero native deps",
   "type": "module",
   "main": "index.ts",

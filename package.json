@@ -1,6 +1,6 @@
 {
   "name": "axum",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Full coding agent in one command: Pi core + 12 curated extensions, web config, background agents, persistent memory, built-in MCP. Runs on Android/Termux.",
   "license": "FSL-1.1-ALv2",
   "type": "module",
