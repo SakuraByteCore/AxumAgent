@@ -1,10 +1,9 @@
-import { roleInstruction, type AgentRole } from "./roles.ts";
+import { roleInstruction } from "./roles.ts";
 import { compileOutputSchema, outputSchemaInstruction } from "./structured-output.ts";
 import { createControlledRuntime } from "./controlled-runtime.js";
 import { AgentRegistry } from "./registry.js";
 import { inheritedToolCeiling, guardChildTools, bridgedChildTools, isDelegableParentTool, WriteScopeLocks, type ChildPermissions } from "./permissions.js";
-import { buildChildSettings, childRecoveryExtensions, ensureChildToolEvidence, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
-import { SUBAGENT_EXECUTION_CONTRACT } from "./subagent-contract.ts";
+import { buildChildSettings, childRecoveryExtensions, promptChildUntilSettled, throwIfDispatchDeadline, DispatchDeadlineError } from "./child-recovery.js";
 import * as os from "node:os";
 import * as path from "node:path";
 import { readdir } from "node:fs/promises";
@@ -31,7 +30,6 @@ import {
 	getFinalAssistantText,
 	dispatchTimeoutReport,
 	getPartialAssistantText, isDispatchDeadlineFailure,
-	EmptyAgentTextError, recoverEmptyText,
 } from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
@@ -893,15 +891,8 @@ async function runAgentLifecycle(
       : "Shell is unavailable for this task. Use read/grep for inspection; if commands are required, report the exact command to the parent for a new authorized dispatch.",
      "Use the tools actually provided; do not report missing read/search capabilities without checking this list.",
     ].join("\n");
-    await promptChildUntilSettled(session,`${capabilities}\n\n${roleInstruction(forwarded.permissions?.role)}${SUBAGENT_EXECUTION_CONTRACT}\n\n${instruction}${schema === undefined ? "" : outputSchemaInstruction(schema)}`);
-    await ensureChildToolEvidence(session,runningAgent,forwarded.permissions?.role);
-    try {
-     return getFinalAssistantText(session,0);
-    } catch (error) {
-     if(!(error instanceof EmptyAgentTextError))throw error;
-     await recoverEmptyText(session);
-     return getFinalAssistantText(session,0);
-    }
+    await promptChildUntilSettled(session,`${capabilities}\n\n${roleInstruction(forwarded.permissions?.role)}${instruction}${schema === undefined ? "" : outputSchemaInstruction(schema)}`);
+    return getFinalAssistantText(session,0);
    },
    partial:()=>session?getPartialAssistantText(session,0)||runningAgent.responseText:runningAgent.responseText,
    abort:async()=>{stopped=true;runningAgent.interruptRequested=true;await (session??runningAgent.session)?.abort();},
@@ -924,7 +915,7 @@ async function runAgentLifecycle(
   const message=buildAgentResultMessage(runningAgent,runningAgent.error?{ok:false,error:runningAgent.error}:{ok:true,response:result.text},{display:runningAgent.notifyMainAgent});
   widget.addCompleted(runningAgent,message,{squashable:!runningAgent.notifyMainAgent});
   postUserAgentResult(pi,isShuttingDown,runningAgent.notifyMainAgent,message);
-  runningAgent.status="idle";registryForAgent(runningAgent);widget.update();return;
+  runningAgent.status="idle";widget.update();return;
  }
 	let session: AgentSession | undefined;
 	let unsubscribe: (() => void) | undefined;
@@ -940,7 +931,7 @@ async function runAgentLifecycle(
 			widget,
 		);
 		unsubscribe = subscribeToChildSession(session, runningAgent, widget);
-		await runChildTurns(pi, isShuttingDown, task, session, runningAgent, widget, forwarded.permissions?.role);
+		await runChildTurns(pi, isShuttingDown, task, session, runningAgent, widget);
 	} catch (error) {
 		if (runningAgent.aborted) {
 			logSteering(runningAgent.id, "agent-aborted");
@@ -982,9 +973,8 @@ export async function runChildTurns(
 	session: AgentSession,
 	runningAgent: RunningAgent,
 	widget: UserAgentWidget,
-	role?: AgentRole,
 ): Promise<void> {
-	let instruction = `${SUBAGENT_EXECUTION_CONTRACT}\n\nYou are running in an ephemeral, forked background process now, concurrently with the main session. ${task}`;
+	let instruction = `You are running in an ephemeral, forked background process now, concurrently with the main session. ${task}`;
 	while (true) {
 		if(runningAgent.aborted || isShuttingDown())return;
 		const turnMessageStart = session.agent.state.messages.length;
@@ -1015,7 +1005,6 @@ export async function runChildTurns(
     if(runningAgent.oneShot)return;const next=await waitForInstruction(runningAgent,widget);if(next===undefined)return;
     instruction=next;continue;
    }
-   await ensureChildToolEvidence(session,runningAgent,role);
 		}
 		throwIfDispatchDeadline(runningAgent);
 		if (runningAgent.interruptRequested) {
@@ -1046,14 +1035,7 @@ export async function runChildTurns(
 			continue;
 		}
 
-		let response: string;
-		try {
-			response = getFinalAssistantText(session, turnMessageStart);
-		} catch (error) {
-			if (!(error instanceof EmptyAgentTextError)) throw error;
-			await recoverEmptyText(session);
-			response = getFinalAssistantText(session, turnMessageStart);
-		}
+		const response = getFinalAssistantText(session, turnMessageStart);
 		logSteering(runningAgent.id, "turn-prompt-resolved", {
 			responseLength: response.length,
 			messageCount: session.agent.state.messages.length,

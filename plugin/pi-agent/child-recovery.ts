@@ -2,13 +2,6 @@ import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 import type { SettingsManager } from "@earendil-works/pi-coding-agent";
 import type { AgentSession } from "./shared.js";
-import type { AgentRole } from "./roles.ts";
-import {
-	requiresToolEvidence,
-	SUBAGENT_NUDGE_MAX_ATTEMPTS,
-	subagentForcedWrapup,
-	subagentIdleReminder,
-} from "./subagent-contract.ts";
 
 /** Reuse the exact companion guard loaded by the main Axum session. */
 export function childRecoveryExtensions(options: {
@@ -38,34 +31,6 @@ export function buildChildSettings(
 export async function promptChildUntilSettled(session: AgentSession, instruction: string): Promise<void> {
 	await session.prompt(instruction);
 	await session.waitForIdle();
-}
-
-/** oh-my-pi 对齐：整轮零工具调用时按上限提醒，超限后强制收尾。 */
-export async function ensureChildToolEvidence(
-	session: AgentSession,
-	agent: { toolUses: number; aborted?: boolean; interruptRequested?: boolean; stopCause?: string; deadlineAt?: number; timeoutMs?: number },
-	role: AgentRole | undefined,
-): Promise<void> {
-	if (!requiresToolEvidence(role) || agent.toolUses > 0) return;
-	if ((session.getActiveToolNames?.() ?? []).length === 0) return;
-	for (let attempt = 1; attempt <= SUBAGENT_NUDGE_MAX_ATTEMPTS; attempt++) {
-		if (agent.toolUses > 0) return;
-		if (agent.aborted || agent.interruptRequested || agent.stopCause === "deadline") return;
-		throwIfDispatchDeadline(agent);
-		await promptNudge(session, subagentIdleReminder(attempt, SUBAGENT_NUDGE_MAX_ATTEMPTS));
-	}
-	if (agent.toolUses > 0 || agent.aborted || agent.stopCause === "deadline") return;
-	await promptNudge(session, subagentForcedWrapup());
-}
-
-/** 提醒是增益步骤：自身失败不得毁掉子代理已经产出的结果。 */
-async function promptNudge(session: AgentSession, instruction: string): Promise<void> {
-	try {
-		await session.prompt(instruction);
-		await session.waitForIdle();
-	} catch {
-		// 提醒不可送达时保留子代理原有结果，不改写终态。
-	}
 }
 
 /** Loader-free execution deadline controller. Waiting/collection timeouts must not call this. */
