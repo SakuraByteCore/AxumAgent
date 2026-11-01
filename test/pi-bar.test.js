@@ -162,8 +162,15 @@ test("tps segment replaces tokens-down with a tokens-per-second label", () => {
   assert.match(statuslineSource, /function emitTpsIdle\(ctx: ExtensionContext\): void \{[\s\S]*?emitTps\(ctx, "— t\/s"\);/);
   assert.match(statuslineSource, /pi\.on\("turn_start"[\s\S]*?if \(!tpsBorderLabel\) emitTpsIdle\(ctx\);/);
   assert.match(statuslineSource, /emitThinking\(ctx\);[\s\S]*?emitTpsIdle\(ctx\);/);
-  // Only real provider usage may be labelled as token throughput.
-  assert.doesNotMatch(statuslineSource, /emitTpsDelta|TPS_SAMPLE_MS|字符\/s|均值 /);
+  // Only real provider usage may be labelled as token throughput: the live
+  // sampler never counts characters and never averages the whole request.
+  assert.doesNotMatch(statuslineSource, /emitTpsDelta|字符\/s|均值 /);
+  // Live sampling: ~1/s throttle over a 10s window, fed by usage.output only.
+  assert.match(statuslineSource, /const TPS_SAMPLE_INTERVAL_MS = 1_000;/);
+  assert.match(statuslineSource, /const TPS_SAMPLE_WINDOW_MS = 10_000;/);
+  assert.match(statuslineSource, /pi\.on\("message_update"[\s\S]*?const output = message\.usage\?\.output;[\s\S]*?sampleTps\(output, Date\.now\(\)\)/);
+  // A new request starts from the unknown state and drops the previous samples.
+  assert.match(statuslineSource, /pi\.on\("message_start"[\s\S]*?resetTpsSamples\(\);[\s\S]*?emitTpsIdle\(ctx\);/);
   assert.match(statuslineSource, /\{ id: "tps", text: tpsBorderLabel, color: "text" \}/);
   // The t/s readout is embedded into the input box's TOP border at the left
   // end — no background, label goes through the border colour callback —
@@ -590,11 +597,13 @@ test("throughput shows only t/s from request usage and isolates tools", async (t
   await call("message_end", { role: "toolResult" });
   await call("agent_settled");
   assert.equal(labels.at(-1), "10.0 t/s");
-  await call("turn_start");
-  await call("message_start", { role: "assistant" });
-  await delta("thinking_delta", "abcd"); now += 250;
-  await delta("text_delta", "abcd");
-  assert.equal(labels.at(-1), "10.0 t/s");
+	await call("turn_start");
+	await call("message_start", { role: "assistant" });
+	await delta("thinking_delta", "abcd"); now += 250;
+	await delta("text_delta", "abcd");
+	// A new request starts from the unknown state: the previous request's rate
+	// must not be shown as the current one.
+	assert.equal(labels.at(-1), "— t/s");
   now = 51000;
   await call("message_end", { role: "assistant", timestamp: 41000, usage: { output: 200 }, stopReason: "stop" });
   assert.equal(labels.at(-1), `${(200 / ((now - 41000) / 1000)).toFixed(1)} t/s`);
@@ -602,4 +611,77 @@ test("throughput shows only t/s from request usage and isolates tools", async (t
     await call("message_end", { role: "assistant", timestamp: 1000, ...message });
     assert.equal(labels.at(-1), "— t/s");
   }
+});
+
+test("t/s refreshes during generation from provider usage samples", async (t) => {
+	const { default: install } = await import("../plugin/pi-bar/index.ts");
+	const handlers = new Map(), labels = [];
+	install({ on: (name, fn) => handlers.set(name, fn), registerCommand() {},
+		events: { on() {}, emit: (_name, value) => { if (value.id === "tps") labels.push(value.text); } } });
+	let now = 1000;
+	t.mock.method(Date, "now", () => now);
+	const ctx = { hasUI: false, getContextUsage: () => undefined };
+	const call = (name, message = {}) => handlers.get(name)({ message }, ctx);
+	const update = (output) => handlers.get("message_update")({ message: { role: "assistant", usage: { output } } }, ctx);
+
+	await call("turn_start");
+	await call("message_start", { role: "assistant" });
+	assert.equal(labels.at(-1), "— t/s");
+
+	// First sample only: a single point cannot describe a rate yet.
+	await update(0);
+	assert.equal(labels.at(-1), "— t/s");
+
+	// Inside the 1s throttle: the readout must not refresh.
+	now += 500;
+	await update(40);
+	assert.equal(labels.at(-1), "— t/s");
+
+	// Second sample: 40 output tokens in one second.
+	now += 500;
+	await update(40);
+	assert.equal(labels.at(-1), "40.0 t/s");
+
+	// Window average over the samples collected so far.
+	now += 1000;
+	await update(80);
+	assert.equal(labels.at(-1), "40.0 t/s");
+
+	// No growth for longer than the window: the readout falls back to unknown
+	// instead of decaying into a fake rate.
+	now += 10000;
+	await update(80);
+	assert.equal(labels.at(-1), "— t/s");
+
+	// The finished request reports the authoritative average speed.
+	now += 1000;
+	await call("message_end", { role: "assistant", timestamp: 1000, usage: { output: 200 }, stopReason: "stop" });
+	assert.equal(labels.at(-1), `${(200 / ((now - 1000) / 1000)).toFixed(1)} t/s`);
+
+	// The next request starts from unknown again: no rate carries over.
+	await call("message_start", { role: "assistant" });
+	assert.equal(labels.at(-1), "— t/s");
+});
+
+test("t/s stays unknown when the provider reports no streaming usage", async (t) => {
+	const { default: install } = await import("../plugin/pi-bar/index.ts");
+	const handlers = new Map(), labels = [];
+	install({ on: (name, fn) => handlers.set(name, fn), registerCommand() {},
+		events: { on() {}, emit: (_name, value) => { if (value.id === "tps") labels.push(value.text); } } });
+	let now = 1000;
+	t.mock.method(Date, "now", () => now);
+	const ctx = { hasUI: false, getContextUsage: () => undefined };
+	const call = (name, message = {}) => handlers.get(name)({ message }, ctx);
+	const update = (output) => handlers.get("message_update")({ message: { role: "assistant", usage: { output } } }, ctx);
+
+	await call("message_start", { role: "assistant" });
+	for (let i = 0; i < 5; i++) {
+		now += 1000;
+		await update(0);
+	}
+	assert.equal(labels.at(-1), "— t/s", "no output growth must not invent a rate");
+
+	// The provider reports the real output only at the end of the request.
+	await call("message_end", { role: "assistant", timestamp: 1000, usage: { output: 120 }, stopReason: "stop" });
+	assert.equal(labels.at(-1), `${(120 / ((now - 1000) / 1000)).toFixed(1)} t/s`);
 });

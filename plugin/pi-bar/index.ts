@@ -534,6 +534,48 @@ const TPS_BORDER_MIN_GAP = 1;
 // pi-bar:update event so the dirty->refresh cycle re-renders the host).
 let tpsBorderLabel = "";
 
+// t/s 实时采样：1 秒节流落点，10 秒滑动窗口求平均。
+// 只采信提供商上报的 usage.output；输出没有增长就没有读数，不做字符估算。
+const TPS_SAMPLE_WINDOW_MS = 10_000;
+const TPS_SAMPLE_INTERVAL_MS = 1_000;
+
+interface TpsSample {
+	at: number;
+	output: number;
+}
+
+interface TpsReading {
+	/** 本次是否落了新采样点；false 表示被节流，调用方不应刷新读数。 */
+	sampled: boolean;
+	/** 窗口内输出没有增长时为 undefined，调用方显示未知态。 */
+	tps?: number;
+}
+
+let tpsSamples: TpsSample[] = [];
+let tpsLastSampleAt = 0;
+
+function resetTpsSamples(): void {
+	tpsSamples = [];
+	tpsLastSampleAt = 0;
+}
+
+/**
+ * 采样输出 token 速率。节流命中时返回 sampled=false；窗口内输出没有增长
+ * 时返回 tps=undefined，禁止用字符数或陈旧值伪造速度。
+ */
+function sampleTps(output: number, now: number): TpsReading {
+	if (now - tpsLastSampleAt < TPS_SAMPLE_INTERVAL_MS) return { sampled: false };
+	tpsLastSampleAt = now;
+	tpsSamples.push({ at: now, output });
+	while (tpsSamples.length > 1 && now - (tpsSamples[0]?.at ?? now) > TPS_SAMPLE_WINDOW_MS) {
+		tpsSamples.shift();
+	}
+	const first = tpsSamples[0];
+	const last = tpsSamples[tpsSamples.length - 1];
+	if (!first || !last || last.output <= first.output) return { sampled: true };
+	return { sampled: true, tps: ((last.output - first.output) * 1000) / (last.at - first.at) };
+}
+
 /*
  * Renders the editor top border with the t/s label embedded at the left
  * end: corner glyph, label, and fill run all go through `border` (which
@@ -1837,13 +1879,17 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("message_start", async (event, ctx) => {
 		if (event.message.role !== "assistant") return;
-		// Keep the last measured request rate while awaiting fresh provider usage.
-		if (!tpsBorderLabel) emitTpsIdle(ctx);
+		// 新一轮请求：清空上一轮的采样点，读数回到未知态，
+		// 避免把上一请求的速度当成当前速度。
+		resetTpsSamples();
+		emitTpsIdle(ctx);
 	});
 
 	pi.on("message_end", async (event, ctx) => {
 		const message = event.message;
 		if (message.role !== "assistant") return;
+		// 请求已结束：实时采样窗口随之作废，读数改由权威平均速度给出。
+		resetTpsSamples();
 		// The provider timestamp precedes the HTTP request, unlike message_start
 		// which can arrive only after response headers. Tools execute afterwards.
 		const elapsed = Date.now() - message.timestamp;
@@ -2128,8 +2174,15 @@ export default function (pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("message_update", async (_event, ctx) => {
+	pi.on("message_update", async (event, ctx) => {
 		emitContext(ctx);
+		const message = event.message;
+		if (!message || message.role !== "assistant") return;
+		const output = message.usage?.output;
+		if (typeof output !== "number") return;
+		const reading = sampleTps(output, Date.now());
+		if (!reading.sampled) return;
+		emitTps(ctx, reading.tps === undefined ? "— t/s" : `${reading.tps.toFixed(1)} t/s`);
 	});
 
 	pi.on("turn_start", async (_event, ctx) => {
