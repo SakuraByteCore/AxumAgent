@@ -5,6 +5,15 @@ import type { AgentMessage, AgentSession } from "./shared.js";
 export const NO_TEXT_RESPONSE_NUDGE =
 	"Your previous turn finished without any text response. Reply now with your complete final answer as plain text, without calling any tools.";
 
+/** oh-my-pi 对齐：回合只有工具调用没有文本时，补一次纯文本收尾提示。 */
+export async function recoverEmptyText(session: AgentSession): Promise<void> {
+	try {
+		await session.prompt(NO_TEXT_RESPONSE_NUDGE);
+		await session.waitForIdle();
+	} catch {
+		// 收尾提示不可送达时保留原始失败，由调用方按空文本继续处理。
+	}
+}
 /** Thrown when a finished turn contains no recoverable assistant text anywhere within it. */
 export class EmptyAgentTextError extends Error {
 	constructor(detail: { assistantMessages: number }) {

@@ -50,6 +50,16 @@ Squash-enabled results return automatically. Every successful or failed result i
 
 The card label `已回传主线程，待汇总` records message receipt only; it does not certify a user-visible conclusion. No automatic “summarized” state is inferred from an unrelated parent answer. `squash=false` leaves a user-visible transcript entry without automatically injecting it into model context or triggering a parent turn; collect through explicit management. Memory children do not survive process restart; persisted result cards are not resumable workers.
 
+## 子代理执行契约（对齐 oh-my-pi）
+
+子代理统一收到执行契约文本：任务有界、无 TODO 清单、不播报进度；未完成必须继续工具调用，不得以计划、承诺或提问收尾；真正阻塞时说明已尝试内容与阻塞点。
+
+取证要求：explorer、librarian、designer、fixer 角色必须产生工具调用证据，整轮零工具调用即视为未取证。oracle 为推理型角色，不要求工具证据；无可用工具的纯文本会话同样跳过。
+
+空转恢复：整轮零工具调用时按上限 2 次提醒（`SUBAGENT_NUDGE_MAX_ATTEMPTS`），随后强制收尾。提醒与收尾均为尽力而为，失败不影响已产出的结果。助手回合为空文本时补发一次纯文本收尾提示，再重新提取结果。
+
+结果预算：父上下文内联上限 20000 字符，超限时内联 8000 字符预览，并给出 `manage_agent action="history" agentId="..."` 指针；完整结果保留在任务账本。
+
 ## Permissions and validation
 
 常规 scoped 模式：Writable dispatch requires an explicit `writeScope` within the project and the live parent `executeTool` approval bridge. Omit the scope for read-only work. Allowed builtin tools pass through parent validation/hooks/approval; 经来源验证的只读网页工具和 LSP 也可继承；其他自定义工具使用 fullTools 模式，递归派发不继承。 Overlapping active child write scopes reject. The parent must also coordinate its own writes. Missing writable capabilities fail explicitly rather than silently bypassing approvals.

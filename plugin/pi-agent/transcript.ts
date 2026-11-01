@@ -121,8 +121,21 @@ const SQUASHED_CONVERSATION_PREFACE =
 	"The user has dispatched a background sub-agent with a task. The sub-agent is done. The following is the back and forth between them:";
 
 
+/** oh-my-pi 对齐：父上下文结果预算——超限内联预览，完整结果保留在任务账本。 */
+export const CHILD_RESULT_INLINE_LIMIT = 20_000;
+export const CHILD_RESULT_PREVIEW_LIMIT = 8_000;
+
+export function formatChildResultBody(text: string, agentId: string): string {
+	if (text.length <= CHILD_RESULT_INLINE_LIMIT) return text;
+	return [
+		text.slice(0, CHILD_RESULT_PREVIEW_LIMIT),
+		"",
+		`[Result truncated for the parent context budget: ${text.length} chars total, ${CHILD_RESULT_PREVIEW_LIMIT} shown. Fetch the full text with manage_agent action="history" agentId="${agentId}".]`,
+	].join("\n");
+}
+
 export function formatResultMessage(agent: RunningAgent): string {
- if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; independent context]\nTask: ${agent.task}\n\n${agent.responseText}${agent.structuredResult ? `\nOutput schema: ${agent.structuredResult.valid ? "valid" : "invalid"}` : ""}\n\n${parentResultDirectiveLines(agent.planMode, true).join("\n")}`;
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; independent context]\nTask: ${agent.task}\n\n${formatChildResultBody(agent.responseText, agent.id)}${agent.structuredResult ? `\nOutput schema: ${agent.structuredResult.valid ? "valid" : "invalid"}` : ""}\n\n${parentResultDirectiveLines(agent.planMode, true).join("\n")}`;
 	const messages = selectSquashedMessages(agent.conversationMessages);
 	const lines = [
 		SQUASHED_CONVERSATION_PREFACE,
@@ -153,7 +166,7 @@ function roleMessageText(message: SquashedMessage): string {
 }
 
 export function formatErrorMessage(agent: RunningAgent, message: string): string {
- if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}${agent.responseText && !message.includes(agent.responseText) ? `\n\nPartial result (not success):\n${agent.responseText}` : ""}\n\n${parentResultDirectiveLines(agent.planMode, false).join("\n")}`;
+ if(agent.oneShot)return `[One-shot task ${agent.id}; backend=${agent.backend}; incomplete]\nTask: ${agent.task}\nStatus: ${message}${agent.responseText && !message.includes(agent.responseText) ? `\n\nPartial result (not success):\n${formatChildResultBody(agent.responseText, agent.id)}` : ""}\n\n${parentResultDirectiveLines(agent.planMode, false).join("\n")}`;
 	return [
 		...parentResultDirectiveLines(agent.planMode, false),
 		`<user_agent_error command="/${agent.command}" model="${escapeAttribute(agent.model)}" inherited_context="${agent.inheritedContext}">`,
