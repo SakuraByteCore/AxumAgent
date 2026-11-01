@@ -177,7 +177,7 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 				return;
 			}
 			ctx.ui.notify("Dispatch request sent; the agent will fan the tasks out to background agents.", "info");
-			await pi.sendUserMessage(buildDispatchPrompt(batch), ({ streamingBehavior: "followUp", deliverAs: "followUp" } as unknown as Parameters<ExtensionAPI["sendUserMessage"]>[1]));
+			await pi.sendUserMessage(buildDispatchPrompt(batch), { deliverAs: "followUp" });
 		},
 	});
 }

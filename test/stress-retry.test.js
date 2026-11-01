@@ -117,7 +117,7 @@ test("stress.retryStorm: rapid consecutive auto-retries with followUps", { timeo
   var pi = await createPi();
   var iters = 200;
   for (var i = 0; i < iters; i++) {
-    await pi.sendUserMessage("stress-msg-" + i, { streamingBehavior: "followUp" });
+    await pi.sendUserMessage("stress-msg-" + i, { deliverAs: "followUp" });
     await new Promise(function(r) { setTimeout(r, 15); });
   }
   throwIfFail("retryStorm.messageCount", pi.messages.length >= iters,
@@ -125,7 +125,7 @@ test("stress.retryStorm: rapid consecutive auto-retries with followUps", { timeo
   for (var j = 0; j < pi.messages.length; j++) {
     var m = pi.messages[j];
     throwIfFail("retryStorm.followUp-" + j,
-      m.options && m.options.streamingBehavior === "followUp",
+      m.options && m.options.deliverAs === "followUp",
       "message missing followUp at index " + j + ": " + JSON.stringify(m.options));
   }
 });
@@ -288,7 +288,7 @@ test("stress.compactInterleave: /compact + followUp no deadlock", { timeout: 600
 
   for (var i = 0; i < 20; i++) {
     await clearHandler.handler("", ctxObj);
-    await pi.sendUserMessage("continue", { streamingBehavior: "followUp" });
+    await pi.sendUserMessage("continue", { deliverAs: "followUp" });
   }
   throwIfFail("compactInterleave.completes", true);
 });
@@ -316,7 +316,7 @@ test("stress.subagentRetry: /subagent and retry paths concurrent", { timeout: 12
     await subHandler.handler("task-" + i, ctxObj);
     var dt = Date.now() - t0;
     if (dt > 5000) console.log("[subagent] iteration " + i + " took " + dt + "ms");
-    await pi.sendUserMessage("continue", { streamingBehavior: "followUp" });
+    await pi.sendUserMessage("continue", { deliverAs: "followUp" });
   }
   throwIfFail("subagentRetry.completes", true);
 });
@@ -360,7 +360,7 @@ test("stress.errorPatterns: transient patterns auto-recover, non-transient error
   }
 
   var autoRetries = pi.messages.filter(function(m) {
-    return m.options && m.options.streamingBehavior === "followUp";
+    return m.options && m.options.deliverAs === "followUp";
   });
   throwIfFail("errorPatterns.matchedAndRecovered",
     autoRetries.length === transientMessages.length,
@@ -372,14 +372,14 @@ test("stress.idleOscillation: 10-wave burst all messages use followUp", { timeou
   var pi = await createPi();
   for (var wave = 0; wave < 10; wave++) {
     for (var i = 0; i < 30; i++) {
-      await pi.sendUserMessage("w" + wave + "-m" + i, { streamingBehavior: "followUp" });
+      await pi.sendUserMessage("w" + wave + "-m" + i, { deliverAs: "followUp" });
     }
     await new Promise(function(r) { setTimeout(r, 50); });
   }
   throwIfFail("idleOscillation.totalMessages", pi.messages.length >= 300,
     "expected >=300 messages, got " + pi.messages.length);
   var allFollowUp = pi.messages.every(function(m) {
-    return m.options && m.options.streamingBehavior === "followUp";
+    return m.options && m.options.deliverAs === "followUp";
   });
   throwIfFail("idleOscillation.allFollowUp", allFollowUp, "some messages missing followUp");
 });
@@ -401,46 +401,47 @@ test("stress.planLoad: /plan 100 times uses followUp after first", { timeout: 60
     await planHandler.handler("requirement-" + i, ctxObj);
   }
   var followUps = pi.messages.filter(function(m) {
-    return m.options && m.options.streamingBehavior === "followUp";
+    return m.options && m.options.deliverAs === "followUp";
   });
   var news = pi.messages.filter(function(m) {
-    return m.options && m.options.streamingBehavior === "new";
+    return m.options && m.options.deliverAs === "new";
   });
-  throwIfFail("planLoad.followUpCount", followUps.length === 99,
-    "expected 99 plan followUps after first, got " + followUps.length);
-  throwIfFail("planLoad.newCount", news.length === 1,
-    "expected 1 plan new (first), got " + news.length);
+  throwIfFail("planLoad.followUpCount", followUps.length === 100,
+    "expected 100 plan followUps, got " + followUps.length);
+  throwIfFail("planLoad.newCount", news.length === 0,
+    "expected 0 plan new messages, got " + news.length);
 });
 
-// ── Stress 13: verify no deliverAs remnants in codebase ───────
-test("stress.codeAudit: no deliverAs remnants anywhere in source", { timeout: 15000 }, function() {
+// ── Stress 13: verify no streamingBehavior option remnants in source ───────
+test("stress.codeAudit: no streamingBehavior option remnants anywhere in source", { timeout: 15000 }, function() {
   var result;
   try {
-    result = execSync('grep -rn "deliverAs" /data/data/com.termux/files/home/AxumAgent/plugin/ /data/data/com.termux/files/home/AxumAgent/src/ 2>/dev/null || true', {
+    result = execSync('grep -rn "streamingBehavior" /data/data/com.termux/files/home/AxumAgent/plugin/ /data/data/com.termux/files/home/AxumAgent/src/ 2>/dev/null || true', {
       encoding: "utf8", timeout: 10000,
     });
   } catch (ex) { result = ex.stdout || ""; }
   var lines = result.trim().split("\n").filter(function(l) { return l.length > 0 && !l.includes("node_modules"); });
-  throwIfFail("codeAudit.noDeliverAsRemnants", lines.length === 0,
-    "found deliverAs references: " + JSON.stringify(lines));
+  throwIfFail("codeAudit.noStreamingBehaviorRemnants", lines.length === 0,
+    "found streamingBehavior references: " + JSON.stringify(lines));
 });
 
-// ── Stress 14: verify all sendUserMessage calls have streamingBehavior ──
-test("stress.codeAudit: all sendUserMessage calls pass streamingBehavior", { timeout: 15000 }, function() {
+// ── Stress 14: verify all sendUserMessage calls pass deliverAs ──
+test("stress.codeAudit: all sendUserMessage calls pass deliverAs", { timeout: 15000 }, function() {
   var result;
   try {
-    result = execSync('grep -rn "sendUserMessage" /data/data/com.termux/files/home/AxumAgent/plugin/pi-companion/index.ts', {
+    result = execSync('grep -rn "sendUserMessage" /data/data/com.termux/files/home/AxumAgent/plugin/ 2>/dev/null || true', {
       encoding: "utf8", timeout: 10000,
     });
   } catch (ex) { result = ex.stdout || ""; }
-  var lines = result.trim().split("\n").filter(function(l) { return l.length > 0 && !l.trim().startsWith("//"); });
-  // All lines containing sendUserMessage should either be the declaration itself or have streamingBehavior
+  var lines = result.trim().split("\n").filter(function(l) { return l.length > 0 && !l.includes("node_modules"); });
+  // 调用行必须带 deliverAs；注释与文档行豁免。
   var badLines = lines.filter(function(l) {
-    // ignore the line that defines sendUserMessage in our spy mock
-    return !l.includes("streamingBehavior") && !l.includes("function sendUserMessage") && !l.includes("sendUserMessage(message, options)");
+    var text = l.replace(/^[^:]+:\d+:/, "").trim();
+    if (text.startsWith("//") || text.startsWith("*") || text.startsWith("/*")) return false;
+    return !l.includes("deliverAs");
   });
-  throwIfFail("codeAudit.allSendUserMessageHaveStreamingBehavior", badLines.length === 0,
-    "sendUserMessage calls without streamingBehavior: " + JSON.stringify(badLines));
+  throwIfFail("codeAudit.allSendUserMessageHaveDeliverAs", badLines.length === 0,
+    "sendUserMessage calls without deliverAs: " + JSON.stringify(badLines));
 });
 
 // ── Global stress report ───────────────────────────────────

@@ -100,7 +100,7 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
         return;
       }
       const prompt = `[Requirement] ${requirement}\n\n[Objective]\n${PLAN_OBJECTIVE}\n\n[Rules]\n\n${PLAN_RULES}`;
-      mockPi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+      mockPi.sendUserMessage(prompt, { deliverAs: "followUp" });
     },
   });
 
@@ -111,5 +111,5 @@ test("e2e: pi-companion /plan command sends a plan prompt via sendUserMessage", 
   assert.equal(sentMessages.length, 1);
   assert.ok(sentMessages[0].message.includes("[Requirement] add user login"));
   assert.ok(sentMessages[0].message.includes("do not modify files, write code, or provide code snippets"));
-  assert.equal(sentMessages[0].options?.streamingBehavior, "followUp");
+  assert.equal(sentMessages[0].options?.deliverAs, "followUp");
 });

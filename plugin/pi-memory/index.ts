@@ -137,7 +137,7 @@ async function handleRecall(args, ctx, pi) {
   }
   const payload = hits.map((hit) => `- ${hit.text}`).join("\n");
   const header = query ? `Recalled memories matching "${query}":` : "Recalled memories:";
-  await pi.sendUserMessage(`${header}\n${payload}`, { streamingBehavior: "followUp" });
+  await pi.sendUserMessage(`${header}\n${payload}`, { deliverAs: "followUp" });
   ctx.ui.notify(`Sent ${hits.length} memories to the conversation.`, "info");
 }
 

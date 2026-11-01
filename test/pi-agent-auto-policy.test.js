@@ -43,7 +43,7 @@ test('quick command has concise default without deadline, retains explicit real 
  await commands.get('quick').handler('90s deliver login', ctx);
  assert.match(messages[1].text, /Wall-clock budget: 90s; reporting target: /);
  assert.match(messages[1].text, /Child execution has no timeout/);
- assert.equal(messages[0].opts.streamingBehavior, 'steer');
+ assert.equal(messages[0].opts.deliverAs, 'steer');
  assert.deepEqual(parseQuickArgs('ship it'), {task:'ship it'});
  assert.deepEqual(parseQuickArgs('2m ship it'), {task:'ship it',budgetMs:120000});
  assert.equal(parseQuickArgs('0 ship it'), undefined);

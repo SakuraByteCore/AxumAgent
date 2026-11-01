@@ -23,7 +23,7 @@ export default function remoteControl(pi) {
       const candidate = createTaskQueue({
         sessionId: ctx.sessionManager.getSessionId(),
         isIdle: () => ctx.isIdle(),
-        send: text => pi.sendUserMessage(text, { streamingBehavior: "followUp", expandPromptTemplates: false }),
+        send: text => pi.sendUserMessage(text, { deliverAs: "followUp", expandPromptTemplates: false }),
       });
       try {
         bridge = await startBridge({ queue: candidate, port: Number(process.env.AXUM_REMOTE_PORT || DEFAULT_PORT), token: process.env.AXUM_REMOTE_TOKEN });

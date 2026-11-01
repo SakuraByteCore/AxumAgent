@@ -129,7 +129,7 @@ test("/dispatch sends a fan-out prompt containing the batch and dispatch_agent i
   const { message, options } = pi.messages[0];
   assert.ok(message.includes("task one\ntask two"));
   assert.ok(message.includes("dispatch_agent"));
-  assert.deepEqual(options, { streamingBehavior: "followUp", deliverAs: "followUp" });
+  assert.deepEqual(options, { deliverAs: "followUp" });
 });
 
 test("buildDispatchPrompt embeds the batch verbatim", () => {
@@ -883,7 +883,7 @@ test("registerOrchestrate registers /orchestrate and forwards the protocol promp
   const forwarded = pi.messages[0];
   assert.match(forwarded.message, /\[Orchestration Request\]\nfix the login race/);
   assert.match(forwarded.message, /Initial total budget: 900000ms/);
-  assert.equal(forwarded.options.streamingBehavior, "followUp");
+  assert.equal(forwarded.options.deliverAs, "followUp");
 });
 
 test("registerClear registers /aclear", () => {
@@ -1011,7 +1011,7 @@ test("registerQuick steers immediately with an exact budget and rejects zero", a
   registerQuick(pi);
   const { ctx, notifications } = createCtx();
   await pi.commands.get("quick").handler("1.5s fix it", ctx);
-  assert.equal(pi.messages[0].options.streamingBehavior, "steer");
+  assert.equal(pi.messages[0].options.deliverAs, "steer");
   assert.match(pi.messages[0].message, /Wall-clock budget: 1.5s/);
   await pi.commands.get("quick").handler("0 fix it", ctx);
   assert.equal(pi.messages.length, 1);

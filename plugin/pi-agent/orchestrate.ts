@@ -81,7 +81,7 @@ export function registerOrchestrate(pi: ExtensionAPI): void {
 				return;
 			}
 			ctx.ui.notify(`Orchestration request sent with a ${Math.round(request.budgetMs / 1000)}s wall-clock budget.`, "info");
-			await pi.sendUserMessage(buildOrchestrationPrompt(request), ({ streamingBehavior: "followUp", deliverAs: "followUp" } as unknown as Parameters<ExtensionAPI["sendUserMessage"]>[1]));
+			await pi.sendUserMessage(buildOrchestrationPrompt(request), { deliverAs: "followUp" });
 		},
 	});
 }
@@ -136,7 +136,7 @@ export function registerQuick(pi: ExtensionAPI): void {
 				return;
 			}
 			ctx.ui.notify(request.budgetMs === undefined ? "Quick request sent without an implicit deadline." : "Quick request sent with an explicit wall-clock budget.", "info");
-			await pi.sendUserMessage(buildQuickSplitPrompt(request), ({ streamingBehavior: "steer", deliverAs: "steer" } as unknown as Parameters<ExtensionAPI["sendUserMessage"]>[1]));
+			await pi.sendUserMessage(buildQuickSplitPrompt(request), { deliverAs: "steer" });
 		},
 	});
 }
