@@ -170,7 +170,7 @@ export function registerCustomPromptCommands(
           return;
         }
         ctx.ui.notify(`${commandName} sent, waiting for Agent…`, "info");
-        await pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+        await pi.sendUserMessage(prompt, { deliverAs: "followUp" });
       },
     });
   }
@@ -256,6 +256,16 @@ function compactProofTimeoutMs(): number {
 	const raw = Number(process.env.PI_COMPANION_COMPACT_PROOF_TIMEOUT_MS);
 	return Number.isFinite(raw) && raw >= 0 ? raw : COMPACT_PROOF_TIMEOUT_MS;
 }
+const COMPACT_RESUME_MAX_ATTEMPTS_DEFAULT = 3;
+const COMPACT_RESUME_RETRY_MS_DEFAULT = 1500;
+function compactResumeMaxAttempts(): number {
+	const raw = Number(process.env.PI_COMPANION_COMPACT_RESUME_MAX_ATTEMPTS);
+	return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : COMPACT_RESUME_MAX_ATTEMPTS_DEFAULT;
+}
+function compactResumeRetryMs(): number {
+	const raw = Number(process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS);
+	return Number.isFinite(raw) && raw >= 0 ? raw : COMPACT_RESUME_RETRY_MS_DEFAULT;
+}
 const COMPACT_LEDGER_INSTRUCTIONS = [
 	"Write the summary as a continuation handoff ledger for resuming this task later.",
 	"Use exactly these sections:",
@@ -274,11 +284,49 @@ let pendingCompact: Promise<boolean> | null = null;
 let compactDeferred = false;
 let compactResumePending = false;
 let compactResumePrompt: string | undefined;
+let compactResumeAttempts = 0;
+let compactResumeRetryTimer: ReturnType<typeof setTimeout> | undefined;
+// pi 原生压缩（阈值触发）打断了回合且不重试时置位，由 agent_settled 消费后自动续跑。
+let nativeCompactionStalled = false;
 
 function compactUsagePercent(ctx: ExtensionContext): number | null {
 	const u = ctx.getContextUsage();
 	if (!u || u.tokens == null || u.contextWindow == null) return null;
 	return Math.round((u.tokens / u.contextWindow) * 100);
+}
+
+/** 明确提到上下文或长度上限的错误文本：可直接判定为上下文型失败。 */
+const CONTEXT_ERROR_PATTERNS = [
+	/context[_ ]length/i,
+	/context window/i,
+	/prompt (?:is )?too long/i,
+	/exceeds the context window/i,
+	/maximum context length/i,
+	/too many tokens/i,
+	/token limit/i,
+];
+
+/** 代理层把上下文超限报成泛化 400：只能靠上下文占用做旁证。 */
+const GENERIC_INVALID_REQUEST_PATTERN = /invalid_request_error|invalid request/i;
+
+/** 泛化 400 的旁证门槛：上下文已占一半以上时才可能是请求过大。 */
+const CONTEXT_ERROR_MIN_USAGE_PERCENT = 50;
+
+/**
+ * 判断一次失败是否由上下文超限引起。
+ *
+ * pi 自带的溢出识别只认固定错误文本；代理层常把超限报成泛化 400
+ * （`{"type":"invalid_request_error"}`），此时只能叠加上下文占用作为旁证。
+ */
+function isContextShapedError(message: GuardMessage | undefined, usagePercent: number | null): boolean {
+	if (!message || message.stopReason !== "error") return false;
+	const text = [message.errorMessage, extractTextBlocks(message.content)]
+		.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+		.join("\n");
+	if (!text) return false;
+	if (CONTEXT_ERROR_PATTERNS.some((pattern) => pattern.test(text))) return true;
+	if (!GENERIC_INVALID_REQUEST_PATTERN.test(text)) return false;
+	return usagePercent !== null && usagePercent >= CONTEXT_ERROR_MIN_USAGE_PERCENT;
 }
 
 function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOnProof: boolean): Promise<boolean> {
@@ -379,24 +427,107 @@ async function maybeCompact(pi: ExtensionAPI, event: unknown, ctx: ExtensionCont
 	return startLedgerCompaction(pi, ctx, true);
 }
 
+/**
+ * pi.sendUserMessage is documented as fire-and-forget (returns void) and reports
+ * rejections through the extension error channel. Hosts that return a promise are
+ * awaited here so a rejected prompt can be handled instead of lost.
+ */
+async function sendPrompt(pi: ExtensionAPI, prompt: string, deliverAs: "steer" | "followUp"): Promise<void> {
+	const result = pi.sendUserMessage(prompt, { deliverAs }) as unknown;
+	if (result && typeof (result as { then?: unknown }).then === "function") {
+		await (result as Promise<void>);
+	}
+}
+
+function clearCompactResume(): void {
+	compactResumePending = false;
+	compactResumePrompt = undefined;
+	compactResumeAttempts = 0;
+	if (compactResumeRetryTimer) {
+		clearTimeout(compactResumeRetryTimer);
+		compactResumeRetryTimer = undefined;
+	}
+}
+
+function scheduleCompactResumeRetry(pi: ExtensionAPI, ctx: ExtensionContext): void {
+	if (compactResumeRetryTimer || !compactResumePending) return;
+	const timer = setTimeout(() => {
+		compactResumeRetryTimer = undefined;
+		// The drain owns rescheduling: it arms the next timer only after a real
+		// send attempt, so a busy session cannot keep the timer alive forever.
+		void drainCompactResume(pi, ctx);
+	}, compactResumeRetryMs());
+	const unref = (timer as { unref?: () => void }).unref;
+	if (typeof unref === "function") unref.call(timer);
+	compactResumeRetryTimer = timer;
+}
+
 async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactResumePending) return;
 	// A still-streaming turn would reject the resume; and while user-queued
 	// messages are pending they take priority over the auto-resume.
 	if (!ctx.isIdle()) return;
 	if (ctx.hasPendingMessages()) return;
+	if (compactResumeAttempts >= compactResumeMaxAttempts()) {
+		safeNotify(
+			ctx as QueueAwareContext,
+			`Auto-compact continue gave up after ${compactResumeAttempts} attempts. Send any message to resume the task.`,
+			"warning",
+		);
+		clearCompactResume();
+		return;
+	}
+	compactResumeAttempts += 1;
+	// pi.sendUserMessage is fire-and-forget: a rejected prompt only reaches the
+	// extension error channel, so it cannot be awaited here. deliverAs is the key
+	// pi's extension API accepts; it queues the prompt as a follow-up instead of
+	// being rejected with "Agent is already processing". The pending flag stays set
+	// until the resumed turn's agent_start confirms delivery, so the retry timer can
+	// try again when the prompt was dropped.
 	try {
-		// streamingBehavior is the option key pi's extension API accepts; with it
-		// the prompt queues as a followUp when a turn is still streaming instead of
-		// being rejected with "Agent is already processing".
-		await pi.sendUserMessage(compactResumePrompt ?? COMPACT_CONTINUE_PROMPT, { streamingBehavior: "followUp" });
-		compactResumePending = false;
-		compactResumePrompt = undefined;
+		await sendPrompt(pi, compactResumePrompt ?? COMPACT_CONTINUE_PROMPT, "followUp");
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		safeNotify(ctx as QueueAwareContext, `Auto-compact continue failed: ${message}`, "warning");
 	}
+	scheduleCompactResumeRetry(pi, ctx);
 }
+/**
+ * pi 原生压缩（阈值触发）不会重试被打断的回合：上下文缩小了，回合却已经死了。
+ * 这里补一次有界续跑，避免任务在压缩之后静默停摆。
+ */
+function resumeAfterNativeCompaction(ctx: ExtensionContext, message: GuardMessage | undefined): void {
+	if (!nativeCompactionStalled) return;
+	nativeCompactionStalled = false;
+	if (compactResumePending || pendingCompact) return;
+	// 只有真正被错误打断的回合才续跑：压缩后正常结束的回合无需重放。
+	if (message?.stopReason !== "error") return;
+	compactResumePrompt = COMPACT_RESUME_FALLBACK_PROMPT;
+	compactResumePending = true;
+	safeNotify(ctx as QueueAwareContext, "Context compaction interrupted the task; resuming automatically.", "info");
+}
+
+/**
+ * 提供方把“请求超出上下文窗口”报成泛化 400 时，pi 既不会走溢出恢复重试，
+ * 也不会命中自动重试的默认错误模式；这里用上下文占用做旁证，压缩一次并续跑。
+ */
+async function resumeAfterContextError(
+	pi: ExtensionAPI,
+	ctx: ExtensionContext,
+	message: GuardMessage | undefined,
+): Promise<void> {
+	if (compactResumePending || pendingCompact) return;
+	const pct = compactUsagePercent(ctx);
+	if (!isContextShapedError(message, pct)) return;
+	if (Date.now() - lastCompactAt < compactCooldownMs()) return;
+	// Compaction only: the resume is sent by the single drain in the settled handler.
+	await startLedgerCompaction(pi, ctx, false);
+	if (!compactResumePending) {
+		compactResumePrompt = COMPACT_CONTINUE_PROMPT;
+		compactResumePending = true;
+	}
+}
+
 async function tryDeferredCompact(pi: ExtensionAPI, ctx: ExtensionContext): Promise<void> {
 	if (!compactDeferred) return;
 	const pct = compactUsagePercent(ctx);
@@ -933,6 +1064,22 @@ interface AgentEndEvent {
 	willRetry?: boolean;
 }
 
+interface SessionCompactEvent {
+	type: "session_compact";
+	fromExtension: boolean;
+	reason: "manual" | "threshold" | "overflow";
+	willRetry: boolean;
+}
+
+interface SessionCompactFailedEvent {
+	type: "session_compact_failed";
+	reason: "manual" | "threshold" | "overflow";
+	errorMessage?: string;
+	aborted: boolean;
+	willRetry: boolean;
+	fromExtension: boolean;
+}
+
 // ── Config helpers ──────────────────────────────────────────────────
 
 async function pathExists(path: string): Promise<boolean> {
@@ -1203,12 +1350,11 @@ pi.registerCommand("plan", {
     // Instant UI feedback — user sees confirmation BEFORE network/agent latency
     ctx.ui.notify("Plan sent, waiting for Agent…", "info");
 
-    // First plan in this session: use "new" streamingBehavior to bypass followUp scheduling overhead
-    const isFirst = !firstPlanSent;
-    if (isFirst) firstPlanSent = true;
-    const streamingBehavior = isFirst ? "new" : "followUp";
+    // pi's extension API only understands deliverAs ("steer" | "followUp");
+    // "new" was never a valid value, so the prompt was dropped while streaming.
+    firstPlanSent = true;
 
-    await pi.sendUserMessage(prompt, { streamingBehavior });
+    await pi.sendUserMessage(prompt, { deliverAs: "followUp" });
   },
 });
 
@@ -1239,7 +1385,7 @@ pi.registerCommand("claude", {
     }
 
     ctx.ui.notify("Requirement sent to Claude, waiting for Agent…", "info");
-    await pi.sendUserMessage(buildClaudePrompt(requirement, skill), { streamingBehavior: "new" });
+    await pi.sendUserMessage(buildClaudePrompt(requirement, skill), { deliverAs: "followUp" });
   },
 });
 
@@ -1370,7 +1516,7 @@ pi.registerCommand("claude", {
 			const commitRequested = RALPH_COMMIT_PATTERN.test(trimmed);
 			ralphState = { prompt: trimmed, commitRequested, loopsDone: 1, maxLoops };
 			ctx.ui.notify(`Ralph started: loop 1/${maxLoops}${commitRequested ? ", commits enabled" : ""}.`, "info");
-			pi.sendUserMessage(buildRalphLoopPrompt(trimmed, 1, maxLoops, commitRequested), { streamingBehavior: "followUp" });
+			pi.sendUserMessage(buildRalphLoopPrompt(trimmed, 1, maxLoops, commitRequested), { deliverAs: "followUp" });
 		},
 	});
 
@@ -1398,7 +1544,7 @@ pi.registerCommand("claude", {
 			}
 			parts.push(`[Requirement] ${requirement}`, "", "请严格遵照以上系统规则完成当前需求。");
 			const prompt = parts.join("\n");
-			pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+			pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 		},
 	});
 
@@ -1828,8 +1974,38 @@ export default function (pi: ExtensionAPI): void {
 	// ── Auto-Compact Listeners ──────────────────────────────────────────────
 
 	pi.on("agent_start", (_event, ctx) => {
+		// A fresh turn means the queued auto-resume prompt reached the agent.
+		if (compactResumePending && compactResumeAttempts > 0) clearCompactResume();
+		// 新回合开始说明任务已恢复，原生压缩打断的状态不再适用。
+		nativeCompactionStalled = false;
 		void maybeCompact(pi, "agent_start", ctx);
 		enrichModelThinkingLevels(ctx.model);
+	});
+
+	pi.on("session_compact", (event) => {
+		const compactEvent = event as SessionCompactEvent;
+		// 自己发起的压缩由 ledger 流程负责续跑。
+		if (compactEvent.fromExtension) return;
+		// pi 在溢出恢复后会自己重试被打断的回合。
+		if (compactEvent.willRetry) return;
+		// 手动压缩是用户的显式操作。
+		if (compactEvent.reason === "manual") return;
+		// 只有以错误结束的回合才算被打断，正常结束的回合无需续跑。
+		if (lastAssistantMessage?.stopReason !== "error") return;
+		nativeCompactionStalled = true;
+	});
+
+	pi.on("session_compact_failed", (event, ctx) => {
+		const failedEvent = event as SessionCompactFailedEvent;
+		// 自己发起的压缩失败已由 ledger 流程上报。
+		if (failedEvent.fromExtension) return;
+		// 主动中止的压缩属于用户取消。
+		if (failedEvent.aborted) return;
+		safeNotify(
+			ctx as QueueAwareContext,
+			`Auto-compact failed: ${failedEvent.errorMessage ?? "unknown error"}`,
+			"warning",
+		);
 	});
 
 	pi.on("turn_start", (_event, ctx) => {
@@ -1848,8 +2024,13 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("agent_settled", async (_event, ctx) => {
 		await tryDeferredCompact(pi, ctx);
 		if (!compactResumePending) void maybeCompact(pi, "agent_settled", ctx);
+		// 原生压缩打断了回合却没有重试：在此接管续跑。
+		resumeAfterNativeCompaction(ctx, lastAssistantMessage);
+		// 上下文型失败且尚未压缩过：先压缩一次再续跑。
+		await resumeAfterContextError(pi, ctx, lastAssistantMessage);
 		await drainCompactResume(pi, ctx);
-		await maybeAutoContinueTerminal(ctx);
+		// A pending resume already owns the continuation; do not send a second prompt.
+		if (!compactResumePending) await maybeAutoContinueTerminal(ctx);
 		await maybeRalphContinue(ctx);
 	});
 
@@ -1859,6 +2040,8 @@ pi.on("session_start", async (_event, ctx) => {
   ralphState = undefined;
   clearRalphContinueRetry();
   firstPlanSent = false; // reset per-session first-plan optimization flag
+  clearCompactResume();
+  nativeCompactionStalled = false;
   consecutiveAutoRetries = 0;
   pendingAutoRetryMessage = undefined;
   deferredAutoContinueReason = undefined;
@@ -1903,7 +2086,7 @@ pi.on("model_select", (_event, ctx) => {
 		}
 		state.loopsDone = nextLoop;
 		try {
-			await pi.sendUserMessage(buildRalphLoopPrompt(state.prompt, nextLoop, state.maxLoops, state.commitRequested), { streamingBehavior: "followUp" });
+			await sendPrompt(pi, buildRalphLoopPrompt(state.prompt, nextLoop, state.maxLoops, state.commitRequested), "followUp");
 		} catch (err) {
 			ralphState = undefined;
 			const message = err instanceof Error ? err.message : String(err);
@@ -1980,7 +2163,12 @@ pi.on("model_select", (_event, ctx) => {
 			await startLedgerCompaction(pi, guardCtx as unknown as ExtensionContext, false);
 		}
 
-		await pi.sendUserMessage(config.retryMessage, { streamingBehavior: "followUp" });
+		try {
+			await sendPrompt(pi, config.retryMessage, "followUp");
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			safeNotify(guardCtx, `[${EXTENSION_NAME}] Auto-continue failed to send "${config.retryMessage}": ${message}`, "warning");
+		}
 	}
 
 	pi.on("agent_end", async (event, ctx) => {
@@ -1996,7 +2184,7 @@ pi.on("model_select", (_event, ctx) => {
 			lastAssistantAlreadyHandled = false;
 		}
 		// Do not send the retry from agent_end: Pi can still be processing even
-		// after willRetry=false, and sendUserMessage/streamingBehavior may reject with
+		// after willRetry=false, and sendUserMessage/deliverAs may reject with
 		// "Agent is already processing". agent_settled is the safe injection point.
 	});
 

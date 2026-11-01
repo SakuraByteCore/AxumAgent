@@ -180,8 +180,8 @@ test("plan command still sends the plan-first prompt", withBareHome(async () => 
   assert.match(pi.messages[0].message, /我的语气、催促或祈使句不解除规划态/);
   assert.match(pi.messages[0].message, /【终稿契约】/);
   assert.match(pi.messages[0].message, /<proposed_plan>/);
-  // First plan in session uses "new" streamingBehavior to bypass followUp scheduling overhead
-  assert.equal(pi.messages[0].options.streamingBehavior, "new");
+  // pi's extension API only understands deliverAs; the plan is queued as a follow-up.
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
 }));
 
 test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists", async () => {
@@ -199,7 +199,7 @@ test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists
 
     assert.ok(pi.messages[0].message.startsWith("before add login after\n"));
     assert.equal(pi.messages.length, 1);
-    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    assert.equal(pi.messages[0].options.deliverAs, "followUp");
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
@@ -343,7 +343,7 @@ test("pi-response-guard defers thinking-only auto-continue until agent_settled",
 
     assert.equal(pi.messages.length, 1);
     assert.equal(pi.messages[0].message, "continue");
-    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    assert.equal(pi.messages[0].options.deliverAs, "followUp");
     assert.match(notifications[0].message, /thinking content/);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -431,7 +431,7 @@ test("reload command reads SYSTEM.md and sends combined prompt", async () => {
     assert.ok(pi.messages[0].message.includes("You are a helper."), "should include SYSTEM.md content");
     assert.ok(pi.messages[0].message.includes("[Requirement] say hello"), "should include requirement");
     assert.ok(pi.messages[0].message.includes("请严格遵照以上系统规则完成当前需求。"), "should include instruction");
-    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    assert.equal(pi.messages[0].options.deliverAs, "followUp");
   } finally {
     process.env.HOME = originalHome;
     fs.rmSync(tmpHome, { recursive: true, force: true });
@@ -484,7 +484,7 @@ test("ralph starts loop and advances one loop per agent_settled", async () => {
   assert.match(pi.messages[0].message, /\[Goal\] fix all failing tests/);
   assert.match(pi.messages[0].message, /fix_plan\.md/);
   assert.match(pi.messages[0].message, /Do not run any git commands/);
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
 
   await emit(pi, "agent_settled", {}, ctx);
   await emit(pi, "agent_settled", {}, ctx);
@@ -657,7 +657,12 @@ test("auto-compact uses native compaction and resumes only after proof", async (
   assert.equal(pi.messages.length, 1, "no /compact user message injection");
   assert.doesNotMatch(pi.messages[0].message, /^\/compact/);
   assert.match(pi.messages[0].message, /continuation handoff summary/i);
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+  assert.equal(pi.messages[0].options.streamingBehavior, undefined, "deliverAs is the API key pi reads");
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
 
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
@@ -694,10 +699,183 @@ test("auto-compact proof arriving after agent_settled still resumes", async () =
   await waitFor(() => pi.messages.length === 1);
 
   assert.equal(pi.messages.length, 1, "proof consumed even after agent_settled");
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
 
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
+
+test("auto-compact resume retries until agent_start confirms delivery", async () => {
+  const previousRetry = process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+  const previousAttempts = process.env.PI_COMPANION_COMPACT_RESUME_MAX_ATTEMPTS;
+  process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = "10";
+  process.env.PI_COMPANION_COMPACT_RESUME_MAX_ATTEMPTS = "2";
+  const pi = createPi();
+  const { ctx, notifications } = createCompactContext({
+    compactBehavior(options) {
+      options.onComplete({ summary: "continuation ledger" });
+    },
+  });
+
+  try {
+    await emit(pi, "agent_start", {}, ctx);
+    await waitFor(() => pi.messages.length === 1);
+    // No agent_start confirmation: the dropped resume must be retried, then reported.
+    await waitFor(() => pi.messages.length === 2);
+    await waitFor(() => notifications.some((n) => /gave up after 2 attempts/.test(n.message)));
+    assert.equal(pi.messages.length, 2, "resume is retried at most max-attempts times");
+  } finally {
+    if (previousRetry === undefined) delete process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+    else process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = previousRetry;
+    if (previousAttempts === undefined) delete process.env.PI_COMPANION_COMPACT_RESUME_MAX_ATTEMPTS;
+    else process.env.PI_COMPANION_COMPACT_RESUME_MAX_ATTEMPTS = previousAttempts;
+    fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  }
+});
+
+test("auto-compact resume stops retrying once agent_start confirms delivery", async () => {
+  const previousRetry = process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+  process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = "10";
+  const pi = createPi();
+  const { ctx } = createCompactContext({
+    compactBehavior(options) {
+      options.onComplete({ summary: "continuation ledger" });
+    },
+  });
+
+  try {
+    await emit(pi, "agent_start", {}, ctx);
+    await waitFor(() => pi.messages.length === 1);
+    // The resumed turn starts: below-threshold usage keeps a second compaction out.
+    ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+    await emit(pi, "agent_start", {}, ctx);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    assert.equal(pi.messages.length, 1, "confirmed resume must not be sent again");
+  } finally {
+    if (previousRetry === undefined) delete process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+    else process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = previousRetry;
+    fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  }
+});
+test("native compaction that killed the turn resumes the task automatically", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 10, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: '400: {"message":"Invalid request","type":"invalid_request_error"}', content: [] },
+  }, ctx);
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+
+  assert.equal(pi.messages.length, 1, "the interrupted turn must be resumed");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+  assert.match(pi.messages[0].message, /Continue the active task/);
+  assert.ok(notifications.some((n) => /resuming automatically/.test(n.message)));
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  await emit(pi, "agent_start", {}, ctx);
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("pi's own overflow retry suppresses the extra resume", async () => {
+  const pi = createPi();
+  const { ctx } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 10, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: "400: invalid_request_error", content: [] },
+  }, ctx);
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "overflow", willRetry: true }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+
+  assert.equal(pi.messages.length, 0, "pi retries the turn itself");
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("manual compaction and completed turns do not resume the task", async () => {
+  const pi = createPi();
+  const { ctx } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 10, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: "400: invalid_request_error", content: [] },
+  }, ctx);
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "manual", willRetry: false }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 0, "manual compaction is a user action");
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] },
+  }, ctx);
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 0, "a completed turn needs no resume");
+
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("a context-shaped failure compacts and resumes when nothing compacted yet", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext({
+    compactBehavior(options) {
+      options.onComplete({ summary: "continuation ledger" });
+    },
+  });
+  // 60% is below the soft threshold, so only the context-shaped rule can compact here.
+  ctx.getContextUsage = () => ({ tokens: 60, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: '400: {"message":"Invalid request","type":"invalid_request_error"}', content: [] },
+  }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+
+  assert.equal(compactCalls.length, 1, "the context-shaped failure must compact once");
+  assert.equal(pi.messages.length, 1, "and resume the task");
+  assert.match(pi.messages[0].message, /continuation handoff summary/);
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("a generic 400 below the usage floor does not compact or resume", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 20, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: '400: {"message":"Invalid request","type":"invalid_request_error"}', content: [] },
+  }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+
+  assert.equal(compactCalls.length, 0, "a small context is not a size problem");
+  assert.equal(pi.messages.length, 0);
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("a failed native compaction is reported", async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 10, contextWindow: 100 });
+
+  await emit(pi, "session_compact_failed", {
+    type: "session_compact_failed",
+    reason: "threshold",
+    errorMessage: "summarizer failed",
+    aborted: false,
+    willRetry: false,
+    fromExtension: false,
+  }, ctx);
+
+  assert.ok(notifications.some((n) => n.level === "warning" && /Auto-compact failed: summarizer failed/.test(n.message)));
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
 
 test("auto-compact stays below threshold and respects cooldown", async () => {
   const pi = createPi();
@@ -717,6 +895,9 @@ test("auto-compact stays below threshold and respects cooldown", async () => {
   assert.equal(hot.compactCalls.length, 1, "cooldown/pending blocks immediate re-compaction");
   hot.compactCalls[0].onComplete({ summary: "ledger" });
   await first;
+  // Release the pending auto-resume so the next test starts from a clean state.
+  hot.ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, hot.ctx);
 
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
   fs.rmSync(hot.ctx.cwd, { recursive: true, force: true });
@@ -745,6 +926,10 @@ test("dual-threshold compaction: settled uses soft, in-flight events use hard", 
   await waitFor(() => compactCalls.length === 2);
   assert.equal(compactCalls.length, 2, "hard threshold fires at any event point");
   compactCalls[1].onComplete({ summary: "ledger" });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
   await new Promise((resolve) => setTimeout(resolve, 20));
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 
@@ -827,7 +1012,7 @@ test("length stop compacts with ledger via native compaction, retries after proo
 
   assert.equal(pi.messages.length, 1, "retry follows only after compaction proof");
   assert.equal(pi.messages[0].message, "continue");
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
 
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
@@ -855,7 +1040,11 @@ test("auto-compact resume waits for queued user messages", async () => {
   await emit(pi, "agent_settled", {}, ctx);
   await waitFor(() => pi.messages.length === 1);
   assert.equal(pi.messages.length, 1, "resume drains once queue is empty");
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
 
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
@@ -899,7 +1088,11 @@ test("auto-compact proof timeout resumes once late compaction completes", async 
     await startRun;
     await waitFor(() => pi.messages.length === 1);
     assert.match(pi.messages[0].message, /continuation handoff summary/i);
-    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    assert.equal(pi.messages[0].options.deliverAs, "followUp");
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
 
     fs.rmSync(ctx.cwd, { recursive: true, force: true });
   } finally {
@@ -2033,7 +2226,7 @@ test("registerCustomPromptCommands registers /<name> for each template and sends
     await pi.commands.get("spec").handler("add login", ctx);
     assert.equal(pi.messages.length, 1);
     assert.equal(pi.messages[0].message, "spec: add login\n");
-    assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+    assert.equal(pi.messages[0].options.deliverAs, "followUp");
     await pi.commands.get("spec").handler("   ", ctx);
     assert.equal(pi.messages.length, 2);
     assert.equal(pi.messages[1].message, "spec: \n");
