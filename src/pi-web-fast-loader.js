@@ -37,14 +37,14 @@ export function instrumentWebSdk(source) {
 if (!globalThis[hookFlag]) {
   globalThis[hookFlag] = true;
   registerHooks({
-  load(url, context, nextLoad) {
-    const result = nextLoad(url, context);
-    if (url.includes("/@earendil-works/pi-coding-agent/dist/core/sdk.js") && result.format === "module") {
-      const source = instrumentWebSdk(String(result.source));
-      fastControl.sdkDecorated = true;
-      return { ...result, source };
-    }
-    return result;
+    load(url, context, nextLoad) {
+      const result = nextLoad(url, context);
+      if (url.includes("/@earendil-works/pi-coding-agent/dist/core/sdk.js") && result.format === "module") {
+        const source = instrumentWebSdk(String(result.source));
+        fastControl.sdkDecorated = true;
+        return { ...result, source };
+      }
+      return result;
     },
   });
 }
