@@ -4,11 +4,17 @@ import { getAgentDir } from "./provider-config.js";
 
 export const MAX_PROMPT_HISTORY_ENTRIES = 100;
 export const MAX_PROMPT_HISTORY_EXPORT_BYTES = 3 * 1024 * 1024;
+export const GLOBAL_PROMPT_HISTORY_PROJECT = "__global__";
 const PROMPT_HISTORY_FILE = "prompt-history";
+const GLOBAL_PROMPT_HISTORY_FILE = "prompt-history-global";
 const MAX_ENTRY_CHARS = 500;
 
 export function getPromptHistorySessionsDir(env = process.env) {
   return path.join(getAgentDir(env), "sessions");
+}
+
+export function getGlobalPromptHistoryFile(env = process.env) {
+  return path.join(getAgentDir(env), GLOBAL_PROMPT_HISTORY_FILE);
 }
 
 function resolveHistoryFile(project, sessionsDir) {
@@ -78,29 +84,56 @@ function cwdHintFromDirName(dirName) {
   return /^[A-Za-z]:/.test(restored) ? restored : "/" + restored;
 }
 
+function historyEntries(entries, maxEntryChars) {
+  return entries
+    .map((text, index) => ({
+      index,
+      text: text.length > maxEntryChars ? text.slice(0, maxEntryChars) : text,
+      truncated: text.length > maxEntryChars,
+      length: text.length,
+    }))
+    .reverse();
+}
+
 export function listPromptHistory({ env = process.env, maxEntryChars = MAX_ENTRY_CHARS } = {}) {
   const sessionsDir = getPromptHistorySessionsDir(env);
-  if (!fs.existsSync(sessionsDir)) return { projects: [], totalEntries: 0, totalDuplicates: 0 };
+  const globalFile = getGlobalPromptHistoryFile(env);
+  const global = readHistoryFile(globalFile);
   const projects = [];
   let totalEntries = 0;
   let totalDuplicates = 0;
-  const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  dirs.sort((a, b) => a.name.localeCompare(b.name));
-  for (const dir of dirs) {
-    const filePath = path.join(sessionsDir, dir.name, PROMPT_HISTORY_FILE);
-    const { entries, duplicates } = readHistoryFile(filePath);
-    totalDuplicates += duplicates;
-    if (!entries.length) continue;
-    totalEntries += entries.length;
-    const list = entries
-      .map((text, index) => ({
-        index,
-        text: text.length > maxEntryChars ? text.slice(0, maxEntryChars) : text,
-        truncated: text.length > maxEntryChars,
-        length: text.length,
-      }))
-      .reverse();
-    projects.push({ dir: dir.name, cwdHint: cwdHintFromDirName(dir.name), entries: list, duplicates, total: entries.length });
+
+  if (global.entries.length) {
+    totalEntries += global.entries.length;
+    totalDuplicates += global.duplicates;
+    projects.push({
+      dir: GLOBAL_PROMPT_HISTORY_PROJECT,
+      cwdHint: "Global",
+      scope: "global",
+      entries: historyEntries(global.entries, maxEntryChars),
+      duplicates: global.duplicates,
+      total: global.entries.length,
+    });
+  }
+
+  if (fs.existsSync(sessionsDir)) {
+    const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    for (const dir of dirs) {
+      const filePath = path.join(sessionsDir, dir.name, PROMPT_HISTORY_FILE);
+      const { entries, duplicates } = readHistoryFile(filePath);
+      totalDuplicates += duplicates;
+      if (!entries.length) continue;
+      totalEntries += entries.length;
+      projects.push({
+        dir: dir.name,
+        cwdHint: cwdHintFromDirName(dir.name),
+        scope: "project",
+        entries: historyEntries(entries, maxEntryChars),
+        duplicates,
+        total: entries.length,
+      });
+    }
   }
   return { projects, totalEntries, totalDuplicates };
 }
@@ -133,10 +166,50 @@ export function deletePromptHistoryEntries({ env = process.env, project, indexes
   return { deleted: targets.size, total: entries.length, failed };
 }
 
+export function promotePromptHistoryEntry({ env = process.env, project, index }) {
+  if (!project || typeof project !== "string") throw new Error("project is required");
+  const normalizedIndex = Number(index);
+  if (!Number.isInteger(normalizedIndex) || normalizedIndex < 0) throw new Error("index must be a non-negative integer");
+  const sessionsDir = getPromptHistorySessionsDir(env);
+  const projectFile = resolveHistoryFile(project, sessionsDir);
+  if (!fs.existsSync(projectFile)) throw new Error("Prompt history project not found");
+  const projectEntries = readHistoryFile(projectFile).entries;
+  if (normalizedIndex >= projectEntries.length) throw new Error("Prompt history index out of range");
+  const text = projectEntries[normalizedIndex];
+  const globalFile = getGlobalPromptHistoryFile(env);
+  const globalEntries = readHistoryFile(globalFile).entries;
+  if (!globalEntries.includes(text)) writeHistoryFile(globalFile, [...globalEntries, text]);
+  writeHistoryFile(projectFile, projectEntries.filter((_, entryIndex) => entryIndex !== normalizedIndex));
+  try {
+    const projectDir = path.dirname(projectFile);
+    if (!fs.readdirSync(projectDir).length) fs.rmdirSync(projectDir);
+  } catch {
+    // Best-effort cleanup; ignore errors.
+  }
+  return {
+    text,
+    index: normalizedIndex,
+    globalTotal: readHistoryFile(globalFile).entries.length,
+    projectTotal: projectEntries.length - 1,
+  };
+}
+
+export function deleteGlobalPromptHistoryEntry({ env = process.env, index }) {
+  const normalizedIndex = Number(index);
+  if (!Number.isInteger(normalizedIndex) || normalizedIndex < 0) throw new Error("index must be a non-negative integer");
+  const globalFile = getGlobalPromptHistoryFile(env);
+  if (!fs.existsSync(globalFile)) return { deleted: 0, total: 0 };
+  const { entries } = readHistoryFile(globalFile);
+  if (normalizedIndex >= entries.length) throw new Error("Prompt history index out of range");
+  const survivors = entries.filter((_, entryIndex) => entryIndex !== normalizedIndex);
+  writeHistoryFile(globalFile, survivors);
+  return { deleted: 1, total: entries.length };
+}
+
 export function deleteAllPromptHistory({ env = process.env } = {}) {
   const sessionsDir = getPromptHistorySessionsDir(env);
   if (!fs.existsSync(sessionsDir)) return { deleted: 0, total: 0, failed: [] };
-  const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
+  const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
   const failed = [];
   let deleted = 0;
   let total = 0;
@@ -163,17 +236,23 @@ export function deleteAllPromptHistory({ env = process.env } = {}) {
 
 export function exportPromptHistory({ env = process.env, projects, maxBytes = MAX_PROMPT_HISTORY_EXPORT_BYTES } = {}) {
   const sessionsDir = getPromptHistorySessionsDir(env);
-  const selected = Array.isArray(projects) ? projects.map((p) => String(p)).filter(Boolean) : null;
+  const selected = Array.isArray(projects) ? projects.map((project) => String(project)).filter(Boolean) : null;
   const items = [];
-  if (!fs.existsSync(sessionsDir)) return { items, totalEntries: 0 };
-  const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((e) => e.isDirectory());
-  dirs.sort((a, b) => a.name.localeCompare(b.name));
-  for (const dir of dirs) {
-    if (selected && !selected.includes(dir.name)) continue;
-    const filePath = path.join(sessionsDir, dir.name, PROMPT_HISTORY_FILE);
-    const { entries } = readHistoryFile(filePath);
-    if (!entries.length) continue;
-    items.push({ project: dir.name, entries });
+  if (!fs.existsSync(sessionsDir) && !fs.existsSync(getGlobalPromptHistoryFile(env))) {
+    return { items, totalEntries: 0 };
+  }
+  const globalEntries = readHistoryFile(getGlobalPromptHistoryFile(env)).entries;
+  if (globalEntries.length) items.push({ project: GLOBAL_PROMPT_HISTORY_PROJECT, scope: "global", entries: globalEntries });
+  if (fs.existsSync(sessionsDir)) {
+    const dirs = fs.readdirSync(sessionsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+    dirs.sort((a, b) => a.name.localeCompare(b.name));
+    for (const dir of dirs) {
+      if (selected && !selected.includes(dir.name)) continue;
+      const filePath = path.join(sessionsDir, dir.name, PROMPT_HISTORY_FILE);
+      const { entries } = readHistoryFile(filePath);
+      if (!entries.length) continue;
+      items.push({ project: dir.name, scope: "project", entries });
+    }
   }
   const encoded = Buffer.byteLength(JSON.stringify(items), "utf8");
   if (encoded > maxBytes) throw new Error(`Prompt history export exceeds ${maxBytes} bytes (${encoded}); reduce selection and retry`);
@@ -189,17 +268,18 @@ export function importPromptHistory({ items, env = process.env, overwrite = fals
   let duplicatesRemoved = 0;
   const failed = [];
   for (const item of items) {
+    const isGlobal = item?.scope === "global" || item?.project === GLOBAL_PROMPT_HISTORY_PROJECT;
     const project = String(item?.project ?? "").trim();
-    if (!project) {
-      failed.push({ project: "", reason: "empty project name" });
-      continue;
-    }
     const incoming = Array.isArray(item?.entries)
       ? item.entries.map((entry) => (typeof entry === "string" ? entry.trim() : "")).filter(Boolean)
       : [];
+    if (!isGlobal && !project) {
+      failed.push({ project: "", reason: "empty project name" });
+      continue;
+    }
     let filePath;
     try {
-      filePath = resolveHistoryFile(project, sessionsDir);
+      filePath = isGlobal ? getGlobalPromptHistoryFile(env) : resolveHistoryFile(project, sessionsDir);
     } catch (error) {
       failed.push({ project, reason: error.message });
       continue;

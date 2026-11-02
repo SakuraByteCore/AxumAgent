@@ -61,7 +61,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { appendPromptHistoryEntry, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
+import { appendPromptHistoryEntry, globalPromptHistoryPath, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
 import { BalanceCache, probeSub2ApiBalance } from "./sub2api-balance.ts";
 import { createStaleSafeEmit } from "./runtime-safety.ts";
@@ -707,6 +707,8 @@ export class DashedBorderEditor extends RuntimeCustomEditor {
 // constructor) for this module-level array before the instance is ever used,
 // so ↑/↓ navigation keeps working across session switches within the process.
 const sharedPromptHistory: string[] = [];
+const projectPromptHistory: string[] = [];
+const globalPromptHistory: string[] = [];
 
 // Project-scoped persistence layered on the shared history above. The shared
 // array alone only survives in-process /new session switches; here the
@@ -714,17 +716,31 @@ const sharedPromptHistory: string[] = [];
 // the editor array is newest-first) when the first editor is built, and each
 // genuinely new submission is appended to the project history file.
 let promptHistoryFile: string | undefined;
+let globalPromptHistoryFile: string | undefined;
 const persistedPromptEntries = new Set<string>();
 let promptHistoryLoaded = false;
 let promptHistoryError: string | undefined;
+
+function rebuildSharedPromptHistory(): void {
+	const merged: string[] = [];
+	for (const text of [...projectPromptHistory, ...globalPromptHistory]) {
+		if (!merged.includes(text)) merged.push(text);
+	}
+	sharedPromptHistory.splice(0, sharedPromptHistory.length, ...merged);
+}
 
 function ensurePromptHistoryLoaded(): void {
 	if (promptHistoryLoaded) return;
 	promptHistoryLoaded = true;
 	promptHistoryFile = promptHistoryPath(process.cwd(), AGENT_DIR);
+	globalPromptHistoryFile = globalPromptHistoryPath(AGENT_DIR);
 	const entries = loadPromptHistory(promptHistoryFile);
+	const globalEntries = loadPromptHistory(globalPromptHistoryFile);
 	for (const entry of entries) persistedPromptEntries.add(entry);
-	if (sharedPromptHistory.length === 0) sharedPromptHistory.push(...entries.reverse());
+	for (const entry of globalEntries) persistedPromptEntries.add(entry);
+	projectPromptHistory.push(...entries.reverse());
+	globalPromptHistory.push(...globalEntries.reverse());
+	rebuildSharedPromptHistory();
 }
 
 function persistPromptEntry(entry: string): void {
@@ -732,6 +748,8 @@ function persistPromptEntry(entry: string): void {
 	try {
 		appendPromptHistoryEntry(promptHistoryFile, entry);
 		persistedPromptEntries.add(entry);
+		projectPromptHistory.unshift(entry);
+		rebuildSharedPromptHistory();
 	} catch (error) {
 		// Persist failure must stay visible, not silently degrade: the editor
 		// keeps working in-memory, and the error is surfaced as a notification
@@ -743,34 +761,29 @@ function persistPromptEntry(entry: string): void {
 /*
  * Prompt history deletion + picker overlay (the /history command).
  *
- * Indexes handed to deletePromptEntries refer to live positions in
- * sharedPromptHistory (newest-first). Deleting splices that shared array in
- * place so every editor instance (which all point at the same array) sees the
- * change, then rewrites the on-disk file from the survivors. Selection-state
- * invariants the removal relies on:
- *  - persistedPromptEntries is content-keyed, so a text is dropped from the
- *    set only once no occurrence of that text remains in the array;
- *  - the disk file is oldest-first, hence the slice().reverse().
+ * The picker manages project-scoped entries only. Global entries remain
+ * available to the editor across projects, but the web UI removes them one by one.
  */
-function deletePromptEntries(indexes: number[]): number {
+function deletePromptEntries(texts: string[]): number {
 	ensurePromptHistoryLoaded();
-	const targets = [...new Set(indexes)]
-		.filter((i) => i >= 0 && i < sharedPromptHistory.length)
-		.sort((a, b) => b - a);
-	if (targets.length === 0) return 0;
-	for (const i of targets) sharedPromptHistory.splice(i, 1);
+	const targets = new Set(texts);
+	if (targets.size === 0) return 0;
+	for (let index = projectPromptHistory.length - 1; index >= 0; index--) {
+		if (targets.has(projectPromptHistory[index]!)) projectPromptHistory.splice(index, 1);
+	}
+	rebuildSharedPromptHistory();
 	for (const text of persistedPromptEntries) {
 		if (!sharedPromptHistory.includes(text)) persistedPromptEntries.delete(text);
 	}
-	if (!promptHistoryFile) return targets.length;
+	if (!promptHistoryFile) return targets.size;
 	try {
-		rewritePromptHistory(promptHistoryFile, sharedPromptHistory.slice().reverse());
+		rewritePromptHistory(promptHistoryFile, projectPromptHistory.slice().reverse());
 	} catch (error) {
 		// Same exposure policy as persistPromptEntry: the in-memory deletion
 		// stands, and the write failure is surfaced on the next session_start.
 		promptHistoryError = error instanceof Error ? error.message : String(error);
 	}
-	return targets.length;
+	return targets.size;
 }
 
 type PickerKey = "up" | "down" | "toggle" | "toggleAll" | "confirm" | "cancel";
@@ -810,7 +823,7 @@ class PromptHistoryPicker {
 
 	constructor(done: (result: { deleted: number } | undefined) => void) {
 		this.done = done;
-		this.rows = sharedPromptHistory.slice();
+		this.rows = projectPromptHistory.slice();
 	}
 
 	invalidate(): void {}
@@ -848,8 +861,8 @@ class PromptHistoryPicker {
 	private confirmDelete(): void {
 		const targets = this.selected.size > 0 ? [...this.selected] : [this.cursor];
 		if (!targets.length) return;
-		this.deletedTotal += deletePromptEntries(targets);
-		this.rows = sharedPromptHistory.slice();
+		this.deletedTotal += deletePromptEntries(targets.map((index) => this.rows[index]!).filter(Boolean));
+		this.rows = projectPromptHistory.slice();
 		this.selected.clear();
 		if (this.rows.length === 0) {
 			this.done({ deleted: this.deletedTotal });
@@ -1651,7 +1664,7 @@ export default function (pi: ExtensionAPI): void {
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			if (!ctx.hasUI || typeof ctx.ui.custom !== "function") return;
 			ensurePromptHistoryLoaded();
-			if (sharedPromptHistory.length === 0) {
+			if (projectPromptHistory.length === 0) {
 				ctx.ui.notify("prompt history is empty", "info");
 				return;
 			}

@@ -20,6 +20,11 @@ export function promptHistoryPath(cwd: string, agentDir: string): string {
 	return join(agentDir, "sessions", slug, "prompt-history");
 }
 
+/** Resolve the cross-project prompt-history file managed by the web UI. */
+export function globalPromptHistoryPath(agentDir: string): string {
+	return join(agentDir, "prompt-history-global");
+}
+
 /**
  * Read persisted entries for one project, oldest-first. The result is capped
  * at the most recent MAX_PROMPT_HISTORY_ENTRIES entries; when the file held

@@ -1021,6 +1021,54 @@ test("provider web prompt history delete rejects traversal and missing project",
   }
 });
 
+test("provider web promotes one prompt to global history and removes global entries individually", async () => {
+  const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-global-history-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  const projectDir = path.join(agentDir, "sessions", "--global-test--");
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.writeFileSync(path.join(projectDir, "prompt-history"), JSON.stringify("project prompt") + "\n" + JSON.stringify("shared prompt") + "\n");
+  const { server, url } = await startProviderWeb({ openBrowser: false });
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const html = await (await fetch(base)).text();
+    const token = JSON.parse(html.match(/const token=("(?:[^"\\]|\\.)*")/)[1]);
+    const auth = { "x-axum-token": token };
+    const before = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    const project = before.projects.find((entry) => entry.dir === "--global-test--");
+    const shared = project.entries.find((entry) => entry.text === "shared prompt");
+    const promoteRes = await fetch(`${base}/api/prompt-history/global/promote?token=${token}`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ project: "--global-test--", index: shared.index }),
+    });
+    assert.equal(promoteRes.status, 200);
+    const promoted = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    const global = promoted.projects.find((entry) => entry.scope === "global");
+    assert.equal(global.entries[0].text, "shared prompt");
+    assert.equal(promoted.projects.find((entry) => entry.dir === "--global-test--").entries.length, 1);
+    const deleteAllRes = await fetch(`${base}/api/prompt-history/delete-all?token=${token}`, { method: "POST", headers: auth });
+    assert.equal(deleteAllRes.status, 200);
+    const afterDeleteAll = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    assert.equal(afterDeleteAll.projects.find((entry) => entry.scope === "global").entries.length, 1);
+    const globalIndex = afterDeleteAll.projects.find((entry) => entry.scope === "global").entries[0].index;
+    const deleteGlobalRes = await fetch(`${base}/api/prompt-history/global/delete?token=${token}`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ index: globalIndex }),
+    });
+    assert.equal(deleteGlobalRes.status, 200);
+    assert.equal((await deleteGlobalRes.json()).deleted, 1);
+    const afterGlobalDelete = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    assert.equal(afterGlobalDelete.totalEntries, 0);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    fs.rmSync(agentDir, { recursive: true, force: true });
+  }
+});
+
 test("provider web manages the /plan template through the system-prompt API", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "axum-plan-web-"));
   const previousHome = process.env.HOME;

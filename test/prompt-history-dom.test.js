@@ -31,15 +31,18 @@ function makeEl() {
       return m ? m[1] : null;
     },
     querySelectorAll(sel) {
-      const cls = sel.replace(/^\./, "");
+      const classMatch = sel.match(/^\.([^\[]+)/);
+      if (!classMatch) return [];
+      const cls = classMatch[1];
+      const attrMatch = sel.match(/\[([^\]=]+)(?:=["']?([^\]"']*)["']?)?\]/);
       if (this._parsedHtml !== this._html) { this._children = []; this._parsedHtml = this._html; }
       const out = [];
-      // toggle buttons are flat leaf elements; scan them directly
       const re = /<button([^>]*)>([^<]*)<\/button>/g;
       let m;
       let i = 0;
       while ((m = re.exec(this._html)) !== null) {
         if (!new RegExp('class="[^"]*' + cls + '[^"]*"').test(m[1])) continue;
+        if (attrMatch && !new RegExp('\\b' + attrMatch[1] + '(?:="[^"]*")?').test(m[1])) continue;
         let child = this._children[i];
         if (!child) { child = makeEl(); this._children[i] = child; }
         child._tag = "<button" + m[1] + ">";
@@ -105,7 +108,7 @@ function makeEnv() {
 ;return {
   get historyCache(){return historyCache},
   setCache(v){historyCache=v},
-  renderHistoryTree, selectedHistory, tree:document.getElementById('histTree')
+  renderHistoryTree, selectedHistory, shownHistoryKeys, tree:document.getElementById('histTree')
 };`,
   );
   const api = fn(doc, fetch);
@@ -150,4 +153,18 @@ test("prompt history project toggle selects, unselects and respects the search f
   assert.equal(api.selectedHistory.size, 1, "only the visible entry is selected");
   assert.ok(api.selectedHistory.has("--a--::1"));
   assert.ok(!api.selectedHistory.has("--a--::0"), "filtered-out entry stays unselected");
+});
+
+test("global prompts render with individual controls and never enter batch selection", () => {
+  const api = makeEnv();
+  api.setCache([
+    { dir: "__global__", cwdHint: "Global", scope: "global", duplicates: 0, entries: [{ index: 0, text: "shared", length: 6 }] },
+    { dir: "--a--", cwdHint: "/proj/a", scope: "project", duplicates: 0, entries: [{ index: 0, text: "local", length: 5 }] },
+  ]);
+  api.renderHistoryTree();
+  assert.deepEqual(api.shownHistoryKeys(), ["--a--::0"]);
+  assert.equal(api.tree.innerHTML.match(/class="sess-check"/g)?.length, 1);
+  assert.equal(api.tree.querySelectorAll(".sess-del[data-global-del]").length, 1);
+  assert.equal(api.tree.querySelectorAll(".sess-del[data-del]").length, 1);
+  assert.equal(api.tree.querySelectorAll(".hist-globalize").length, 1);
 });

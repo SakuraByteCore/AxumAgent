@@ -7,6 +7,7 @@ import test from "node:test";
 import {
 	MAX_PROMPT_HISTORY_ENTRIES,
 	appendPromptHistoryEntry,
+	globalPromptHistoryPath,
 	loadPromptHistory,
 	promptHistoryPath,
 	rewritePromptHistory,
@@ -37,6 +38,11 @@ test("different cwds map to different history files", () => {
 	const b = fs.mkdirSync(path.join(agentDir, "proj-b"), { recursive: true });
 	assert.ok(a && b);
 	assert.notEqual(promptHistoryPath(a, agentDir), promptHistoryPath(b, agentDir));
+});
+
+test("globalPromptHistoryPath resolves one cross-project history file", () => {
+	const agentDir = tmpAgentDir();
+	assert.equal(globalPromptHistoryPath(agentDir), path.join(agentDir, "prompt-history-global"));
 });
 
 test("append + load round-trips entries including multi-line prompts", () => {
@@ -98,6 +104,8 @@ test("pi-bar wires persistence into the dashed border editor", () => {
 	assert.match(indexSource, /override addToHistory\(text: string\): void \{/);
 	assert.match(indexSource, /persistedPromptEntries\.has\(newest\)\) return;/);
 	assert.match(indexSource, /\.\/prompt-history/);
+	assert.match(indexSource, /globalPromptHistoryPath\(AGENT_DIR\)/);
+	assert.match(indexSource, /globalPromptHistory\.push\(\.\.\.globalEntries\.reverse\(\)\)/);
 });
 
 test("the /history command opens a picker that deletes via rewrite", () => {
@@ -106,10 +114,11 @@ test("the /history command opens a picker that deletes via rewrite", () => {
 	assert.match(indexSource, /ctx\.ui\.custom\(/);
 	// Deletion splices the shared array in place, prunes the dedup ledger,
 	// and rewrites the disk file oldest-first from the survivors.
-	assert.match(indexSource, /function deletePromptEntries\(indexes: number\[\]\): number \{/);
-	assert.match(indexSource, /sharedPromptHistory\.splice\(i, 1\)/);
+	assert.match(indexSource, /function deletePromptEntries\(texts: string\[\]\): number \{/);
+	assert.match(indexSource, /projectPromptHistory\.splice\(index, 1\)/);
 	assert.match(indexSource, /persistedPromptEntries\.delete\(text\)/);
-	assert.match(indexSource, /rewritePromptHistory\(promptHistoryFile, sharedPromptHistory\.slice\(\)\.reverse\(\)\)/);
+	assert.match(indexSource, /rewritePromptHistory\(promptHistoryFile, projectPromptHistory\.slice\(\)\.reverse\(\)\)/);
+	assert.match(indexSource, /this\.rows = projectPromptHistory\.slice\(\)/);
 	// Picker keys: arrows, space toggle, ctrl+a select-all, enter, escape.
 	assert.match(indexSource, /matchesKey\(data, "up"\)/);
 	assert.match(indexSource, /matchesKey\(data, "down"\)/);

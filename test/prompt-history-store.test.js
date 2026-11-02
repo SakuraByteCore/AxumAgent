@@ -6,10 +6,13 @@ import test from "node:test";
 
 import {
   deleteAllPromptHistory,
+  deleteGlobalPromptHistoryEntry,
   deletePromptHistoryEntries,
   exportPromptHistory,
+  getGlobalPromptHistoryFile,
   importPromptHistory,
   listPromptHistory,
+  promotePromptHistoryEntry,
 } from "../src/prompt-history-store.js";
 
 function makeEnv(t) {
@@ -20,6 +23,14 @@ function makeEnv(t) {
 
 function historyFile(env, project) {
   return path.join(env.PI_CODING_AGENT_DIR, "sessions", project, "prompt-history");
+}
+
+const GLOBAL_PROJECT = "__global__";
+
+function readRaw(env, project) {
+  const file = project === GLOBAL_PROJECT ? getGlobalPromptHistoryFile(env) : historyFile(env, project);
+  if (!fs.existsSync(file)) return [];
+  return fs.readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => JSON.parse(line));
 }
 
 function writeRaw(env, project, entries) {
@@ -216,4 +227,41 @@ test("", (t) => {
   const imported = importPromptHistory({ items: exported.items, env: dst });
   assert.equal(imported.added, 2);
   assert.deepEqual(listPromptHistory({ env: dst }).projects[0].entries.map((e) => e.text), ["beta", "alpha"]);
+});
+
+test("promote moves one project prompt into individually removable global history", (t) => {
+  const env = makeEnv(t);
+  writeRaw(env, "--p--", ["keep", "share"]);
+  const promoted = promotePromptHistoryEntry({ env, project: "--p--", index: 1 });
+  assert.equal(promoted.text, "share");
+  assert.deepEqual(readRaw(env, "--p--"), ["keep"]);
+  assert.deepEqual(readRaw(env, GLOBAL_PROJECT), ["share"]);
+  const listed = listPromptHistory({ env });
+  assert.equal(listed.projects[0].dir, GLOBAL_PROJECT);
+  assert.equal(listed.projects[0].scope, "global");
+  assert.equal(listed.projects[0].entries[0].text, "share");
+  const deleted = deleteGlobalPromptHistoryEntry({ env, index: 0 });
+  assert.equal(deleted.deleted, 1);
+  assert.equal(fs.existsSync(getGlobalPromptHistoryFile(env)), false);
+});
+
+test("delete-all removes project prompts but preserves global prompts", (t) => {
+  const env = makeEnv(t);
+  writeRaw(env, "--p--", ["project", "shared"]);
+  promotePromptHistoryEntry({ env, project: "--p--", index: 1 });
+  const deleted = deleteAllPromptHistory({ env });
+  assert.equal(deleted.deleted, 1);
+  assert.deepEqual(readRaw(env, GLOBAL_PROJECT), ["shared"]);
+});
+
+test("prompt history export and import round-trip global prompts", (t) => {
+  const src = makeEnv(t);
+  const dst = makeEnv(t);
+  writeRaw(src, "--p--", ["shared"]);
+  promotePromptHistoryEntry({ env: src, project: "--p--", index: 0 });
+  const exported = exportPromptHistory({ env: src });
+  assert.equal(exported.items[0].scope, "global");
+  const imported = importPromptHistory({ items: exported.items, env: dst });
+  assert.equal(imported.added, 1);
+  assert.deepEqual(readRaw(dst, GLOBAL_PROJECT), ["shared"]);
 });
