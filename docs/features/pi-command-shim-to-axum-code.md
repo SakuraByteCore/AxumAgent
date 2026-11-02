@@ -30,6 +30,7 @@ Status: Unavailable
   - 落点：`~/.pi/agent/bin/pi`（Pi daemon PATH 与登录 shell PATH 的第一项）。
   - 内容：`#!/usr/bin/env sh` + `exec "$axum_bin" code "$@"`，`axum_bin` 优先取运行时 `command -v axum`，回落到写入时记录的绝对路径 → 始终指向**当前**安装的 axum。
   - 幂等：内容一致则不重写；带自有标记，若目标位置存在**非本模块写入**的 `pi`（真实 Pi 安装）则跳过，绝不覆盖。
+- **启动器自身清理继承环境**：shim 在 `exec axum code` 前剔除继承 `NODE_OPTIONS` 中的 `pi-web-fast-loader.js` preload（CLI 自己会追加一份），因此即便全局安装仍是旧版本，会话内调用 `pi` 也不会二次改写 Pi SDK 而崩溃。
 - **新增 `src/fast-loader-env.js`**：`buildFastLoaderNodeOptions()` 在追加 Fast loader preload 前剔除继承环境里同名 preload，其他 `NODE_OPTIONS` 原样保留。
 - **`bin/axum.js`**：`runPi()` 与 `runInstall()` 调用 `ensurePiCommandShim()`（每次启动/安装都保证启动器存在且指向当前 axum）；`buildPiEnv()` 改用 `buildFastLoaderNodeOptions()`。
 
@@ -41,13 +42,14 @@ Status: Unavailable
 
 ### 验证
 
-- 新增测试 9 条全部通过：
-  - `test/pi-command-shim.test.js`（5 条）：脚本内容与参数透传、落点路径、可执行位与幂等、外部 `pi` 不被覆盖、真实执行启动器得到 `code --version extra`。
+- 新增测试 10 条全部通过：
+  - `test/pi-command-shim.test.js`（6 条）：脚本内容与参数透传、落点路径、可执行位与幂等、外部 `pi` 不被覆盖、真实执行启动器得到 `code --version extra`、启动器剔除继承的 fast loader preload。
   - `test/fast-loader-env.test.js`（4 条）：空 `NODE_OPTIONS`、继承同名 preload 被剔除、无关选项保留、二次构造不重复叠加。
 - 设备实测：
   - `bash -lc 'type -a pi'` → `pi is /data/data/com.termux/files/home/.pi/agent/bin/pi`。
   - 干净环境（外部调用方视角）`pi --version` → `0.99.2`。
-  - 继承会话 `NODE_OPTIONS` 时，仓库版 `node bin/axum.js code --version` → `0.99.2`（修复前该路径报 Axum Fast 错误并退出）。
+  - 继承会话 `NODE_OPTIONS` 时 `pi --version` → `0.99.2`（修复前该路径报 `Axum Fast: unsupported Pi SDK payload hook` 并退出）。
+  - 仓库版 `node bin/axum.js code --version` → `0.99.2`。
 - `npm test` 与 `npm run build` 结果见提交说明中的基线对比。
 
 ### 外部落点与重建方式

@@ -78,3 +78,30 @@ test("the installed launcher runs the axum code entry with the original argument
     fs.rmSync(fakeBin, { recursive: true, force: true });
   }
 });
+
+test("the launcher drops an inherited fast loader preload", () => {
+  const homeDir = tempDir("pi-shim-nodeoptions-");
+  const fakeBin = tempDir("pi-shim-nodeoptions-bin-");
+  try {
+    const fakeAxum = path.join(fakeBin, "axum");
+    fs.writeFileSync(fakeAxum, "#!/bin/sh\necho \"$NODE_OPTIONS\"\n", { mode: 0o755 });
+
+    const result = ensurePiCommandShim({ homeDir, axumPath: fakeAxum });
+    assert.equal(result.status, "written");
+
+    const output = execFileSync(result.target, [], {
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}`,
+        NODE_OPTIONS: '--import="file:///opt/axum/src/pi-web-fast-loader.js" --no-warnings',
+      },
+      encoding: "utf8",
+    });
+
+    assert.doesNotMatch(output, /pi-web-fast-loader\.js/, "the inherited preload must be dropped");
+    assert.match(output, /--no-warnings/, "unrelated NODE_OPTIONS survive");
+  } finally {
+    fs.rmSync(homeDir, { recursive: true, force: true });
+    fs.rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
