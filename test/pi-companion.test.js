@@ -876,6 +876,116 @@ test("a failed native compaction is reported", async () => {
   fs.rmSync(ctx.cwd, { recursive: true, force: true });
 });
 
+test("a native compaction above the soft threshold resumes without a second compaction", async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext({
+    // pi refuses a second compaction on an already compacted branch.
+    compactBehavior(options) {
+      options.onError(new Error("Already compacted"));
+    },
+  });
+  // Above the soft threshold: the extension used to compact again right after
+  // pi's native compaction and hit "Already compacted", which swallowed the resume.
+  ctx.getContextUsage = () => ({ tokens: 80, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: '400: {"message":"Invalid request","type":"invalid_request_error"}', content: [] },
+  }, ctx);
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+
+  assert.equal(compactCalls.length, 0, "pi already compacted; a second compaction would fail with Already compacted");
+  assert.equal(pi.messages.length, 1, "the interrupted turn must be resumed");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+  assert.match(pi.messages[0].message, /Continue the active task/);
+
+  // Release the pending auto-resume so the next test starts from a clean state.
+  ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+  await emit(pi, "agent_start", {}, ctx);
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
+test("a pending resume survives a busy session and is delivered once idle", async () => {
+  const previousRetryMs = process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+  process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = "10";
+  const pi = createPi();
+  const { ctx } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 10, contextWindow: 100 });
+  let idle = false;
+  ctx.isIdle = () => idle;
+
+  try {
+    await emit(pi, "message_end", {
+      message: { role: "assistant", stopReason: "error", errorMessage: '400: {"message":"Invalid request","type":"invalid_request_error"}', content: [] },
+    }, ctx);
+    await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false }, ctx);
+    await emit(pi, "agent_settled", {}, ctx);
+
+    assert.equal(pi.messages.length, 0, "a busy session must not receive the prompt yet");
+
+    idle = true;
+    await waitFor(() => pi.messages.length === 1, 3000);
+    assert.match(pi.messages[0].message, /Continue the active task/);
+  } finally {
+    if (previousRetryMs === undefined) delete process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+    else process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = previousRetryMs;
+    ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+    await emit(pi, "agent_start", {}, ctx);
+    fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  }
+});
+
+test("a failed compaction while the turn is active still resumes the task", async () => {
+  const previousRetryMs = process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+  process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = "10";
+  const pi = createPi();
+  const { ctx, notifications } = createCompactContext({
+    compactBehavior(options) {
+      options.onError(new Error("Already compacted"));
+    },
+  });
+  ctx.getContextUsage = () => ({ tokens: 100, contextWindow: 100 });
+  let idle = false;
+  ctx.isIdle = () => idle;
+
+  try {
+    await emit(pi, "agent_start", {}, ctx);
+    assert.ok(notifications.some((n) => /Auto-compact failed: Already compacted/.test(n.message)));
+    assert.equal(pi.messages.length, 0, "the session is still busy; the prompt waits");
+
+    idle = true;
+    await waitFor(() => pi.messages.length === 1, 3000);
+    assert.match(pi.messages[0].message, /Continue the active task/);
+  } finally {
+    if (previousRetryMs === undefined) delete process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS;
+    else process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS = previousRetryMs;
+    ctx.getContextUsage = () => ({ tokens: 0, contextWindow: 100 });
+    await emit(pi, "agent_start", {}, ctx);
+    fs.rmSync(ctx.cwd, { recursive: true, force: true });
+  }
+});
+
+test("a user message cancels the pending auto-resume", async () => {
+  const pi = createPi();
+  const { ctx } = createCompactContext();
+  ctx.getContextUsage = () => ({ tokens: 10, contextWindow: 100 });
+
+  await emit(pi, "message_end", {
+    message: { role: "assistant", stopReason: "error", errorMessage: '400: {"message":"Invalid request","type":"invalid_request_error"}', content: [] },
+  }, ctx);
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 1, "the interrupted turn is resumed");
+
+  await emit(pi, "message_end", {
+    message: { role: "user", content: [{ type: "text", text: "继续" }] },
+  }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+
+  assert.equal(pi.messages.length, 1, "the user took over; no second auto-resume is sent");
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+});
+
 
 test("auto-compact stays below threshold and respects cooldown", async () => {
   const pi = createPi();

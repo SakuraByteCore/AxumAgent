@@ -266,6 +266,12 @@ function compactResumeRetryMs(): number {
 	const raw = Number(process.env.PI_COMPANION_COMPACT_RESUME_RETRY_MS);
 	return Number.isFinite(raw) && raw >= 0 ? raw : COMPACT_RESUME_RETRY_MS_DEFAULT;
 }
+/** 会话持续繁忙时的续跑轮询上限：超过后停止轮询，等待下一次 settle 事件再续。 */
+const COMPACT_RESUME_BUSY_MAX_POLLS_DEFAULT = 240;
+function compactResumeBusyMaxPolls(): number {
+	const raw = Number(process.env.PI_COMPANION_COMPACT_RESUME_BUSY_MAX_POLLS);
+	return Number.isFinite(raw) && raw >= 1 ? Math.trunc(raw) : COMPACT_RESUME_BUSY_MAX_POLLS_DEFAULT;
+}
 const COMPACT_LEDGER_INSTRUCTIONS = [
 	"Write the summary as a continuation handoff ledger for resuming this task later.",
 	"Use exactly these sections:",
@@ -285,9 +291,15 @@ let compactDeferred = false;
 let compactResumePending = false;
 let compactResumePrompt: string | undefined;
 let compactResumeAttempts = 0;
+/** 会话仍忙时的续跑轮询次数：忙一次不消耗发送次数，只消耗轮询预算。 */
+let compactResumeBusyPolls = 0;
 let compactResumeRetryTimer: ReturnType<typeof setTimeout> | undefined;
 // pi 原生压缩（阈值触发）打断了回合且不重试时置位，由 agent_settled 消费后自动续跑。
 let nativeCompactionStalled = false;
+/** 原生压缩发生那一刻的上一回合停止原因：避免事后读取被清空的状态。 */
+let nativeCompactionStopReason: string | undefined;
+/** pi 原生压缩刚刚缩小过上下文：扩展不得紧接着再压缩一次（会撞 Already compacted）。 */
+let compactedByPi = false;
 
 function compactUsagePercent(ctx: ExtensionContext): number | null {
 	const u = ctx.getContextUsage();
@@ -388,6 +400,8 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 			compactResumePending = true;
 			await drainCompactResume(pi, ctx);
 		}
+		// 扩展自己的压缩已经落地：原生压缩标记过期。
+		compactedByPi = false;
 		return true;
 	})().catch((err) => {
 		const message = err instanceof Error ? err.message : String(err);
@@ -395,10 +409,14 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 		// session.compact aborts any in-flight agent turn before summarizing, so a
 		// failed or timed-out compaction still leaves the interrupted task turn dead.
 		// Resume it with a fallback prompt so the task never stalls without a turn.
-		if (resumeOnProof && turnWasActive && !compactResumePending) {
-			compactResumePrompt = COMPACT_RESUME_FALLBACK_PROMPT;
-			compactResumePending = true;
-			void drainCompactResume(pi, ctx);
+		if (resumeOnProof) {
+			// A pending resume (for example one requested by a native compaction) must
+			// not be swallowed by this failure: re-drain it so the retry timer is armed.
+			if (!compactResumePending && turnWasActive) {
+				compactResumePrompt = COMPACT_RESUME_FALLBACK_PROMPT;
+				compactResumePending = true;
+			}
+			if (compactResumePending) void drainCompactResume(pi, ctx);
 		}
 		return false;
 	});
@@ -421,8 +439,12 @@ async function maybeCompact(pi: ExtensionAPI, event: unknown, ctx: ExtensionCont
 	const threshold = event === "agent_settled" ? compactSoftThreshold : compactHardThreshold;
 	if (pct < threshold) {
 		compactDeferred = false;
+		// 占用已经回落到阈值以下：原生压缩标记过期。
+		compactedByPi = false;
 		return false;
 	}
+	// pi 原生压缩刚刚处理过同一份上下文：再压缩一次只会撞上 Already compacted。
+	if (compactedByPi) return false;
 	if (Date.now() - lastCompactAt < compactCooldownMs()) return false;
 	return startLedgerCompaction(pi, ctx, true);
 }
@@ -443,6 +465,7 @@ function clearCompactResume(): void {
 	compactResumePending = false;
 	compactResumePrompt = undefined;
 	compactResumeAttempts = 0;
+	compactResumeBusyPolls = 0;
 	if (compactResumeRetryTimer) {
 		clearTimeout(compactResumeRetryTimer);
 		compactResumeRetryTimer = undefined;
@@ -453,8 +476,8 @@ function scheduleCompactResumeRetry(pi: ExtensionAPI, ctx: ExtensionContext): vo
 	if (compactResumeRetryTimer || !compactResumePending) return;
 	const timer = setTimeout(() => {
 		compactResumeRetryTimer = undefined;
-		// The drain owns rescheduling: it arms the next timer only after a real
-		// send attempt, so a busy session cannot keep the timer alive forever.
+		// The drain owns rescheduling: it re-arms the timer after every attempt,
+		// including the busy case, so a pending resume is never dropped silently.
 		void drainCompactResume(pi, ctx);
 	}, compactResumeRetryMs());
 	const unref = (timer as { unref?: () => void }).unref;
@@ -466,8 +489,22 @@ async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Prom
 	if (!compactResumePending) return;
 	// A still-streaming turn would reject the resume; and while user-queued
 	// messages are pending they take priority over the auto-resume.
-	if (!ctx.isIdle()) return;
-	if (ctx.hasPendingMessages()) return;
+	// Busy is not "give up": keep the pending resume armed and re-check later,
+	// otherwise the task dies silently right after the compaction.
+	if (!ctx.isIdle() || ctx.hasPendingMessages()) {
+		compactResumeBusyPolls += 1;
+		if (compactResumeBusyPolls > compactResumeBusyMaxPolls()) {
+			safeNotify(
+				ctx as QueueAwareContext,
+				"Auto-compact continue is waiting for the session to become idle; it will resume when the session settles.",
+				"warning",
+			);
+			return;
+		}
+		scheduleCompactResumeRetry(pi, ctx);
+		return;
+	}
+	compactResumeBusyPolls = 0;
 	if (compactResumeAttempts >= compactResumeMaxAttempts()) {
 		safeNotify(
 			ctx as QueueAwareContext,
@@ -499,9 +536,13 @@ async function drainCompactResume(pi: ExtensionAPI, ctx: ExtensionContext): Prom
 function resumeAfterNativeCompaction(ctx: ExtensionContext, message: GuardMessage | undefined): void {
 	if (!nativeCompactionStalled) return;
 	nativeCompactionStalled = false;
+	const stopReason = nativeCompactionStopReason;
+	nativeCompactionStopReason = undefined;
 	if (compactResumePending || pendingCompact) return;
 	// 只有真正被错误打断的回合才续跑：压缩后正常结束的回合无需重放。
-	if (message?.stopReason !== "error") return;
+	// 停止原因取压缩发生那一刻的快照，避免后续清空 lastAssistantMessage 后误判。
+	const effectiveStopReason = stopReason ?? message?.stopReason;
+	if (effectiveStopReason !== "error") return;
 	compactResumePrompt = COMPACT_RESUME_FALLBACK_PROMPT;
 	compactResumePending = true;
 	safeNotify(ctx as QueueAwareContext, "Context compaction interrupted the task; resuming automatically.", "info");
@@ -519,11 +560,16 @@ async function resumeAfterContextError(
 	if (compactResumePending || pendingCompact) return;
 	const pct = compactUsagePercent(ctx);
 	if (!isContextShapedError(message, pct)) return;
-	if (Date.now() - lastCompactAt < compactCooldownMs()) return;
+	// 刚刚压缩过（pi 原生压缩同样计入）：上下文已经缩小，只需补发续跑提示。
+	if (compactedByPi || Date.now() - lastCompactAt < compactCooldownMs()) {
+		compactResumePrompt = COMPACT_RESUME_FALLBACK_PROMPT;
+		compactResumePending = true;
+		return;
+	}
 	// Compaction only: the resume is sent by the single drain in the settled handler.
-	await startLedgerCompaction(pi, ctx, false);
+	const compacted = await startLedgerCompaction(pi, ctx, false);
 	if (!compactResumePending) {
-		compactResumePrompt = COMPACT_CONTINUE_PROMPT;
+		compactResumePrompt = compacted ? COMPACT_CONTINUE_PROMPT : COMPACT_RESUME_FALLBACK_PROMPT;
 		compactResumePending = true;
 	}
 }
@@ -1978,20 +2024,28 @@ export default function (pi: ExtensionAPI): void {
 		if (compactResumePending && compactResumeAttempts > 0) clearCompactResume();
 		// 新回合开始说明任务已恢复，原生压缩打断的状态不再适用。
 		nativeCompactionStalled = false;
+		nativeCompactionStopReason = undefined;
+		// 新回合开始说明上一轮的原生压缩已经处理完，不再拦截扩展压缩。
+		compactedByPi = false;
 		void maybeCompact(pi, "agent_start", ctx);
 		enrichModelThinkingLevels(ctx.model);
 	});
 
 	pi.on("session_compact", (event) => {
 		const compactEvent = event as SessionCompactEvent;
-		// 自己发起的压缩由 ledger 流程负责续跑。
-		if (compactEvent.fromExtension) return;
+		// 手动压缩（扩展发起的 ctx.compact() 同样走这条路径）由 ledger 流程负责续跑。
+		if (compactEvent.reason === "manual") return;
 		// pi 在溢出恢复后会自己重试被打断的回合。
 		if (compactEvent.willRetry) return;
-		// 手动压缩是用户的显式操作。
-		if (compactEvent.reason === "manual") return;
+		// 原生压缩刚刚缩小了上下文：记入冷却窗口，避免扩展紧接着再压缩一次，
+		// 那会撞上 “Already compacted” 并把续跑提示一起吞掉。
+		lastCompactAt = Date.now();
+		compactedByPi = true;
+		nativeCompactionStopReason = lastAssistantMessage?.stopReason;
+		// 摘要由别的扩展提供时，续跑由该扩展负责。
+		if (compactEvent.fromExtension) return;
 		// 只有以错误结束的回合才算被打断，正常结束的回合无需续跑。
-		if (lastAssistantMessage?.stopReason !== "error") return;
+		if (nativeCompactionStopReason !== "error") return;
 		nativeCompactionStalled = true;
 	});
 
@@ -2028,6 +2082,8 @@ export default function (pi: ExtensionAPI): void {
 		resumeAfterNativeCompaction(ctx, lastAssistantMessage);
 		// 上下文型失败且尚未压缩过：先压缩一次再续跑。
 		await resumeAfterContextError(pi, ctx, lastAssistantMessage);
+		// 每次 settle 都是一次新的投递机会：清掉忙轮询预算再尝试发送。
+		compactResumeBusyPolls = 0;
 		await drainCompactResume(pi, ctx);
 		// A pending resume already owns the continuation; do not send a second prompt.
 		if (!compactResumePending) await maybeAutoContinueTerminal(ctx);
@@ -2042,6 +2098,8 @@ pi.on("session_start", async (_event, ctx) => {
   firstPlanSent = false; // reset per-session first-plan optimization flag
   clearCompactResume();
   nativeCompactionStalled = false;
+  nativeCompactionStopReason = undefined;
+  compactedByPi = false;
   consecutiveAutoRetries = 0;
   pendingAutoRetryMessage = undefined;
   deferredAutoContinueReason = undefined;
@@ -2209,6 +2267,9 @@ pi.on("model_select", (_event, ctx) => {
 
 		// ── Track user messages ──
 		if (messageRole === "user") {
+			// 任何用户消息（含自动重试与自动续跑提示本身）都接管了后续推进：
+			// 清掉待发的压缩续跑，避免用户已经手动继续后又冒出一次重复续跑。
+			clearCompactResume();
 			const userText = extractUserText(event.message.content);
 			if (pendingAutoRetryMessage && userText === pendingAutoRetryMessage) {
 				lastUserMessageWasAutoRetry = true;
