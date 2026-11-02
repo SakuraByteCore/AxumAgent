@@ -2,6 +2,7 @@
 import path from "node:path";
 import { supportedBundledPiExtensions } from "../src/bundled-pi-platform.js";
 import { getUserAgent } from "../src/provider-config.js";
+import { buildFastLoaderNodeOptions } from "../src/fast-loader-env.js";
 
 function usage() {
   return `Axum Agent
@@ -322,10 +323,11 @@ function reportMcpConfigHealth(options, mcpConfig) {
 }
 
 async function runInstall() {
-  const [{ ensureBundledPi, pruneStaleCompileCaches }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { existsSync, rmSync }] = await Promise.all([
+  const [{ ensureBundledPi, pruneStaleCompileCaches }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { ensurePiCommandShim }, { existsSync, rmSync }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
+    import("../src/pi-command-shim.js"),
     import("node:fs"),
   ]);
 
@@ -339,6 +341,8 @@ async function runInstall() {
   pruneStaleCompileCaches(cacheRoot);
 
   ensureBundledPi(options);
+  // Expose `pi` on PATH so external callers reach this AxumAgent installation.
+  ensurePiCommandShim();
 
   const piCli = resolvePiCli(options);
   const extensions = resolveBundledExtensions(options);
@@ -475,7 +479,7 @@ function splitAxumCodeArgs(passthrough) {
 function buildPiEnv(compileCacheDir) {
   const env = { ...process.env, AXUM_BUNDLED_PI: "1" };
   const fastLoader = new URL("../src/pi-web-fast-loader.js", import.meta.url).href;
-  env.NODE_OPTIONS = [env.NODE_OPTIONS, "--import=" + JSON.stringify(fastLoader)].filter(Boolean).join(" ");
+  env.NODE_OPTIONS = buildFastLoaderNodeOptions(env.NODE_OPTIONS, fastLoader);
   if (compileCacheDir && !env.NODE_COMPILE_CACHE) env.NODE_COMPILE_CACHE = compileCacheDir;
   if (!env.JITI_TRY_NATIVE) env.JITI_TRY_NATIVE = "1";
   // 传递用户配置的 User-Agent 给 Pi（本文件为 ESM，require 不可用，须用静态 import）
@@ -489,7 +493,7 @@ function buildPiEnv(compileCacheDir) {
 
 
 async function runPi(passthrough) {
-  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault, ensureSubagentForegroundDefaults, getAgentDir }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureFocusExecutionPolicy, ensureSubagentDelegationPolicy }, { archivePendingCrashes }, { spawn }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { getDefaultProviderSelection, ensureDefaultProviderReasoningSupport, DEFAULT_THINKING_LEVEL, ensureTuiModeDefault, ensureWebSearchWorkflowDefault, ensureSubagentForegroundDefaults, getAgentDir }, { supportedBundledPiPackages }, { ensureTodoProgressPolicy, ensureParallelToolBatchingPolicy, ensureFocusExecutionPolicy, ensureSubagentDelegationPolicy }, { archivePendingCrashes }, { ensurePiCommandShim }, { spawn }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
@@ -497,11 +501,14 @@ async function runPi(passthrough) {
     import("../src/bundled-pi-platform.js"),
     import("../src/default-system-prompt.js"),
     import("../src/crash-log-archive.js"),
+    import("../src/pi-command-shim.js"),
     import("node:child_process"),
   ]);
 
   const bundledPiOptions = { env: process.env };
   ensureBundledPi(bundledPiOptions);
+  // Expose `pi` on PATH so external callers reach this AxumAgent installation.
+  ensurePiCommandShim();
   ensureTuiModeDefault();
   ensureWebSearchWorkflowDefault();
   ensureSubagentForegroundDefaults();
