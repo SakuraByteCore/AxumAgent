@@ -26,7 +26,7 @@ const DISPATCH_AGENT_PARAMETERS = Type.Object({
  role:Type.Optional(Type.Union(Object.keys(AGENT_ROLES).map(role=>Type.Literal(role)),{description:"Optional focus preset: explorer (code lookup), librarian (external research), oracle (architecture/debugging), designer (UI), fixer (bounded implementation). Model/effort and permissions still follow explicit dispatch settings."})),
  outputSchema: Type.Optional(Type.Union([Type.Record(Type.String(), Type.Unknown()), Type.Boolean()], {description:"Portable JSON Schema subset for the final result (types, properties, required, items, enum, combinators, bounds; no $ref or format). Validated before dispatch and on completion; invalid output fails without replaying actions."})),
  agentArgs: Type.Optional(Type.String({description:"Exact /agent arguments supplied by a user command; preserves model, plan and tool flags. Omit for normal dispatch."})),
- fullTools: Type.Optional(Type.Boolean({description:"Inherit all active parent tools through the live approval bridge, except recursive delegation. Explicit full-tool mode; commands are not limited to testCommands. Uses an exclusive workspace lane."})),
+ fullTools: Type.Optional(Type.Boolean({description:"Inherit all active parent tools through the live approval bridge, except dispatch_agent. Explicit full-tool mode; commands are not limited to testCommands. Uses an exclusive workspace lane."})),
  backend: Type.Optional(Type.Literal("controlled-pi",{description:"Built-in default; inherits current model/provider authentication and available read/search tools. No extra login or deployment."})),
  testCommands: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Exact parent-authorized shell commands; requires explicit writeScope and live parent approval bridge. Not sandboxed."})),
  writeScope: Type.Optional(Type.Array(Type.String({minLength:1}),{description:"Owned writable paths. Overlaps reject. Writes use the live parent permission bridge; omit for read-only."})),
@@ -137,7 +137,7 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 			"When a goal has two or more independent file/module/verification lanes worth parallelizing, dispatch ready lanes early after minimal orientation; keep the parent on the critical path. Do not wait for exhaustive investigation, use fixed counts, split tightly coupled/simple work, or assign the same writable file to multiple owners.",
 			"For ready independent lanes prefer one dispatch_agent tasks array with short role presets and disjoint writeScope; batch admission never waits for child completion. Do not create an extra planner/scout round when ownership is already known.",
 			"Keep squash enabled so finished results return automatically; package the full goal/context/scope/interfaces/acceptance in every task.",
-			"In default scoped mode, read/search tools work without writeScope. When a task needs commands, include exact testCommands and explicit writeScope at dispatch time; task prose alone does not authorize bash. User /agent requests use fullTools:true and verbatim agentArgs, inheriting active parent tools through approval without a command allowlist. Do not ask users to install or configure child tools.",
+			"In default scoped mode, read/search tools work without writeScope. When a task needs commands, include exact testCommands and explicit writeScope at dispatch time; task prose alone does not authorize bash. User /agent requests use fullTools:true and verbatim agentArgs, inheriting active parent tools through approval without a command allowlist; dispatch_agent remains unavailable inside the child. Do not ask users to install or configure child tools.",
 		],
 		parameters: Type.Object({...DISPATCH_AGENT_PARAMETERS.properties,
    task:Type.Optional(DISPATCH_AGENT_PARAMETERS.properties.task),
@@ -184,5 +184,5 @@ export function registerDispatch(pi: ExtensionAPI, deps: DispatchDeps): void {
 
 /** Command contexts lack executeTool: enter the real parent tool turn for the bridge. */
 export function buildAgentCommandRequest(args: string): string {
- return `[Agent command request]\nCall dispatch_agent exactly once with these arguments, preserving agentArgs verbatim. This user-requested child inherits all active parent tools through approval hooks. Do not execute the task in the parent.\n${JSON.stringify({task:args,agentArgs:args,fullTools:true})}`;
+ return `[Agent command request]\nCall dispatch_agent exactly once with these arguments, preserving agentArgs verbatim. This user-requested child inherits all active parent tools except dispatch_agent through approval hooks. Do not execute the task in the parent.\n${JSON.stringify({task:args,agentArgs:args,fullTools:true})}`;
 }

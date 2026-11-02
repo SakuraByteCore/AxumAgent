@@ -22,7 +22,7 @@ The parent collects results, reviews edits and evidence, remediates omissions or
 /blueprint add dark mode        # /agent -P -s: one-shot planning
 ```
 
-`/agent [options] <task>` 请求主线程调用一次 `dispatch_agent`，通过 `fullTools:true` 继承全部已启用的父工具；原始参数经 `agentArgs` 保留。仍采用一次性任务生命周期。 Presets do not inherit conversation history. `/dispatch` asks the parent to split worthwhile independent work and use `dispatch_agent`, the sole model-callable child creation entrypoint. `/quick <goal>` requests concise process prose without an implicit deadline or disabling parallelism; an explicit budget remains an explicit budget.
+`/agent [options] <task>` 请求主线程调用一次 `dispatch_agent`，通过 `fullTools:true` 继承全部已启用的父工具，仅排除 `dispatch_agent`；原始参数经 `agentArgs` 保留。仍采用一次性任务生命周期。 Presets do not inherit conversation history. `/dispatch` asks the parent to split worthwhile independent work and use `dispatch_agent`, the sole model-callable child creation entrypoint. `/quick <goal>` requests concise process prose without an implicit deadline or disabling parallelism; an explicit budget remains an explicit budget.
 
 `-P` / `--plan` wraps the task in the plan template from `~/.pi/agent/plan-prompt.md`, or the built-in template if absent. A present template must be non-empty and contain `{{requirement}}`. `/blueprint` returns its finished plan verbatim. A subsequent implementation is a new task with the plan and required context supplied explicitly.
 
@@ -52,11 +52,11 @@ The card label `已回传主线程，待汇总` records message receipt only; it
 
 ## Permissions and validation
 
-常规 scoped 模式：Writable dispatch requires an explicit `writeScope` within the project and the live parent `executeTool` approval bridge. Omit the scope for read-only work. Allowed builtin tools pass through parent validation/hooks/approval; 经来源验证的只读网页工具和 LSP 也可继承；其他自定义工具使用 fullTools 模式，递归派发不继承。 Overlapping active child write scopes reject. The parent must also coordinate its own writes. Missing writable capabilities fail explicitly rather than silently bypassing approvals.
+常规 scoped 模式：Writable dispatch requires an explicit `writeScope` within the project and the live parent `executeTool` approval bridge. Omit the scope for read-only work. Allowed builtin tools pass through parent validation/hooks/approval; 经来源验证的只读网页工具和 LSP 也可继承；其他自定义工具使用 fullTools 模式，`dispatch_agent` 不继承。 Overlapping active child write scopes reject. The parent must also coordinate its own writes. Missing writable capabilities fail explicitly rather than silently bypassing approvals.
 
 Workers have no shell by default. `testCommands` authorizes exact command strings via parent hooks and requires a workspace-wide exclusive child lock. Approved repository code executes with host permissions: this is **not a filesystem or shell sandbox**. Read tools are not restricted to cwd; path guards do not defend against hostile concurrent filesystem mutation or hardlinks. Do not delegate untrusted execution on this basis.
 
-`/agent` 通过主线程工具回合取得执行桥；`fullTools:true` 支持主线程已启用的自定义工具、网页、MCP、文件修改和任意命令，仍经过父审批。完整模式持有工作区独占子任务锁，递归派发工具不继承。未启用的父工具不会自动开启；此桥不是文件系统沙箱。其他旧命令上下文没有执行桥时仍仅支持读取。子任务不会独立加载自定义扩展。
+`/agent` 通过主线程工具回合取得执行桥；`fullTools:true` 支持主线程已启用的自定义工具、网页、MCP、文件修改和任意命令，仍经过父审批。完整模式持有工作区独占子任务锁，仅排除 `dispatch_agent`；`manage_agent` 等其余父工具保持可用。未启用的父工具不会自动开启；此桥不是文件系统沙箱。其他旧命令上下文没有执行桥时仍仅支持读取。子任务不会独立加载自定义扩展。
 
 ## 结构化结果与历史
 

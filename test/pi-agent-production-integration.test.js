@@ -46,7 +46,7 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
     if(full){
      const invalid=JSON.stringify(c.messages[lastUser]).includes('INVALIDRESULT');
      const content=already?[{type:'text',text:JSON.stringify({conclusion:invalid?123:'checked',evidence:['custom tool and bash'],unresolved:[]})}]:[
-      call('fixture_lookup',{query:'evidence'}),call('bash',{command:'node --version'}),
+      call('fixture_lookup',{query:'evidence'}),call('manage_agent',{action:'history',limit:1}),call('bash',{command:'node --version'}),
       call('write',{path:'full.mjs',content:'export const full = true;\n'}),call('write',{path:'blocked.mjs',content:'blocked'})];
      const result=await response(m,content).result();s.push({type:'done',reason:result.stopReason,message:result});s.end(result);return;
     }
@@ -144,8 +144,14 @@ test('production index dispatch: SDK child, scoped tools, live bridge, independe
    assert.ok(delivered);assert.equal(delivered.details.structuredResult.valid,valid);assert.equal(delivered.details.ok,valid);
   }
   assert.equal(events.filter(e=>e.name==='fixture_lookup').length,2,'invalid output does not replay side effects');
+ assert.ok(events.some(e=>e.name==='manage_agent'),'child can use the non-dispatch parent management tool');
   assert.ok(events.some(e=>e.name==='bash'&&e.input.command==='node --version'));
   assert.match(readFileSync(join(root,'full.mjs'),'utf8'),/full = true/);assert.equal(existsSync(join(root,'blocked.mjs')),false);
+ const fullContext=childContexts.findLast(c=>JSON.stringify(c.messages).includes('FULLTOOLS'));
+ const fullPrompt=fullContext.messages.flatMap(m=>Array.isArray(m.content)?m.content:[]).find(part=>part.type==='text')?.text||'';
+ const availableLine=fullPrompt.split('\n').find(line=>line.startsWith('Available tools:'))||'';
+ assert.match(availableLine,/manage_agent/);
+ assert.doesNotMatch(availableLine,/dispatch_agent/);
   const history=await captured.executeTool('manage_agent',{action:'history',limit:100});
   assert.equal(history.isError,false,JSON.stringify(history));assert.ok(history.result.details.records.some(r=>r.structuredResult?.valid===false));
 

@@ -17,7 +17,7 @@ test('wait timeout and abort only stop observation; slow agent stays running',as
  const controller=new AbortController();const aborted=r.wait(['a'],100,controller.signal);controller.abort();await assert.rejects(aborted,/continue/);assert.equal(a.state,'running');
  const done=r.wait(['a'],100);a.agent.status='idle';r.refresh();assert.equal((await done).timedOut,false);
 });
-test('permission ceiling denies write, bash, custom and recursive tools even on attempted widening',async()=>{
+test('permission ceiling denies write, bash, custom and dispatch_agent even on attempted widening',async()=>{
  const tools=inheritedToolCeiling(['read','bash','write','dispatch_agent','custom'],['read','write','ls']);assert.deepEqual(tools,['read']);
  let active,called=0;const session={setActiveToolsByName:n=>active=n,extensionRunner:{emitToolCall:async()=>{called++;}}};
  guardChildTools(session,tools);assert.deepEqual(active,['read']);

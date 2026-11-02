@@ -4,9 +4,11 @@ import {mkdtempSync,writeFileSync,readFileSync,symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {bridgedChildTools,inheritedToolCeiling,WriteScopeLocks} from '../plugin/pi-agent/permissions.ts';
-test('bridge intersects active parent and excludes recursive delegation',()=>{
+test('bridge intersects active parent and excludes only dispatch_agent in full mode',()=>{
  assert.deepEqual(inheritedToolCeiling(['read'],['write','read'],[],false,true),['read']);
  assert.deepEqual(inheritedToolCeiling(['read','write','dispatch_agent'],undefined,[],false,true),['read','write']);
+ assert.deepEqual(inheritedToolCeiling(['read','write','dispatch_agent','manage_agent'],undefined,[],false,true,true),['read','write','manage_agent']);
+ assert.deepEqual(inheritedToolCeiling(['read','manage_agent','dispatch_agent'],['dispatch_agent','manage_agent'],[],false,true,true),['manage_agent']);
 });
 test('write and edit enter parent executor, scope escapes and approval denial fail closed',async()=>{
  const cwd=mkdtempSync(join(tmpdir(),'axum-permissions-'));let calls=0;

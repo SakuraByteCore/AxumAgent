@@ -28,8 +28,12 @@ test('full tools bridge forwards custom MCP/web/write/bash and honors live paren
  const tools=active.map(name=>({name,parameters:{type:'object'},description:name,sourceInfo:{source:'extension',path:'/plugins/'+name}}));
  const bridge={tools,getActiveTools:()=>active,executeTool:async(name,args)=>{calls.push({name,args});return {result:{content:[{type:'text',text:'ok'}]},isError:false};}};
  const ceiling=inheritedToolCeiling(active,undefined,[],false,true,true);
- assert.deepEqual(ceiling,['read','write','bash','web_search','mcp']);
+ assert.deepEqual(ceiling,['read','write','bash','web_search','mcp','manage_agent']);
+ assert.ok(!ceiling.includes('dispatch_agent'));
+ assert.ok(ceiling.includes('manage_agent'));
  const proxies=bridgedChildTools(bridge,ceiling,[],process.cwd(),[],true);
+ assert.ok(!proxies.some(proxy=>proxy.name==='dispatch_agent'));
+ assert.ok(proxies.some(proxy=>proxy.name==='manage_agent'));
  for(const proxy of proxies)await proxy.execute('call',{path:'any.txt',command:'arbitrary command'});
  assert.equal(calls.length,ceiling.length);
  active=[];await assert.rejects(proxies[0].execute('revoked',{}),/no longer active/);
@@ -40,6 +44,7 @@ test('/agent requests exactly one bridged dispatch preserving literal flags and 
  const args='-m provider/model --tools read,bash -P inspect "a b"';
  const request=buildAgentCommandRequest(args),params=JSON.parse(request.split('\n').at(-1));
  assert.equal(params.fullTools,true);assert.equal(params.agentArgs,args);
+ assert.match(request,/except dispatch_agent/);
  assert.equal(buildDispatchArgs(params),args);
 });
 

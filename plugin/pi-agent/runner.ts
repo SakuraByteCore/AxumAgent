@@ -887,7 +887,7 @@ async function runAgentLifecycle(
      "[Child tool capabilities]",
      `Available tools: ${session.getActiveToolNames().join(", ") || "none (explicit text-only mode)"}.`,
      forwarded.tools?.includes("bash")
-      ? forwarded.permissions?.fullTools ? "All active parent tools are inherited through the live approval bridge. Recursive delegation is unavailable." : `Authorized shell commands (exact match): ${JSON.stringify(forwarded.permissions?.testCommands)}.`
+      ? forwarded.permissions?.fullTools ? "All active parent tools except dispatch_agent are inherited through the live approval bridge. Recursive dispatch is unavailable." : `Authorized shell commands (exact match): ${JSON.stringify(forwarded.permissions?.testCommands)}.`
       : "Shell is unavailable for this task. Use read/grep for inspection; if commands are required, report the exact command to the parent for a new authorized dispatch.",
      "Use the tools actually provided; do not report missing read/search capabilities without checking this list.",
     ].join("\n");

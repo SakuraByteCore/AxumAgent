@@ -6,7 +6,8 @@ import { realpathSync, lstatSync } from "node:fs";
 export const SAFE_CHILD_TOOLS = new Set(["read", "grep", "find", "ls"]);
 const READ_ONLY_PARENT_TOOLS = new Set(["web_search","fetch_content","get_search_content","source_check","lsp"]);
 export const BUILTIN_CHILD_TOOLS = new Set([...SAFE_CHILD_TOOLS, "write", "edit", "bash"]);
-const DELEGATION = new Set(["dispatch_agent", "manage_agent", "orchestrate", "quick", "agent"]);
+/** /agent mirrors the parent tool set except the dispatch entrypoint itself. */
+const CHILD_BLOCKED_TOOLS = new Set(["dispatch_agent"]);
 const require = createRequire(import.meta.url);
 /** Preserve builtin provenance; allow only the installed hashline read/search replacements. */
 export function isDelegableParentTool(tool: any): boolean {
@@ -37,7 +38,7 @@ export type ChildPermissions = { role?: import("./roles.ts").AgentRole; backend?
 export function inheritedToolCeiling(parentTools: readonly string[], requested?: readonly string[], excluded: readonly string[] = [], noTools = false, bridged = false, fullTools = false): string[] {
  if(noTools)return [];
  const parent=new Set(parentTools), deny=new Set(excluded);
- return [...new Set(requested ?? parentTools)].filter(name=>parent.has(name)&&!DELEGATION.has(name)&&(bridged ? fullTools || BUILTIN_CHILD_TOOLS.has(name) || READ_ONLY_PARENT_TOOLS.has(name) : SAFE_CHILD_TOOLS.has(name))&&!deny.has(name));
+ return [...new Set(requested ?? parentTools)].filter(name=>parent.has(name)&&!CHILD_BLOCKED_TOOLS.has(name)&&(bridged ? fullTools || BUILTIN_CHILD_TOOLS.has(name) || READ_ONLY_PARENT_TOOLS.has(name) : SAFE_CHILD_TOOLS.has(name))&&!deny.has(name));
 }
 /** Resolve existing ancestors too, preventing symlink and ../ scope escapes. */
 export function canonicalScope(value:string,cwd:string):string {
@@ -60,7 +61,7 @@ export class WriteScopeLocks {
 /** No tool implementation is invoked directly: every operation re-enters parent hooks/approval. */
 export function bridgedChildTools(bridge:ParentToolBridge,allowed:readonly string[],scopes:readonly string[],cwd:string,testCommands:readonly string[]=[],fullTools=false){
  const ceiling=new Set(allowed);
- return bridge.tools.filter(tool=>ceiling.has(tool.name)&&!DELEGATION.has(tool.name)&&(fullTools || isDelegableParentTool(tool))).map(tool=>({
+ return bridge.tools.filter(tool=>ceiling.has(tool.name)&&!CHILD_BLOCKED_TOOLS.has(tool.name)&&(fullTools || isDelegableParentTool(tool))).map(tool=>({
   name:tool.name,label:tool.label??tool.name,description:tool.description,parameters:tool.parameters,promptGuidelines:tool.promptGuidelines,
   async execute(_id:string,args:any,signal:AbortSignal,onUpdate:any){
    bridge.validate?.();

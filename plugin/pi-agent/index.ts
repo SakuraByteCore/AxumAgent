@@ -53,7 +53,7 @@ export default function userAgent(pi: ExtensionAPI): void {
 
 	pi.registerCommand("agent", {
 		description:
-			"Run an independent task with all active parent tools through the live approval bridge. Preserves /agent flags; recursive delegation stays in the parent.",
+			"Run an independent task with all active parent tools except dispatch_agent through the live approval bridge. Preserves /agent flags; recursive dispatch stays in the parent.",
 		handler: async (args, ctx) => {
 			mainSessionContext = ctx;
 			if(args.trim() && !/^resume(?:\s|$)/.test(args.trim())){
