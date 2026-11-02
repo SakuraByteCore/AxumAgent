@@ -8,9 +8,12 @@ const helper = new URL("./fast-service-tier.js", import.meta.url).href;
 const inlineStart = "onPayload: async (payload, _model) => {";
 const inlineEnd = "onResponse: async (response, _model) => {";
 const namedStart = "const transformProviderPayload = async (payload) => {";
+const fastMarker = "applyAxumFastServiceTier";
+const hookFlag = Symbol.for("axum.fast-service-tier.loader-hook");
 const namedEnd = "const handleProviderResponse = async (response) => {";
 
 export function instrumentWebSdk(source) {
+  if (source.includes(fastMarker)) return source;
   const named = source.includes(namedStart);
   const start = named ? namedStart : inlineStart;
   const end = named ? namedEnd : inlineEnd;
@@ -31,7 +34,9 @@ export function instrumentWebSdk(source) {
   return 'import { applyFastServiceTier as applyAxumFastServiceTier } from ' + JSON.stringify(helper) + ';\n' + source.slice(0, from) + patched + source.slice(to);
 }
 
-registerHooks({
+if (!globalThis[hookFlag]) {
+  globalThis[hookFlag] = true;
+  registerHooks({
   load(url, context, nextLoad) {
     const result = nextLoad(url, context);
     if (url.includes("/@earendil-works/pi-coding-agent/dist/core/sdk.js") && result.format === "module") {
@@ -40,5 +45,6 @@ registerHooks({
       return { ...result, source };
     }
     return result;
-  },
-});
+    },
+  });
+}
