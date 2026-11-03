@@ -219,7 +219,7 @@ function compactHardThresholdDefault(): number {
 }
 let compactSoftThreshold = COMPACT_SOFT_THRESHOLD_DEFAULT;
 let compactHardThreshold = compactHardThresholdDefault();
-const CTHRESHOLD_USAGE = "Usage: /cthreshold <soft> <hard> (soft < hard, idle vs emergency) or /cthreshold <1-99> to set both.";
+const CTHRESHOLD_USAGE = "Usage: /cthreshold <soft> <hard> (soft < hard, background vs wait) or /cthreshold <1-99> to set both.";
 
 function validThreshold(value: unknown): value is number {
 	return typeof value === "number" && Number.isInteger(value)
@@ -300,6 +300,26 @@ let nativeCompactionStalled = false;
 let nativeCompactionStopReason: string | undefined;
 /** pi 原生压缩刚刚缩小过上下文：扩展不得紧接着再压缩一次（会撞 Already compacted）。 */
 let compactedByPi = false;
+
+type BackgroundCompactContext = ExtensionContext & {
+	backgroundCompact?: (options: {
+		softThreshold: number; hardThreshold: number; customInstructions: string;
+		onError: (error: unknown) => void;
+	}) => void;
+};
+
+function configureBackgroundCompaction(ctx: ExtensionContext): boolean {
+	const background = ctx as BackgroundCompactContext;
+	if (!background.backgroundCompact) return false;
+	background.backgroundCompact({
+		softThreshold: compactSoftThreshold,
+		hardThreshold: compactHardThreshold,
+		customInstructions: COMPACT_LEDGER_INSTRUCTIONS,
+		onError: (error) => safeNotify(ctx as QueueAwareContext,
+			`Background compaction failed: ${error instanceof Error ? error.message : String(error)}`, "warning"),
+	});
+	return true;
+}
 
 function compactUsagePercent(ctx: ExtensionContext): number | null {
 	const u = ctx.getContextUsage();
@@ -430,6 +450,7 @@ function startLedgerCompaction(pi: ExtensionAPI, ctx: ExtensionContext, resumeOn
 }
 
 async function maybeCompact(pi: ExtensionAPI, event: unknown, ctx: ExtensionContext): Promise<boolean> {
+	if (configureBackgroundCompaction(ctx)) return false;
 	const pct = compactUsagePercent(ctx);
 	if (pct == null) return false;
 	// Dual-threshold: compaction at an idle boundary (agent_settled) uses the soft
@@ -1112,6 +1133,7 @@ interface AgentEndEvent {
 
 interface SessionCompactEvent {
 	type: "session_compact";
+	background?: boolean;
 	fromExtension: boolean;
 	reason: "manual" | "threshold" | "overflow";
 	willRetry: boolean;
@@ -1267,7 +1289,7 @@ export default function (pi: ExtensionAPI): void {
 	let lastAssistantAlreadyHandled = false;
 	const lastConfigError: { value?: string } = {};
 
-	void loadPersistedCompactThresholds().then(({ soft, hard }) => {
+	const compactThresholdsReady = loadPersistedCompactThresholds().then(({ soft, hard }) => {
 		if (soft !== null) compactSoftThreshold = soft;
 		if (hard !== null) compactHardThreshold = hard;
 	});
@@ -1835,9 +1857,10 @@ pi.registerCommand("claude", {
 			"Show or set the auto-compact context thresholds in percent, 1-99 (applies instantly, persisted): /cthreshold <soft> <hard>",
 		getArgumentCompletions: () => null,
 		async handler(args: string, ctx) {
+			await compactThresholdsReady;
 			const tokens = args.trim().split(/\s+/).filter(Boolean);
 			if (tokens.length === 0) {
-				ctx.ui.notify(`Auto-compact thresholds: soft ${compactSoftThreshold}%, hard ${compactHardThreshold}% (defaults ${COMPACT_SOFT_THRESHOLD_DEFAULT}%/${compactHardThresholdDefault()}%; idle compaction uses soft, any event point uses hard).`, "info");
+				ctx.ui.notify(`Auto-compact thresholds: soft ${compactSoftThreshold}%, hard ${compactHardThreshold}% (defaults ${COMPACT_SOFT_THRESHOLD_DEFAULT}%/${compactHardThresholdDefault()}%; background preparation uses soft, request-boundary waiting uses hard).`, "info");
 				return;
 			}
 			if (tokens.length > 2 || tokens.some((token) => !/^\d+$/.test(token))) {
@@ -1850,7 +1873,7 @@ pi.registerCommand("claude", {
 				return;
 			}
 			// Single-value form is the legacy path: both thresholds equal reproduces the
-			// old any-event-point behaviour at that percentage.
+			// request-boundary wait at that percentage.
 			const [nextSoft, nextHard] = tokens.length === 1 ? [values[0], values[0]] : values;
 			if (tokens.length === 2 && nextSoft >= nextHard) {
 				ctx.ui.notify(`Soft threshold ${nextSoft}% must be below hard threshold ${nextHard}%. Keeping soft ${compactSoftThreshold}%, hard ${compactHardThreshold}%.`, "warning");
@@ -1860,6 +1883,7 @@ pi.registerCommand("claude", {
 			const prevHard = compactHardThreshold;
 			compactSoftThreshold = nextSoft;
 			compactHardThreshold = nextHard;
+			configureBackgroundCompaction(ctx);
 			try {
 				await persistCompactThresholds(nextSoft, nextHard);
 				ctx.ui.notify(`Auto-compact thresholds: soft ${prevSoft}% → ${nextSoft}%, hard ${prevHard}% → ${nextHard}% (saved).`, "info");
@@ -2034,7 +2058,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_compact", (event) => {
 		const compactEvent = event as SessionCompactEvent;
 		// 手动压缩（扩展发起的 ctx.compact() 同样走这条路径）由 ledger 流程负责续跑。
-		if (compactEvent.reason === "manual") return;
+		if (compactEvent.reason === "manual" || compactEvent.background) return;
 		// pi 在溢出恢复后会自己重试被打断的回合。
 		if (compactEvent.willRetry) return;
 		// 原生压缩刚刚缩小了上下文：记入冷却窗口，避免扩展紧接着再压缩一次，
@@ -2092,6 +2116,8 @@ export default function (pi: ExtensionAPI): void {
 
 pi.on("session_start", async (_event, ctx) => {
   await ensureBundledConfigFile();
+  await compactThresholdsReady;
+  configureBackgroundCompaction(ctx);
   enrichModelThinkingLevels(ctx.model);
   ralphState = undefined;
   clearRalphContinueRetry();
@@ -2111,6 +2137,7 @@ pi.on("session_start", async (_event, ctx) => {
 
 pi.on("model_select", (_event, ctx) => {
   enrichModelThinkingLevels(ctx.model);
+  configureBackgroundCompaction(ctx);
 });
 
 	// ── Ralph loop continuation ──────────────────────────────────────

@@ -642,6 +642,23 @@ function createCompactContext(overrides = {}) {
   return { ctx, notifications, compactCalls };
 }
 
+test("background-capable core receives both thresholds without interrupting or injecting a resume", withBareHome(async () => {
+  const pi = createPi();
+  const { ctx, compactCalls } = createCompactContext();
+  const preparations = [];
+  ctx.backgroundCompact = options => preparations.push(options);
+  await pi.commands.get("cthreshold").handler("75 95", ctx);
+  await emit(pi, "agent_start", {}, ctx);
+  await emit(pi, "turn_start", {}, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.ok(preparations.length > 0);
+  assert.ok(preparations.every(options => options.softThreshold === 75 && options.hardThreshold === 95));
+  assert.match(preparations.at(-1).customInstructions, /continuation handoff ledger/i);
+  assert.equal(compactCalls.length, 0);
+  assert.equal(pi.messages.length, 0);
+  fs.rmSync(ctx.cwd, { recursive: true, force: true });
+}));
+
 test("auto-compact uses native compaction and resumes only after proof", async () => {
   const pi = createPi();
   const { ctx, compactCalls } = createCompactContext({
@@ -807,6 +824,9 @@ test("manual compaction and completed turns do not resume the task", async () =>
   await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "manual", willRetry: false }, ctx);
   await emit(pi, "agent_settled", {}, ctx);
   assert.equal(pi.messages.length, 0, "manual compaction is a user action");
+  await emit(pi, "session_compact", { type: "session_compact", fromExtension: false, reason: "threshold", willRetry: false, background: true }, ctx);
+  await emit(pi, "agent_settled", {}, ctx);
+  assert.equal(pi.messages.length, 0, "background application must not inject a continuation");
 
   await emit(pi, "message_end", {
     message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "done" }] },

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { isAndroidLike } from "./bundled-pi-platform.js";
+import { installAxumBackgroundCompaction } from "./pi-background-compaction.js";
 
 const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
 const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
@@ -48,6 +49,45 @@ const PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER = "AXUM_PI_SESSION_SELECTOR_L
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
 const PI_RATE_LIMIT_429_PATTERN_SOURCE = "^\\s*(?:Error:\\s*)?429[:\\s]";
+
+export function patchPiBackgroundCompaction(content) {
+  const marker = "// AXUM_BACKGROUND_COMPACTION_V1";
+  if (content.includes(marker)) return content;
+  const replacements = [
+    ["    _installAgentRequestProjection() {", `    _installAgentRequestProjection() {
+        installAxumBackgroundCompaction(this, { prepareCompaction, estimateProjectedContextTokens, estimateMessagesTokens, isVirtualModel });`],
+    ["        this.agent.prepareRequest = async (request, signal) => {", `        this.agent.prepareRequest = async (request, signal) => {
+            await this._axumBackgroundCompaction.beforeRequest(signal);`],
+    ["            getContextUsage: () => this.getContextUsage(),", `            getContextUsage: () => this.getContextUsage(),
+            backgroundCompact: (options) => this._axumBackgroundCompaction.configure(options),`],
+  ];
+  for (const [anchor, replacement] of replacements) {
+    if (!content.includes(anchor)) throw new Error(`unable to patch Pi background compaction: missing ${anchor.trim()}`);
+    content = content.replace(anchor, replacement);
+  }
+  return `${content}
+${marker}
+${installAxumBackgroundCompaction.toString()}
+`;
+}
+
+export function patchPiBackgroundCompactionRunner(content) {
+  const marker = "// AXUM_BACKGROUND_COMPACTION_CONTEXT_V1";
+  if (content.includes(marker)) return content;
+  const binding = "        this.compactFn = contextActions.compact;";
+  const context = "            compact: (options) => {";
+  if (!content.includes(binding) || !content.includes(context)) {
+    throw new Error("unable to patch Pi background compaction context: runner anchors not found");
+  }
+  return content.replace(binding, `${binding}
+        this.backgroundCompactFn = contextActions.backgroundCompact;`)
+    .replace(context, `${marker}
+            backgroundCompact: (options) => {
+                runner.assertActive();
+                runner.backgroundCompactFn(options);
+            },
+${context}`);
+}
 
 function resolveBundledPackageRoot(packageName, options) {
   return path.join(getBundledPiNodeModules(options), packageDirName(packageName));
@@ -2083,8 +2123,13 @@ export function applyBundledPiPatches(options) {
 
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
   results.push(fs.existsSync(agentSessionPath)
-    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"))
+    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"), patchPiBackgroundCompaction)
     : { patched: false, file: agentSessionPath });
+
+  const extensionRunnerPath = path.join(piRoot, "dist", "core", "extensions", "runner.js");
+  if (fs.existsSync(extensionRunnerPath)) {
+    results.push(patchFileInPlace(extensionRunnerPath, patchPiBackgroundCompactionRunner));
+  }
 
   const settingsManagerPath = path.join(piRoot, "dist", "core", "settings-manager.js");
   results.push(fs.existsSync(settingsManagerPath)
