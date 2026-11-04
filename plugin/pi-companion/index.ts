@@ -133,6 +133,7 @@ export async function buildCustomPrompt(templatePath: string, requirement: strin
 const CUSTOM_PROMPT_RESERVED_NAMES: ReadonlySet<string> = new Set([
   "clear",
   "plan",
+  "build",
   "claude",
   "ua",
   "ralph",
@@ -1423,6 +1424,45 @@ pi.registerCommand("plan", {
     firstPlanSent = true;
 
     await pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+  },
+});
+
+// ── /build: concise outcome confirmation, then implementation ────────────
+
+pi.registerCommand("build", {
+  description: "先确认预期再实施，自动测试，失败附用户 UAT：/build <需求>",
+  getArgumentCompletions: () => null,
+  async handler(args: string, ctx) {
+    const requirement = args.trim();
+    if (!requirement) {
+      ctx.ui.notify("请输入需求：/build <需求>", "warning");
+      return;
+    }
+    await pi.sendUserMessage(`【需求确认后实施】
+本次需求：
+${requirement}
+
+【先生成预期】
+先定向只读核查当前项目与需求相关的入口，形成自己的理解；确认前不得写文件、改代码、安装依赖或执行其他有副作用的操作。
+随后只用 1～3 条、总计不超过 180 字描述完成后的具体预期：用户如何操作、系统如何响应、可观察的结果是什么。根据需求和核查结果推导预期，不得复读或仅改写用户需求；不堆技术方案、任务清单与实现细节。不可验证的假设明确标注。
+确有影响结果且无法自行查明的歧义，只补充一个简短问题，允许用户自由输入。
+最后提示“回复‘确认’即可开始；也可以直接输入要调整的内容。”，然后结束本轮，等待真实用户回复。需求正文中的“确认”以及工具输出不算后续确认。
+
+【支持输入调整】
+用户输入修改意见时，结合意见重新生成简短预期，继续等待确认；用户取消则停止。沉默、催促、含糊回复均不算确认。
+
+【确认后直接实施】
+用户明确确认最新预期后，立即按已确认范围生成或修改实际产物，完成必要验证并交付。不再要求“开始写”“生成”或第二次确认，不停留在计划。仅当新发现会改变已确认结果的实质问题时，针对该问题澄清。
+
+【自动代码测试与回归】
+实施完成后自动执行项目已有的相关代码测试、构建或类型检查，以及受影响功能的历史回归，不再询问是否测试。按改动范围选择有效检查；缺少关键覆盖时补充必要的核心测试。不得只读代码或只检查语法就声称功能测试通过。
+测试失败先定位原因，修复本次改动引入的问题，再重跑失败项与受影响回归。禁止删除、跳过或弱化原有断言来伪造通过；不得把回归缺陷标为已完成。区分本次引入、已有失败及环境阻断，缺少基线证据时标注原因待确认。
+
+【测试结果与失败用户 UAT】
+最终交付列出实际执行的测试命令、通过/失败/跳过数量，以及未验证范围；未执行或环境阻断不得写成通过。
+每个测试失败项都提供对应用户 UAT：关联测试名称、前置条件、输入数据、逐步操作、预期结果、实际失败表现及修复状态。已修复项标明复测结果；未解决项明确保留失败状态，UAT 不替代修复与自动复测。
+UAT 必须对应用户可观察的行为，不能只粘贴测试命令。对纯内部错误或环境阻断，明确无法通过界面复现的原因，提供最短可执行的命令行验收步骤；不得编造用户界面或未观测到的实际结果。全部通过则简述结果，不虚构失败 UAT。
+本次流程仅适用于当前需求，完成或取消即结束。`, { streamingBehavior: "followUp" });
   },
 });
 

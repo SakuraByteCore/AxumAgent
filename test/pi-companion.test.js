@@ -167,6 +167,35 @@ function withBareHome(fn) {
   };
 }
 
+test("build command requests derived outcomes and a real confirmation before implementation", withBareHome(async () => {
+  const pi = createPi();
+  const { ctx } = createContext();
+  await pi.commands.get("build").handler("  添加订单导出  ", ctx);
+  assert.equal(pi.messages.length, 1);
+  assert.match(pi.messages[0].message, /添加订单导出/);
+  assert.match(pi.messages[0].message, /不得复读/);
+  assert.match(pi.messages[0].message, /等待真实用户回复/);
+  assert.match(pi.messages[0].message, /用户输入修改意见/);
+  assert.match(pi.messages[0].message, /立即按已确认范围/);
+  assert.match(pi.messages[0].message, /实施完成后自动执行项目已有的相关代码测试/);
+  assert.match(pi.messages[0].message, /禁止删除、跳过或弱化原有断言/);
+  assert.match(pi.messages[0].message, /每个测试失败项都提供对应用户 UAT/);
+  assert.match(pi.messages[0].message, /前置条件、输入数据、逐步操作、预期结果、实际失败表现及修复状态/);
+  assert.match(pi.messages[0].message, /未执行或环境阻断不得写成通过/);
+  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+}));
+
+test("build command rejects empty requirements and cannot be shadowed by templates", withBareHome(async () => {
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  const command = pi.commands.get("build");
+  registerCustomPromptCommands(pi, [{ name: "build", file: "build-prompt.md", path: "unused" }]);
+  assert.equal(pi.commands.get("build"), command);
+  await command.handler("   ", ctx);
+  assert.equal(pi.messages.length, 0);
+  assert.match(notifications[0].message, /请输入需求/);
+}));
+
 test("plan command still sends the plan-first prompt", withBareHome(async () => {
   const pi = createPi();
   const { ctx } = createContext();
