@@ -167,6 +167,29 @@ function withBareHome(fn) {
   };
 }
 
+test("build command reloads the plan template and rejects invalid or unreadable templates", withBareHome(async () => {
+  const templatePath = path.join(process.env.HOME, ".pi", "agent", "plan-prompt.md");
+  fs.mkdirSync(path.dirname(templatePath), { recursive: true });
+  const pi = createPi();
+  const { ctx, notifications } = createContext();
+  for (const [template, expected] of [["A {{requirement}} {{requirement}}", "A 需求 需求"], ["B {{requirement}}", "B 需求"], ["   ", "empty"], ["missing placeholder", "must include"], [null, "Failed to build /build prompt"]]) {
+    if (template === null) {
+      fs.unlinkSync(templatePath);
+      fs.mkdirSync(templatePath);
+    } else fs.writeFileSync(templatePath, template, "utf8");
+    pi.messages.length = 0;
+    notifications.length = 0;
+    await pi.commands.get("build").handler("  需求  ", ctx);
+    if (template?.includes("{{requirement}}")) {
+      assert.deepEqual(pi.messages, [{ message: expected, options: { streamingBehavior: "followUp" } }]);
+      assert.equal(notifications.length, 0);
+    } else {
+      assert.equal(pi.messages.length, 0);
+      assert.ok(notifications.some((n) => n.level === "error" && n.message.includes(expected)));
+    }
+  }
+}));
+
 test("build command requests derived outcomes and a real confirmation before implementation", withBareHome(async () => {
   const pi = createPi();
   const { ctx } = createContext();

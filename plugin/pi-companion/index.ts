@@ -1233,10 +1233,13 @@ async function loadConfig(ctx: QueueAwareContext, lastConfigError: { value?: str
 	}
 }
 
-async function buildPlanPrompt(requirement: string): Promise<string> {
+async function buildPlanPrompt(
+	requirement: string,
+	fallback = PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX,
+): Promise<string> {
 	const templatePath = join(homedir(), ...PLAN_PROMPT_TEMPLATE_RELATIVE_PATH);
 	if (!existsSync(templatePath)) {
-		return PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX;
+		return fallback;
 	}
 	const template = await readFile(templatePath, "utf8");
 	if (!template.trim()) {
@@ -1427,10 +1430,10 @@ pi.registerCommand("plan", {
   },
 });
 
-// ── /build: concise outcome confirmation, then implementation ────────────
+// ── /build: user plan template, or built-in confirmation workflow ────────
 
 pi.registerCommand("build", {
-  description: "先确认预期再实施，自动测试，失败附用户 UAT：/build <需求>",
+  description: "优先使用 plan-prompt.md；缺失时先确认预期再实施、自动测试：/build <需求>",
   getArgumentCompletions: () => null,
   async handler(args: string, ctx) {
     const requirement = args.trim();
@@ -1438,7 +1441,9 @@ pi.registerCommand("build", {
       ctx.ui.notify("请输入需求：/build <需求>", "warning");
       return;
     }
-    await pi.sendUserMessage(`【需求确认后实施】
+    let prompt: string;
+    try {
+      prompt = await buildPlanPrompt(requirement, `【需求确认后实施】
 本次需求：
 ${requirement}
 
@@ -1462,7 +1467,13 @@ ${requirement}
 最终交付列出实际执行的测试命令、通过/失败/跳过数量，以及未验证范围；未执行或环境阻断不得写成通过。
 每个测试失败项都提供对应用户 UAT：关联测试名称、前置条件、输入数据、逐步操作、预期结果、实际失败表现及修复状态。已修复项标明复测结果；未解决项明确保留失败状态，UAT 不替代修复与自动复测。
 UAT 必须对应用户可观察的行为，不能只粘贴测试命令。对纯内部错误或环境阻断，明确无法通过界面复现的原因，提供最短可执行的命令行验收步骤；不得编造用户界面或未观测到的实际结果。全部通过则简述结果，不虚构失败 UAT。
-本次流程仅适用于当前需求，完成或取消即结束。`, { streamingBehavior: "followUp" });
+本次流程仅适用于当前需求，完成或取消即结束。`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      ctx.ui.notify(`Failed to build /build prompt: ${message}`, "error");
+      return;
+    }
+    await pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
   },
 });
 
