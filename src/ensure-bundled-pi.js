@@ -87,24 +87,28 @@ function getPluginSourceDir(name) {
   return path.join(pkgRoot, "plugin", name);
 }
 
-function readPluginFingerprint(root) {
+const PLUGIN_SOURCE_EXCLUDES = new Set(["node_modules", ".git", "__pycache__"]);
+
+function readPluginFingerprint(root, layoutRoot = root) {
   if (!fs.existsSync(root)) return "missing";
   const entries = [];
-  const stack = [root];
+  const stack = [layoutRoot];
   while (stack.length > 0) {
     const dir = stack.pop();
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (PLUGIN_SOURCE_EXCLUDES.has(entry.name)) continue;
       const full = path.join(dir, entry.name);
-      const rel = path.relative(root, full).replaceAll(path.sep, "/");
+      const rel = path.relative(layoutRoot, full).replaceAll(path.sep, "/");
       if (entry.isDirectory()) {
         stack.push(full);
         entries.push(`d:${rel}`);
         continue;
       }
       if (entry.isFile()) {
-        const stat = fs.statSync(full);
-        const content = fs.readFileSync(full);
-        entries.push(`f:${rel}:${stat.size}:${crypto.createHash("sha256").update(content).digest("hex")}`);
+        const target = path.join(root, rel);
+        if (!fs.existsSync(target) || !fs.statSync(target).isFile()) return "missing";
+        const content = fs.readFileSync(target);
+        entries.push(`f:${rel}:${content.length}:${crypto.createHash("sha256").update(content).digest("hex")}`);
       }
     }
   }
@@ -119,7 +123,7 @@ function ensurePluginSource(cacheRoot, options) {
     if (!fs.existsSync(source)) continue;
     const signaturePath = `${pluginDir}.fingerprint`;
     const sourceFingerprint = readPluginFingerprint(source);
-    const cachedFingerprint = fs.existsSync(pluginDir) ? readPluginFingerprint(pluginDir) : "";
+    const cachedFingerprint = fs.existsSync(pluginDir) ? readPluginFingerprint(pluginDir, source) : "";
     const cachedSourceFingerprint = fs.existsSync(signaturePath) ? fs.readFileSync(signaturePath, "utf8").trim() : "";
     if (sourceFingerprint === cachedFingerprint && sourceFingerprint === cachedSourceFingerprint) continue;
 
@@ -130,7 +134,10 @@ function ensurePluginSource(cacheRoot, options) {
     // npm resolves file: dependencies through their realpath. Copy the plugin
     // into the cache so its realpath stays beside cache/node_modules and native
     // deps resolve from the cache rather than the global axum install.
-    fs.cpSync(source, pluginDir, { recursive: true, dereference: true });
+    fs.cpSync(source, pluginDir, {
+      recursive: true, dereference: true,
+      filter: (file) => !PLUGIN_SOURCE_EXCLUDES.has(path.basename(file)),
+    });
     fs.writeFileSync(signaturePath, `${sourceFingerprint}\n`);
   }
 }
@@ -302,8 +309,8 @@ export function ensureBundledPi(options) {
   try {
     pruneStaleCompileCaches(cacheRoot);
     ensurePluginSource(cacheRoot, options);
-    ensureBundledSkills(cacheRoot, options);
     if (bundledReady(options)) {
+      ensureBundledSkills(cacheRoot, options);
       applyBundledPiPatches(options);
       ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
       try {
@@ -343,6 +350,7 @@ export function ensureBundledPi(options) {
     };
     runNpm(NPM_INSTALL_MAX_ATTEMPTS);
     if (!bundledReady(options)) throw new Error("bundled Pi installation completed but required files are still missing");
+    ensureBundledSkills(cacheRoot, options);
     applyBundledPiPatches(options);
     ensureBundledPiVendoredDep(options, "chalk", ["5.5.1"]);
     try {
@@ -364,6 +372,7 @@ export function ensureBundledSkills(cacheRoot, options) {
     }
     const skillName = path.basename(skillPath);
     const destDir = path.join(skillsRoot, skillName);
+    if (readPluginFingerprint(srcDir) === readPluginFingerprint(destDir)) continue;
     fs.mkdirSync(path.dirname(destDir), { recursive: true });
     if (fs.existsSync(destDir)) {
       fs.rmSync(destDir, { recursive: true, force: true });

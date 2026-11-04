@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
 import { getBundledPiCacheRoot } from "../src/bundled-pi-cache.js";
@@ -180,7 +181,7 @@ pkg("@earendil-works/pi-agent-core", { "dist/index.js": "" });
 pkg("@earendil-works/pi-tui", { "dist/index.js": "", "dist/stdin-buffer.js": stdinBuffer });
 pkg("pi-bar", { "index.ts": "" });
 pkg("@narumitw/pi-goal", { "src/index.ts": "" });
-pkg("pi-companion", { "index.ts": "" });
+pkg("pi-companion", { "index.ts": "", "skills/claude-driver/SKILL.md": "cold-install-skill" });
 pkg("pi-hashline-edit-pro", { "index.ts": "" });
 pkg("@gamaraan/todos-tool", { "src/index.ts": "" });
 pkg("pi-agent", { "index.ts": "" });
@@ -193,6 +194,8 @@ pkg("pi-remote-control", { "index.js": "" });
   const options = { platform: "win32", env: { AXUM_BUNDLED_PI_DIR: cache, AXUM_USER_PACKAGES_FILE: NO_USER_PACKAGES }, npmCommand: fakeNpm };
   ensureBundledPi(options);
   const pluginDir = path.join(cache, "plugin", "pi-bar");
+  const artifact = path.join(pluginDir, "warm-generated.js");
+  fs.writeFileSync(artifact, "cached output");
   const before = fs.statSync(pluginDir).mtimeMs;
   ensureBundledPi(options);
   const after = fs.statSync(pluginDir).mtimeMs;
@@ -200,6 +203,18 @@ pkg("pi-remote-control", { "index.js": "" });
   assert.equal(fs.readFileSync(calls, "utf8"), "run\n");
   assert.equal(fs.existsSync(`${pluginDir}.fingerprint`), true);
   assert.equal(after, before);
+  assert.equal(fs.readFileSync(artifact, "utf8"), "cached output");
+  const install = spawnSync(process.execPath, ["bin/axum.js", "install"], {
+    env: { ...process.env, ...options.env, NODE_OPTIONS: "" }, encoding: "utf8", timeout: 10000,
+  });
+  assert.equal(install.status, 0, install.stderr);
+  assert.equal(fs.readFileSync(artifact, "utf8"), "cached output");
+  assert.equal(fs.readFileSync(calls, "utf8"), "run" + String.fromCharCode(10));
+  assert.equal(fs.readFileSync(path.join(os.homedir(), ".agents/skills/claude-driver/SKILL.md"), "utf8"), "cold-install-skill");
+  const source = path.join(pluginDir, "index.ts");
+  fs.writeFileSync(source, "corrupted source");
+  ensureBundledPi(options);
+  assert.notEqual(fs.readFileSync(source, "utf8"), "corrupted source");
 });
 
 test("ensureBundledPi rewrites malformed bundled chalk stubs on ready caches", () => {
@@ -636,6 +651,13 @@ test("ensureBundledSkills syncs bundled skills to agent skills root", async () =
       ),
       "SKILL:pi-companion:claude-driver"
     );
+    const target = path.join(fakeHome, ".agents/skills/claude-driver/SKILL.md");
+    fs.utimesSync(target, 1, 1);
+    ensureBundledSkills(cache, { platform: "linux", env: {} });
+    assert.equal(fs.statSync(target).mtimeMs, 1000);
+    fs.writeFileSync(target, "broken");
+    ensureBundledSkills(cache, { platform: "linux", env: {} });
+    assert.equal(fs.readFileSync(target, "utf8"), "SKILL:pi-companion:claude-driver");
   } finally {
     os.homedir = originalHomedir;
   }

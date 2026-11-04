@@ -31,8 +31,8 @@ Commands:
   versions      List published Axum versions and the currently installed one
   update        Reinstall Axum; without a version argument it pulls the main
                 branch tarball, with a version it pulls that git tag instead
-  install       Without arguments: force reinstall bundled Pi and all
-                bundled extensions (full npm install + TypeScript compilation)
+  install       Without arguments: prepare bundled Pi and extensions;
+                reuse ready dependencies and unchanged compiled files
   install <pkg> Install user extension packages from npm into the shared Pi
                 cache, e.g. axum install npm:pi-cc-extensions
                 (persisted in ~/.axum/packages.json, loaded on every start)
@@ -323,7 +323,7 @@ function reportMcpConfigHealth(options, mcpConfig) {
 }
 
 async function runInstall() {
-  const [{ ensureBundledPi, pruneStaleCompileCaches }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { ensurePiCommandShim }, { existsSync, rmSync }] = await Promise.all([
+  const [{ ensureBundledPi }, { getBundledPiCacheRoot }, { resolvePiCli, resolveBundledExtensions }, { ensurePiCommandShim }, { existsSync }] = await Promise.all([
     import("../src/ensure-bundled-pi.js"),
     import("../src/bundled-pi-cache.js"),
     import("../src/resolve-bundled-pi.js"),
@@ -334,11 +334,7 @@ async function runInstall() {
   const options = { env: process.env };
   const cacheRoot = getBundledPiCacheRoot(options);
 
-  console.log("Axum: forcing bundled Pi install + compilation...");
-  // Force clean reinstall by removing node_modules
-  rmSync(path.join(cacheRoot, "node_modules"), { recursive: true, force: true });
-  // Also prune stale compile caches
-  pruneStaleCompileCaches(cacheRoot);
+  console.log("Axum: preparing bundled Pi (reusing ready cache)...");
 
   ensureBundledPi(options);
   // Expose `pi` on PATH so external callers reach this AxumAgent installation.

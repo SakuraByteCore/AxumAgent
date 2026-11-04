@@ -152,3 +152,20 @@ test("compileExtensionPackage regenerates outputs when the manifest comes from a
   const module = await import(pathToFileURL(path.join(root, "index.js")).href);
   assert.equal(module.value, "ok");
 });
+
+test("compilation reads each source once and repairs missing output", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "axum-compile-io-"));
+  makePackage(root, { "index.ts": "export const a: string = 'a';" });
+  const read = fs.readFileSync;
+  let reads = 0;
+  fs.readFileSync = (file, ...args) => {
+    if (file === path.join(root, "index.ts")) reads++;
+    return read(file, ...args);
+  };
+  try {
+    compileExtensionPackage({ packageRoot: root, transform: fakeTransform });
+    assert.equal(reads, 1);
+    fs.unlinkSync(path.join(root, "index.js"));
+    assert.deepEqual(compileExtensionPackage({ packageRoot: root, transform: fakeTransform }).compiled, ["index.ts"]);
+  } finally { fs.readFileSync = read; }
+});

@@ -54,6 +54,7 @@ const PI_USER_AGENT_BROWSER_SAFE_UPSTREAM = [
 function writeRuntimePackages(cache) {
   writePackage(cache, "@earendil-works/pi-ai", { "dist/index.js": "", "dist/utils/pi-user-agent.js": PI_USER_AGENT_BROWSER_SAFE_UPSTREAM });
   writePackage(cache, "@earendil-works/pi-agent-core", { "dist/index.js": "" });
+  writePackage(cache, "typescript", { "index.js": "" });
 }
 
 function writePiTuiCache(cache) {
@@ -569,6 +570,7 @@ function pkg(name, files, manifest) { const root = path.join(prefix, 'node_modul
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': ${JSON.stringify(cliScript)}, 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)}, 'dist/utils/tools-manager.js': 'export async function ensureTool() { return undefined; }\\n', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
 pkg('@earendil-works/pi-ai', { 'dist/index.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)} });
 pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
+pkg('typescript', { 'index.js': '' });
 pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(stdinBuffer)} });
 pkg('pi-bar', { 'index.ts': 'export default {};' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': 'export default {};' });
@@ -655,6 +657,7 @@ function pkg(name, files, manifest) { const root = path.join(prefix, 'node_modul
 pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': ${JSON.stringify(cliScript)}, 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)}, 'dist/utils/tools-manager.js': 'export async function ensureTool() { return undefined; }\\n', 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
 pkg('@earendil-works/pi-ai', { 'dist/index.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)} });
 pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
+pkg('typescript', { 'index.js': '' });
 pkg('@earendil-works/pi-tui', { 'dist/index.js': '', 'dist/stdin-buffer.js': ${JSON.stringify(stdinBuffer)} });
 pkg('pi-bar', { 'index.ts': 'export default {};' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': 'export default {};' });

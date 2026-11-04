@@ -74,8 +74,7 @@ export function readCompileManifest(packageRoot) {
  * Collect all TypeScript sources and build lookup structures for import rewriting.
  * Returns:
  *   - sources: sorted array of .ts file paths
- *   - fileImportsByDir: map from directory to set of file import specifiers (e.g., './hash', '../utils')
- *   - dirImportsByDir: map from directory to set of directory import specifiers (e.g., './hashline', '..')
+ *   - getImports: builds file and directory import maps only when compilation is needed
  */
 function collectSourcesAndImports(root) {
   const sources = [];
@@ -109,74 +108,77 @@ function collectSourcesAndImports(root) {
     }
   }
 
-  // Build dirsWithTs: all directories that contain .ts files
-  const dirsWithTs = new Set();
-  for (const tsFile of tsFiles) {
-    const relFile = path.relative(root, tsFile).replaceAll(path.sep, "/");
-    const dir = path.dirname(relFile);
-    dirsWithTs.add(dir === "." ? "" : dir);
-  }
-
-  // For each directory with .ts files, find all .ts files reachable via relative imports
-  for (const dir of dirsWithTs) {
-    const fileImports = new Set();
-    const dirImports = new Set();
-    
-    // Walk ALL .ts files in the package and compute their relative import path from this directory
-    for (const [relFile, _] of tsFilesByRelPath) {
-    // path.dirname returns "." for root-level files; normalize to "" so
-    // root siblings are not misclassified as living in a subdirectory.
-    let fileDir = path.dirname(relFile);
-    if (fileDir === ".") fileDir = "";
-      const fileBase = path.basename(relFile, ".ts");
-      
-      // Compute relative path from current directory (dir) to the target file
-      // This IS the import specifier as it appears in source
-      let importSpecifier;
-      if (dir === "") {
-        // Current dir is package root
-        if (fileDir === "") {
-          // Target is also in root
-          importSpecifier = "./" + fileBase;
-        } else {
-          // Target is in subdirectory
-          importSpecifier = "./" + fileDir + "/" + fileBase;
-        }
-      } else {
-        // Current dir is a subdirectory, use path.relative
-        const fromAbs = path.join(root, dir);
-        const toAbs = path.join(root, fileDir, fileBase + ".ts");
-        let rel = path.relative(fromAbs, toAbs).replaceAll(path.sep, "/");
-        // Ensure it starts with ./ or ../
-        if (!rel.startsWith(".")) {
-          rel = "./" + rel;
-        }
-        // Remove .ts extension
-        importSpecifier = rel.slice(0, -3);
-      }
-      
-      // Handle index.ts -> directory import
-      if (fileBase === "index") {
-        // importSpecifier is like ./subdir/index or ../index
-        // Convert to directory import: ./subdir or ../
-        if (importSpecifier.endsWith("/index")) {
-          importSpecifier = importSpecifier.slice(0, -6); // remove /index
-        } else if (importSpecifier === "./index") {
-          importSpecifier = ".";
-        } else if (importSpecifier === "../index") {
-          importSpecifier = "..";
-        }
-        dirImports.add(importSpecifier);
-      } else {
-        fileImports.add(importSpecifier);
-      }
+  const getImports = () => {
+    // Build dirsWithTs: all directories that contain .ts files
+    const dirsWithTs = new Set();
+    for (const tsFile of tsFiles) {
+      const relFile = path.relative(root, tsFile).replaceAll(path.sep, "/");
+      const dir = path.dirname(relFile);
+      dirsWithTs.add(dir === "." ? "" : dir);
     }
-    
-    fileImportsByDir.set(dir, fileImports);
-    dirImportsByDir.set(dir, dirImports);
-  }
 
-  return { sources: sources.sort(), fileImportsByDir, dirImportsByDir };
+    // For each directory with .ts files, find all .ts files reachable via relative imports
+    for (const dir of dirsWithTs) {
+      const fileImports = new Set();
+      const dirImports = new Set();
+
+      // Walk ALL .ts files in the package and compute their relative import path from this directory
+      for (const [relFile, _] of tsFilesByRelPath) {
+      // path.dirname returns "." for root-level files; normalize to "" so
+      // root siblings are not misclassified as living in a subdirectory.
+      let fileDir = path.dirname(relFile);
+      if (fileDir === ".") fileDir = "";
+        const fileBase = path.basename(relFile, ".ts");
+
+        // Compute relative path from current directory (dir) to the target file
+        // This IS the import specifier as it appears in source
+        let importSpecifier;
+        if (dir === "") {
+          // Current dir is package root
+          if (fileDir === "") {
+            // Target is also in root
+            importSpecifier = "./" + fileBase;
+          } else {
+            // Target is in subdirectory
+            importSpecifier = "./" + fileDir + "/" + fileBase;
+          }
+        } else {
+          // Current dir is a subdirectory, use path.relative
+          const fromAbs = path.join(root, dir);
+          const toAbs = path.join(root, fileDir, fileBase + ".ts");
+          let rel = path.relative(fromAbs, toAbs).replaceAll(path.sep, "/");
+          // Ensure it starts with ./ or ../
+          if (!rel.startsWith(".")) {
+            rel = "./" + rel;
+          }
+          // Remove .ts extension
+          importSpecifier = rel.slice(0, -3);
+        }
+
+        // Handle index.ts -> directory import
+        if (fileBase === "index") {
+          // importSpecifier is like ./subdir/index or ../index
+          // Convert to directory import: ./subdir or ../
+          if (importSpecifier.endsWith("/index")) {
+            importSpecifier = importSpecifier.slice(0, -6); // remove /index
+          } else if (importSpecifier === "./index") {
+            importSpecifier = ".";
+          } else if (importSpecifier === "../index") {
+            importSpecifier = "..";
+          }
+          dirImports.add(importSpecifier);
+        } else {
+          fileImports.add(importSpecifier);
+        }
+      }
+
+      fileImportsByDir.set(dir, fileImports);
+      dirImportsByDir.set(dir, dirImports);
+    }
+
+    return { fileImportsByDir, dirImportsByDir };
+  };
+  return { sources: sources.sort(), getImports };
 }
 
 function compiledPathFor(sourcePath) {
@@ -184,7 +186,8 @@ function compiledPathFor(sourcePath) {
 }
 
 export function compileExtensionPackage({ packageRoot, transform, log = () => {} }) {
-  const { sources, fileImportsByDir, dirImportsByDir } = collectSourcesAndImports(packageRoot);
+  const { sources, getImports } = collectSourcesAndImports(packageRoot);
+  let imports;
   if (sources.length === 0) return { compiled: [], skipped: [], collisions: [] };
 
   const manifestPath = path.join(packageRoot, COMPILE_MANIFEST_NAME);
@@ -207,22 +210,25 @@ export function compileExtensionPackage({ packageRoot, transform, log = () => {}
   let dirty = false;
   for (const sourcePath of sources) {
     const rel = path.relative(packageRoot, sourcePath).replaceAll(path.sep, "/");
-    const sourceHash = crypto.createHash("sha256").update(fs.readFileSync(sourcePath)).digest("hex");
+    const sourceBytes = fs.readFileSync(sourcePath);
+    const sourceHash = crypto.createHash("sha256").update(sourceBytes).digest("hex");
     const jsPath = compiledPathFor(sourcePath);
-    if (manifest.files[rel] === sourceHash && fs.existsSync(jsPath)) {
+    const jsExists = fs.existsSync(jsPath);
+    if (manifest.files[rel] === sourceHash && jsExists) {
       skipped.push(rel);
       continue;
     }
-    if (fs.existsSync(jsPath) && manifest.files[rel] === undefined && !staleManifest) {
+    if (jsExists && manifest.files[rel] === undefined && !staleManifest) {
       collisions.push(rel);
       continue;
     }
-    const source = fs.readFileSync(sourcePath, "utf8");
+    const source = sourceBytes.toString("utf8");
     // Determine the imports for this file's directory
     const fileDir = path.dirname(rel);
     const dirKey = fileDir === "." ? "" : fileDir;
-    const fileImports = fileImportsByDir.get(dirKey) || new Set();
-    const dirImports = dirImportsByDir.get(dirKey) || new Set();
+    if (!transform) imports ??= getImports();
+    const fileImports = imports?.fileImportsByDir.get(dirKey);
+    const dirImports = imports?.dirImportsByDir.get(dirKey);
     let output;
     try {
       output = transform
@@ -242,7 +248,7 @@ export function compileExtensionPackage({ packageRoot, transform, log = () => {}
     dirty = true;
   }
 
-  if (dirty || (Object.keys(manifest.files).length > 0 && !fs.existsSync(manifestPath)) || !fs.existsSync(manifestPath)) {
+  if (dirty || !fs.existsSync(manifestPath)) {
     fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
   }
   log(`compiled=${compiled.length} skipped=${skipped.length} collisions=${collisions.length}`);

@@ -155,6 +155,7 @@ class StdinBuffer {
   }
 }
 `)} });
+pkg('typescript', { 'index.js': 'export default {};' });
 pkg('pi-bar', { 'index.ts': 'export default {};' });
 pkg('@narumitw/pi-goal', { 'src/index.ts': 'export default {};' });
 pkg('pi-companion', { 'index.ts': 'export default {};' });
