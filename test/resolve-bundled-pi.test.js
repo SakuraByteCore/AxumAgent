@@ -48,6 +48,36 @@ const PI_USER_AGENT_BROWSER_SAFE_UPSTREAM = [
   "}",
   "",
 ].join("\n");
+const PI_AGENT_SESSION_REFRESH_FIXTURE = [
+  'import { readFileSync } from "node:fs";',
+  'import { buildSystemPrompt } from "./system-prompt.js";',
+  '// AXUM_PI_CONNECTION_RETRY_EXEMPT',
+  `const CONNECTION_ERROR_PATTERN_SOURCE = ${JSON.stringify(PI_CONNECTION_ERROR_PATTERN_SOURCE)};`,
+  'export class AgentSession {',
+  '    constructor() {',
+  '        this._installAgentRequestProjection();',
+  '    }',
+  '    _installAgentRequestProjection() {',
+  '        this.agent.prepareRequest = async (request, signal) => {',
+  '            return undefined;',
+  '        };',
+  '        this.agent = {',
+  '            getContextUsage: () => this.getContextUsage(),',
+  '        };',
+  '    }',
+  '    async prompt() {',
+  '        const userContent = [{ type: "text", text: "request" }];',
+  '        const messages = [];',
+  '        messages.push({',
+  '            role: "user",',
+  '            content: userContent,',
+  '            timestamp: Date.now(),',
+  '        });',
+  '        const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;',
+  '        return selectedToolsBefore;',
+  '    }',
+  '}',
+].join(String.fromCharCode(10));
 
 test("resolves bundled Pi from Axum cache directory", () => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-bundled-cache-"));
@@ -504,7 +534,7 @@ import path from 'node:path';
 const prefix = process.argv[process.argv.indexOf('--prefix') + 1];
 fs.appendFileSync(${JSON.stringify(calls)}, process.argv.join(' ') + '\\n');
 function pkg(name, files) { const root = path.join(prefix, 'node_modules', ...name.split('/')); fs.mkdirSync(root, { recursive: true }); fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name, version: '0.0.0' })); for (const [file, content] of Object.entries(files)) { const target = path.join(root, file); fs.mkdirSync(path.dirname(target), { recursive: true }); fs.writeFileSync(target, content); } }
-pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)}, 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
+pkg('@earendil-works/pi-coding-agent', { 'dist/cli.js': '', 'dist/core/agent-session.js': ${JSON.stringify(PI_AGENT_SESSION_REFRESH_FIXTURE)}, 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_VERSIONED_UPSTREAM)}, 'node_modules/undici/lib/web/webidl/index.js': 'webidl.util.markAsUncloneable = markAsUncloneable\\n' });
 pkg('@earendil-works/pi-ai', { 'dist/index.js': '', 'dist/utils/pi-user-agent.js': ${JSON.stringify(PI_USER_AGENT_BROWSER_SAFE_UPSTREAM)} });
 pkg("typescript", { "dist/index.js": "" });
 pkg('@earendil-works/pi-agent-core', { 'dist/index.js': '' });
@@ -551,6 +581,10 @@ pkg('pi-remote-control', { 'index.js': '' });
   assert.match(patchedUserAgent, /AXUM_USER_AGENT/);
   const patchedAiUserAgent = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "pi-user-agent.js"), "utf8");
   assert.match(patchedAiUserAgent, /AXUM_PI_USER_AGENT_CUSTOM/);
+  const patchedAgentSession = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "core", "agent-session.js"), "utf8");
+  assert.ok(patchedAgentSession.includes("// AXUM_PI_SYSTEM_PROMPT_REFRESH_V1"));
+  assert.ok(patchedAgentSession.includes("installAxumSystemPromptRefresh(this"));
+  assert.equal(patchedAgentSession.includes(String.fromCharCode(10) + "AXUM_PI_SYSTEM_PROMPT_REFRESH_V1" + String.fromCharCode(10)), false);
 });
 
 

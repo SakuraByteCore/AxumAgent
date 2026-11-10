@@ -185,6 +185,8 @@ Targets:
 
 It shows a diff before saving. If the file was changed externally, saving is refused.
 
+Saved rules are picked up automatically by the next user message in the same session. No restart or `/reload` is required. Project-level rules keep Pi's normal trust and priority rules.
+
 ## Customize the `/plan` Prompt
 
 `/plan` supports a user-level prompt override file:
