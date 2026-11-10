@@ -3,6 +3,7 @@ import path from "node:path";
 import { getBundledPiNodeModules, packageDirName } from "./bundled-pi-cache.js";
 import { isAndroidLike } from "./bundled-pi-platform.js";
 import { installAxumBackgroundCompaction } from "./pi-background-compaction.js";
+import { installAxumSystemPromptRefresh } from "./pi-system-prompt-refresh.js";
 
 const PI_TUI_PACKAGE = "@earendil-works/pi-tui";
 const PI_CODING_AGENT_PACKAGE = "@earendil-works/pi-coding-agent";
@@ -49,6 +50,59 @@ const PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER = "AXUM_PI_SESSION_SELECTOR_L
 // (e.g. `Error: 429: {"message":"Too Many Requests"}`) counts as provider
 // throttling; incidental occurrences of the digits 429 must never match.
 const PI_RATE_LIMIT_429_PATTERN_SOURCE = "^\\s*(?:Error:\\s*)?429[:\\s]";
+
+const PI_SYSTEM_PROMPT_REFRESH_MARKER = "AXUM_PI_SYSTEM_PROMPT_REFRESH_V1";
+
+export function patchPiSystemPromptRefresh(content) {
+  const markerLine = `\n${PI_SYSTEM_PROMPT_REFRESH_MARKER}\n`;
+  if (content.includes(PI_SYSTEM_PROMPT_REFRESH_MARKER)) {
+    return content.includes(markerLine)
+      ? content.replace(markerLine, `\n// ${PI_SYSTEM_PROMPT_REFRESH_MARKER}\n`)
+      : content;
+  }
+  const replacements = [
+    [
+      'import { readFileSync } from "node:fs";',
+      'import { existsSync, readFileSync } from "node:fs";',
+    ],
+    [
+      "        this._installAgentRequestProjection();",
+      "        this._installAgentRequestProjection();\n        installAxumSystemPromptRefresh(this, { existsSync, readFileSync, buildSystemPrompt });",
+    ],
+    [
+      "        const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;",
+      "        this._axumRefreshSystemPrompt();\n        const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;",
+    ],
+    [
+      [
+        '        messages.push({',
+        '            role: "user",',
+        '            content: userContent,',
+        '            timestamp: Date.now(),',
+        '        });',
+      ].join("\n"),
+      [
+        '        const userMessage = {',
+        '            role: "user",',
+        '            content: userContent,',
+        '            timestamp: Date.now(),',
+        '        };',
+        '        this._axumMarkPromptUser(userMessage);',
+        '        messages.push(userMessage);',
+      ].join("\n"),
+    ],
+  ];
+  for (const [anchor, replacement] of replacements) {
+    if (!content.includes(anchor)) {
+      throw new Error(`unable to patch Pi system prompt refresh: missing ${anchor.trim()}`);
+    }
+    content = content.replace(anchor, replacement);
+  }
+  return `${content}
+// ${PI_SYSTEM_PROMPT_REFRESH_MARKER}
+${installAxumSystemPromptRefresh.toString()}
+`;
+}
 
 export function patchPiBackgroundCompaction(content) {
   const marker = "// AXUM_BACKGROUND_COMPACTION_V1";
@@ -2123,7 +2177,7 @@ export function applyBundledPiPatches(options) {
 
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
   results.push(fs.existsSync(agentSessionPath)
-    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"), patchPiBackgroundCompaction)
+    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"), patchPiBackgroundCompaction, patchPiSystemPromptRefresh)
     : { patched: false, file: agentSessionPath });
 
   const extensionRunnerPath = path.join(piRoot, "dist", "core", "extensions", "runner.js");
