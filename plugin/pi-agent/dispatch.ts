@@ -4,6 +4,7 @@ import { compileOutputSchema, type OutputSchema } from "./structured-output.ts";
 import type { ChildPermissions, ParentToolBridge } from "./permissions.js";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionCommandContext, RunningAgent } from "./shared.js";
+import { appendRegressionGuard } from "./regression-guard.ts";
 
 
 type DispatchAgentParams = {
@@ -65,7 +66,7 @@ export function buildDispatchArgs(params: DispatchAgentParams): string {
 	if (params.squash !== false) flags.push("-s");
 	if (params.model !== undefined && params.model !== "") flags.push("-m", quoteDispatchValue(params.model));
 	if (params.thinking !== undefined && params.thinking !== "") flags.push("--thinking", quoteDispatchValue(params.thinking));
-	return [...flags, params.task].join(" ");
+	return [...flags, appendRegressionGuard(params.task)].join(" ");
 }
 
 /** Prompt the main agent to fan a batch of tasks out through the dispatch_agent tool. */

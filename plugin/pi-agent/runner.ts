@@ -32,6 +32,7 @@ import {
 	getPartialAssistantText, isDispatchDeadlineFailure,
 } from "./final-response.js";
 import { buildPlanPrompt } from "./plan-prompt.js";
+import { appendRegressionGuard } from "./regression-guard.ts";
 import { conversationFingerprint, mainContextFingerprint } from "./rebase.js";
 import { AGENT_PRESETS, buildPresetArgs } from "./presets.js";
 import type {
@@ -527,6 +528,8 @@ export async function startUserAgent(
 	}
 	if (parsed.plan) {
 		parsed.task = await buildPlanPrompt(parsed.task);
+	} else if (parsed.task) {
+		parsed.task = appendRegressionGuard(parsed.task);
 	}
 	if(ledger.generation!==generation || isShuttingDown())throw new Error("Session changed during dispatch preparation");
  ledger.bindHistory(getAgentDir(),ctx.cwd,ctx.sessionManager.getSessionId());

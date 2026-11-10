@@ -46,6 +46,7 @@ import {
 } from "../plugin/pi-companion/kilo-free.ts";
 import { applyFingerprintToChatPayload, describeZenQuotaError } from "../plugin/pi-companion/zen-v2-wire.ts";
 import { enrichModelThinkingLevels, isAxumBaselineLevelMap } from "../plugin/pi-companion/thinking-levels.ts";
+import { REGRESSION_GUARD_CLAUSE } from "../plugin/pi-companion/regression-guard.ts";
 
 // Hermetic tests: the /usemodel opencode + kilo syncs are disabled file-wide;
 // the syncs themselves are covered by the dedicated tests at the bottom.
@@ -156,12 +157,16 @@ function withBareHome(fn) {
   return async () => {
     const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-home-bare-"));
     const previousHome = process.env.HOME;
+    const previousUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
     try {
       await fn();
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+      if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = previousUserProfile;
       fs.rmSync(tmpHome, { recursive: true, force: true });
     }
   };
@@ -181,7 +186,9 @@ test("build command reloads the plan template and rejects invalid or unreadable 
     notifications.length = 0;
     await pi.commands.get("build").handler("  需求  ", ctx);
     if (template?.includes("{{requirement}}")) {
-      assert.deepEqual(pi.messages, [{ message: expected, options: { streamingBehavior: "followUp" } }]);
+      assert.deepEqual(pi.messages, [{ message: `${expected}
+
+${REGRESSION_GUARD_CLAUSE}`, options: { streamingBehavior: "followUp" } }]);
       assert.equal(notifications.length, 0);
     } else {
       assert.equal(pi.messages.length, 0);
@@ -202,6 +209,7 @@ test("build command requests derived outcomes and a real confirmation before imp
   assert.match(pi.messages[0].message, /立即按已确认范围/);
   assert.match(pi.messages[0].message, /实施完成后自动执行项目已有的相关代码测试/);
   assert.match(pi.messages[0].message, /禁止删除、跳过或弱化原有断言/);
+  assert.ok(pi.messages[0].message.includes(REGRESSION_GUARD_CLAUSE));
   assert.match(pi.messages[0].message, /每个测试失败项都提供对应用户 UAT/);
   assert.match(pi.messages[0].message, /前置条件、输入数据、逐步操作、预期结果、实际失败表现及修复状态/);
   assert.match(pi.messages[0].message, /未执行或环境阻断不得写成通过/);
@@ -219,6 +227,16 @@ test("build command rejects empty requirements and cannot be shadowed by templat
   assert.match(notifications[0].message, /请输入需求/);
 }));
 
+test("before_agent_start appends the regression guard without changing the original prompt", async () => {
+  const pi = createPi();
+  const original = "original system prompt";
+  const event = { systemPrompt: original, systemPromptOptions: { appendSystemPrompt: "" } };
+  const result = await emit(pi, "before_agent_start", event, {});
+  assert.ok(result.systemPrompt.startsWith(original));
+  assert.ok(result.systemPrompt.includes(REGRESSION_GUARD_CLAUSE));
+  assert.equal(event.systemPrompt, original);
+});
+
 test("plan command still sends the plan-first prompt", withBareHome(async () => {
   const pi = createPi();
   const { ctx } = createContext();
@@ -232,6 +250,8 @@ test("plan command still sends the plan-first prompt", withBareHome(async () => 
   assert.match(pi.messages[0].message, /我的语气、催促或祈使句不解除规划态/);
   assert.match(pi.messages[0].message, /【终稿契约】/);
   assert.match(pi.messages[0].message, /<proposed_plan>/);
+  assert.ok(pi.messages[0].message.includes(REGRESSION_GUARD_CLAUSE));
+  assert.match(pi.messages[0].message, /代码修改类方案禁止写“无”/);
   // pi's extension API only understands deliverAs; the plan is queued as a follow-up.
   assert.equal(pi.messages[0].options.deliverAs, "followUp");
 }));
@@ -244,17 +264,22 @@ test("plan command uses the user template when ~/.pi/agent/plan-prompt.md exists
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "plan-prompt.md"), "before {{requirement}} after\n", "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 
   try {
     await pi.commands.get("plan").handler("add login", ctx);
 
     assert.ok(pi.messages[0].message.startsWith("before add login after\n"));
+    assert.ok(pi.messages[0].message.includes(REGRESSION_GUARD_CLAUSE));
     assert.equal(pi.messages.length, 1);
     assert.equal(pi.messages[0].options.deliverAs, "followUp");
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -267,7 +292,9 @@ test("plan command notifies when the user template exists but is empty", async (
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "plan-prompt.md"), "   \n", "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 
   try {
     await pi.commands.get("plan").handler("add login", ctx);
@@ -277,6 +304,8 @@ test("plan command notifies when the user template exists but is empty", async (
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -289,7 +318,9 @@ test("plan command notifies when the user template lacks the requirement placeho
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "plan-prompt.md"), "before after\n", "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
 
   try {
     await pi.commands.get("plan").handler("add login", ctx);
@@ -299,6 +330,8 @@ test("plan command notifies when the user template lacks the requirement placeho
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1460,7 +1493,9 @@ test("/usemodel warns when no models are configured", async () => {
   fs.mkdirSync(agentDir, { recursive: true });
   fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({}), "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   const { ctx, notifications } = createModelSwitchContext();
   try {
     await pi.commands.get("usemodel").handler("", ctx);
@@ -1469,6 +1504,8 @@ test("/usemodel warns when no models are configured", async () => {
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1495,7 +1532,9 @@ test("/usemodel lists all models and switches on selection", async () => {
     selectResult: (options) => options.find((o) => o.startsWith("openai/gpt-4")),
   });
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   try {
     await pi.commands.get("usemodel").handler("", ctx);
 
@@ -1520,6 +1559,8 @@ test("/usemodel lists all models and switches on selection", async () => {
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1558,7 +1599,9 @@ test("/usemodel opens the selector preselected on the current model", async () =
     selectResult: () => undefined,
   });
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.equal(selectCalls.length, 1, "should open the selector");
@@ -1566,6 +1609,8 @@ test("/usemodel opens the selector preselected on the current model", async () =
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1583,7 +1628,9 @@ test("/usemodel selects the default-annotated model", async () => {
     selectResult: (options) => options[0],
   });
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.equal(pi.setModelCalls.length, 1);
@@ -1591,6 +1638,8 @@ test("/usemodel selects the default-annotated model", async () => {
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1604,7 +1653,9 @@ test("/usemodel cancels cleanly when the selector is dismissed", async () => {
     providers: { openai: { models: [{ id: "gpt-5" }] } },
   }), "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   const { ctx, notifications } = createModelSwitchContext({
     models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
     selectResult: undefined,
@@ -1616,6 +1667,8 @@ test("/usemodel cancels cleanly when the selector is dismissed", async () => {
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1629,7 +1682,9 @@ test("/usemodel errors when the selected model is missing from the registry", as
     providers: { openai: { models: [{ id: "ghost" }] } },
   }), "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   const { ctx, notifications } = createModelSwitchContext({
     models: [],
     selectResult: (options) => options[0],
@@ -1641,6 +1696,8 @@ test("/usemodel errors when the selected model is missing from the registry", as
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1654,7 +1711,9 @@ test("/usemodel reloads models.json so providers added by other processes become
     providers: { maxx: { models: [{ id: "grok-4.6", default: true }] } },
   }), "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   // registry holds the startup snapshot: the provider is still unknown until refresh lands
   const deferred = [{ provider: "maxx", id: "grok-4.6", name: "grok-4.6" }];
   const { ctx, notifications } = createModelSwitchContext({
@@ -1678,6 +1737,8 @@ test("/usemodel reloads models.json so providers added by other processes become
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1691,7 +1752,9 @@ test("/usemodel surfaces registry reload failures instead of silently proceeding
     providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
   }), "utf8");
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   const { ctx, notifications } = createModelSwitchContext({
     models: [{ provider: "openai", id: "gpt-5", name: "gpt-5" }],
     selectResult: (options) => options[0],
@@ -1704,6 +1767,8 @@ test("/usemodel surfaces registry reload failures instead of silently proceeding
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -1728,12 +1793,16 @@ function withTempCtxHome(prefix, fn) {
     const agentDir = path.join(tmpHome, ".pi", "agent");
     fs.mkdirSync(agentDir, { recursive: true });
     const previousHome = process.env.HOME;
+    const previousUserProfile = process.env.USERPROFILE;
     process.env.HOME = tmpHome;
+    process.env.USERPROFILE = tmpHome;
     try {
       await fn(agentDir);
     } finally {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
+      if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = previousUserProfile;
       fs.rmSync(tmpHome, { recursive: true, force: true });
     }
   };
@@ -2238,6 +2307,7 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
     selectResult: (options) => options[0],
   });
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   const previousFetch = globalThis.fetch;
   const pendingFetches = [];
   globalThis.fetch = (url) => {
@@ -2249,6 +2319,7 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
     return new Promise((resolve) => pendingFetches.push(() => resolve(response)));
   };
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
   try {
     await pi.commands.get("usemodel").handler("", ctx);
@@ -2281,6 +2352,8 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
     process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });
@@ -2299,7 +2372,9 @@ test("/usemodel merges the curated zen floor offline and pins user providers fir
     selectResult: (options) => options[0],
   });
   const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
   delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
   process.env.PI_COMPANION_ZEN_OFFLINE = "1";
   try {
@@ -2319,6 +2394,8 @@ test("/usemodel merges the curated zen floor offline and pins user providers fir
     delete process.env.PI_COMPANION_ZEN_OFFLINE;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
 });

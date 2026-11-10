@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { appendRegressionGuard } from "./regression-guard.ts";
 
 // Built-in plan prompt skeleton — mirrors pi-companion's /plan fallback exactly and must stay
 // in sync with ~/.pi/agent/plan-prompt.md so /agent -P and /plan produce identical prompts when
@@ -32,7 +33,7 @@ const PLAN_PROMPT_MIDDLE = `
 3. 计数上限：方案≤5、步骤≤7、UAT≤5、待确认≤3；不设总字数上限，以信息密度与可交接性为准。
 4. 结构统一，标题与内容对应；增减内容同步改标题。
 5. 方案选项≥3（A/B/C/D），每项只写[达成效果]与[预期结果]；推荐1项并简说理由。
-6. 防回归：所有选项不得破坏已有功能；有回归写【风险点、验证方法、恢复方案】；无则写“无”。`;
+6. 防回归：所有选项不得破坏已有功能；代码修改类方案禁止写“无”，必须给出【风险点、验证方法、恢复方案】。`;
 const PLAN_PROMPT_SUFFIX = `
 
 【终稿契约】
@@ -42,7 +43,7 @@ const PLAN_PROMPT_SUFFIX = `
    2. 现实差距：一句话。
    3. 方案定稿：≤5条。
    4. 执行步骤：≤7步。
-   5. 回归防线：风险点/验证方法/恢复方案；无则“无”。
+   5. 回归防线：代码修改类方案禁止写“无”，必须给出风险点/验证方法/恢复方案。
    6. UAT指南：用户操作步骤/通过标准；≤5步。
    7. 待确认：≤3项；每项至少2选项（A/B），只写[达成效果]与[预期结果]；无则“无”。
 3. 块外不问“是否继续”、不追加推销；我直接说“开始写”即进入实施。`;
@@ -59,7 +60,7 @@ export async function buildPlanPrompt(
 	templatePath: string = planTemplatePath(),
 ): Promise<string> {
 	if (!existsSync(templatePath)) {
-		return PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX;
+		return appendRegressionGuard(PLAN_PROMPT_PREFIX + requirement + PLAN_PROMPT_MIDDLE + PLAN_PROMPT_SUFFIX);
 	}
 	const template = await readFile(templatePath, "utf8");
 	if (!template.trim()) {
@@ -70,5 +71,5 @@ export async function buildPlanPrompt(
 			`Plan prompt template must include ${PLAN_PROMPT_REQUIREMENT_PLACEHOLDER}: ${templatePath}`,
 		);
 	}
-	return template.replaceAll(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER, requirement);
+	return appendRegressionGuard(template.replaceAll(PLAN_PROMPT_REQUIREMENT_PLACEHOLDER, requirement));
 }

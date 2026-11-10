@@ -12,6 +12,7 @@
     "opencode-zen.ts",
     "thinking-levels.ts",
     "vision-fallback.ts",
+    "regression-guard.ts",
     "zen-v2-wire.ts",
     "LICENSE",
     "config.json",

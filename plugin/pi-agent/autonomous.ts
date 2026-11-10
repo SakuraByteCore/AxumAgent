@@ -1,4 +1,5 @@
 import type { ExtensionAPI } from "./shared.js";
+import { appendRegressionGuard } from "./regression-guard.ts";
 
 /** Policy is advice to the model, not a host-side scheduler or permission grant. */
 export function buildAutonomousPolicy(dispatchAvailable: boolean): string {
@@ -18,6 +19,6 @@ export function buildAutonomousPolicy(dispatchAvailable: boolean): string {
 
 export function registerAutonomousPolicy(pi: ExtensionAPI): void {
 	pi.on("before_agent_start", (event) => ({
-		systemPrompt: event.systemPrompt + "\n\n" + buildAutonomousPolicy(pi.getActiveTools().includes("dispatch_agent")),
+		systemPrompt: appendRegressionGuard(event.systemPrompt + "\n\n" + buildAutonomousPolicy(pi.getActiveTools().includes("dispatch_agent"))),
 	}));
 }
