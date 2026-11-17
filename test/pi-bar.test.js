@@ -1,3 +1,6 @@
+import vm from "node:vm";
+import { EventEmitter } from "node:events";
+import { stripTypeScriptTypes } from "node:module";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
@@ -215,13 +218,13 @@ test("emitThinking shows the current reasoning strength at all times", () => {
   const body = statuslineSource.match(/function emitThinking[\s\S]*?\n\t}/)?.[0] ?? "";
   assert.match(sessionBody, /ctx\.sessionManager\.getBranch\(\)/);
   assert.match(sessionBody, /thinking_level_change/);
-  assert.match(body, /sessionThinkingLevel\(ctx\) \?\? ctx\.thinkingLevel \?\? "off"/);
+  assert.match(body, /pi\.getThinkingLevel\?\.\(\) \?\? announcedLevel \?\? ctx\.thinkingLevel \?\? sessionThinkingLevel\(ctx\) \?\? "off"/);
   assert.match(body, /emitBarUpdate\(\{ id: "thinking", text: level/);
   assert.doesNotMatch(body, /text: undefined/);
   // The thinking_level_select event refreshes the pill; model_select and
   // session_start also probe ctx.thinkingLevel so a stale pill never lingers
   // when the model switch resets thinking to "off".
-  assert.match(statuslineSource, /pi\.on\("thinking_level_select"[\s\S]*?emitThinking\(ctx\)/);
+  assert.match(statuslineSource, /pi\.on\("thinking_level_select"[\s\S]*?emitThinking\(ctx, event\.level\)[\s\S]*?flushIfDirty\(\)/);
   assert.match(statuslineSource, /emitThinking\(ctx\)/);
 });
 
@@ -684,4 +687,63 @@ test("t/s stays unknown when the provider reports no streaming usage", async (t)
 	// The provider reports the real output only at the end of the request.
 	await call("message_end", { role: "assistant", timestamp: 1000, usage: { output: 120 }, stopReason: "stop" });
 	assert.equal(labels.at(-1), `${(120 / ((now - 1000) / 1000)).toFixed(1)} t/s`);
+});
+
+
+function thinkingBarFixture() {
+  const parts = ["sessionThinkingLevel", "emitThinking", "flushIfDirty"].map(name => {
+    const match = statuslineSource.match(new RegExp(`function ${name}[^]*?\\n\\t}`));
+    assert.ok(match, `missing runtime function ${name}`);
+    return match[0];
+  });
+  const listener = statuslineSource.match(/pi\.events\.on\("pi-companion:thinking-changed"[^]*?\n\t}\);/);
+  assert.ok(listener, "missing live thinking listener");
+  const updates = [];
+  const bus = new EventEmitter();
+  let level = "high";
+  let renders = 0;
+  const ctx = { model: { provider: "alpha", id: "test-model" }, thinkingLevel: "medium",
+    sessionManager: { getBranch: () => [{ type: "thinking_level_change", thinkingLevel: "low" }] } };
+  const sandbox = { pi: { events: bus, getThinkingLevel: () => level }, currentCtx: ctx, dirty: false,
+    emitBarUpdate: (value) => { updates.push(value); sandbox.dirty = true; },
+    refresh: () => { renders++; sandbox.dirty = false; },
+  };
+  vm.runInNewContext(stripTypeScriptTypes(parts.join("\n") + "\n" + listener[0]), sandbox);
+  return { sandbox, updates, ctx, bus, setLevel: value => { level = value; }, renders: () => renders };
+}
+
+test("thinking pill prioritizes live SDK state and retains old context/history fallbacks", () => {
+  const f = thinkingBarFixture();
+  f.sandbox.emitThinking(f.ctx);
+  assert.equal(f.updates.at(-1).text, "high", "current runtime beats stale context and history");
+  f.setLevel("off");
+  f.sandbox.emitThinking(f.ctx, "max");
+  assert.equal(f.updates.at(-1).text, "off", "SDK effective value beats announced request value");
+  delete f.sandbox.pi.getThinkingLevel;
+  f.sandbox.emitThinking(f.ctx, "xhigh");
+  assert.equal(f.updates.at(-1).text, "xhigh");
+  f.sandbox.emitThinking(f.ctx);
+  assert.equal(f.updates.at(-1).text, "medium");
+  delete f.ctx.thinkingLevel;
+  f.sandbox.emitThinking(f.ctx);
+  assert.equal(f.updates.at(-1).text, "low");
+  f.ctx.sessionManager.getBranch = () => [];
+  f.sandbox.emitThinking(f.ctx);
+  assert.equal(f.updates.at(-1).text, "off");
+});
+
+test("live thinking signal synchronously refreshes only the current model and provider", () => {
+  const f = thinkingBarFixture();
+  const event = { provider: "alpha", model: "test-model", level: "max" };
+  f.setLevel("xhigh");
+  f.bus.emit("pi-companion:thinking-changed", event);
+  assert.equal(f.updates.at(-1).text, "xhigh");
+  assert.equal(f.renders(), 1, "redraw completes inside emit, without a new turn");
+  f.bus.emit("pi-companion:thinking-changed", { ...event, provider: "beta" });
+  f.bus.emit("pi-companion:thinking-changed", { ...event, model: "other-model" });
+  assert.equal(f.updates.length, 1);
+  assert.equal(f.renders(), 1);
+  f.sandbox.currentCtx = undefined;
+  f.bus.emit("pi-companion:thinking-changed", event);
+  assert.equal(f.renders(), 1, "shutdown cannot redraw stale state");
 });

@@ -12,6 +12,8 @@ import { registerAgentUi } from "./agentui.ts";
 import { enrichModelThinkingLevels } from "./thinking-levels.ts";
 import { registerVisionFallback } from "./vision-fallback.ts";
 import { appendRegressionGuard } from "./regression-guard.ts";
+import { registerProviderOutputTokens } from "./provider-output-tokens.ts";
+import { registerLiveModelThinking } from "./model-thinking-live.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -1276,6 +1278,8 @@ function buildClaudePrompt(requirement: string, skill: string): string {
 // ── /clear ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
+	registerProviderOutputTokens(pi);
+	registerLiveModelThinking(pi);
 	pi.on("before_agent_start", (event) => ({
 		systemPrompt: appendRegressionGuard(event.systemPrompt),
 	}));

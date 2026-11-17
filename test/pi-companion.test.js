@@ -101,6 +101,7 @@ function createPi() {
   const emitted = [];
   const setModelCalls = [];
   const setThinkingLevelCalls = [];
+  let thinkingLevel = "high";
   const registeredProviders = new Map();
   const pi = {
     commands,
@@ -116,7 +117,8 @@ function createPi() {
     },
     getModel() { return undefined; },
     setThinkingLevelCalls,
-    setThinkingLevel(level) { setThinkingLevelCalls.push(level); },
+    setThinkingLevel(level) { thinkingLevel = level; setThinkingLevelCalls.push(level); },
+    getThinkingLevel() { return thinkingLevel; },
     setModelCalls,
     setModel(model) {
       setModelCalls.push(model);
@@ -2906,4 +2908,53 @@ test("thinking-level enrichment republishes pi's frozen map instead of writing i
 	// A frozen model object cannot take a replacement map either: skip it.
 	const frozenModel = Object.freeze({ id: "ss2api/z-ai/glm-5.3", api: "openai-completions", reasoning: true, thinkingLevelMap: { off: null, minimal: "minimal", low: "low", medium: "medium", high: "high" } });
 	assert.equal(enrichModelThinkingLevels(frozenModel), false);
+});
+
+
+test("companion registers request refresh using the configured agent directory", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-output-cap-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const model = { provider: "alpha", id: "test", contextWindow: 100000, maxTokens: 2048 };
+  const pi = createPi();
+  for (const limit of [4096, 8192]) {
+    fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ providers: { alpha: { maxTokens: limit } } }));
+    await emit(pi, "context", { messages: [] }, { model });
+    assert.equal(model.maxTokens, limit);
+    assert.equal(model.contextWindow, 100000);
+  }
+});
+
+test("managed catalog refresh preserves provider output limits for existing and new models", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-catalog-output-cap-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "models.json");
+  fs.writeFileSync(file, JSON.stringify({ providers: {
+    opencode: { baseUrl: ZEN_CHAT_BASE_URL, maxTokens: 4096, models: [{ id: "test", reasoningEffort: "low", reasoning: true, thinkingLevelMap: { low: "low", high: "high" } }] },
+    kilo: { baseUrl: KILO_CHAT_BASE_URL, maxTokens: 90000, models: [{ id: "test", contextWindow: 10000, reasoningEffort: "off", reasoning: true }] },
+  } }));
+  const zen = [{ id: "test", contextWindow: 100000, maxTokens: 32000 }, { id: "new", contextWindow: 200000 }];
+  const kilo = [buildKiloModelInfo("test", { contextWindow: 200000, maxTokens: 100000 }),
+    buildKiloModelInfo("new", { contextWindow: 200000, maxTokens: 100000 })];
+  await mergeZenProvider(file, zen);
+  await mergeKiloProvider(file, kilo);
+  const { providers } = JSON.parse(fs.readFileSync(file, "utf8"));
+  assert.equal(providers.opencode.maxTokens, 4096);
+  assert.deepEqual(providers.opencode.models.map(m => m.maxTokens), [4096, 4096]);
+  assert.equal(providers.kilo.maxTokens, 90000);
+  assert.deepEqual(providers.kilo.models.map(m => m.maxTokens), [5000, 90000]);
+  assert.equal(providers.kilo.models[0].contextWindow, 10000);
+  assert.equal(providers.opencode.models[0].reasoningEffort, "low");
+  assert.deepEqual(providers.opencode.models[0].thinkingLevelMap, { low: "low", high: "high" });
+  assert.equal(providers.kilo.models[0].reasoningEffort, "off");
+  assert.equal(providers.kilo.models[0].reasoning, true);
+  assert.equal(providers.opencode.models[1].reasoningEffort, undefined);
+  assert.equal(providers.kilo.models[1].reasoningEffort, undefined);
+  assert.equal(await mergeZenProvider(file, zen), false);
+  assert.equal(await mergeKiloProvider(file, kilo), false);
 });

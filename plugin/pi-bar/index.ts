@@ -1897,8 +1897,8 @@ export default function (pi: ExtensionAPI): void {
 		return undefined;
 	}
 
-	function emitThinking(ctx: ExtensionContext): void {
-		const level = sessionThinkingLevel(ctx) ?? ctx.thinkingLevel ?? "off";
+	function emitThinking(ctx: ExtensionContext, announcedLevel?: string): void {
+		const level = pi.getThinkingLevel?.() ?? announcedLevel ?? ctx.thinkingLevel ?? sessionThinkingLevel(ctx) ?? "off";
 		emitBarUpdate({ id: "thinking", text: level, color: "text" });
 	}
 
@@ -2212,8 +2212,9 @@ export default function (pi: ExtensionAPI): void {
 		void emitBalance(ctx);
 	});
 
-	pi.on("thinking_level_select", async (_event, ctx) => {
-		emitThinking(ctx);
+	pi.on("thinking_level_select", async (event, ctx) => {
+		emitThinking(ctx, event.level);
+		flushIfDirty();
 	});
 
 	pi.on("agent_start", async (_event, ctx) => {
@@ -2277,6 +2278,12 @@ export default function (pi: ExtensionAPI): void {
 	// pi-companion's /ctx rewrites model.contextWindow in place — no setModel,
 	// no lifecycle event — so it announces the change on the shared bus; the
 	// bar recomputes its context pills within the same command tick.
+	pi.events.on("pi-companion:thinking-changed", (event: { provider: string; model: string; level: string }) => {
+		if (!currentCtx?.model || event.provider !== currentCtx.model.provider || event.model !== currentCtx.model.id) return;
+		emitThinking(currentCtx, event.level);
+		flushIfDirty();
+	});
+
 	pi.events.on("pi-companion:context-changed", () => {
 		if (currentCtx) emitContext(currentCtx);
 	});

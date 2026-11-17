@@ -284,7 +284,7 @@ test("axum chat exits 1 with a clear error when the pi-web bin is missing", () =
 });
 function writePiEnvProbeCache(cache, envFile) {
   writePackage(cache, "@earendil-works/pi-coding-agent", {
-    "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ compileCache: process.env.NODE_COMPILE_CACHE ?? null }));`,
+    "dist/cli.js": `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify({ compileCache: process.env.NODE_COMPILE_CACHE ?? null, explicitThinking: process.env.AXUM_EXPLICIT_THINKING ?? null, args: process.argv.slice(2) }));`,
     "dist/utils/pi-user-agent.js": PI_USER_AGENT_VERSIONED_UPSTREAM,
     "dist/utils/tools-manager.js": "export async function ensureTool() { return undefined; }\n",
   });
@@ -686,4 +686,30 @@ test("install rejects retired pi-subagents before touching configuration", () =>
   const result = run(["install", "pi-subagents@0.74.0"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr + result.stdout, /pi-subagents is disabled; use dispatch_agent/);
+});
+
+
+test("axum distinguishes explicit thinking from injected defaults for live settings", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-cli-thinking-origin-"));
+  try {
+    const agentDir = path.join(dir, "agent");
+    const cache = path.join(dir, "cache");
+    const envFile = path.join(dir, "env.json");
+    writePiEnvProbeCache(cache, envFile);
+    writeAgentSettings(agentDir);
+    for (const args of [["--help"], ["--thinking", "low", "--help"], ["--thinking=off", "--help"]]) {
+      const result = spawnSync(process.execPath, ["bin/axum.js", "code", ...args], {
+        encoding: "utf8", timeout: 30000,
+        env: writeWin32TestEnv(process.env, { AXUM_BUNDLED_PI_DIR: cache, PI_CODING_AGENT_DIR: agentDir, AXUM_EXPLICIT_THINKING: "inherited" }),
+      });
+      assert.equal(result.status, 0, result.stderr);
+      const probe = JSON.parse(fs.readFileSync(envFile, "utf8"));
+      const isExplicit = args.length > 1;
+      assert.equal(probe.explicitThinking, isExplicit ? "1" : "0");
+      assert.equal(probe.args.filter(arg => arg === "--thinking" || arg.startsWith("--thinking=")).length, 1);
+      assert.deepEqual(probe.args.slice(-args.length), args);
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

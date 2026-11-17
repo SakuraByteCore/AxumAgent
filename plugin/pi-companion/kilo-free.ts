@@ -380,7 +380,26 @@ export async function mergeKiloProvider(modelsJsonPath: string, models: KiloMode
 		const maxTokens = capKiloMaxTokens(pinned, m.maxTokens);
 		return maxTokens === undefined ? { ...m, contextWindow: pinned } : { ...m, contextWindow: pinned, maxTokens };
 	});
-	const next = { ...config, providers: { ...providers, [KILO_PROVIDER_ID]: buildKiloProviderBlock(mergedModels) } };
+	const block = buildKiloProviderBlock(mergedModels);
+	if (current?.maxTokens !== undefined) {
+		block.maxTokens = current.maxTokens;
+		if (typeof current.maxTokens === "number" && Number.isSafeInteger(current.maxTokens) && current.maxTokens > 0) {
+			const maxTokens = current.maxTokens;
+			block.models = mergedModels.map((model) => ({ ...model, maxTokens: capKiloMaxTokens(model.contextWindow, maxTokens) }));
+		}
+	}
+	// Catalog refreshes preserve user-owned per-model thinking settings.
+	if (Array.isArray(block.models) && Array.isArray(current?.models)) {
+		const previous = new Map(current.models.filter(isRecord).map(model => [model.id, model]));
+		block.models = block.models.map((model: unknown) => {
+			if (!isRecord(model)) return model;
+			const saved = previous.get(model.id);
+			if (!saved || (saved.reasoningEffort === undefined && saved.thinkingLevel === undefined)) return model;
+			const fields = ["reasoningEffort", "thinkingLevel", "reasoning", "thinkingLevelMap"];
+			return { ...model, ...Object.fromEntries(fields.filter(key => Object.hasOwn(saved, key)).map(key => [key, saved[key]])) };
+		});
+	}
+	const next = { ...config, providers: { ...providers, [KILO_PROVIDER_ID]: block } };
 	if (JSON.stringify(next) === JSON.stringify(config)) return false;
 	await atomicWriteJson(modelsJsonPath, next);
 	return true;

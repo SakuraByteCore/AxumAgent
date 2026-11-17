@@ -543,7 +543,9 @@ async function runPi(passthrough) {
   // pi 在启动界面会对未通知的崩溃记录弹出 "pi crashed on ..." 告警；启动前
   // 先把它们归档到 axum-crashes.json 并标记为已通知，用户不再看到该告警。
   archivePendingCrashes(getAgentDir(bundledPiOptions.env));
-  const child = spawn(process.execPath, args, { stdio: "inherit", env: buildPiEnv(compileCacheDir) });
+  const childEnv = buildPiEnv(compileCacheDir);
+  childEnv.AXUM_EXPLICIT_THINKING = hasArg(piArgs, "--thinking") ? "1" : "0";
+  const child = spawn(process.execPath, args, { stdio: "inherit", env: childEnv });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);
     process.exit(code ?? 1);

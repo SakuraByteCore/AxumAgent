@@ -216,6 +216,14 @@ function normalizeApiForm(value) {
   return id;
 }
 
+function providerTokenLimit(value) {
+  const limit = Number(value);
+  if (!Number.isSafeInteger(limit) || limit <= 0 || (typeof value !== "number" && typeof value !== "string")) {
+    throw new Error("Max output tokens must be a positive integer");
+  }
+  return limit;
+}
+
 export function buildProvider(options) {
   const api = normalizeApiForm(options.api);
   const providerReasoningEffort = normalizeThinkingLevel(options.reasoningEffort ?? options.thinkingLevel);
@@ -225,6 +233,11 @@ export function buildProvider(options) {
     api,
     models: modelConfigs,
   };
+
+  if (options.providerMaxTokens !== undefined) {
+    provider.maxTokens = providerTokenLimit(options.providerMaxTokens);
+    for (const model of modelConfigs) model.maxTokens = provider.maxTokens;
+  }
 
   if (options.apiKeyEnv) provider.apiKey = `$${options.apiKeyEnv}`;
   else if (String(options.apiKey || "").trim()) provider.apiKey = String(options.apiKey).trim();
@@ -296,6 +309,18 @@ export function cloneProvider(name, file = getModelsPath()) {
   return { file, name: cloneName, source: trimmed, provider: config.providers[cloneName] };
 }
 
+export function saveProviderMaxTokens(selection, file = getModelsPath()) {
+  const name = String(selection.provider || "").trim();
+  const maxTokens = providerTokenLimit(selection.maxTokens);
+  const config = loadModelsConfig(file);
+  if (!Object.hasOwn(config.providers, name)) throw new Error(`Provider "${name}" does not exist`);
+  const provider = config.providers[name];
+  provider.maxTokens = maxTokens;
+  for (const model of provider.models || []) model.maxTokens = maxTokens;
+  saveModelsConfig(config, file);
+  return { provider: name, maxTokens, file };
+}
+
 export function deleteProvider(name, file = getModelsPath()) {
   const trimmed = String(name || "").trim();
   if (!trimmed) return { file, name: "", deleted: false };
@@ -325,6 +350,7 @@ export function listProviders(file = getModelsPath(), options = {}) {
       id,
       api: provider.api || "",
       baseUrl: provider.baseUrl || "",
+      ...(provider.maxTokens !== undefined ? { maxTokens: provider.maxTokens } : {}),
       models: models.map((model) => model.id),
       modelConfigs: models.map((model) => ({
         id: model.id,

@@ -9,6 +9,8 @@
     "agentui.ts",
     "kilo-free.ts",
     "model-switch.ts",
+    "model-thinking-live.ts",
+    "provider-output-tokens.ts",
     "opencode-zen.ts",
     "thinking-levels.ts",
     "vision-fallback.ts",
