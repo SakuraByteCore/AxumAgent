@@ -6,6 +6,21 @@ import path from "node:path";
 import test from "node:test";
 import { startProviderWeb } from "../src/provider-web.js";
 
+async function readWebToken(url) {
+  const html = await (await fetch(url)).text();
+  return JSON.parse(html.match(/const token=("(?:[^"\\]|\\.)*")/)[1]);
+}
+
+function webFetch(input, options = {}) {
+  const url = new URL(input);
+  const headers = new Headers(options.headers);
+  if (url.searchParams.has("token")) {
+    headers.set("x-axum-token", url.searchParams.get("token"));
+    url.searchParams.delete("token");
+  }
+  return fetch(url, { ...options, headers });
+}
+
 test("provider web fetches models and saves default config", async () => {
   const agentDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-agent-"));
   const previous = process.env.PI_CODING_AGENT_DIR;
@@ -25,9 +40,9 @@ test("provider web fetches models and saves default config", async () => {
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
-    const modelsRes = await fetch(`${base}/api/models?token=${token}`, {
+    const modelsRes = await webFetch(`${base}/api/models?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key" }),
@@ -35,7 +50,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(modelsRes.status, 200);
     assert.deepEqual((await modelsRes.json()).models, ["mock-a", "mock-b"]);
 
-    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const saveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-b", name: "localmock", maxTokens: 64000, reasoningEffort: "medium" }),
@@ -51,18 +66,18 @@ test("provider web fetches models and saves default config", async () => {
     const settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.deepEqual(settingsJson, { defaultProvider: "localmock", defaultModel: "mock-b", defaultThinkingLevel: "medium" });
 
-    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    const configRes = await webFetch(`${base}/api/config?token=${token}`);
     assert.equal(configRes.status, 200);
     const configJson = await configRes.json();
     assert.equal(configJson.defaultProvider, "localmock");
     assert.equal(configJson.defaultModel, "mock-b");
     assert.equal(configJson.defaultThinkingLevel, "medium");
     assert.deepEqual(configJson.providers[0].models, ["mock-b"]);
-    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 128000, maxTokens: 64000, reasoning: true, default: true }]);
+    assert.deepEqual(configJson.providers[0].modelConfigs, [{ id: "mock-b", contextWindow: 128000, maxTokens: 64000, reasoning: true, reasoningEffort: "medium", default: true }]);
     assert.equal(configJson.providers[0].hasApiKey, true);
     assert.equal(configJson.providers[0].apiKey, "test-key");
 
-    const defaultHighSaveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const defaultHighSaveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", originalName: "localmock", maxTokens: 32000 }),
@@ -70,19 +85,19 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(defaultHighSaveRes.status, 200);
     const defaultHighSettingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(defaultHighSettingsJson.defaultThinkingLevel, "high");
-    const defaultHighConfigRes = await fetch(`${base}/api/config?token=${token}`);
+    const defaultHighConfigRes = await webFetch(`${base}/api/config?token=${token}`);
     assert.equal(defaultHighConfigRes.status, 200);
     const defaultHighConfigJson = await defaultHighConfigRes.json();
     assert.equal(defaultHighConfigJson.defaultModel, "mock-a");
     assert.equal(defaultHighConfigJson.defaultThinkingLevel, "high");
 
-    const promptRes = await fetch(`${base}/api/system-prompt?token=${token}&scope=global&mode=append`);
+    const promptRes = await webFetch(`${base}/api/system-prompt?token=${token}&scope=global&mode=append`);
     assert.equal(promptRes.status, 200);
     const promptJson = await promptRes.json();
     assert.equal(promptJson.path, path.join(agentDir, "APPEND_SYSTEM.md"));
     assert.equal(promptJson.content, "");
 
-    const diffRes = await fetch(`${base}/api/system-prompt/diff?token=${token}`, {
+    const diffRes = await webFetch(`${base}/api/system-prompt/diff?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scope: "global", mode: "append", content: "Be useful.\n", baseHash: promptJson.hash }),
@@ -90,7 +105,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(diffRes.status, 200);
     assert.match((await diffRes.json()).diff, /\+Be useful\./);
 
-    const savePromptRes = await fetch(`${base}/api/system-prompt/save?token=${token}`, {
+    const savePromptRes = await webFetch(`${base}/api/system-prompt/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ scope: "global", mode: "append", content: "Be useful.\n", baseHash: promptJson.hash }),
@@ -99,7 +114,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(fs.readFileSync(path.join(agentDir, "APPEND_SYSTEM.md"), "utf8"), "Be useful.\n");
 
 
-    const invalidTokenSaveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const invalidTokenSaveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "test-key", model: "mock-a", name: "localmock", maxTokens: 0 }),
@@ -107,7 +122,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(invalidTokenSaveRes.status, 400);
     assert.match((await invalidTokenSaveRes.json()).error, /Max output tokens must be a positive number/);
 
-    const blankSaveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const blankSaveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "", model: "mock-a", name: "localmock" }),
@@ -115,7 +130,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(blankSaveRes.status, 400);
     assert.match((await blankSaveRes.json()).error, /API Key is required/);
 
-    const blankModelsRes = await fetch(`${base}/api/models?token=${token}`, {
+    const blankModelsRes = await webFetch(`${base}/api/models?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: `http://127.0.0.1:${mockPort}/v1`, apiKey: "" }),
@@ -123,7 +138,7 @@ test("provider web fetches models and saves default config", async () => {
     assert.equal(blankModelsRes.status, 400);
     assert.match((await blankModelsRes.json()).error, /API Key is required/);
 
-    const settingsRes = await fetch(`${base}/api/settings?token=${token}`);
+    const settingsRes = await webFetch(`${base}/api/settings?token=${token}`);
     assert.equal(settingsRes.status, 200);
     const settingsPreviewJson = await settingsRes.json();
     assert.equal(settingsPreviewJson.exists, true);
@@ -158,10 +173,10 @@ test("provider web saves multiple models with a default marker", async () => {
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const saveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -191,7 +206,7 @@ test("provider web saves multiple models with a default marker", async () => {
     assert.equal(settingsJson.defaultProvider, "multimock");
     assert.equal(settingsJson.defaultModel, "mock-b");
 
-    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    const configRes = await webFetch(`${base}/api/config?token=${token}`);
     assert.equal(configRes.status, 200);
     const configJson = await configRes.json();
     assert.equal(configJson.defaultModel, "mock-b");
@@ -224,11 +239,11 @@ test("provider web edit preserves each model's on-disk contextWindow", async () 
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
     const modelsFile = path.join(agentDir, "models.json");
 
-    const createRes = await fetch(`${base}/api/save?token=${token}`, {
+    const createRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -250,7 +265,7 @@ test("provider web edit preserves each model's on-disk contextWindow", async () 
     fs.writeFileSync(modelsFile, JSON.stringify(modelsJson, null, 2), "utf8");
 
     // re-saving the same provider (the payload carries no contextWindow) must not reset it
-    const editRes = await fetch(`${base}/api/save?token=${token}`, {
+    const editRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -279,10 +294,10 @@ test("provider web edit preserves each model's on-disk contextWindow", async () 
 test("provider web rejects oversized request bodies and invalid base URLs", async () => {
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const oversized = await fetch(`${base}/api/save?token=${token}`, {
+    const oversized = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: `{"pad":"${"x".repeat(5 * 1024 * 1024)}"}`,
@@ -290,7 +305,7 @@ test("provider web rejects oversized request bodies and invalid base URLs", asyn
     assert.equal(oversized.status, 400);
     assert.match((await oversized.json()).error, /Request body too large/);
 
-    const badUrl = await fetch(`${base}/api/save?token=${token}`, {
+    const badUrl = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl: "not a url", apiKey: "k", model: "m" }),
@@ -325,24 +340,24 @@ test("provider web deletes a provider and switches the default", async () => {
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
     const baseUrl = `http://127.0.0.1:${mockPort}/v1`;
 
-    const saveA = await fetch(`${base}/api/save?token=${token}`, {
+    const saveA = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl, apiKey: "test-key", name: "alpha", model: "mock-a", reasoningEffort: "high" }),
     });
     assert.equal(saveA.status, 200);
-    const saveB = await fetch(`${base}/api/save?token=${token}`, {
+    const saveB = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ baseUrl, apiKey: "test-key", name: "beta", model: "mock-a", reasoningEffort: "medium" }),
     });
     assert.equal(saveB.status, 200);
 
-    const defaultRes = await fetch(`${base}/api/providers/default?token=${token}`, {
+    const defaultRes = await webFetch(`${base}/api/providers/default?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "alpha", model: "mock-a", thinkingLevel: "low" }),
@@ -352,7 +367,7 @@ test("provider web deletes a provider and switches the default", async () => {
     assert.equal(settingsJson.defaultProvider, "alpha");
     assert.equal(settingsJson.defaultThinkingLevel, "low");
 
-    const deleteRes = await fetch(`${base}/api/providers/delete?token=${token}`, {
+    const deleteRes = await webFetch(`${base}/api/providers/delete?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "alpha" }),
@@ -366,7 +381,7 @@ test("provider web deletes a provider and switches the default", async () => {
     settingsJson = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(settingsJson.defaultProvider, undefined);
 
-    const missingRes = await fetch(`${base}/api/providers/delete?token=${token}`, {
+    const missingRes = await webFetch(`${base}/api/providers/delete?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "ghost" }),
@@ -399,10 +414,10 @@ test("provider web exposes new-provider entry and keeps both providers after a s
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const pageRes = await fetch(`${base}/?token=${token}`);
+    const pageRes = await webFetch(`${base}/?token=${token}`);
     assert.equal(pageRes.status, 200);
     const pageHtml = await pageRes.text();
     assert.ok(pageHtml.includes('id="newProvider"'));
@@ -430,14 +445,14 @@ test("provider web exposes new-provider entry and keeps both providers after a s
       maxTokens: 32000,
       reasoningEffort: "high",
     };
-    const firstRes = await fetch(`${base}/api/save?token=${token}`, {
+    const firstRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(saveBody),
     });
     assert.equal(firstRes.status, 200);
 
-    const secondRes = await fetch(`${base}/api/save?token=${token}`, {
+    const secondRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ ...saveBody, name: "secondmock" }),
@@ -449,7 +464,7 @@ test("provider web exposes new-provider entry and keeps both providers after a s
     assert.ok(modelsJson.providers.secondmock);
     assert.deepEqual(modelsJson.providers.secondmock.models.map((m) => m.id), ["mock-a"]);
 
-    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    const configRes = await webFetch(`${base}/api/config?token=${token}`);
     assert.equal(configRes.status, 200);
     const configJson = await configRes.json();
     assert.equal(configJson.providers.length, 2);
@@ -477,20 +492,20 @@ test("provider web session read endpoint paginates and exposes structured tool p
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const listRes = await fetch(`${base}/api/sessions?token=${token}`);
+    const listRes = await webFetch(`${base}/api/sessions?token=${token}`);
     assert.equal(listRes.status, 200);
     assert.equal((await listRes.json()).projects[0].sessions[0].id, "s1");
 
-    const fullRes = await fetch(`${base}/api/sessions/read?token=${token}&file=${encodeURIComponent("proj/a.jsonl")}`);
+    const fullRes = await webFetch(`${base}/api/sessions/read?token=${token}&file=${encodeURIComponent("proj/a.jsonl")}`);
     assert.equal(fullRes.status, 200);
     const fullJson = await fullRes.json();
     assert.equal(fullJson.total, 2);
     assert.equal(fullJson.messages[0].toolUse, "bash");
 
-    const pagedRes = await fetch(`${base}/api/sessions/read?token=${token}&file=${encodeURIComponent("proj/a.jsonl")}&skip=1`);
+    const pagedRes = await webFetch(`${base}/api/sessions/read?token=${token}&file=${encodeURIComponent("proj/a.jsonl")}&skip=1`);
     assert.equal(pagedRes.status, 200);
     const pagedJson = await pagedRes.json();
     assert.equal(pagedJson.skip, 1);
@@ -507,9 +522,9 @@ test("provider web session read endpoint paginates and exposes structured tool p
 test("provider web page emits a parseable inline script", async () => {
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
-    const res = await fetch(`${base}/?token=${token}`);
+    const res = await webFetch(`${base}/?token=${token}`);
     assert.equal(res.status, 200);
     const html = await res.text();
     const match = /<script>([\s\S]*?)<\/script>/.exec(html);
@@ -535,10 +550,10 @@ test("provider web save renames the provider instead of cloning", async () => {
   });
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
     const save = async (body) => {
-      const res = await fetch(`${base}/api/save?token=${token}`, {
+      const res = await webFetch(`${base}/api/save?token=${token}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -574,10 +589,10 @@ test("provider web save refuses to clobber an existing provider on creation", as
   const modelsFile = path.join(agentDir, "models.json");
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
     const save = async (body) => {
-      const res = await fetch(`${base}/api/save?token=${token}`, {
+      const res = await webFetch(`${base}/api/save?token=${token}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
@@ -615,10 +630,10 @@ test("provider web saves the selected API form and refuses model listing for nat
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const saveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -638,11 +653,11 @@ test("provider web saves the selected API form and refuses model listing for nat
     assert.equal(modelsJson.providers["anthropic-native"].api, "anthropic-messages");
     assert.ok(!("compat" in modelsJson.providers["anthropic-native"]), "native form defers compat to pi-ai");
 
-    const configRes = await fetch(`${base}/api/config?token=${token}`);
+    const configRes = await webFetch(`${base}/api/config?token=${token}`);
     const configJson = await configRes.json();
     assert.equal(configJson.providers[0].api, "anthropic-messages");
 
-    const listRes = await fetch(`${base}/api/models?token=${token}`, {
+    const listRes = await webFetch(`${base}/api/models?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ api: "anthropic-messages", baseUrl: "https://api.anthropic.com", apiKey: "test-key" }),
@@ -664,9 +679,9 @@ test("provider web export/import round-trip migrates providers and the default s
   process.env.PI_CODING_AGENT_DIR = srcDir;
   const srcServer = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(srcServer.url).searchParams.get("token");
+    const token = await readWebToken(srcServer.url);
     const base = `http://127.0.0.1:${srcServer.server.address().port}`;
-    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const saveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -679,14 +694,14 @@ test("provider web export/import round-trip migrates providers and the default s
       }),
     });
     assert.equal(saveRes.status, 200);
-    const defaultRes = await fetch(`${base}/api/providers/default?token=${token}`, {
+    const defaultRes = await webFetch(`${base}/api/providers/default?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ provider: "anthropic-native", model: "claude-sonnet-5", thinkingLevel: "high" }),
     });
     assert.equal(defaultRes.status, 200);
 
-    const exportRes = await fetch(`${base}/api/providers/export?token=${token}`);
+    const exportRes = await webFetch(`${base}/api/providers/export?token=${token}`);
     assert.equal(exportRes.status, 200);
     const exported = await exportRes.json();
     assert.equal(exported.providers["anthropic-native"].api, "anthropic-messages");
@@ -697,9 +712,9 @@ test("provider web export/import round-trip migrates providers and the default s
     process.env.PI_CODING_AGENT_DIR = dstDir;
     const dstServer = await startProviderWeb({ openBrowser: false });
     try {
-      const dstToken = new URL(dstServer.url).searchParams.get("token");
+      const dstToken = await readWebToken(dstServer.url);
       const dstBase = `http://127.0.0.1:${dstServer.server.address().port}`;
-      const importRes = await fetch(`${dstBase}/api/providers/import?token=${dstToken}`, {
+      const importRes = await webFetch(`${dstBase}/api/providers/import?token=${dstToken}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ config: exported, overwrite: true }),
@@ -734,10 +749,10 @@ test("provider web clones a provider under a fresh name without touching the sou
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const saveRes = await fetch(`${base}/api/save?token=${token}`, {
+    const saveRes = await webFetch(`${base}/api/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -757,13 +772,13 @@ test("provider web clones a provider under a fresh name without touching the sou
     tuned.providers.alpha.models[0].contextWindow = 1000000;
     fs.writeFileSync(modelsFile, JSON.stringify(tuned, null, 2), "utf8");
 
-    const pageRes = await fetch(`${base}/?token=${token}`);
+    const pageRes = await webFetch(`${base}/?token=${token}`);
     const pageHtml = await pageRes.text();
     assert.ok(pageHtml.includes("\"provClone\":\"Clone\""), "page must ship the clone button label");
     assert.ok(pageHtml.includes("cloneProviderAction"), "page must ship the clone handler");
     assert.ok(pageHtml.includes("/api/providers/clone"), "page must call the clone endpoint");
 
-    const cloneRes = await fetch(`${base}/api/providers/clone?token=${token}`, {
+    const cloneRes = await webFetch(`${base}/api/providers/clone?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "alpha" }),
@@ -785,7 +800,7 @@ test("provider web clones a provider under a fresh name without touching the sou
     const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(settings.defaultProvider, "alpha");
 
-    const missingRes = await fetch(`${base}/api/providers/clone?token=${token}`, {
+    const missingRes = await webFetch(`${base}/api/providers/clone?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "ghost" }),
@@ -816,10 +831,10 @@ test("provider web batch-deletes sessions and round-trips them through provider 
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const batchRes = await fetch(`${base}/api/sessions/delete-batch?token=${token}`, {
+    const batchRes = await webFetch(`${base}/api/sessions/delete-batch?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ files: ["proj/a.jsonl", "other/c.jsonl", "proj/missing.jsonl"] }),
@@ -834,7 +849,7 @@ test("provider web batch-deletes sessions and round-trips them through provider 
     assert.equal(fs.existsSync(path.join(agentDir, "sessions", "other")), false);
     assert.equal(fs.existsSync(path.join(agentDir, "sessions", "proj", "b.jsonl")), true);
 
-    const exportRes = await fetch(`${base}/api/providers/export?token=${token}`, {
+    const exportRes = await webFetch(`${base}/api/providers/export?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ files: ["proj/b.jsonl"] }),
@@ -848,7 +863,7 @@ test("provider web batch-deletes sessions and round-trips them through provider 
 
     const dstDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-batch-dst-"));
     process.env.PI_CODING_AGENT_DIR = dstDir;
-    const importRes = await fetch(`${base}/api/providers/import?token=${token}`, {
+    const importRes = await webFetch(`${base}/api/providers/import?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ config: exported, overwrite: true }),
@@ -873,9 +888,9 @@ test("provider web batch delete rejects an empty file list", async () => {
   process.env.PI_CODING_AGENT_DIR = agentDir;
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
-    const res = await fetch(`${base}/api/sessions/delete-batch?token=${token}`, {
+    const res = await webFetch(`${base}/api/sessions/delete-batch?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ files: [] }),
@@ -906,10 +921,10 @@ test("provider web lists, deletes and round-trips prompt history through export/
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
 
-    const listRes = await fetch(`${base}/api/prompt-history?token=${token}`);
+    const listRes = await webFetch(`${base}/api/prompt-history?token=${token}`);
     assert.equal(listRes.status, 200);
     const listed = await listRes.json();
     assert.equal(listed.totalEntries, 3);
@@ -922,7 +937,7 @@ test("provider web lists, deletes and round-trips prompt history through export/
     assert.equal(proj.entries[1].text, "keep me");
     const delIdx = proj.entries[0].index;
 
-    const batchRes = await fetch(`${base}/api/prompt-history/delete-batch?token=${token}`, {
+    const batchRes = await webFetch(`${base}/api/prompt-history/delete-batch?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ project: "--test-proj--", indexes: [delIdx, 99] }),
@@ -933,13 +948,13 @@ test("provider web lists, deletes and round-trips prompt history through export/
     assert.equal(batch.failed.length, 1);
     assert.match(batch.failed[0].reason, /out of range|invalid|not found/i);
 
-    const afterList = await (await fetch(`${base}/api/prompt-history?token=${token}`)).json();
+    const afterList = await (await webFetch(`${base}/api/prompt-history?token=${token}`)).json();
     const afterProj = afterList.projects.find((p) => p.dir === "--test-proj--");
     assert.equal(afterProj.entries.length, 1);
     assert.equal(afterProj.entries[0].text, "keep me");
 
     // export must carry prompt history alongside providers/sessions
-    const exportRes = await fetch(`${base}/api/providers/export?token=${token}`, {
+    const exportRes = await webFetch(`${base}/api/providers/export?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({}),
@@ -954,7 +969,7 @@ test("provider web lists, deletes and round-trips prompt history through export/
     // import into a fresh agent dir restores history
     const dstDir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-web-history-dst-"));
     process.env.PI_CODING_AGENT_DIR = dstDir;
-    const importRes = await fetch(`${base}/api/providers/import?token=${token}`, {
+    const importRes = await webFetch(`${base}/api/providers/import?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ config: exported, overwrite: true }),
@@ -968,7 +983,7 @@ test("provider web lists, deletes and round-trips prompt history through export/
     assert.deepEqual(restored.trim().split("\n").map((l) => JSON.parse(l)), ["keep me"]);
 
     // delete-all clears every project
-    const delAllRes = await fetch(`${base}/api/prompt-history/delete-all?token=${token}`, {
+    const delAllRes = await webFetch(`${base}/api/prompt-history/delete-all?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
     });
@@ -990,10 +1005,10 @@ test("provider web prompt history delete rejects traversal and missing project",
   process.env.PI_CODING_AGENT_DIR = agentDir;
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
     for (const project of ["../evil", "a/b", ".."]) {
-      const res = await fetch(`${base}/api/prompt-history/delete?token=${token}`, {
+      const res = await webFetch(`${base}/api/prompt-history/delete?token=${token}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ project, index: 0 }),
@@ -1001,13 +1016,13 @@ test("provider web prompt history delete rejects traversal and missing project",
       assert.equal(res.status, 400);
       assert.match((await res.json()).error, /Invalid project/);
     }
-    const noProject = await fetch(`${base}/api/prompt-history/delete?token=${token}`, {
+    const noProject = await webFetch(`${base}/api/prompt-history/delete?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ index: 0 }),
     });
     assert.equal(noProject.status, 400);
-    const emptyBatch = await fetch(`${base}/api/prompt-history/delete-batch?token=${token}`, {
+    const emptyBatch = await webFetch(`${base}/api/prompt-history/delete-batch?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ project: "--p--", indexes: [] }),
@@ -1031,35 +1046,35 @@ test("provider web promotes one prompt to global history and removes global entr
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
     const base = `http://127.0.0.1:${server.address().port}`;
-    const html = await (await fetch(base)).text();
+    const html = await (await webFetch(base)).text();
     const token = JSON.parse(html.match(/const token=("(?:[^"\\]|\\.)*")/)[1]);
     const auth = { "x-axum-token": token };
-    const before = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    const before = await (await webFetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
     const project = before.projects.find((entry) => entry.dir === "--global-test--");
     const shared = project.entries.find((entry) => entry.text === "shared prompt");
-    const promoteRes = await fetch(`${base}/api/prompt-history/global/promote?token=${token}`, {
+    const promoteRes = await webFetch(`${base}/api/prompt-history/global/promote?token=${token}`, {
       method: "POST",
       headers: { ...auth, "content-type": "application/json" },
       body: JSON.stringify({ project: "--global-test--", index: shared.index }),
     });
     assert.equal(promoteRes.status, 200);
-    const promoted = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    const promoted = await (await webFetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
     const global = promoted.projects.find((entry) => entry.scope === "global");
     assert.equal(global.entries[0].text, "shared prompt");
     assert.equal(promoted.projects.find((entry) => entry.dir === "--global-test--").entries.length, 1);
-    const deleteAllRes = await fetch(`${base}/api/prompt-history/delete-all?token=${token}`, { method: "POST", headers: auth });
+    const deleteAllRes = await webFetch(`${base}/api/prompt-history/delete-all?token=${token}`, { method: "POST", headers: auth });
     assert.equal(deleteAllRes.status, 200);
-    const afterDeleteAll = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    const afterDeleteAll = await (await webFetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
     assert.equal(afterDeleteAll.projects.find((entry) => entry.scope === "global").entries.length, 1);
     const globalIndex = afterDeleteAll.projects.find((entry) => entry.scope === "global").entries[0].index;
-    const deleteGlobalRes = await fetch(`${base}/api/prompt-history/global/delete?token=${token}`, {
+    const deleteGlobalRes = await webFetch(`${base}/api/prompt-history/global/delete?token=${token}`, {
       method: "POST",
       headers: { ...auth, "content-type": "application/json" },
       body: JSON.stringify({ index: globalIndex }),
     });
     assert.equal(deleteGlobalRes.status, 200);
     assert.equal((await deleteGlobalRes.json()).deleted, 1);
-    const afterGlobalDelete = await (await fetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
+    const afterGlobalDelete = await (await webFetch(`${base}/api/prompt-history?token=${token}`, { headers: auth })).json();
     assert.equal(afterGlobalDelete.totalEntries, 0);
   } finally {
     await new Promise((resolve) => server.close(resolve));
@@ -1075,18 +1090,18 @@ test("provider web manages the /plan template through the system-prompt API", as
   process.env.HOME = home;
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
     const planPath = path.join(home, ".pi", "agent", "plan-prompt.md");
 
-    const readRes = await fetch(`${base}/api/system-prompt?token=${token}&scope=project&mode=plan`);
+    const readRes = await webFetch(`${base}/api/system-prompt?token=${token}&scope=project&mode=plan`);
     assert.equal(readRes.status, 200);
     const readJson = await readRes.json();
     assert.equal(readJson.path, planPath);
     assert.equal(readJson.scope, "global");
     assert.equal(readJson.exists, false);
 
-    const badSaveRes = await fetch(`${base}/api/system-prompt/save?token=${token}`, {
+    const badSaveRes = await webFetch(`${base}/api/system-prompt/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: "plan", content: "no placeholder here" }),
@@ -1094,7 +1109,7 @@ test("provider web manages the /plan template through the system-prompt API", as
     assert.equal(badSaveRes.status, 400);
     assert.match((await badSaveRes.json()).error, /must include \{\{requirement\}\}/);
 
-    const saveRes = await fetch(`${base}/api/system-prompt/save?token=${token}`, {
+    const saveRes = await webFetch(`${base}/api/system-prompt/save?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: "plan", content: "Plan it: {{requirement}} with care.\n", baseHash: readJson.hash }),
@@ -1102,11 +1117,11 @@ test("provider web manages the /plan template through the system-prompt API", as
     assert.equal(saveRes.status, 200);
     assert.equal(fs.readFileSync(planPath, "utf8"), "Plan it: {{requirement}} with care.\n");
 
-    const afterSave = await (await fetch(`${base}/api/system-prompt?token=${token}&mode=plan`)).json();
+    const afterSave = await (await webFetch(`${base}/api/system-prompt?token=${token}&mode=plan`)).json();
     assert.equal(afterSave.exists, true);
     assert.notEqual(afterSave.hash, readJson.hash);
 
-    const badDeleteRes = await fetch(`${base}/api/system-prompt/delete?token=${token}`, {
+    const badDeleteRes = await webFetch(`${base}/api/system-prompt/delete?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: "append" }),
@@ -1114,7 +1129,7 @@ test("provider web manages the /plan template through the system-prompt API", as
     assert.equal(badDeleteRes.status, 400);
     assert.match((await badDeleteRes.json()).error, /\/plan template/);
 
-    const deleteRes = await fetch(`${base}/api/system-prompt/delete?token=${token}`, {
+    const deleteRes = await webFetch(`${base}/api/system-prompt/delete?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: "plan" }),
@@ -1125,7 +1140,7 @@ test("provider web manages the /plan template through the system-prompt API", as
     assert.equal(deleteJson.exists, false);
     assert.equal(fs.existsSync(planPath), false);
 
-    const deleteAgainRes = await fetch(`${base}/api/system-prompt/delete?token=${token}`, {
+    const deleteAgainRes = await webFetch(`${base}/api/system-prompt/delete?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ mode: "plan" }),
@@ -1181,9 +1196,9 @@ test("model availability testing sends real chat completions with capped concurr
 
   const { server, url } = await startProviderWeb({ openBrowser: false });
   try {
-    const token = new URL(url).searchParams.get("token");
+    const token = await readWebToken(url);
     const base = `http://127.0.0.1:${server.address().port}`;
-    const testRes = await fetch(`${base}/api/models/test?token=${token}`, {
+    const testRes = await webFetch(`${base}/api/models/test?token=${token}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({

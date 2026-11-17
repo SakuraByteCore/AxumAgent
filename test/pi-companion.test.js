@@ -100,6 +100,7 @@ function createPi() {
   const listeners = new Map();
   const emitted = [];
   const setModelCalls = [];
+  const setThinkingLevelCalls = [];
   const registeredProviders = new Map();
   const pi = {
     commands,
@@ -114,6 +115,8 @@ function createPi() {
       commands.set(name, command);
     },
     getModel() { return undefined; },
+    setThinkingLevelCalls,
+    setThinkingLevel(level) { setThinkingLevelCalls.push(level); },
     setModelCalls,
     setModel(model) {
       setModelCalls.push(model);
@@ -1469,6 +1472,16 @@ test("parseModelManifest drops malformed entries", () => {
   }), [{ provider: "ok", model: "a", isDefault: false }]);
 });
 
+test("parseModelManifest retains only supported model thinking strengths", () => {
+  const levels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+  const entries = parseModelManifest({ providers: { p: { models: [
+    ...levels.map(level => ({ id: level, reasoningEffort: level })),
+    { id: "legacy" }, { id: "invalid", reasoningEffort: "ultra" },
+  ] } } });
+  assert.deepEqual(entries.slice(0, levels.length).map(entry => entry.reasoningEffort), levels);
+  for (const entry of entries.slice(levels.length)) assert.equal("reasoningEffort" in entry, false);
+});
+
 test("buildModelOptions annotates the default entry", () => {
   const options = buildModelOptions([
     { provider: "openai", model: "gpt-5", isDefault: true },
@@ -1550,12 +1563,49 @@ test("/usemodel lists all models and switches on selection", async () => {
     assert.equal(pi.setModelCalls[0].id, "gpt-4");
     assert.equal(ctx.modelRegistry.find("openai", "gpt-4").contextWindow, 128000);
     assert.equal(pi.setModelCalls[0].contextWindow, ctx.model.contextWindow);
+    assert.deepEqual(pi.setThinkingLevelCalls, [], "legacy models preserve session thinking");
     assert.ok(notifications.some((n) => n.level === "info" && /for this session only/.test(n.message)));
 
     const settings = JSON.parse(fs.readFileSync(path.join(agentDir, "settings.json"), "utf8"));
     assert.equal(settings.defaultProvider, "original");
     assert.equal(settings.defaultModel, "original-model");
     assert.equal(settings.defaultThinkingLevel, "high");
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE;
+    else process.env.USERPROFILE = previousUserProfile;
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test("/usemodel applies each model strength only after a successful switch", async () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-strength-"));
+  const agentDir = path.join(tmpHome, ".pi", "agent");
+  fs.mkdirSync(agentDir, { recursive: true });
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({ providers: {
+    p: { models: [{ id: "a", reasoningEffort: "off" }, { id: "b", reasoningEffort: "max" }] },
+  } }));
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  process.env.HOME = tmpHome;
+  process.env.USERPROFILE = tmpHome;
+  try {
+    const pi = createPi();
+    for (const [id, level] of [["a", "off"], ["b", "max"]]) {
+      const { ctx } = createModelSwitchContext({ models: [{ provider: "p", id }], selectResult: "p/" + id });
+      await pi.commands.get("usemodel").handler("", ctx);
+      assert.equal(pi.setThinkingLevelCalls.at(-1), level);
+    }
+    assert.deepEqual(pi.setThinkingLevelCalls, ["off", "max"]);
+    const { ctx, notifications } = createModelSwitchContext({ models: [{ provider: "p", id: "a" }], selectResult: "p/a" });
+    pi.setModel = async () => false;
+    await pi.commands.get("usemodel").handler("", ctx);
+    assert.deepEqual(pi.setThinkingLevelCalls, ["off", "max"]);
+    assert.ok(notifications.some(n => n.level === "error" && /Failed to switch/.test(n.message)));
+    pi.setModel = async () => { throw new Error("switch rejected"); };
+    await assert.rejects(pi.commands.get("usemodel").handler("", ctx), /switch rejected/);
+    assert.deepEqual(pi.setThinkingLevelCalls, ["off", "max"]);
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;

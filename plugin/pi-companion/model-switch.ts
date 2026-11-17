@@ -1,11 +1,14 @@
 // model-switch.ts — pure helpers for the /usemodel slash command.
 // Zero runtime relative imports so node --test can import it directly from source.
 
+const REASONING_EFFORTS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
 /** A single selectable model entry parsed out of models.json. */
 export interface ModelEntry {
   provider: string;
   model: string;
   isDefault: boolean;
+  reasoningEffort?: (typeof REASONING_EFFORTS)[number];
 }
 
 export interface ModelSelection {
@@ -52,7 +55,10 @@ export function parseModelManifest(raw: unknown): ModelEntry[] {
           if (typeof record.id !== "string") continue;
           const modelId = record.id.trim();
           if (!modelId) continue;
-          entries.push({ provider, model: modelId, isDefault: Boolean(record.default) });
+          const reasoningEffort = REASONING_EFFORTS.find((level) => level === record.reasoningEffort);
+          entries.push({ provider, model: modelId, isDefault: Boolean(record.default),
+            ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
+          });
         }
       }
     }

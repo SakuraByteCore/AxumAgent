@@ -185,6 +185,7 @@ export function buildModelConfig(spec, providerReasoningEffort) {
     id,
     name: String(spec.name || id),
     reasoning: reasoningEnabled,
+    reasoningEffort,
     contextWindow: positiveNumber(spec.contextWindow, DEFAULT_MODEL_CONTEXT_WINDOW, "Context window"),
     maxTokens: positiveNumber(spec.maxTokens, DEFAULT_MODEL_MAX_TOKENS, "Max output tokens"),
   };
@@ -330,6 +331,7 @@ export function listProviders(file = getModelsPath(), options = {}) {
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
         reasoning: Boolean(model.reasoning),
+        ...(model.reasoningEffort !== undefined ? { reasoningEffort: model.reasoningEffort } : {}),
         default: Boolean(model.default),
       })),
       defaultModel: models.find((model) => model.default)?.id ?? models[0]?.id ?? "",

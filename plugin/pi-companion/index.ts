@@ -1817,6 +1817,7 @@ pi.registerCommand("claude", {
 				ctx.ui.notify(`Failed to switch to ${entry.provider}/${entry.model} (no API key available).`, "error");
 				return;
 			}
+			if (entry.reasoningEffort !== undefined) pi.setThinkingLevel(entry.reasoningEffort);
 			ctx.ui.notify(`Model switched to ${entry.provider}/${entry.model} for this session only.`, "info");
 		},
 	});

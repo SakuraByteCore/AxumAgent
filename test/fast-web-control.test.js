@@ -19,6 +19,7 @@ test("rendered Fast checkbox save handler persists off/on/off through authentica
   assert.match(html, /type="checkbox" id="fastMode"/);
   assert.doesNotMatch(html, /id="fastMode"[^>]*checked/);
   for (const key of ["fastMode", "fastModeHint"]) assert.equal(html.split('"' + key + '":').length - 1, 3);
+  const token = JSON.parse(html.match(/const token=("[^"]+")/)[1]);
   const script = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
   assert.ok(script);
   const start = script.indexOf("$('save').onclick=");
@@ -33,8 +34,8 @@ test("rendered Fast checkbox save handler persists off/on/off through authentica
   $("reasoningEffort").value = "off";
   $("apiShape").value = "openai-completions";
   const failures = [];
-  const context = vm.createContext({ $, currentModels: ["mock"], currentDefaultId: "mock", loadedProvider: null,
-    token: target.searchParams.get("token"), encodeURIComponent, JSON, Number,
+  const context = vm.createContext({ $, currentModelEfforts: new Map(), currentModels: ["mock"], currentDefaultId: "mock", loadedProvider: null,
+    token, Headers, encodeURIComponent, JSON, Number,
     providerLastValid: { maxTokens: 16, reasoningEffort: "off" }, providerDefaults: { maxTokens: 16, reasoningEffort: "off" },
     currentApiForm: () => $("apiShape").value,
     tokenValue: id => Number($(id).value), tokenNumber: id => Number($(id).value),
@@ -42,12 +43,13 @@ test("rendered Fast checkbox save handler persists off/on/off through authentica
     setStatus: (kind, message) => { if (kind === "err") failures.push(message); }, step: () => {}, T: key => key, loadExisting: () => {},
     fetch: (url, options) => fetch(new URL(url, target), options),
   });
+  vm.runInContext(script.slice(script.indexOf("function apiFetch("), script.indexOf("const PRESETS=")), context);
   vm.runInContext(script.slice(start, end), context);
   for (const enabled of [false, true, false]) {
     $("fastMode").checked = enabled;
     await $("save").onclick();
     assert.deepEqual(failures, []);
-    const config = await (await fetch(new URL('/api/config?token=' + target.searchParams.get('token'), target))).json();
+    const config = await (await fetch(new URL('/api/config', target), { headers: { 'x-axum-token': token } })).json();
     assert.equal(config.providers[0].fastMode, enabled);
     const metadata = JSON.parse(fs.readFileSync(path.join(dir, "axum.json"), "utf8"));
     assert.deepEqual(metadata.fastModels, enabled ? { local: ["mock"] } : {});
