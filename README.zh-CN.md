@@ -42,7 +42,7 @@
 
 - `@earendil-works/pi-coding-agent`
 - `pi-bar`（AxumAgent 打包分支，已并入原 pi-header）
-- `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 /plan /clear /ralph /rules /claude /plugin-create-mode + 响应守卫 + 建议旁观者 + 内置 claude-driver skill）
+- `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 /plan /clear /ralph /loop /rules /claude /plugin-create-mode + 响应守卫 + 建议旁观者 + 内置 claude-driver skill）
 - `@narumitw/pi-goal`
 - `pi-web-access`（Web 搜索、提取与内容整理工具：/websearch、/curator、/google-account、/search）
 - `pi-hashline-edit-pro`
@@ -53,6 +53,21 @@
 - `pi-memory`（单 JSON 文件持久化跨会话记忆：/memory save|list|find|remove|recall|clear；零原生依赖）
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
 - `@ff-labs/pi-fff`（仅桌面端：带频率排序的 FFF 文件搜索；Android 与 Windows 不包含）
+
+## 定时循环 `/loop`
+
+```text
+/loop 5m 检查部署状态
+/loop 检查当前 PR 的 CI 与审查评论
+/loop 15m
+/loop list
+/loop cancel <id>
+/loop cancel all
+```
+
+指定间隔时按 cron 运行；省略间隔时由模型在每轮结束选择下一次等待时间（1 分钟至 1 小时）。省略提示词时读取项目 `.pi/loop.md` 或用户 `~/.pi/agent/loop.md`，兼容 `.claude/loop.md`；没有文件则继续未完成工作、维护当前 PR、检查缺陷。
+
+任务仅在会话运行且空闲时触发，忙时合并错过的周期。固定任务支持恢复原会话，动态循环需重新启动；循环七天后过期。提供 `CronCreate`、`CronList`、`CronDelete`、`ScheduleWakeup` 工具，支持自然语言创建、查看、取消或单次提醒。动态等待时空输入按 `Esc` 或 `Ctrl+C` 可停止，固定任务通过取消命令停止。设置 `AXUM_DISABLE_CRON=1` 关闭调度。实现见[循环调度源码](plugin/pi-companion/loop.ts)。
 
 ## 环境要求
 

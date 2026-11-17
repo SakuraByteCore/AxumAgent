@@ -66,6 +66,7 @@ async function createPi() {
     sessionManager: { getSessionFile: function() { return undefined; } },
     registerCommand(name, cmd) { commands.set(name, cmd); },
     registerProvider() {},
+    registerTool() {},
     getModel() { return undefined; },
     getContextUsage: function() { return { tokens: 0, contextWindow: 100 }; },
     on(event, handler) {

@@ -1,11 +1,14 @@
 {
   "name": "pi-companion",
   "version": "0.3.3",
-  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan /clear /ralph /rules /claude /plugin-create-mode /vision), auto-continue response guard, separate vision-provider fallback, and advisory watcher, zero native deps",
+  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan /clear /ralph /loop /rules /claude /plugin-create-mode /vision), auto-continue response guard, separate vision-provider fallback, and advisory watcher, zero native deps",
   "type": "module",
   "main": "index.ts",
   "files": [
     "index.ts",
+    "loop.ts",
+    "loop-cron.ts",
+    "loop-scheduler.ts",
     "agentui.ts",
     "kilo-free.ts",
     "model-switch.ts",

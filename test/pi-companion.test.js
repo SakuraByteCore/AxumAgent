@@ -96,6 +96,7 @@ async function emit(pi, event, ...args) {
 
 function createPi() {
   const commands = new Map();
+  const tools = new Map();
   const messages = [];
   const listeners = new Map();
   const emitted = [];
@@ -105,6 +106,8 @@ function createPi() {
   const registeredProviders = new Map();
   const pi = {
     commands,
+    tools,
+    registerTool(tool) { tools.set(tool.name, tool); },
     messages,
     listeners,
     emitted,
@@ -1392,6 +1395,7 @@ test("session_start clears deferred auto-continue state from the previous sessio
   const pi = createPi();
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-reset-"));
   const ctx = {
+    sessionManager: { getSessionId() { return "reset-fixture"; }, getEntries() { return []; } },
     cwd: tmpDir,
     hasUI: true,
     ui: { notify() {} },
@@ -2552,7 +2556,8 @@ test("registerCustomPromptCommands skips names colliding with built-ins", () => 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-custom-register-clash-"));
   try {
     fs.writeFileSync(path.join(dir, "spec-prompt.md"), "x {{requirement}}", "utf8");
-    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir), new Set(["spec"]));
+    fs.writeFileSync(path.join(dir, "loop-prompt.md"), "must not shadow built-in loop", "utf8");
+    registerCustomPromptCommands(pi, discoverCustomPromptTemplates(dir), new Set(["spec", "loop"]));
     assert.equal(pi.commands.size, before);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

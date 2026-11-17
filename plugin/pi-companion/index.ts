@@ -13,6 +13,7 @@ import { registerVisionFallback } from "./vision-fallback.ts";
 import { appendRegressionGuard } from "./regression-guard.ts";
 import { registerProviderOutputTokens } from "./provider-output-tokens.ts";
 import { registerLiveModelThinking } from "./model-thinking-live.ts";
+import { registerLoop } from "./loop.ts";
 
 // ── Templates ──────────────────────────────────────────────────────────────
 
@@ -139,6 +140,7 @@ const CUSTOM_PROMPT_RESERVED_NAMES: ReadonlySet<string> = new Set([
   "claude",
   "ua",
   "ralph",
+  "loop",
   "rules",
   "usemodel",
   "fast",
@@ -1279,6 +1281,7 @@ function buildClaudePrompt(requirement: string, skill: string): string {
 export default function (pi: ExtensionAPI): void {
 	registerProviderOutputTokens(pi);
 	registerLiveModelThinking(pi);
+	registerLoop(pi);
 	pi.on("before_agent_start", (event) => ({
 		systemPrompt: appendRegressionGuard(event.systemPrompt),
 	}));

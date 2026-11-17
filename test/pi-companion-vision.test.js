@@ -348,6 +348,8 @@ test("pi-companion 默认导出注册了 /vision 命令与图片钩子", async (
 	};
 	activateCompanion(fakePi);
 	assert.ok(registered.commands.has("vision"));
+	assert.ok(registered.commands.has("loop"));
+	for (const name of ["CronCreate", "CronList", "CronDelete", "ScheduleWakeup"]) assert.ok(registered.tools.includes(name));
 	assert.ok(registered.handlers.has("input"));
 	assert.ok(registered.handlers.has("tool_result"));
 });

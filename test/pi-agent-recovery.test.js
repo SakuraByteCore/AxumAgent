@@ -19,7 +19,7 @@ test('child recovery uses the main configured error policy and respects abort an
  const dir=mkdtempSync(join(tmpdir(),'axum-child-retry-'));
  writeFileSync(join(dir,'.pi-response-guard.json'),JSON.stringify({maxConsecutiveAutoRetries:1,retryMessage:'resume work',errorPatterns:['fetch failed']}));
  const handlers=new Map(),sent=[];
- const pi={on:(key,fn)=>{const list=handlers.get(key)||[];list.push(fn);handlers.set(key,list);},events:{on:()=>{},emit:()=>{}},registerCommand:()=>{},registerProvider:()=>{},sendUserMessage:async(text)=>{sent.push(text);}};
+ const pi={on:(key,fn)=>{const list=handlers.get(key)||[];list.push(fn);handlers.set(key,list);},events:{on:()=>{},emit:()=>{}},registerCommand:()=>{},registerProvider:()=>{},registerTool:()=>{},sendUserMessage:async(text)=>{sent.push(text);}};
  const ctx={cwd:dir,hasUI:false,isIdle:()=>true,hasPendingMessages:()=>false,getContextUsage:()=>({tokens:0,contextWindow:100})};
  const emit=async(name,event)=>{for(const handler of handlers.get(name)||[]) await handler(event,ctx);};
  try {

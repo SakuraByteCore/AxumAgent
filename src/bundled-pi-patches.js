@@ -2169,6 +2169,26 @@ function patchFileInPlace(filePath, ...patchers) {
   return { patched: patched !== original, file: filePath };
 }
 
+// Search decoded, normalized lines before assigning persistent edit anchors.
+export function patchHashlineGrep(content) {
+  const marker = "AXUM_HASHLINE_GREP_MATCH_FIRST";
+  if (content.includes(marker)) return content;
+  const importAnchor = 'import { readNormFile } from "./file-reader";';
+  const hashStart = content.indexOf("  let norm;\n");
+  const matchStart = content.indexOf("  const lines = visLines(norm.normalized);\n", hashStart);
+  const matchEndAnchor = "  if (matchLines.length === 0) return undefined;\n";
+  const matchEnd = content.indexOf(matchEndAnchor, matchStart);
+  if (!content.includes(importAnchor) || hashStart < 0 || matchStart < 0 || matchEnd < 0) {
+    throw new Error("unable to patch hashline grep: searchFile layout changed");
+  }
+  const end = matchEnd + matchEndAnchor.length;
+  const hashBlock = content.slice(hashStart, matchStart);
+  const matchBlock = content.slice(matchStart, end)
+    .replace("visLines(norm.normalized)", "visLines(toLF(stripBOM(file.text).text))");
+  return (content.slice(0, hashStart) + `  // ${marker}\n` + matchBlock + hashBlock + content.slice(end))
+    .replace(importAnchor, importAnchor + '\nimport { stripBOM, toLF } from "./replace-diff";');
+}
+
 export function applyBundledPiPatches(options) {
   const results = [];
 
@@ -2273,6 +2293,11 @@ export function applyBundledPiPatches(options) {
       throw new Error(`bundled Pi tools-manager not found: ${toolsManagerPath}`);
     }
     results.push(patchFileInPlace(toolsManagerPath, patchTermuxAutoInstall));
+  }
+
+  const hashlineGrepPath = path.join(resolveBundledPackageRoot("pi-hashline-edit-pro", options), "src", "grep.ts");
+  if (fs.existsSync(hashlineGrepPath)) {
+    results.push(patchFileInPlace(hashlineGrepPath, patchHashlineGrep));
   }
 
   const piGoalRoot = resolveBundledPackageRoot(PI_GOAL_PACKAGE, options);
