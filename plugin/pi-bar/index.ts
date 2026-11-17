@@ -683,6 +683,55 @@ export class DashedBorderEditor extends RuntimeCustomEditor {
     return lines;
   }
 
+  override handleInput(data: string): void {
+    const previous = this.keybindings.matches(data, "tui.editor.historyPrevious");
+    const next = this.keybindings.matches(data, "tui.editor.historyNext");
+    const up = this.keybindings.matches(data, "tui.editor.cursorUp") || matchesKey(data, "up");
+    const down = this.keybindings.matches(data, "tui.editor.cursorDown") || matchesKey(data, "down");
+    const navigating = previous || next
+      || (up && this.isOnFirstVisualLine() && (this.isEditorEmpty() || this.historyIndex >= 0 || this.getCursor().col === 0))
+      || (down && this.historyIndex >= 0 && this.isOnLastVisualLine());
+    if (navigating && (previous || next || !this.isShowingAutocomplete()) && !this.isInPaste && this.jumpMode === null) {
+      if (this.refreshHistoryPosition(previous ? -1 : next ? 1 : up ? -1 : 1)) return;
+    }
+    super.handleInput(data);
+  }
+
+  private refreshHistoryPosition(direction: -1 | 1): boolean {
+    const oldHistory = sharedPromptHistory.slice();
+    const oldIndex: number = this.historyIndex;
+    refreshPromptHistory();
+    if (oldIndex < 0) return false;
+    const currentIndex = sharedPromptHistory.indexOf(oldHistory[oldIndex]!);
+    if (currentIndex >= 0) {
+      this.historyIndex = currentIndex;
+      return false;
+    }
+    // The displayed entry was deleted. Select its surviving neighbour rather
+    // than applying the old numeric index to a different list.
+    const neighbours = direction === -1 ? oldHistory.slice(oldIndex + 1) : oldHistory.slice(0, oldIndex).reverse();
+    const target = neighbours.find((text) => sharedPromptHistory.includes(text));
+    const targetIndex = target === undefined ? (direction === -1 ? sharedPromptHistory.length - 1 : -1) : sharedPromptHistory.indexOf(target);
+    this.historyIndex = targetIndex;
+    this.lastAction = null;
+    if (targetIndex >= 0) {
+      this.setTextInternal(sharedPromptHistory[targetIndex], direction === -1 ? "start" : "end");
+    } else {
+      const draft = this.historyDraft;
+      this.historyDraft = null;
+      if (draft) {
+        this.state = draft;
+        this.preferredVisualCol = null;
+        this.snappedFromCursorCol = null;
+        this.scrollOffset = 0;
+        this.onChange?.(this.getText());
+      } else {
+        this.setText("");
+      }
+    }
+    return true;
+  }
+
   /**
    * Persist genuinely new submissions to the project history file so ↑ works
    * across process restarts. The base class normalizes (trim + consecutive
@@ -691,7 +740,7 @@ export class DashedBorderEditor extends RuntimeCustomEditor {
    * persisted-entries set and are skipped instead of duplicating the file.
    */
   override addToHistory(text: string): void {
-    ensurePromptHistoryLoaded();
+    refreshPromptHistory();
     const previous = sharedPromptHistory[0];
     super.addToHistory(text);
     const newest = sharedPromptHistory[0];
@@ -712,11 +761,9 @@ const globalPromptHistory: string[] = [];
 
 // Project-scoped persistence layered on the shared history above. The shared
 // array alone only survives in-process /new session switches; here the
-// project's persisted entries are loaded once (file order is oldest-first,
-// the editor array is newest-first) when the first editor is built, and each
-// genuinely new submission is appended to the project history file.
+// disk order is oldest-first and the editor array is newest-first. Re-read
+// before navigation and writes so external edits are visible without /reload.
 let promptHistoryFile: string | undefined;
-let globalPromptHistoryFile: string | undefined;
 const persistedPromptEntries = new Set<string>();
 let promptHistoryLoaded = false;
 let promptHistoryError: string | undefined;
@@ -730,17 +777,21 @@ function rebuildSharedPromptHistory(): void {
 }
 
 function ensurePromptHistoryLoaded(): void {
-	if (promptHistoryLoaded) return;
-	promptHistoryLoaded = true;
-	promptHistoryFile = promptHistoryPath(process.cwd(), AGENT_DIR);
-	globalPromptHistoryFile = globalPromptHistoryPath(AGENT_DIR);
-	const entries = loadPromptHistory(promptHistoryFile);
-	const globalEntries = loadPromptHistory(globalPromptHistoryFile);
-	for (const entry of entries) persistedPromptEntries.add(entry);
-	for (const entry of globalEntries) persistedPromptEntries.add(entry);
-	projectPromptHistory.push(...entries.reverse());
-	globalPromptHistory.push(...globalEntries.reverse());
+	if (!promptHistoryLoaded) refreshPromptHistory(false);
+}
+
+function refreshPromptHistory(readOnly = true): void {
+	const projectFile = promptHistoryPath(process.cwd(), AGENT_DIR);
+	const globalFile = globalPromptHistoryPath(AGENT_DIR);
+	const entries = loadPromptHistory(projectFile, { readOnly });
+	const globalEntries = loadPromptHistory(globalFile, { readOnly });
+	promptHistoryFile = projectFile;
+	projectPromptHistory.splice(0, projectPromptHistory.length, ...entries.reverse());
+	globalPromptHistory.splice(0, globalPromptHistory.length, ...globalEntries.reverse());
+	persistedPromptEntries.clear();
+	for (const entry of [...entries, ...globalEntries]) persistedPromptEntries.add(entry);
 	rebuildSharedPromptHistory();
+	promptHistoryLoaded = true;
 }
 
 function persistPromptEntry(entry: string): void {
@@ -748,7 +799,8 @@ function persistPromptEntry(entry: string): void {
 	try {
 		appendPromptHistoryEntry(promptHistoryFile, entry);
 		persistedPromptEntries.add(entry);
-		projectPromptHistory.unshift(entry);
+		const entries = loadPromptHistory(promptHistoryFile);
+		projectPromptHistory.splice(0, projectPromptHistory.length, ...entries.reverse());
 		rebuildSharedPromptHistory();
 	} catch (error) {
 		// Persist failure must stay visible, not silently degrade: the editor
@@ -765,7 +817,7 @@ function persistPromptEntry(entry: string): void {
  * available to the editor across projects, but the web UI removes them one by one.
  */
 function deletePromptEntries(texts: string[]): number {
-	ensurePromptHistoryLoaded();
+	refreshPromptHistory();
 	const targets = new Set(texts);
 	if (targets.size === 0) return 0;
 	for (let index = projectPromptHistory.length - 1; index >= 0; index--) {
@@ -1663,7 +1715,7 @@ export default function (pi: ExtensionAPI): void {
 		description: "Open the prompt-history picker (move: arrows, toggle: Space, select all: Ctrl+A, delete: Enter, close: Esc)",
 		handler: async (_args: string, ctx: ExtensionContext) => {
 			if (!ctx.hasUI || typeof ctx.ui.custom !== "function") return;
-			ensurePromptHistoryLoaded();
+			refreshPromptHistory();
 			if (projectPromptHistory.length === 0) {
 				ctx.ui.notify("prompt history is empty", "info");
 				return;

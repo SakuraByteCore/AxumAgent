@@ -51,7 +51,7 @@ const PI_SESSION_SELECTOR_LAST_USER_PREVIEW_MARKER = "AXUM_PI_SESSION_SELECTOR_L
 // throttling; incidental occurrences of the digits 429 must never match.
 const PI_RATE_LIMIT_429_PATTERN_SOURCE = "^\\s*(?:Error:\\s*)?429[:\\s]";
 
-const PI_SYSTEM_PROMPT_REFRESH_MARKER = "AXUM_PI_SYSTEM_PROMPT_REFRESH_V1";
+const PI_SYSTEM_PROMPT_REFRESH_MARKER = "AXUM_PI_SYSTEM_PROMPT_REFRESH_V2";
 
 export function patchPiSystemPromptRefresh(content) {
   const markerLine = `\n${PI_SYSTEM_PROMPT_REFRESH_MARKER}\n`;
@@ -59,6 +59,16 @@ export function patchPiSystemPromptRefresh(content) {
     return content.includes(markerLine)
       ? content.replace(markerLine, `\n// ${PI_SYSTEM_PROMPT_REFRESH_MARKER}\n`)
       : content;
+  }
+  if (content.includes("AXUM_PI_SYSTEM_PROMPT_REFRESH_V1")) {
+    const legacyBlock = /\n(?:\/\/ )?AXUM_PI_SYSTEM_PROMPT_REFRESH_V1\nfunction installAxumSystemPromptRefresh\(session, helpers\) \{[\s\S]*?\n\}/;
+    if (!legacyBlock.test(content)) {
+      throw new Error("unable to patch Pi system prompt refresh: missing V1 installer");
+    }
+    return content.replace(legacyBlock, () => `
+// ${PI_SYSTEM_PROMPT_REFRESH_MARKER}
+${installAxumSystemPromptRefresh.toString()}`)
+      .replace("        this._axumMarkPromptUser(userMessage);\n", "");
   }
   const replacements = [
     [
@@ -72,24 +82,6 @@ export function patchPiSystemPromptRefresh(content) {
     [
       "        const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;",
       "        this._axumRefreshSystemPrompt();\n        const selectedToolsBefore = this._baseSystemPromptOptions.selectedTools;",
-    ],
-    [
-      [
-        '        messages.push({',
-        '            role: "user",',
-        '            content: userContent,',
-        '            timestamp: Date.now(),',
-        '        });',
-      ].join("\n"),
-      [
-        '        const userMessage = {',
-        '            role: "user",',
-        '            content: userContent,',
-        '            timestamp: Date.now(),',
-        '        };',
-        '        this._axumMarkPromptUser(userMessage);',
-        '        messages.push(userMessage);',
-      ].join("\n"),
     ],
   ];
   for (const [anchor, replacement] of replacements) {

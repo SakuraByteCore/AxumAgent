@@ -30,8 +30,9 @@ export function globalPromptHistoryPath(agentDir: string): string {
  * at the most recent MAX_PROMPT_HISTORY_ENTRIES entries; when the file held
  * more, it is rewritten so the on-disk copy stays bounded too. Blank and
  * non-string-JSON lines are dropped, a missing file yields an empty list.
+ * Set readOnly for navigation refreshes, which must never rewrite the file.
  */
-export function loadPromptHistory(file: string): string[] {
+export function loadPromptHistory(file: string, options: { readOnly?: boolean } = {}): string[] {
 	if (!existsSync(file)) return [];
 	const raw = readFileSync(file, "utf8");
 	const entries: string[] = [];
@@ -49,7 +50,9 @@ export function loadPromptHistory(file: string): string[] {
 	}
 	if (entries.length <= MAX_PROMPT_HISTORY_ENTRIES) return entries;
 	const kept = entries.slice(-MAX_PROMPT_HISTORY_ENTRIES);
-	writeFileSync(file, kept.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+	if (!options.readOnly) {
+		writeFileSync(file, kept.map((entry) => JSON.stringify(entry)).join("\n") + "\n");
+	}
 	return kept;
 }
 

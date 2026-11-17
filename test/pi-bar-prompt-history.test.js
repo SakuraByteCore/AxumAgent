@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import {
 	MAX_PROMPT_HISTORY_ENTRIES,
@@ -83,6 +84,23 @@ test("load caps at the newest MAX entries and rewrites the file", () => {
 	assert.equal(loaded.at(-1), `entry-${MAX_PROMPT_HISTORY_ENTRIES + 9}`);
 	assert.equal(readEntries(file).length, MAX_PROMPT_HISTORY_ENTRIES);
 });
+
+test("read-only load caps entries without changing file bytes or modification time", () => {
+	const file = path.join(tmpAgentDir(), "prompt-history");
+	const entries = Array.from({ length: MAX_PROMPT_HISTORY_ENTRIES + 10 }, (_, i) => `entry-${i}`);
+	rewritePromptHistory(file, entries);
+	fs.appendFileSync(file, '\nnot json\n123\n"  "\n');
+	const before = fs.readFileSync(file);
+	fs.utimesSync(file, 1, 1);
+	const modified = fs.statSync(file).mtimeMs;
+	assert.deepEqual(loadPromptHistory(file, { readOnly: true }), entries.slice(10));
+	assert.deepEqual(fs.readFileSync(file), before);
+	assert.equal(fs.statSync(file).mtimeMs, modified);
+	const missing = path.join(tmpAgentDir(), "missing");
+	assert.deepEqual(loadPromptHistory(missing, { readOnly: true }), []);
+	assert.equal(fs.existsSync(missing), false);
+});
+
 test("rewritePersistedHistory replaces the whole file and survives load", () => {
 	const agentDir = tmpAgentDir();
 	const file = promptHistoryPath(process.cwd(), agentDir);
@@ -105,7 +123,7 @@ test("pi-bar wires persistence into the dashed border editor", () => {
 	assert.match(indexSource, /persistedPromptEntries\.has\(newest\)\) return;/);
 	assert.match(indexSource, /\.\/prompt-history/);
 	assert.match(indexSource, /globalPromptHistoryPath\(AGENT_DIR\)/);
-	assert.match(indexSource, /globalPromptHistory\.push\(\.\.\.globalEntries\.reverse\(\)\)/);
+	assert.match(indexSource, /globalPromptHistory\.splice\(0, globalPromptHistory\.length, \.\.\.globalEntries\.reverse\(\)\)/);
 });
 
 test("the /history command opens a picker that deletes via rewrite", () => {
@@ -126,4 +144,86 @@ test("the /history command opens a picker that deletes via rewrite", () => {
 	assert.match(indexSource, /matchesKey\(data, "ctrl\+a"\)/);
 	assert.match(indexSource, /matchesKey\(data, "enter"\)/);
 	assert.match(indexSource, /matchesKey\(data, "escape"\)/);
+});
+
+test("live editor history refresh preserves navigation, drafts and external writes", async (t) => {
+	const root = tmpAgentDir();
+	const savedDir = process.env.PI_CODING_AGENT_DIR;
+	process.env.PI_CODING_AGENT_DIR = root;
+	const nestedTui = path.resolve("node_modules/@earendil-works/pi-coding-agent/node_modules/@earendil-works/pi-tui/dist/index.js");
+	const tui = await import(fs.existsSync(nestedTui) ? pathToFileURL(nestedTui).href : "@earendil-works/pi-tui");
+	const previousBindings = tui.getKeybindings();
+	const bindings = new tui.KeybindingsManager(tui.TUI_KEYBINDINGS, {
+		"tui.editor.historyPrevious": "ctrl+p", "tui.editor.historyNext": "ctrl+n",
+	});
+	tui.setKeybindings(bindings);
+	t.after(() => {
+		tui.setKeybindings(previousBindings);
+		if (savedDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = savedDir;
+		fs.rmSync(root, { recursive: true, force: true });
+	});
+	const mod = await import(`../plugin/pi-bar/index.ts?live-history=${Date.now()}`);
+	const project = promptHistoryPath(process.cwd(), root), global = globalPromptHistoryPath(root);
+	const write = (entries, globals = []) => { rewritePromptHistory(project, entries); rewritePromptHistory(global, globals); };
+	write(["old", "latest"], ["global-old"]);
+	const theme = { borderColor: text => text };
+	const editor = new mod.DashedBorderEditor({ terminal: { rows: 24 }, requestRender() {} }, theme, bindings);
+	editor.render(80);
+	const key = (data) => { editor.handleInput(data); return editor.getText(); };
+	await t.test("external add, delete and global promotion appear on the next arrow", () => {
+		assert.equal(key("\x1b[A"), "latest");
+		write(["old", "external"], ["global-new"]); editor.setText("");
+		assert.equal(key("\x1b[A"), "external"); assert.equal(key("\x1b[A"), "old");
+		assert.equal(key("\x1b[A"), "global-new"); assert.equal(key("\x1b[B"), "old");
+		write(["old"], ["external"]); editor.setText("");
+		assert.equal(key("\x1b[A"), "old"); assert.equal(key("\x1b[A"), "external");
+		assert.equal(key("\x1b[A"), "external", "promotion must not duplicate the entry");
+		write(["old", "middle", "latest"]); editor.setText(""); key("\x10"); key("\x10");
+		write(["old", "middle", "latest", "fresh"]);
+		assert.equal(key("\x10"), "old", "new entries must not shift the selected record");
+	});
+	await t.test("deleted browsing entries retain neighbours and restore an exact multiline draft", () => {
+		write(["old", "middle", "latest"]); editor.setText("draft\n尾巴"); key("\x1b[D");
+		const cursor = editor.getCursor();
+		assert.equal(key("\x10"), "latest"); assert.equal(key("\x10"), "middle");
+		write(["old", "latest"]);
+		assert.equal(key("\x0e"), "latest");
+		assert.equal(key("\x0e"), "draft\n尾巴"); assert.deepEqual(editor.getCursor(), cursor);
+		key("\x10"); write([]);
+		assert.equal(key("\x0e"), "draft\n尾巴"); assert.deepEqual(editor.getCursor(), cursor);
+		write(["old", "middle", "latest"]); editor.setText(""); key("\x10"); key("\x10");
+		write(["old", "latest"]); assert.equal(key("\x10"), "old");
+	});
+	await t.test("ordinary multiline movement and completion keep their input routing", () => {
+		editor.setText("first\nsecond"); const before = editor.getCursor();
+		assert.equal(key("\x1b[A"), "first\nsecond"); assert.ok(editor.getCursor().line < before.line);
+		let moves = 0;
+		editor.autocompleteState = "prefix";
+		editor.autocompleteList = { handleInput() { moves++; } };
+		assert.equal(key("\x1b[A"), "first\nsecond"); assert.equal(moves, 1);
+		write(["completion-history"]);
+		assert.equal(key("\x10"), "completion-history", "dedicated history binding refreshes even with completion open");
+	});
+	await t.test("submissions reload disk and allow explicitly resubmitting a deleted entry", () => {
+		write(["obsolete", "keep"], ["global"]); editor.setText(""); key("\x1b[A");
+		write(["keep"], ["global"]); editor.addToHistory("fresh");
+		assert.deepEqual(readEntries(project), ["keep", "fresh"]);
+		editor.addToHistory("global"); assert.deepEqual(readEntries(project), ["keep", "fresh"]);
+		write(["keep"], ["global"]); editor.addToHistory("fresh");
+		assert.deepEqual(readEntries(project), ["keep", "fresh"]);
+	});
+	await t.test("picker deletion synchronizes before rewriting and leaves global history intact", async () => {
+		const commands = new Map();
+		mod.default({ registerCommand: (name, spec) => commands.set(name, spec), on() {}, events: { on() {}, emit() {} } });
+		write(["obsolete", "keep"], ["global"]);
+		await commands.get("history").handler("", { hasUI: true, ui: { notify() {}, custom: async factory => {
+			let result;
+			const picker = factory({}, theme, bindings, value => { result = value; });
+			write(["external", "keep"], ["global"]);
+			picker.handleInput(" "); picker.handleInput("\r"); picker.handleInput("\x1b");
+			return result;
+		} } });
+		assert.deepEqual(readEntries(project), ["external"]); assert.deepEqual(readEntries(global), ["global"]);
+	});
 });

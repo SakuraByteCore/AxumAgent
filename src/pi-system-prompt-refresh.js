@@ -2,9 +2,8 @@
 // Keep this function self-contained: the installed runtime has no project imports.
 
 export function installAxumSystemPromptRefresh(session, helpers) {
-  if (session._axumSystemPromptRefresh) return;
+  if (session._axumRefreshSystemPrompt) return;
   const { existsSync, readFileSync, buildSystemPrompt } = helpers;
-  const handledPromptUsers = new WeakSet();
 
   function resolvePromptInput(input) {
     if (!input) return undefined;
@@ -64,35 +63,17 @@ export function installAxumSystemPromptRefresh(session, helpers) {
     return true;
   }
 
-  function markPromptUser(message) {
-    if (message && typeof message === "object") handledPromptUsers.add(message);
-  }
-
-  function latestUserMessage(messages) {
-    for (let index = messages.length - 1; index >= 0; index--) {
-      if (messages[index]?.role === "user") return messages[index];
-    }
-    return undefined;
-  }
-
   session._axumRefreshSystemPrompt = refresh;
-  session._axumMarkPromptUser = markPromptUser;
 
   const previousPrepareRequest = session.agent.prepareRequest;
   session.agent.prepareRequest = async (request, signal) => {
     const result = previousPrepareRequest ? await previousPrepareRequest(request, signal) : undefined;
     const context = result?.context ?? request.context;
-    const userMessage = latestUserMessage(context.messages);
-    if (!userMessage || handledPromptUsers.has(userMessage)) return result;
-
     refresh();
-    handledPromptUsers.add(userMessage);
     const options = session._runSystemPromptOptions ?? session._baseSystemPromptOptions;
     const updateMessage = session._preparePromptAndToolLoadout(options, context.messages);
     if (!updateMessage) return result;
-    const messages = [...context.messages];
-    const userIndex = messages.indexOf(userMessage);
-    messages.splice(userIndex < 0 ? messages.length : userIndex, 0, updateMessage);
+    const messages = [...context.messages, updateMessage];
     return { ...result, context: { ...context, messages } };
   };
 }
