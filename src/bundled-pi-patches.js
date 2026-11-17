@@ -1492,6 +1492,65 @@ function patchPiAiInterruptedRetryable(content) {
   );
 }
 
+// Retry every assistant failure through the configured budget, including provider
+// aborts. Actual cancellation stays terminal at the session/signal boundary.
+export function patchPiAiAllErrorsRetry(content) {
+  const marker = "AXUM_PI_ALL_ERRORS_RETRY";
+  if (content.includes(marker)) return content;
+  const replacements = [
+    [
+      "export function isRetryableAssistantError(message) {",
+      `export function isRetryableAssistantError(message) {
+    // ${marker}: error text must not decide whether the retry policy applies.
+    if (message.stopReason === "error") return true;`,
+    ],
+    [
+      "        const response = await produce();",
+      `        const produced = await produce();
+        const response = produced.stopReason === "aborted" && !signal?.aborted
+            ? { ...produced, stopReason: "error" }
+            : produced;`,
+    ],
+    [
+      '        if (response.stopReason === "aborted") {',
+      '        if (signal?.aborted || response.stopReason === "aborted") {',
+    ],
+  ];
+  let updated = content;
+  for (const [anchor, replacement] of replacements) {
+    if (!updated.includes(anchor)) throw new Error("unable to patch bundled Pi all-error retry: " + anchor);
+    updated = updated.replace(anchor, replacement);
+  }
+  return updated;
+}
+
+export function patchPiAgentSessionAllErrorsRetry(content) {
+  const marker = "AXUM_PI_SESSION_ALL_ERRORS_RETRY";
+  if (content.includes(marker)) return content;
+  const replacements = [
+    [
+      "        return isRetryableAssistantError(message);",
+      `        // ${marker}: provider aborts retry; session.abort() still stops the run.
+        return !this._agentRunAbortRequested &&
+            (message.stopReason === "aborted" || isRetryableAssistantError(message));`,
+    ],
+    [
+      'if (assistantMsg.stopReason !== "error" && (',
+      'if (assistantMsg.stopReason !== "error" && assistantMsg.stopReason !== "aborted" && (',
+    ],
+    [
+      'if (message.stopReason === "error" && (',
+      'if ((message.stopReason === "error" || message.stopReason === "aborted") && (',
+    ],
+  ];
+  let updated = content;
+  for (const [anchor, replacement] of replacements) {
+    if (!updated.includes(anchor)) throw new Error("unable to patch bundled Pi session all-error retry: " + anchor);
+    updated = updated.replace(anchor, replacement);
+  }
+  return updated;
+}
+
 function patchPiInteractiveErrorDedup(content) {
   if (content.includes(PI_ERROR_DEDUP_MARKER)) return content;
   const methodAnchor = [
@@ -2164,12 +2223,12 @@ export function applyBundledPiPatches(options) {
   ];
   for (const retryPath of piAiRetryPaths) {
     if (!fs.existsSync(retryPath)) continue;
-    results.push(patchFileInPlace(retryPath, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiRetryJitter, buildPiRetryConfigurableDelayPatch("policy?.fixedDelayMs")));
+    results.push(patchFileInPlace(retryPath, patchPiAiRateLimitRetry, patchPiAiRetryable422, patchPiAiAllErrorsRetry, patchPiRetryJitter, buildPiRetryConfigurableDelayPatch("policy?.fixedDelayMs")));
   }
 
   const agentSessionPath = path.join(piRoot, "dist", "core", "agent-session.js");
   results.push(fs.existsSync(agentSessionPath)
-    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"), patchPiBackgroundCompaction, patchPiSystemPromptRefresh)
+    ? patchFileInPlace(agentSessionPath, patchPiRetryJitter, patchPiAgentSessionConnectionRetry, patchPiAgentSessionAllErrorsRetry, buildPiRetryConfigurableDelayPatch("settings.fixedDelayMs"), patchPiBackgroundCompaction, patchPiSystemPromptRefresh)
     : { patched: false, file: agentSessionPath });
 
   const extensionRunnerPath = path.join(piRoot, "dist", "core", "extensions", "runner.js");
