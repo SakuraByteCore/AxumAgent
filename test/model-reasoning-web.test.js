@@ -20,6 +20,8 @@ test("model strength controls persist independently across defaults, providers a
   const html = await (await fetch(url)).text();
   const script = html.slice(html.indexOf("<script>") + 8, html.lastIndexOf("</script>"));
   new vm.Script(script);
+  assert.doesNotMatch(html, /id="reasoningEffort"/);
+  assert.doesNotMatch(script, /\$\('reasoningEffort'\)/);
   const token = JSON.parse(script.match(/const token=("[^"]+")/)[1]);
   const request = (route, body) => fetch(new URL(route, url), {
     method: body ? "POST" : "GET",
@@ -28,6 +30,7 @@ test("model strength controls persist independently across defaults, providers a
   });
   const controls = new Map();
   const $ = id => {
+    assert.notEqual(id, "reasoningEffort", "removed global control must not be accessed");
     if (!controls.has(id)) controls.set(id, { value: "", checked: false });
     return controls.get(id);
   };
@@ -42,7 +45,6 @@ test("model strength controls persist independently across defaults, providers a
     })));
   } });
   $("modelList").querySelectorAll = selector => nodes.get(selector) || [];
-  $("reasoningEffort").options = ["off", "minimal", "low", "medium", "high", "xhigh", "max"].map(value => ({ value, getAttribute: () => value }));
   const failures = [];
   const context = vm.createContext({ $, Headers, token, currentModels: [], currentDefaultId: "", currentModelEfforts: new Map(),
     loadedProvider: null, providerLoaded: false, allDefaultProvider: "", allDefaultModel: "",
@@ -66,12 +68,13 @@ test("model strength controls persist independently across defaults, providers a
   $("apiKey").value = "test-key";
   context.addModel("shared");
   context.addModel("second");
+  assert.equal(nodes.get("select[data-effort]").length, 2);
   const second = nodes.get("select[data-effort]")[1];
   second.value = "off";
   second.onchange();
   assert.equal(context.currentModelEfforts.get("shared"), "high");
   nodes.get("input[data-setdef]")[1].onchange();
-  assert.equal($("reasoningEffort").value, "off");
+  assert.equal(nodes.get("select[data-effort]")[1].value, "off");
   await $("save").onclick();
   assert.deepEqual(failures, []);
   let config = await (await request("/api/config")).json();

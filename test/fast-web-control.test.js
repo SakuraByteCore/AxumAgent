@@ -31,7 +31,6 @@ test("rendered Fast checkbox save handler persists off/on/off through authentica
   $("baseUrl").value = "http://127.0.0.1:1/v1";
   $("apiKey").value = "***";
   $("maxTokens").value = "16";
-  $("reasoningEffort").value = "off";
   $("apiShape").value = "openai-completions";
   const failures = [];
   const context = vm.createContext({ $, currentModelEfforts: new Map(), currentModels: ["mock"], currentDefaultId: "mock", loadedProvider: null,
