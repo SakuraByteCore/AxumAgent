@@ -48,7 +48,7 @@ import { applyFingerprintToChatPayload, describeZenQuotaError } from "../plugin/
 import { enrichModelThinkingLevels, isAxumBaselineLevelMap } from "../plugin/pi-companion/thinking-levels.ts";
 import { REGRESSION_GUARD_CLAUSE } from "../plugin/pi-companion/regression-guard.ts";
 
-// Hermetic tests: the /usemodel opencode + kilo syncs are disabled file-wide;
+// Hermetic tests: provider syncs are disabled file-wide;
 // the syncs themselves are covered by the dedicated tests at the bottom.
 process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
 process.env.PI_COMPANION_KILO_SYNC_DISABLE = "1";
@@ -193,7 +193,7 @@ test("build command reloads the plan template and rejects invalid or unreadable 
     if (template?.includes("{{requirement}}")) {
       assert.deepEqual(pi.messages, [{ message: `${expected}
 
-${REGRESSION_GUARD_CLAUSE}`, options: { streamingBehavior: "followUp" } }]);
+${REGRESSION_GUARD_CLAUSE}`, options: { deliverAs: "followUp" } }]);
       assert.equal(notifications.length, 0);
     } else {
       assert.equal(pi.messages.length, 0);
@@ -218,7 +218,8 @@ test("build command requests derived outcomes and a real confirmation before imp
   assert.match(pi.messages[0].message, /每个测试失败项都提供对应用户 UAT/);
   assert.match(pi.messages[0].message, /前置条件、输入数据、逐步操作、预期结果、实际失败表现及修复状态/);
   assert.match(pi.messages[0].message, /未执行或环境阻断不得写成通过/);
-  assert.equal(pi.messages[0].options.streamingBehavior, "followUp");
+  assert.equal(pi.messages[0].options.deliverAs, "followUp");
+  assert.equal(pi.messages[0].options.streamingBehavior, undefined);
 }));
 
 test("build command rejects empty requirements and cannot be shadowed by templates", withBareHome(async () => {
@@ -2341,64 +2342,36 @@ test("refreshZenProviderLive stamps a failure cooldown and clears it on success"
   }
 });
 
-test("/usemodel shows the selector without waiting on the Zen network sync", async () => {
+test("/usemodel does not inject or refresh OpenCode even with a stale Zen cache", async () => {
   const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-fast-"));
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-no-zen-"));
   const agentDir = path.join(tmpHome, ".pi", "agent");
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
-    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
-  }), "utf8");
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}), "utf8");
-  fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE), JSON.stringify({
-    writtenAt: 0,
-    models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }],
-  }), "utf8");
-  const { ctx, notifications, selectCalls } = createModelSwitchContext({
-    models: [],
-    selectResult: (options) => options[0],
-  });
+  const manifest = { providers: { openai: { models: [{ id: "gpt-5", default: true }] } } };
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify(manifest), "utf8");
+  const cache = JSON.stringify({ writtenAt: 0, models: [{ id: "big-pickle", name: "big-pickle", reasoning: false }] });
+  fs.writeFileSync(path.join(agentDir, CATALOG_CACHE_FILE), cache, "utf8");
+  const { ctx, notifications, selectCalls } = createModelSwitchContext();
   const previousHome = process.env.HOME;
   const previousUserProfile = process.env.USERPROFILE;
   const previousFetch = globalThis.fetch;
-  const pendingFetches = [];
-  globalThis.fetch = (url) => {
-    const response = String(url).includes("/inference/v1/models")
-      ? { ok: true, json: async () => ({ data: [{ id: "big-pickle" }] }) }
-      : String(url).includes("api.kilo.ai")
-        ? { ok: true, json: async () => ({ data: [{ id: "kilo-auto/free", isFree: true, context_length: 256000, top_provider: { max_completion_tokens: 32768 }, architecture: { input_modalities: ["text"] } }] }) }
-        : { ok: true, json: async () => MODELS_DEV_FIXTURE };
-    return new Promise((resolve) => pendingFetches.push(() => resolve(response)));
+  const fetchCalls = [];
+  globalThis.fetch = async (url) => {
+    fetchCalls.push(String(url));
+    return { ok: true, json: async () => ({ data: [] }) };
   };
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
   delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
   try {
     await pi.commands.get("usemodel").handler("", ctx);
-
-    assert.equal(selectCalls.length, 1, "the selector opened without awaiting any fetch");
-    assert.ok(selectCalls[0].options.some((option) => option === "opencode/big-pickle"), "cached Zen model is listed instantly");
-    assert.ok(notifications.some((n) => n.level === "info" && /synced 1 free Zen models \(cache\)/.test(n.message)));
-
-    // The mocked fetch never resolves on its own, so the handler having already
-    // returned proves the sync runs detached in the background.
-    const fetchDeadline = Date.now() + 2_000;
-    while (pendingFetches.length === 0 && Date.now() < fetchDeadline) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    assert.ok(pendingFetches.length >= 1, "the live Zen sync is pending in the background");
-
-    const deadline = Date.now() + 5_000;
-    while (Date.now() < deadline) {
-      const flush = pendingFetches.splice(0);
-      for (const release of flush) release();
-      if (notifications.some((n) => /in the background/.test(n.message))) break;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    assert.ok(
-      notifications.some((n) => n.level === "info" && /opencode: synced 1 free models in the background/.test(n.message)),
-      "the background sync toasts once the fresh catalog lands",
-    );
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(selectCalls.length, 1);
+    assert.deepEqual(selectCalls[0].options, ["openai/gpt-5  (default)"]);
+    assert.deepEqual(fetchCalls, [], "opening the selector must not start a Zen fetch");
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")), manifest);
+    assert.equal(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"), cache);
+    assert.ok(!notifications.some((n) => /opencode|Zen/.test(n.message)));
   } finally {
     globalThis.fetch = previousFetch;
     process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
@@ -2410,40 +2383,35 @@ test("/usemodel shows the selector without waiting on the Zen network sync", asy
   }
 });
 
-test("/usemodel merges the curated zen floor offline and pins user providers first", async () => {
+test("/usemodel hides persisted OpenCode models and still switches other providers", async () => {
   const pi = createPi();
-  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-zen-"));
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-companion-usemodel-hidden-zen-"));
   const agentDir = path.join(tmpHome, ".pi", "agent");
   fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify({
-    providers: { openai: { models: [{ id: "gpt-5", default: true }] } },
-  }), "utf8");
-  fs.writeFileSync(path.join(agentDir, "settings.json"), JSON.stringify({}), "utf8");
-  const { ctx, notifications, selectCalls } = createModelSwitchContext({
-    models: [],
-    selectResult: (options) => options[0],
+  const manifest = { providers: {
+    opencode: { models: [{ id: "big-pickle", default: true }] },
+    openai: { models: [{ id: "gpt-5" }] },
+    kilo: { models: [{ id: "kilo-auto/free" }] },
+  } };
+  fs.writeFileSync(path.join(agentDir, "models.json"), JSON.stringify(manifest), "utf8");
+  const target = { provider: "openai", id: "gpt-5" };
+  const { ctx, selectCalls } = createModelSwitchContext({
+    models: [target], selectResult: "openai/gpt-5",
+    currentModel: { provider: "opencode", id: "big-pickle" },
   });
   const previousHome = process.env.HOME;
   const previousUserProfile = process.env.USERPROFILE;
   process.env.HOME = tmpHome;
   process.env.USERPROFILE = tmpHome;
-  delete process.env.PI_COMPANION_ZEN_SYNC_DISABLE;
-  process.env.PI_COMPANION_ZEN_OFFLINE = "1";
   try {
     await pi.commands.get("usemodel").handler("", ctx);
     assert.equal(selectCalls.length, 1);
-    assert.ok(selectCalls[0].options.some((option) => option === "openai/gpt-5  (default)"), "offline cold start keeps the user provider");
-    assert.ok(selectCalls[0].options.includes("opencode/big-pickle"), "curated static floor injects a live Zen model");
-    assert.ok(!selectCalls[0].options.some((option) => option.startsWith("opencode/ling-3.1-flash-free")), "retired static models stay hidden");
-    const merged = JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8"));
-    assert.ok(merged.providers.opencode, "provider block merged into models.json");
-    assert.equal(merged.providers.openai.models[0].id, "gpt-5", "existing providers untouched");
-    const cache = JSON.parse(fs.readFileSync(path.join(agentDir, CATALOG_CACHE_FILE), "utf8"));
-    assert.ok(Array.isArray(cache.models) && cache.models.length === STATIC_FREE_MODEL_IDS.length, "bootstrap cache starts from the curated floor");
-    assert.ok(notifications.some((n) => n.level === "info" && new RegExp(`synced ${STATIC_FREE_MODEL_IDS.length} free Zen models \\(static\\)`).test(n.message)));
+    assert.deepEqual(selectCalls[0].options, ["kilo/kilo-auto/free", "openai/gpt-5"]);
+    assert.equal(selectCalls[0].opts.initialSelectedIndex, 0);
+    assert.deepEqual(pi.setModelCalls, [target]);
+    assert.deepEqual(ctx.modelRegistry.refreshCalls, [{ allowNetwork: false }]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(agentDir, "models.json"), "utf8")), manifest);
   } finally {
-    process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";
-    delete process.env.PI_COMPANION_ZEN_OFFLINE;
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     if (previousUserProfile === undefined) delete process.env.USERPROFILE;

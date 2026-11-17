@@ -88,14 +88,18 @@ function loadInlineScript() {
 function makeEnv() {
   const cache = new Map();
   const tree = makeEl();
+  const side = makeEl();
+  const tablist = makeEl();
   cache.set("histTree", tree);
   const doc = {
+    documentElement: makeEl(),
+    body: makeEl(),
     getElementById(id) {
       if (!cache.has(id)) cache.set(id, makeEl());
       return cache.get(id);
     },
     querySelectorAll() { return []; },
-    querySelector() { return null; },
+    querySelector(selector) { return selector === ".side" ? side : selector === '[role="tablist"]' ? tablist : null; },
     addEventListener() {},
     createElement() { return makeEl(); },
   };
@@ -104,6 +108,7 @@ function makeEnv() {
   const fn = new Function(
     "document",
     "fetch",
+    "matchMedia",
     js + `
 ;return {
   get historyCache(){return historyCache},
@@ -111,7 +116,7 @@ function makeEnv() {
   renderHistoryTree, selectedHistory, shownHistoryKeys, tree:document.getElementById('histTree')
 };`,
   );
-  const api = fn(doc, fetch);
+  const api = fn(doc, fetch, () => ({ matches: false, addEventListener() {} }));
   api.search = doc.getElementById("histSearch");
   return api;
 }

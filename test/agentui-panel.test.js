@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import vm from "node:vm";
 import { closeAgentUiPanel, registerAgentUi } from "../plugin/pi-companion/agentui.ts";
 import { AGENTUI_PREFS_GLOBAL_KEY } from "../plugin/pi-agent/agentui-prefs.ts";
 
@@ -81,6 +82,22 @@ test("agentui command registers and serves a token-guarded page", async (t) => {
 	assert.ok(page.includes("x" + amp + "lt;ss" + amp + "gt;" + amp + "quot;model"), "XSS model id must arrive escaped");
 	assert.ok(page.includes("current: plain-model"), "current-model hint missing");
 	assert.ok(!page.includes("CSS.escape"), "attribute-selector matching must iterate options instead");
+	assert.match(page, /<html lang="zh-CN">/);
+	assert.match(page, /class="brand">Axum/);
+	assert.match(page, /<h1 id="page-title">模型设置<\/h1>/);
+	assert.match(page, /aria-describedby="spawn-hint"/);
+	assert.match(page, /aria-describedby="blueprint-hint"/);
+	assert.match(page, /role="status" aria-live="polite" aria-atomic="true"/);
+	assert.match(page, /prefers-color-scheme: dark/);
+	assert.match(page, /--background: oklch\(1 0 0\)/);
+	assert.match(page, /--background: oklch\(\.192 0 0\)/);
+	assert.match(page, /viewport-fit=cover/);
+	assert.match(page, /safe-area-inset-bottom/);
+	assert.match(page, /min-height: 44px/);
+	assert.match(page, /overflow-wrap: anywhere/);
+	assert.match(page, /text-overflow: ellipsis/);
+	assert.match(page, /\(hover: hover\) and \(pointer: fine\)/);
+	assert.match(page, /prefers-reduced-motion: reduce/);
 
 	// API surface.
 	assert.equal((await fetch(api(base, "/api/nope", token))).status, 404);
@@ -205,4 +222,67 @@ test("agentui handler warns when no models are configured", async (t) => {
 		process.env.HOME = previousHome;
 		fs.rmSync(emptyHome, { recursive: true, force: true });
 	}
+});
+
+test("agentui browser script handles busy state, safe feedback, failures and retry", async () => {
+	const pi = makePi();
+	registerAgentUi(pi);
+	const { url } = await openPanel(pi, "panel-browser");
+	const page = await fetch(url).then((r) => r.text());
+	const elements = Object.fromEntries(["model-settings", "spawn", "blueprint", "save", "status"].map((id) => [id, {
+		value: "auto", disabled: false, textContent: "", dataset: {}, attributes: {},
+		options: [{ value: "auto" }, { value: "testprov/plain-model" }],
+		setAttribute(name, value) { this.attributes[name] = value; },
+	}]));
+	const requests = [];
+	const context = vm.createContext({
+		URLSearchParams, location: { search: new URL(url).search },
+		document: { getElementById: (id) => elements[id] },
+		fetch: (request, options) => new Promise((resolve, reject) => requests.push({ request, options, resolve, reject })),
+	});
+	vm.runInContext(page.match(/<script>([\s\S]*?)<\/script>/)[1], context);
+	assert.equal(elements.save.disabled, true);
+	assert.equal(elements["model-settings"].attributes["aria-busy"], "true");
+	assert.equal(new URL(requests[0].request, url).searchParams.get("token"), new URL(url).searchParams.get("token"));
+	requests.shift().resolve({ ok: true, json: async () => ({ spawn: "testprov/plain-model", blueprint: "missing" }) });
+	await new Promise(setImmediate);
+	assert.equal(elements.spawn.value, "testprov/plain-model");
+	assert.equal(elements.blueprint.value, "auto", "stale model must fall back to auto");
+	assert.equal(elements.save.disabled, false);
+	const submit = () => elements["model-settings"].onsubmit({ preventDefault() {} });
+	const saving = submit();
+	assert.equal(elements.save.disabled, true);
+	assert.equal(elements.spawn.disabled, true);
+	assert.equal(elements.blueprint.disabled, true);
+	assert.equal(elements.save.attributes["aria-busy"], "true");
+	await submit();
+	assert.equal(requests.length, 1, "duplicate submissions must not issue another request");
+	const request = requests.shift();
+	assert.deepEqual(JSON.parse(request.options.body), { spawn: "testprov/plain-model", blueprint: "auto" });
+	request.resolve({ ok: true, json: async () => ({ spawn: XSS_MODEL_ID, blueprint: "auto" }) });
+	await saving;
+	assert.equal(elements.status.dataset.state, "success");
+	assert.ok(elements.status.textContent.includes(XSS_MODEL_ID), "model feedback must use literal text");
+	assert.equal(elements.status.attributes.role, "status");
+	assert.equal(elements.status.attributes["aria-live"], "polite");
+	assert.equal(elements.save.disabled, false);
+	assert.equal(elements.save.attributes["aria-busy"], "false");
+	for (const failure of ["http", "network"]) {
+		const failed = submit();
+		const pending = requests.shift();
+		if (failure === "http") pending.resolve({ ok: false, json: async () => ({ error: "invalid model choice" }) });
+		else pending.reject(new Error("offline"));
+		await failed;
+		assert.equal(elements.status.dataset.state, "error");
+		assert.equal(elements.status.attributes.role, "alert");
+		assert.equal(elements.status.attributes["aria-live"], "assertive");
+		assert.equal(elements.save.disabled, false, "failure must allow retry");
+		assert.equal(elements["model-settings"].attributes["aria-busy"], "false");
+	}
+	const loading = vm.runInContext("load()", context);
+	requests.shift().reject(new Error("offline"));
+	await loading;
+	assert.match(elements.status.textContent, /读取失败/);
+	assert.equal(elements.status.attributes.role, "alert");
+	assert.equal(elements.save.disabled, false);
 });

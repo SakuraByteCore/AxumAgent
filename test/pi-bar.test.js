@@ -747,3 +747,43 @@ test("live thinking signal synchronously refreshes only the current model and pr
   f.bus.emit("pi-companion:thinking-changed", event);
   assert.equal(f.renders(), 1, "shutdown cannot redraw stale state");
 });
+
+test("stream bursts bound context work, coalesce widgets and keep boundary updates", async (t) => {
+  const { default: install } = await import("../plugin/pi-bar/index.ts");
+  const handlers = new Map(), events = new EventEmitter();
+  install({ on: (name, fn) => handlers.set(name, fn), registerCommand() {}, events });
+  let now = 1000, reads = 0, tokens = 0, widgets = 0;
+  t.mock.method(Date, "now", () => now);
+  const ctx = { hasUI: false, cwd: process.cwd(), model: { provider: "fixture", id: "fixture" },
+    sessionManager: { getEntries: () => [], getBranch: () => [] },
+    getContextUsage: () => { reads++; return { tokens: ++tokens, contextWindow: 100 }; },
+    ui: { setWidget: () => widgets++ } };
+  await handlers.get("session_start")({}, ctx);
+  ctx.hasUI = true; reads = widgets = 0;
+  const update = () => handlers.get("message_update")({ message: { role: "assistant", usage: { output: 100 } } }, ctx);
+  await Promise.all(Array.from({ length: 100 }, update));
+  assert.equal(reads, 1, "100 deltas in one burst compute context once");
+  assert.equal(widgets, 1, "two changed context segments share one widget refresh");
+  now = 1249; await update(); assert.equal(reads, 1);
+  now = 1250; await update(); assert.equal(reads, 2);
+  now = 1251;
+  await handlers.get("message_end")({ message: { role: "assistant", timestamp: 1000, usage: { output: 100 } } }, ctx);
+  assert.equal(reads, 3, "final context bypasses stream throttling");
+  assert.equal(widgets, 3, "final context and throughput share one refresh");
+  await handlers.get("message_start")({ message: { role: "assistant" } }, ctx);
+  await update(); assert.equal(reads, 4, "a new request samples immediately");
+  await handlers.get("model_select")({}, ctx); assert.equal(reads, 5);
+  const before = widgets;
+  events.emit("pi-companion:context-changed");
+  assert.equal(reads, 6); assert.equal(widgets, before + 1, "/ctx redraws synchronously");
+  ctx.ui.setWidget = () => { throw new Error("This extension ctx is stale after session replacement or reload."); };
+  events.emit("pi-bar:update", { id: "stale-test", text: "changed" });
+  await Promise.resolve();
+  ctx.ui.setWidget = () => widgets++;
+  events.emit("pi-bar:update", { id: "stale-test", text: "retired" });
+  await Promise.resolve();
+  assert.equal(widgets, before + 1, "a stale queued refresh retires the captured runtime");
+  ctx.hasUI = false;
+  await handlers.get("session_shutdown")({}, ctx);
+  assert.equal(widgets, before + 1, "pending flush cannot redraw a closed session");
+});

@@ -163,8 +163,14 @@ test("Windows excludes bundled extensions that cannot load from published TS sou
 });
 
 
-test("ensureBundledPi skips unchanged plugin source copies", () => {
+test("ensureBundledPi skips unchanged plugin source copies", (t) => {
   const cache = fs.mkdtempSync(path.join(os.tmpdir(), "axum-plugin-sync-"));
+  const previousHome = process.env.HOME;
+  process.env.HOME = path.join(cache, "home");
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  });
   const calls = path.join(cache, "npm-calls.log");
   const fakeNpm = path.join(cache, "fake-npm.js");
   const stdinBuffer = `const ESC = "\\x1b";
@@ -235,7 +241,7 @@ pkg("pi-remote-control", { "index.js": "" });
   assert.equal(after, before);
   assert.equal(fs.readFileSync(artifact, "utf8"), "cached output");
   const install = spawnSync(process.execPath, ["bin/axum.js", "install"], {
-    env: { ...process.env, ...options.env, NODE_OPTIONS: "" }, encoding: "utf8", timeout: 10000,
+    env: { ...process.env, ...options.env, AXUM_BUNDLED_PI_TEST_PLATFORM: "win32", AXUM_BUNDLED_PI_NPM: fakeNpm, TERMUX_VERSION: "", PREFIX: "", NODE_OPTIONS: "" }, encoding: "utf8", timeout: 10000,
   });
   assert.equal(install.status, 0, install.stderr);
   assert.equal(fs.readFileSync(artifact, "utf8"), "cached output");
@@ -582,9 +588,9 @@ pkg('pi-remote-control', { 'index.js': '' });
   const patchedAiUserAgent = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-ai", "dist", "utils", "pi-user-agent.js"), "utf8");
   assert.match(patchedAiUserAgent, /AXUM_PI_USER_AGENT_CUSTOM/);
   const patchedAgentSession = fs.readFileSync(path.join(cache, "node_modules", "@earendil-works", "pi-coding-agent", "dist", "core", "agent-session.js"), "utf8");
-  assert.ok(patchedAgentSession.includes("// AXUM_PI_SYSTEM_PROMPT_REFRESH_V1"));
+  assert.ok(patchedAgentSession.includes("// AXUM_PI_SYSTEM_PROMPT_REFRESH_V2"));
   assert.ok(patchedAgentSession.includes("installAxumSystemPromptRefresh(this"));
-  assert.equal(patchedAgentSession.includes(String.fromCharCode(10) + "AXUM_PI_SYSTEM_PROMPT_REFRESH_V1" + String.fromCharCode(10)), false);
+  assert.equal(patchedAgentSession.includes(String.fromCharCode(10) + "AXUM_PI_SYSTEM_PROMPT_REFRESH_V2" + String.fromCharCode(10)), false);
 });
 
 

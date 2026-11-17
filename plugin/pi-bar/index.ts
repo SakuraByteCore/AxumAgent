@@ -64,7 +64,7 @@ import { fileURLToPath } from "node:url";
 import { appendPromptHistoryEntry, globalPromptHistoryPath, loadPromptHistory, promptHistoryPath, rewritePromptHistory } from "./prompt-history.ts";
 import { displayWidth, takeDisplayTail, truncateDisplayToWidth } from "./display-width.ts";
 import { BalanceCache, probeSub2ApiBalance } from "./sub2api-balance.ts";
-import { createStaleSafeEmit } from "./runtime-safety.ts";
+import { createStaleSafeEmit, isStaleRuntimeError } from "./runtime-safety.ts";
 // User-Agent: read the shared axum config file directly instead of importing
 // do not import axum-internal modules here (this file is synced into the Pi
 // cache where ../../src/provider-config.js does not exist). When the env var
@@ -538,6 +538,7 @@ let tpsBorderLabel = "";
 // 只采信提供商上报的 usage.output；输出没有增长就没有读数，不做字符估算。
 const TPS_SAMPLE_WINDOW_MS = 10_000;
 const TPS_SAMPLE_INTERVAL_MS = 1_000;
+const CONTEXT_SAMPLE_INTERVAL_MS = 250;
 
 interface TpsSample {
 	at: number;
@@ -1709,6 +1710,7 @@ export default function (pi: ExtensionAPI): void {
 	let settings: Settings = DEFAULTS;
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
+	let lastContextSampleAt = Number.NEGATIVE_INFINITY;
 
 	// --- /history: overlay picker for deleting up-arrow prompt history ---
 	pi.registerCommand("history", {
@@ -1947,12 +1949,14 @@ export default function (pi: ExtensionAPI): void {
 		// 新一轮请求：清空上一轮的采样点，读数回到未知态，
 		// 避免把上一请求的速度当成当前速度。
 		resetTpsSamples();
+		lastContextSampleAt = Number.NEGATIVE_INFINITY;
 		emitTpsIdle(ctx);
 	});
 
 	pi.on("message_end", async (event, ctx) => {
 		const message = event.message;
 		if (message.role !== "assistant") return;
+		emitContext(ctx);
 		// 请求已结束：实时采样窗口随之作废，读数改由权威平均速度给出。
 		resetTpsSamples();
 		// The provider timestamp precedes the HTTP request, unlike message_start
@@ -2165,6 +2169,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", async (_event, ctx) => {
 		settings = loadSettings();
 		currentCtx = ctx;
+		lastContextSampleAt = Number.NEGATIVE_INFINITY;
 		if (promptHistoryError) {
 			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
 			promptHistoryError = undefined;
@@ -2241,7 +2246,11 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("message_update", async (event, ctx) => {
-		emitContext(ctx);
+		const now = Date.now();
+		if (now - lastContextSampleAt >= CONTEXT_SAMPLE_INTERVAL_MS) {
+			lastContextSampleAt = now;
+			emitContext(ctx);
+		}
 		const message = event.message;
 		if (!message || message.role !== "assistant") return;
 		const output = message.usage?.output;
@@ -2272,7 +2281,21 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	// Coalesce frequent producer bursts into a single widget re-attach per tick.
-	const flush = (): void => flushIfDirty();
+	let flushQueued = false;
+	const flush = (): void => {
+		if (flushQueued) return;
+		flushQueued = true;
+		queueMicrotask(() => {
+			flushQueued = false;
+			try {
+				flushIfDirty();
+			} catch (error) {
+				if (!isStaleRuntimeError(error)) throw error;
+				stopBalancePolling();
+				currentCtx = undefined;
+			}
+		});
+	};
 	pi.events.on("pi-bar:update", flush);
 	pi.events.on("pi-bar:register-segment", flush);
 	// pi-companion's /ctx rewrites model.contextWindow in place — no setModel,
@@ -2286,5 +2309,6 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.events.on("pi-companion:context-changed", () => {
 		if (currentCtx) emitContext(currentCtx);
+		flushIfDirty();
 	});
 }

@@ -22,12 +22,20 @@ export function resolvePiWebBin(options = {}) {
   throw new Error("@agegr/pi-web is not installed; reinstall Axum to restore the bundled chat UI");
 }
 
+export function createPiWebEnvironment(bin, env = process.env) {
+  const fastPreload = new URL("./pi-web-fast-loader.js", import.meta.url).href;
+  const themePreload = new URL("./pi-web-theme-loader.js", import.meta.url).href;
+  return {
+    ...env,
+    AXUM_PI_WEB_THEME_ROOT: path.resolve(path.dirname(bin), ".."),
+    NODE_OPTIONS: [env.NODE_OPTIONS, `--import=${fastPreload}`, `--import=${themePreload}`].filter(Boolean).join(" "),
+  };
+}
+
 export function runPiWebChat(argv) {
   const bin = resolvePiWebBin();
-  const preload = new URL("./pi-web-fast-loader.js", import.meta.url).href;
-  const nodeOptions = [process.env.NODE_OPTIONS, `--import=${preload}`].filter(Boolean).join(" ");
   const child = spawn(process.execPath, [bin, ...argv], {
-    stdio: "inherit", env: { ...process.env, NODE_OPTIONS: nodeOptions },
+    stdio: "inherit", env: createPiWebEnvironment(bin),
   });
   child.on("exit", (code, signal) => {
     if (signal) process.kill(process.pid, signal);

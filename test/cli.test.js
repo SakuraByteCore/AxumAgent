@@ -262,6 +262,7 @@ test("axum chat passes through args to bundled pi-web and forwards the exit code
   const argvFile = path.join(dir, "argv.json");
   const piWebDir = writePackage(dir, "@agegr/pi-web", {
     "bin/pi-web.js": `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2))); process.exit(3);\n`,
+    ".next/static/css/theme.css": ":root{--user-bg:#fff}html.dark{--user-bg:#111}",
   });
   const result = spawnSync(process.execPath, ["bin/axum.js", "chat", "--port", "31241", "--no-open"], {
     encoding: "utf8",

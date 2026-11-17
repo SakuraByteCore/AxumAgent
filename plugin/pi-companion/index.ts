@@ -5,7 +5,6 @@ import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync, mkdirSync
 import { resolve, dirname, join, extname } from "node:path";
 import { homedir } from "node:os";
 import { buildModelOptions, findCurrentModelIndex, parseModelManifest } from "./model-switch.ts";
-import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
 import { capKiloMaxTokens, ensureKiloProviderLocal, KILO_PROVIDER_ID, refreshKiloProviderLive } from "./kilo-free.ts";
 import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
 import { registerAgentUi } from "./agentui.ts";
@@ -1481,7 +1480,7 @@ UAT 必须对应用户可观察的行为，不能只粘贴测试命令。对纯�
       ctx.ui.notify(`Failed to build /build prompt: ${message}`, "error");
       return;
     }
-    await pi.sendUserMessage(prompt, { streamingBehavior: "followUp" });
+    await pi.sendUserMessage(prompt, { deliverAs: "followUp" });
   },
 });
 
@@ -1733,23 +1732,7 @@ pi.registerCommand("claude", {
 			const agentDir = modelSwitchAgentDir();
 			const modelsPath = join(agentDir, "models.json");
 
-			// Open the selector instantly: merge whatever the on-disk catalog caches
-			// (any age; stale still beats the compile-time static floors) or the static
-			// floors already have into models.json — local disk only, never the network —
-			// then kick live refreshes in the background when a cache is stale.
-			// The refreshed free models land on the next /usemodel.
-			try {
-				const local = await ensureZenProviderLocal(agentDir);
-				if (local.changed) {
-					ctx.ui.notify(`opencode: synced ${local.count} free Zen models (${local.source}).`, "info");
-				}
-				if (local.needsLiveRefresh) {
-					startBackgroundRefresh("opencode", () => refreshZenProviderLive(agentDir), ctx);
-				}
-			} catch (error) {
-				const message = error instanceof Error ? error.message : String(error);
-				ctx.ui.notify(`opencode sync skipped: ${message}`, "warning");
-			}
+			// Merge the local Kilo catalog, then refresh stale entries in the background.
 			try {
 				const local = await ensureKiloProviderLocal(agentDir);
 				if (local.changed) {
@@ -1762,7 +1745,9 @@ pi.registerCommand("claude", {
 				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`kilo sync skipped: ${message}`, "warning");
 			}
-			const manifest = parseModelManifest(await readJsonObject(modelsPath));
+			// Keep previously persisted OpenCode entries out of this selector too.
+			const manifest = parseModelManifest(await readJsonObject(modelsPath))
+				.filter((entry) => entry.provider !== "opencode");
 			if (!manifest.length) {
 				ctx.ui.notify(`No models configured (${modelsPath}). Use /provider to add a model first.`, "warning");
 				return;

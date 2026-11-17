@@ -14,6 +14,7 @@ import { homedir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildModelOptions, parseModelManifest, type ModelEntry } from "./model-switch.ts";
 import { ensureZenProviderLocal, refreshZenProviderLive } from "./opencode-zen.ts";
+import { agentUiStyle } from "./agentui-style.ts";
 
 // Mirror of AGENTUI_PREFS_GLOBAL_KEY in plugin/pi-agent/agentui-prefs.ts — keep in sync.
 const AGENTUI_PREFS_GLOBAL_KEY = "axumAgentUiModelPrefs";
@@ -104,51 +105,74 @@ function optionsHtml(selectId: string, entries: ModelEntry[], labels: string[], 
 		const value = `${entry.provider}/${entry.model}`;
 		rows.push(`<option value="${esc(value)}"${selected === value ? " selected" : ""}>${esc(labels[index] ?? value)}</option>`);
 	});
-	return `<select id="${selectId}">${rows.join("")}</select>`;
+	return `<select id="${selectId}" aria-describedby="${selectId}-hint">${rows.join("")}</select>`;
 }
 
 function pageHtml(p: Panel): string {
-	// Parameterized on the panel instance (not the module-level singleton) so the
-	// page always renders the server-closure state even before first assignment.
-	const autoHint = ` (current: ${esc(p.currentLabel)})`;
-	return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>/agentui — spawn & blueprint models</title>
-<style>body{font-family:system-ui,sans-serif;background:#14161a;color:#e6e6e6;max-width:560px;margin:40px auto;padding:0 16px}
-h1{font-size:18px}label{display:block;margin:18px 0 6px;font-size:14px;color:#aab}
-select,button{width:100%;padding:9px;font-size:14px;background:#1e2128;color:#e6e6e6;border:1px solid #3a3f4a;border-radius:6px}
-button{margin-top:22px;cursor:pointer;background:#2f6fed;border-color:#2f6fed}
-#status{margin-top:12px;font-size:13px;min-height:18px;color:#8f8}</style></head>
-<body><h1>/agentui — models for /spawn and /blueprint${autoHint}</h1>
-<p style="font-size:13px;color:#889">Session-scoped: applies to this pi session only. auto = inherit the current session model.</p>
-<label for="spawn">/spawn model</label>${optionsHtml("spawn", p.entries, p.labels, AUTO)}
-<label for="blueprint">/blueprint model</label>${optionsHtml("blueprint", p.entries, p.labels, AUTO)}
-<button id="save">Save</button><div id="status"></div>
+	// Render the server-closure state even before first singleton assignment.
+	return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark"><title>模型设置 · Axum</title>
+<style>${agentUiStyle}</style></head>
+<body><header class="workspace-header"><div class="brand">Axum<span>工作区设置</span></div></header>
+<main aria-labelledby="page-title"><h1 id="page-title">模型设置</h1>
+<p class="description">为 /spawn 与 /blueprint 选择模型。</p>
+<p class="session">仅对当前会话生效，退出后恢复默认。<br><strong>current: ${esc(p.currentLabel)}</strong></p>
+<form id="model-settings" aria-busy="true">
+<div class="field"><label for="spawn">/spawn 模型</label>${optionsHtml("spawn", p.entries, p.labels, AUTO)}
+<p class="hint" id="spawn-hint">用于子任务执行。auto 继承当前会话模型。</p></div>
+<div class="field"><label for="blueprint">/blueprint 模型</label>${optionsHtml("blueprint", p.entries, p.labels, AUTO)}
+<p class="hint" id="blueprint-hint">用于方案规划。auto 继承当前会话模型。</p></div>
+<div class="actions"><button id="save" type="submit" disabled>保存设置</button>
+<div id="status" role="status" aria-live="polite" aria-atomic="true">正在读取设置…</div></div>
+</form></main>
 <script>
 const params = new URLSearchParams(location.search);
 const token = params.get("token") || "";
 const api = (path) => path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(token);
+const form = document.getElementById("model-settings");
+const save = document.getElementById("save");
+const status = document.getElementById("status");
+function feedback(message, state) {
+  status.dataset.state = state;
+  status.setAttribute("role", state === "error" ? "alert" : "status");
+  status.setAttribute("aria-live", state === "error" ? "assertive" : "polite");
+  status.textContent = message;
+}
+function setBusy(busy) {
+  form.setAttribute("aria-busy", String(busy));
+  save.setAttribute("aria-busy", String(busy));
+  for (const key of ["spawn", "blueprint", "save"]) document.getElementById(key).disabled = busy;
+}
 function setSelectValue(key, value) {
   const select = document.getElementById(key);
   for (const opt of select.options) { if (opt.value === value) { select.value = value; return; } }
   select.value = "auto";
 }
 async function load() {
+  setBusy(true);
   try {
     const r = await fetch(api("/api/state"));
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "failed to load state");
+    if (!r.ok) throw new Error(j.error || "读取设置失败，请刷新重试。");
     for (const key of ["spawn", "blueprint"]) setSelectValue(key, j[key] || "auto");
-    document.getElementById("status").textContent = "";
-  } catch (e) { document.getElementById("status").textContent = e.message; }
+    feedback("选择 auto 可跟随当前会话模型。", "idle");
+  } catch (e) { feedback("读取失败：" + e.message, "error"); }
+  finally { setBusy(false); }
 }
-document.getElementById("save").onclick = async () => {
+form.onsubmit = async (event) => {
+  event.preventDefault();
+  if (save.disabled) return;
+  setBusy(true);
+  save.textContent = "正在保存…";
+  feedback("正在保存当前会话设置…", "pending");
   try {
     const body = { spawn: document.getElementById("spawn").value, blueprint: document.getElementById("blueprint").value };
     const r = await fetch(api("/api/save"), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const j = await r.json();
-    if (!r.ok) throw new Error(j.error || "failed to save");
-    document.getElementById("status").textContent = "Saved: /spawn " + j.spawn + " · /blueprint " + j.blueprint;
-  } catch (e) { document.getElementById("status").textContent = e.message; }
+    if (!r.ok) throw new Error(j.error || "保存失败，请重试。");
+    feedback("已保存：/spawn " + j.spawn + " · /blueprint " + j.blueprint + "。仅对当前会话生效。", "success");
+  } catch (e) { feedback("保存失败：" + e.message, "error"); }
+  finally { setBusy(false); save.textContent = "保存设置"; }
 };
 load();
 </script></body></html>`;
