@@ -15,8 +15,10 @@ Usage:
   axum chat [pi-web args...]
   axum doctor
   axum versions
+  axum --version
   axum update [version]
   axum install [pkg...]
+  axum uninstall <pkg...>
   axum mcp [add|list|remove] [args...]
 
 Commands:
@@ -29,6 +31,7 @@ Commands:
                 Shares providers and sessions with \`axum code\` via ~/.pi
   doctor        Check bundled Pi and extension files
   versions      List published Axum versions and the currently installed one
+  --version, -v Print the installed version without a network request
   update        Reinstall Axum; without a version argument it pulls the main
                 branch tarball, with a version it pulls that git tag instead
   install       Without arguments: prepare bundled Pi and extensions;
@@ -36,6 +39,7 @@ Commands:
   install <pkg> Install user extension packages from npm into the shared Pi
                 cache, e.g. axum install npm:pi-cc-extensions
                 (persisted in ~/.axum/packages.json, loaded on every start)
+  uninstall     Remove user extension registrations; takes effect after restart
   mcp          Manage MCP servers for Pi's built-in MCP support (0.99+)
   mcp add      Interactively add an MCP server entry (stdio or http(s))
   mcp list     List configured MCP servers
@@ -71,6 +75,9 @@ function resolveArgs(argv) {
   if (argv[0] === "code") return { mode: "run", passthrough: argv.slice(1) };
   if (argv[0] === "resume") return { mode: "run", passthrough: ["--resume", ...argv.slice(1)] };
   if (argv[0] === "doctor") return { mode: "doctor" };
+  if (["--version", "-v"].includes(argv[0])) return { mode: "version" };
+  if (argv[0] === "uninstall") return argv.includes("--help") || argv.includes("-h")
+    ? { mode: "help" } : { mode: "uninstall", argv: argv.slice(1) };
   if (argv[0] === "versions") return { mode: "versions" };
   if (argv[0] === "update") return { mode: "update", version: argv[1] };
   if (argv[0] === "install") return { mode: "install", argv: argv.slice(1) };
@@ -104,8 +111,8 @@ async function runMcpCommand(argv) {
     process.stdout.write(
       "MCP support is built into the bundled Pi runtime (0.99+) - no extension install is needed.\n" +
       "Use 'axum mcp add' to register a server, then check it with /mcp inside a session.\n" +
-      "If you upgraded from an older Axum: remove a leftover pi-mcp-adapter entry from\n" +
-      "~/.axum/packages.json - it would replace the built-in /mcp support.\n",
+      "If you upgraded from an older Axum: run 'axum uninstall pi-mcp-adapter' to remove the legacy adapter;\n" +
+      "it would replace the built-in /mcp support.\n",
     );
     return 0;
   }
@@ -298,7 +305,7 @@ async function reportUserExtensionHealth(options, missing) {
   }
   for (const entry of userPackages) {
     if (entry.packageName === "pi-mcp-adapter") {
-      console.log("user extension: pi-mcp-adapter replaces Pi's built-in MCP support (/mcp); remove it from ~/.axum/packages.json to use the built-in /mcp with ~/.pi/agent/mcp.json");
+      console.log("user extension: pi-mcp-adapter replaces Pi's built-in MCP support (/mcp); run axum uninstall pi-mcp-adapter to use the built-in /mcp with ~/.pi/agent/mcp.json");
       failed = true;
     }
   }
@@ -409,6 +416,21 @@ async function runInstallPackages(specs) {
   }
   console.log(`user packages manifest: ${getUserPackagesPath(options)}`);
   console.log("Done. Restart axum code to load the installed extensions.");
+  return 0;
+}
+
+async function runUninstallPackages(specs) {
+  if (specs.length === 0) throw new Error("usage: axum uninstall <pkg...>");
+  const { parsePackageSpec, removeUserPackages, getUserPackagesPath } = await import("../src/user-packages.js");
+  const names = specs.map((spec) => parsePackageSpec(spec).packageName);
+  const removed = removeUserPackages(names);
+  if (removed.length === 0) {
+    console.log("No matching user extension packages installed.");
+    return 0;
+  }
+  for (const entry of removed) console.log(`removed ${entry.name}`);
+  console.log(`user packages manifest: ${getUserPackagesPath()}`);
+  console.log("Done. Restart axum code to reload extensions. Cached package files are retained.");
   return 0;
 }
 
@@ -566,6 +588,12 @@ async function main() {
   if (action.mode === "mcp") return runMcpCommand(action.argv);
   if (action.mode === "install") {
     return (action.argv?.length ?? 0) > 0 ? runInstallPackages(action.argv) : runInstall();
+  }
+  if (action.mode === "uninstall") return runUninstallPackages(action.argv);
+  if (action.mode === "version") {
+    const { getInstalledVersion } = await import("../src/version-config.js");
+    console.log(`axum ${getInstalledVersion()}`);
+    return 0;
   }
   if (action.mode === "versions") {
     await runVersions();

@@ -48,9 +48,9 @@ function isRetiredPackage(entry) {
   return entry.packageName === "pi-subagents" || /^(?:npm:)?pi-subagents(?:@|$)/.test(entry.name);
 }
 
-export function loadUserPackages(options = {}) {
+function readUserPackages(options = {}) {
   const file = getUserPackagesPath(options);
-  if (!fs.existsSync(file)) return [];
+  if (!fs.existsSync(file)) return { data: undefined, packages: [] };
   let raw;
   try {
     raw = fs.readFileSync(file, "utf8");
@@ -67,12 +67,28 @@ export function loadUserPackages(options = {}) {
   if (!Array.isArray(packages)) {
     throw new Error(`user packages manifest ${file} must contain a "packages" array`);
   }
-  return packages.map((entry, index) => {
+  const entries = packages.map((entry, index) => {
     if (!entry || typeof entry.name !== "string" || typeof entry.packageName !== "string") {
       throw new Error(`user packages manifest ${file}: entry ${index} must include string "name" and "packageName"`);
     }
     return { ...entry };
-  }).filter((entry) => !isRetiredPackage(entry));
+  });
+  return { data, packages: entries };
+}
+
+export function loadUserPackages(options = {}) {
+  return readUserPackages(options).packages.filter((entry) => !isRetiredPackage(entry));
+}
+
+export function removeUserPackages(packageNames, options = {}) {
+  const { data, packages } = readUserPackages(options);
+  const names = new Set(packageNames);
+  const removed = packages.filter((entry) => names.has(entry.packageName));
+  if (removed.length === 0) return removed;
+  const remaining = packages.filter((entry) => !names.has(entry.packageName));
+  const updated = Array.isArray(data) ? remaining : { ...data, packages: remaining };
+  fs.writeFileSync(getUserPackagesPath(options), JSON.stringify(updated, null, 2) + "\n");
+  return removed;
 }
 
 export function saveUserPackages(packages, options = {}) {

@@ -714,3 +714,38 @@ test("axum distinguishes explicit thinking from injected defaults for live setti
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+for (const flag of ["--version", "-v"]) {
+  test(`axum ${flag} prints the installed version without starting Pi`, () => {
+    const result = run([flag]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout.trim(), `axum ${getInstalledVersion()}`);
+  });
+}
+
+test("axum uninstall removes only selected user extensions without installing packages", (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-uninstall-"));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const file = path.join(dir, "packages.json"), cache = path.join(dir, "cache");
+  const removed = { name: "pi-mcp-adapter@2.37.0", packageName: "pi-mcp-adapter", extensionPath: "index.ts" };
+  const keep = { name: "@scope/keep@1.0.0", packageName: "@scope/keep", extensionPath: "index.js", custom: true };
+  const retired = { name: "pi-subagents@0.74.0", packageName: "pi-subagents" };
+  const env = { ...process.env, AXUM_USER_PACKAGES_FILE: file, AXUM_BUNDLED_PI_DIR: cache, AXUM_BUNDLED_PI_NPM: path.join(dir, "must-not-run-npm") };
+  const exec = args => spawnSync(process.execPath, ["bin/axum.js", "uninstall", ...args], { encoding: "utf8", env });
+  for (const original of [{ packages: [removed, keep, retired], extra: "preserve" }, [removed, keep, retired]]) {
+    fs.writeFileSync(file, JSON.stringify(original));
+    const result = exec(["npm:pi-mcp-adapter@2.37.0"]);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /removed pi-mcp-adapter@2\.37\.0/);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), Array.isArray(original) ? [keep, retired] : { ...original, packages: [keep, retired] });
+    const unchanged = fs.readFileSync(file, "utf8");
+    for (const [args, status] of [[["pi-mcp-adapter"], 0], [[], 1], [["npm:"], 1], [["keep", "--help"], 0]]) {
+      assert.equal(exec(args).status, status);
+      assert.equal(fs.readFileSync(file, "utf8"), unchanged);
+    }
+    assert.equal(fs.existsSync(cache), false);
+  }
+  const result = exec(["@scope/keep", "pi-subagents"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), []);
+});
