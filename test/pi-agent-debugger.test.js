@@ -152,7 +152,7 @@ test("Node Inspector 真实调试链", { timeout: 25000 }, async (t) => {
     const { root, path, query } = await fixture(t);
     const external = join(root, "..", "outside.cjs");
     await writeFile(external, "console.log('outside');");
-    await symlink(external, join(root, "escape.cjs"));
+    await symlink(process.platform === "win32" ? join(root, "..") : external, join(root, "escape.cjs"), process.platform === "win32" ? "junction" : "file");
     await assert.rejects(query({ action: "launch", path: external }), /工作区/);
     await assert.rejects(query({ action: "launch", path: "escape.cjs" }), /工作区/);
     await assert.rejects(query({ action: "continue", sessionId: "missing" }), /sessionId/);

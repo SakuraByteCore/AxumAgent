@@ -6,6 +6,18 @@ import test from "node:test";
 import { execFileSync } from "node:child_process";
 import { ensurePiCommandShim, piCommandShimScript, piCommandShimTarget } from "../src/pi-command-shim.js";
 
+const requestedModes = new Map();
+const nativeChmodSync = fs.chmodSync;
+if (process.platform === "win32") {
+  fs.chmodSync = (file, mode) => { requestedModes.set(file, mode); return nativeChmodSync(file, mode); };
+}
+function executeLauncher(target, args, options) {
+  if (process.platform !== "win32") return execFileSync(target, args, options);
+  const bash = "C:/Program Files/Git/bin/bash.exe";
+  assert.ok(fs.existsSync(bash), "Windows POSIX launcher tests need Git Bash");
+  return execFileSync(bash, [target, ...args], options);
+}
+
 function tempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 }
@@ -32,7 +44,10 @@ test("ensurePiCommandShim writes an executable launcher and stays idempotent", (
     assert.equal(first.status, "written");
     assert.equal(first.target, path.join(homeDir, ".pi", "agent", "bin", "pi"));
     assert.ok(fs.existsSync(first.target));
-    assert.equal(fs.statSync(first.target).mode & 0o777, 0o755, "the launcher must be executable");
+    if (process.platform === "win32") {
+      assert.equal(requestedModes.get(first.target), 0o755, "the launcher must request executable permissions");
+      fs.accessSync(first.target, fs.constants.X_OK);
+    } else assert.equal(fs.statSync(first.target).mode & 0o777, 0o755, "the launcher must be executable");
 
     const second = ensurePiCommandShim({ homeDir, axumPath: "/opt/axum/bin/axum" });
     assert.equal(second.status, "unchanged");
@@ -67,7 +82,7 @@ test("the installed launcher runs the axum code entry with the original argument
     const result = ensurePiCommandShim({ homeDir, axumPath: fakeAxum });
     assert.equal(result.status, "written");
 
-    const output = execFileSync(result.target, ["--version", "extra"], {
+    const output = executeLauncher(result.target, ["--version", "extra"], {
       env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}` },
       encoding: "utf8",
     });
@@ -89,7 +104,7 @@ test("the launcher drops an inherited fast loader preload", () => {
     const result = ensurePiCommandShim({ homeDir, axumPath: fakeAxum });
     assert.equal(result.status, "written");
 
-    const output = execFileSync(result.target, [], {
+    const output = executeLauncher(result.target, [], {
       env: {
         ...process.env,
         PATH: `${fakeBin}${path.delimiter}${process.env.PATH ?? ""}`,

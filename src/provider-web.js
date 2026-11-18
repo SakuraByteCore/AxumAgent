@@ -17,13 +17,12 @@ const MAX_JSON_BODY_BYTES = 4 * 1024 * 1024;
 
 async function readJson(req) {
   let body = "";
+  let bytes = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > MAX_JSON_BODY_BYTES) {
-      req.pause();
-      throw new Error("Request body too large");
-    }
+    bytes += Buffer.byteLength(chunk);
+    if (bytes <= MAX_JSON_BODY_BYTES) body += chunk;
   }
+  if (bytes > MAX_JSON_BODY_BYTES) throw new Error("Request body too large");
   if (!body) return {};
   return JSON.parse(body);
 }
@@ -730,6 +729,7 @@ export async function startProviderWeb(options = {}) {
         const models = rawModels.map((m) => ({
           id: String(m.id || m.model || "").trim(),
           default: Boolean(m.default),
+          input: m.input,
           contextWindow: existingModels.get(String(m.id || m.model || "").trim())?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW,
           reasoningEffort: m.reasoningEffort ?? m.thinkingLevel ?? body.reasoningEffort ?? existingModels.get(String(m.id || m.model || "").trim())?.reasoningEffort ?? DEFAULT_THINKING_LEVEL,
           maxTokens: providerMaxTokens ?? existingModels.get(String(m.id || m.model || "").trim())?.maxTokens ?? DEFAULT_MODEL_MAX_TOKENS,

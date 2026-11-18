@@ -17,6 +17,8 @@
 >
 > Translations: [English](./README.md) • [日本語](./README.ja.md) • [中文](./README.zh-CN.md)
 
+- **Command hooks** — configure `hooks` in `~/.pi/agent/hooks.json`, `.pi/hooks.json` or `.pi/hooks.local.json`. Supports synchronous command hooks for session, prompt, tool, Stop and compaction events; project hooks require project trust. Set `disableAllHooks: true` to disable.
+
 ## Highlights
 
 - **One command, full toolkit** — the Pi core and 12 bundled extensions (slash shortcuts, background agents, persistent memory, todos, web tools) install and start together; the self-contained runtime lives in your user cache, so reinstalls skip first-run setup.
@@ -92,7 +94,7 @@ The distribution ships these packages, all in one install:
 - `@earendil-works/pi-coding-agent`
 - `pi-bar` (AxumAgent bundled fork, absorbs the former pi-header)
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts /plan /clear /ralph /loop /rules /claude /plugin-create-mode, response guard, advisory watcher, bundled claude-driver skill)
-- `@narumitw/pi-goal`
+- `@narumitw/pi-goal` (all `/goal` prompts—start, goal updates, resume, automatic continuation, and active-goal system prompts—share non-regression rules for code changes: preserve existing functionality, run affected existing tests, never delete or weaken assertions, fix failures before delivery, and report risks, validation, and recovery plans)
 - `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool` (structured todo tracking: the `todo` tool maintains a plan checklist rendered as a live HUD above the editor, plus the `/todo` and `/todos-configure` commands)
@@ -251,32 +253,7 @@ Extra flags still compose: `/spawn -m gpt-5 …` works, because each preset is j
 Each entry is shown as `provider/model`, and the default is marked `  (default)`. Pick any model to switch to it immediately.
 The switch applies to the current session only. It does not change `defaultProvider`/`defaultModel` in `~/.pi/agent/settings.json`, so other running sessions and later sessions keep their existing model defaults.
 
-## Separate Vision Provider (`/vision`)
-
-When the current model cannot accept images, route them to a dedicated vision model: run `/vision` to pick one from a selector (same interaction style as `/usemodel`), and the picture is sent to that model while its textual description is injected into the current session. Images returned by the `read` tool are handled the same way.
-
-```text
-/vision                         # open the vision model picker (same style as `/usemodel`)
-/vision list                    # list models that declare image input as plain text
-/vision on | off                # toggle the fallback
-/vision status                  # show the current state
-```
-
-The configuration lives in `~/.pi/agent/axum.json`:
-
-```json
-{
-  "vision": {
-    "enabled": true,
-    "provider": "kilo",
-    "model": "nvidia/nemotron-3.5-super-vl:free",
-    "prompt": "optional, overrides the default description prompt",
-    "maxTokens": 1024
-  }
-}
-```
-
-The vision model itself is configured like any other provider in `~/.pi/agent/models.json`, and its model entry must declare `"input": ["text", "image"]`. When the current model already accepts images, no fallback runs and no extra request is sent.
+Image-capable models must declare `"input": ["text", "image"]` in `models.json`. Provider edits preserve this declaration; the companion refreshes it before input and tool calls. Images stay with the current model: `/vision` fallback routing is removed.
 
 ## Doctor
 

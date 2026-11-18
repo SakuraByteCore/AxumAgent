@@ -56,9 +56,11 @@ const PI_SYSTEM_PROMPT_REFRESH_MARKER = "AXUM_PI_SYSTEM_PROMPT_REFRESH_V2";
 export function patchPiSystemPromptRefresh(content) {
   const markerLine = `\n${PI_SYSTEM_PROMPT_REFRESH_MARKER}\n`;
   if (content.includes(PI_SYSTEM_PROMPT_REFRESH_MARKER)) {
-    return content.includes(markerLine)
+    const normalized = content.includes(markerLine)
       ? content.replace(markerLine, `\n// ${PI_SYSTEM_PROMPT_REFRESH_MARKER}\n`)
       : content;
+    return normalized.replace(/\nfunction installAxumSystemPromptRefresh\(session, helpers\) \{[\s\S]*?\n\}/,
+      () => `\n${installAxumSystemPromptRefresh.toString()}`);
   }
   if (content.includes("AXUM_PI_SYSTEM_PROMPT_REFRESH_V1")) {
     const legacyBlock = /\n(?:\/\/ )?AXUM_PI_SYSTEM_PROMPT_REFRESH_V1\nfunction installAxumSystemPromptRefresh\(session, helpers\) \{[\s\S]*?\n\}/;
@@ -213,6 +215,16 @@ function patchTermuxAutoInstall(content) {
     '    }',
   ].join("\n");
   return content.replace(needle, replacement);
+}
+
+export const PI_GOAL_REGRESSION_GUARD_CLAUSE = "【禁止回归】若本次任务涉及代码修改：不得破坏已有功能；必须执行受影响范围既有测试；禁止删除或弱化原有断言；失败先修复再交付；并给出风险点、验证方法与恢复方案。";
+
+export function patchPiGoalRegressionGuard(content) {
+  const clause = JSON.stringify(PI_GOAL_REGRESSION_GUARD_CLAUSE);
+  if (content.includes(clause)) return content;
+  const anchor = '"Goal-mode rules:",';
+  return content.replace(anchor, `${anchor}
+        ${clause},`);
 }
 
 function patchPiGoalLinkSyncFallback(content) {
@@ -2305,6 +2317,13 @@ export function applyBundledPiPatches(options) {
   results.push(fs.existsSync(piGoalSettingsPath)
     ? patchFileInPlace(piGoalSettingsPath, patchPiGoalLinkSyncFallback)
     : { patched: false, file: piGoalSettingsPath });
+  // Patch sources and compiled caches so existing installations receive the rule.
+  for (const extension of ["ts", "js"]) {
+    const promptsPath = path.join(piGoalRoot, "src", `prompts.${extension}`);
+    results.push(fs.existsSync(promptsPath)
+      ? patchFileInPlace(promptsPath, patchPiGoalRegressionGuard)
+      : { patched: false, file: promptsPath });
+  }
   const piGoalRuntimePath = path.join(piGoalRoot, "src", "runtime.ts");
   results.push(fs.existsSync(piGoalRuntimePath)
     ? patchFileInPlace(piGoalRuntimePath, patchPiGoalAutoResume)

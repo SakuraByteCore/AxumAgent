@@ -783,3 +783,17 @@ test("importProviders without overwrite skips existing providers", () => {
   assert.equal(result.skipped, 1);
   assert.equal(loadModelsConfig(models).providers.alpha.apiKey, "orig");
 });
+
+
+test("provider edits and renames retain explicit image input declarations", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "axum-provider-input-"));
+  const file = path.join(dir, "models.json");
+  const base = { name: "p", baseUrl: "https://example.com/v1", apiKey: "test-key" };
+  upsertProvider({ ...base, models: [{ id: "vision", input: ["text", "image"] }, { id: "text", input: ["text"] }] }, file);
+  upsertProvider({ ...base, name: "renamed", originalName: "p", models: [{ id: "vision" }, { id: "text" }] }, file);
+  assert.deepEqual(listProviders(file)[0].modelConfigs.map((m) => m.input), [["text", "image"], ["text"]]);
+  upsertProvider({ ...base, name: "renamed", originalName: "renamed", models: [{ id: "vision", input: ["text"] }] }, file);
+  assert.deepEqual(loadModelsConfig(file).providers.renamed.models[0].input, ["text"]);
+  assert.throws(() => buildProvider({ ...base, models: [{ id: "bad", input: ["audio"] }] }), /Model input/);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

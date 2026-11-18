@@ -25,8 +25,11 @@ for (const real of [false, true]) test(real ? 'real isolated SDK loader dispatch
   fs.writeFileSync(path.join(root,'package.json'), JSON.stringify({type:'module'}));
   let loaderPath;
   if (real) {
-   const copy = path.join(root,'sdk'); fs.cpSync(sdk, copy, {recursive:true});
-   fs.symlinkSync(modules, path.join(root,'node_modules'), 'dir');
+   const copy = path.join(root,'sdk');
+   fs.cpSync(sdk, copy, {recursive:true,filter:source=>path.basename(source)!=='node_modules'});
+   const dependencies = path.join(sdk,'node_modules');
+   if(fs.existsSync(dependencies))fs.symlinkSync(dependencies,path.join(copy,'node_modules'),process.platform==='win32'?'junction':'dir');
+   fs.symlinkSync(modules, path.join(root,'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
    loaderPath = path.join(copy,'dist/core/extensions/loader.js');
    fs.writeFileSync(loaderPath, patchPiDispatchOnlyLoader(fs.readFileSync(loaderPath,'utf8')));
   } else {

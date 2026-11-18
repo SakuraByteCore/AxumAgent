@@ -20,6 +20,8 @@
 - **MCP 同梱** —— `axum mcp add` で追加するだけ；設定形式は Cursor・Claude Code・Codex と共通。
 - **Web 設定 + セーフモード** —— provider・リトライ・システムプロンプトの設定はローカル Web UI で完結；壊れた拡張はスキップし、Pi 本体だけを起動可能。
 
+- **コマンド Hook** —— `~/.pi/agent/hooks.json`、`.pi/hooks.json`、`.pi/hooks.local.json` の `hooks` を設定します。セッション・入力・ツール・停止・圧縮イベントの同期コマンドに対応し、プロジェクト設定には信頼が必要です。`disableAllHooks: true` で無効化します。
+
 ## 目次
 
 - [同梱ランタイム](#同梱ランタイム)
@@ -40,7 +42,7 @@
 - `@earendil-works/pi-coding-agent`
 - `pi-bar`（AxumAgent 同梱フォーク、旧 pi-header を統合）
 - `pi-companion`（pi-shortcuts + pi-guard を統合: ショートカット /plan /clear /ralph /loop /rules /claude /plugin-create-mode + レスポンスガード + アドバイザリウォッチャー + 同梱 claude-driver スキル）
-- `@narumitw/pi-goal`
+- `@narumitw/pi-goal`（すべての `/goal` プロンプト（開始・目標更新・再開・自動継続・アクティブな目標のシステムプロンプト）で、コード変更時のリグレッション防止ルールを共有：既存機能を維持し、影響範囲の既存テストを実行し、アサーションの削除・弱体化を禁止し、失敗は修正してから納品し、リスク・検証・復旧計画を報告）
 - `pi-web-access`（Web 検索・抽出・キュレーションツール: /websearch, /curator, /google-account, /search）
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（構造化 todo トラッキング: todo ツールがエディタ上部に計画チェックリストをライブ HUD 表示、/todo と /todos-configure コマンド付き）
@@ -203,32 +205,7 @@ axum code
 各エントリは `provider/model` の形式で表示され、デフォルトには `  (default)` が付きます。任意のモデルを選ぶと即座に切り替わります。
 切り替えは現在のセッションにのみ適用されます。`~/.pi/agent/settings.json` の `defaultProvider`/`defaultModel` は変更しないため、実行中の他のセッションや後続セッションのモデルには影響しません。
 
-## 独立の Vision Provider（`/vision`）
-
-現在のモデルが画像入力に対応していない場合、単独の Vision モデルへ画像を転送できます。`/vision` で選択リストを開きます（`/usemodel` と同じ操作感）。画像は Vision モデルへ送信され、説明文が現在のセッションへ注入されます。`read` ツールが返した画像も同様に処理されます。
-
-```text
-/vision                         # Vision モデルの選択リストを開く（`/usemodel` と同じ形式）
-/vision list                    # 画像入力対応と宣言されたモデル一覧をテキスト表示
-/vision on | off                # フォールバックの有効・無効
-/vision status                  # 現在の状態を表示
-```
-
-設定は `~/.pi/agent/axum.json` に置きます：
-
-```json
-{
-  "vision": {
-    "enabled": true,
-    "provider": "kilo",
-    "model": "nvidia/nemotron-3.5-super-vl:free",
-    "prompt": "任意。既定の説明プロンプトを上書きします",
-    "maxTokens": 1024
-  }
-}
-```
-
-Vision モデル自体は `~/.pi/agent/models.json` の `providers` に通常どおり設定し、モデルエントリに `"input": ["text", "image"]` の宣言が必要です。現在のモデルが画像入力に対応している場合はフォールバックも追加リクエストも発生しません。
+画像対応モデルは `models.json` に `"input": ["text", "image"]` を指定します。プロバイダの編集時にも宣言を保持し、入力とツール呼び出しの前に能力を更新します。画像は現在のモデルへ直接渡し、`/vision` の代替ルーティングは廃止しました。
 
 ## Doctor
 

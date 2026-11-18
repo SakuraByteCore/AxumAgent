@@ -160,7 +160,7 @@ test("lsp 工具使用工作区配置、1-based 坐标和版本同步，关闭�
   await writeFile(path, "// clean\n");
   assert.deepEqual((await query({ action: "diagnostics", path })).details.result.diagnostics, []);
   await assert.rejects(query({ action: "hover", path: "../outside.ts", line: 1, character: 1 }), /当前工作区/);
-  await symlink(tmpdir(), join(root, "outside"));
+  await symlink(tmpdir(), join(root, "outside"), process.platform === "win32" ? "junction" : "dir");
   await assert.rejects(query({ action: "diagnostics", path: "outside" }), /当前工作区/);
   await writeFile(join(root, "file.unknown"), "");
   await assert.rejects(query({ action: "diagnostics", path: "file.unknown" }), /未配置/);

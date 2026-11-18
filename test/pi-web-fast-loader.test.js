@@ -3,6 +3,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { instrumentWebSdk } from "../src/pi-web-fast-loader.js";
 
@@ -53,4 +55,16 @@ test("a second loader copy does not register a second hook", async () => {
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+
+test("the preload preserves CommonJS caches when the packaged Next CLI starts", () => {
+  const require = createRequire(import.meta.url);
+  const cli = require.resolve("next/dist/bin/next");
+  const loader = new URL("../src/pi-web-fast-loader.js", import.meta.url).href;
+  const result = spawnSync(process.execPath, ["--import", loader, cli, "--help"], {
+    env: { ...process.env, NODE_OPTIONS: "" }, encoding: "utf8", timeout: 10000,
+  });
+  assert.equal(result.status, 0, result.stderr || String(result.error));
+  assert.match(result.stdout, /Usage: next/);
 });

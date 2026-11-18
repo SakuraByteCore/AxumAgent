@@ -15,7 +15,7 @@ import {
 } from "../plugin/pi-bar/prompt-history.ts";
 import { getDefaultSessionDir } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/session-manager.js";
 
-const indexSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8");
+const indexSource = fs.readFileSync(path.join(process.cwd(), "plugin", "pi-bar", "index.ts"), "utf8").replaceAll("\r\n", "\n");
 
 function tmpAgentDir() {
 	return fs.mkdtempSync(path.join(os.tmpdir(), "axum-history-"));

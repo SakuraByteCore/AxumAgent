@@ -1,3 +1,4 @@
+import { sep } from "node:path";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { existsSync, readFileSync, rmSync } from "node:fs";
@@ -950,7 +951,7 @@ test("dispatched children run on in-memory sessions — no session file is ever 
   // Control: a persisted manager must create exactly the dir this test assumes, proving the layout.
   const persisted = SessionManager.create(cwd);
   assert.ok(existsSync(expectedDir), "persisted SessionManager must create the session dir");
-  assert.ok((persisted.getSessionFile() ?? "").startsWith(expectedDir + "/"), "persisted file lives in that dir");
+  assert.ok((persisted.getSessionFile() ?? "").startsWith(expectedDir + sep), "persisted file lives in that dir");
   rmSync(persisted.getSessionFile(), { force: true });
   // The dispatched-child contract: in-memory means no file, no dir entry, id still usable.
   const sm = SessionManager.inMemory(cwd);

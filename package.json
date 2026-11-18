@@ -1,6 +1,6 @@
 {
   "name": "axum",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Full coding agent in one command: Pi core + 12 curated extensions, web config, background agents, persistent memory, built-in MCP. Runs on Android/Termux.",
   "license": "FSL-1.1-ALv2",
   "type": "module",
@@ -9,7 +9,7 @@
     "code": "bin/code.js"
   },
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test --test-concurrency=4 --test-timeout=30000 test/*.test.js",
     "code": "node bin/axum.js code",
     "chat": "node bin/axum.js chat",
     "update": "node bin/axum.js update",

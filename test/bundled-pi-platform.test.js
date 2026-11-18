@@ -113,8 +113,8 @@ test("user and project discovery omit stale pi-subagents paths and renamed packa
       fs.writeFileSync(path.join(dir, "index.js"), "");
       fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: packageName }));
     }
-    fs.symlinkSync(path.join(base, "pi-subagents"), path.join(base, "stale-link"), "dir");
-    fs.symlinkSync(path.join(base, "renamed"), path.join(base, "renamed-link"), "dir");
+    fs.symlinkSync(path.join(base, "pi-subagents"), path.join(base, "stale-link"), process.platform === "win32" ? "junction" : "dir");
+    fs.symlinkSync(path.join(base, "renamed"), path.join(base, "renamed-link"), process.platform === "win32" ? "junction" : "dir");
   }
   for (const discover of [getUserPluginPaths, getProjectPluginPaths]) {
     assert.deepEqual(discover(options).map((entry) => entry.packageName), ["pi-subagents-helper"]);

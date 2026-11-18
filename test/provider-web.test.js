@@ -1,3 +1,4 @@
+import "./helpers/isolated-home.js";
 import assert from "node:assert/strict";
 import http from "node:http";
 import fs from "node:fs";
@@ -14,6 +15,7 @@ async function readWebToken(url) {
 function webFetch(input, options = {}) {
   const url = new URL(input);
   const headers = new Headers(options.headers);
+  headers.set("connection", "close");
   if (url.searchParams.has("token")) {
     headers.set("x-axum-token", url.searchParams.get("token"));
     url.searchParams.delete("token");
@@ -262,6 +264,7 @@ test("provider web edit preserves each model's on-disk contextWindow", async () 
 
     // simulate a contextWindow tuned later via /ctx
     modelsJson.providers.keepctx.models[1].contextWindow = 999000;
+    modelsJson.providers.keepctx.models[1].input = ["text", "image"];
     fs.writeFileSync(modelsFile, JSON.stringify(modelsJson, null, 2), "utf8");
 
     // re-saving the same provider (the payload carries no contextWindow) must not reset it
@@ -283,6 +286,7 @@ test("provider web edit preserves each model's on-disk contextWindow", async () 
     const saved = modelsJson.providers.keepctx.models;
     assert.equal(saved.find((m) => m.id === "mock-a").contextWindow, 128000);
     assert.equal(saved.find((m) => m.id === "mock-b").contextWindow, 999000);
+    assert.deepEqual(saved.find((m) => m.id === "mock-b").input, ["text", "image"]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await new Promise((resolve) => mock.close(resolve));

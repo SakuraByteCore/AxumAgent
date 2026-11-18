@@ -3,6 +3,20 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+
+const requestedModes = new Map();
+const nativeChmodSync = fs.chmodSync;
+if (process.platform === "win32") {
+  fs.chmodSync = (file, mode) => { requestedModes.set(file, mode); return nativeChmodSync(file, mode); };
+}
+
+function assertPrivateMode(file) {
+  if (process.platform === "win32") {
+    assert.equal(requestedModes.get(file), 0o600, "Windows must receive the same private-mode request");
+    assert.ok(fs.statSync(file).isFile());
+  } else assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+}
+
 import {
   ensureTodoProgressPolicy,
   ensureParallelToolBatchingPolicy,
@@ -38,7 +52,7 @@ test("todo progress policy: creates the file, is idempotent, and stores mode 600
   assert.ok(content.includes(TODO_POLICY_BEGIN));
   assert.ok(content.includes(TODO_POLICY_END));
   assert.ok(content.includes("Todo Progress Policy"));
-  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
+  assertPrivateMode(result.path);
   assert.equal(ensureTodoProgressPolicy({ env }).changed, false, "idempotent second run");
 });
 
@@ -64,7 +78,7 @@ test("parallel tool batching policy: creates the file, is idempotent, and stores
   assert.ok(content.includes(PARALLEL_POLICY_END));
   assert.ok(content.includes("Parallel Tool Batching Policy"));
   assert.ok(content.includes("Never batch"));
-  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
+  assertPrivateMode(result.path);
   assert.equal(ensureParallelToolBatchingPolicy({ env }).changed, false, "idempotent second run");
 });
 
@@ -89,7 +103,7 @@ test("focus execution policy: creates the file, is idempotent, and stores mode 6
   assert.ok(content.includes(FOCUS_POLICY_BEGIN));
   assert.ok(content.includes(FOCUS_POLICY_END));
   assert.ok(content.includes("Focus Execution Policy"));
-  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
+  assertPrivateMode(result.path);
   assert.equal(ensureFocusExecutionPolicy({ env }).changed, false, "idempotent second run");
 });
 
@@ -133,7 +147,7 @@ test("subagent delegation policy: creates the file, is idempotent, and stores mo
   assert.ok(content.includes("dispatch_agent to create children"));
   assert.ok(content.includes("Actively batch worthwhile independent lanes"));
   assert.ok(!content.includes("at most one subagent"));
-  assert.equal(fs.statSync(result.path).mode & 0o777, 0o600);
+  assertPrivateMode(result.path);
   assert.equal(ensureSubagentDelegationPolicy({ env }).changed, false, "idempotent second run");
 });
 

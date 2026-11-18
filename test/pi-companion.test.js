@@ -1,3 +1,4 @@
+import "./helpers/isolated-home.js";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
@@ -733,6 +734,7 @@ function createCompactContext(overrides = {}) {
       }
     },
   };
+  fs.writeFileSync(path.join(ctx.cwd, ".pi-response-guard.json"), fs.readFileSync(new URL("../plugin/pi-companion/config.json", import.meta.url)));
   return { ctx, notifications, compactCalls };
 }
 
@@ -2930,4 +2932,12 @@ test("managed catalog refresh preserves provider output limits for existing and 
   assert.equal(providers.kilo.models[1].reasoningEffort, undefined);
   assert.equal(await mergeZenProvider(file, zen), false);
   assert.equal(await mergeKiloProvider(file, kilo), false);
+});
+
+
+test("companion keeps native image flow without a vision fallback command", () => {
+  const pi = createPi();
+  assert.equal(pi.commands.has("vision"), false);
+  assert.equal(pi.commands.has("usemodel"), true);
+  assert.equal(pi.commands.has("ctx"), true);
 });

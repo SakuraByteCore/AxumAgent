@@ -334,7 +334,7 @@ test("/vision on 在未选择视觉模型前提示先选", async () => {
 	assert.match(ctx.notifications.at(-1).message, /\/vision 从列表中选择视觉模型/);
 });
 
-test("pi-companion 默认导出注册了 /vision 命令与图片钩子", async () => {
+test("pi-companion 默认导出移除 /vision 命令但保留原生图片钩子", async () => {
 	const { default: activateCompanion } = await import("../plugin/pi-companion/index.ts");
 	const registered = { commands: new Set(), handlers: new Set(), providers: [], tools: [] };
 	const fakePi = {
@@ -347,7 +347,7 @@ test("pi-companion 默认导出注册了 /vision 命令与图片钩子", async (
 		setModel: async () => true,
 	};
 	activateCompanion(fakePi);
-	assert.ok(registered.commands.has("vision"));
+	assert.equal(registered.commands.has("vision"), false);
 	assert.ok(registered.commands.has("loop"));
 	for (const name of ["CronCreate", "CronList", "CronDelete", "ScheduleWakeup"]) assert.ok(registered.tools.includes(name));
 	assert.ok(registered.handlers.has("input"));

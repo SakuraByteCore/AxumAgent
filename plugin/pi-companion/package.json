@@ -1,7 +1,7 @@
 {
   "name": "pi-companion",
   "version": "0.3.3",
-  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan /clear /ralph /loop /rules /claude /plugin-create-mode /vision), auto-continue response guard, separate vision-provider fallback, and advisory watcher, zero native deps",
+  "description": "Bundled companion plugin for pi-coding-agent — slash shortcuts (/plan /clear /ralph /loop /rules /claude /plugin-create-mode), auto-continue response guard, native image input refresh and command hooks, and advisory watcher, zero native deps",
   "type": "module",
   "main": "index.ts",
   "files": [
@@ -21,7 +21,10 @@
     "zen-v2-wire.ts",
     "LICENSE",
     "config.json",
-    "skills"
+    "skills",
+    "command-hooks.ts",
+    "hooks.ts",
+    "model-input.ts"
   ],
   "pi": {
     "extensions": [
@@ -39,13 +42,12 @@
     "ralph",
     "response-guard",
     "vision",
-    "vision-fallback",
     "advisor",
     "android",
     "termux"
   ],
   "license": "MIT",
-	"peerDependencies": {
-		"@earendil-works/pi-coding-agent": ">=0.74.0"
-	}
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.74.0"
+  }
 }

@@ -13,7 +13,7 @@ test('real SDK: ordinary goal, policy hook, dispatch, scoped writes, observation
  const root=mkdtempSync(join(tmpdir(),'axum-sdk-integration-'));
  const sessions=[];
  try{
-  symlinkSync(sdkModules,join(root,'node_modules'),'dir');
+  symlinkSync(sdkModules,join(root,'node_modules'),process.platform === 'win32' ? 'junction' : 'dir');
   cpSync(resolve('plugin/pi-agent'),join(root,'plugin'),{recursive:true});
   compileExtensionPackage({packageRoot:join(root,'plugin')});
   const sdk=await import(pathToFileURL(join(sdkModules,'@earendil-works/pi-coding-agent/dist/index.js')).href);

@@ -141,7 +141,7 @@ test("无匹配与相同替换不伪造修改；路径及 SyntaxKind 边界", as
 	await assert.rejects(f.run({ action: "query", selector: { kind: "NotASyntaxKind" } }), /未知 SyntaxKind/);
 	const inner = join(f.root, "inner");
 	await mkdir(inner);
-	await symlink(f.path, join(inner, "escape.ts"));
+	await symlink(process.platform === "win32" ? f.root : f.path, join(inner, "escape.ts"), process.platform === "win32" ? "junction" : "file");
 	await assert.rejects(f.run({ action: "query", path: "../entry.ts", selector: { kind: "Identifier" } }, { cwd: inner }), /工作区/);
 	await assert.rejects(f.run({ action: "query", path: "escape.ts", selector: { kind: "Identifier" } }, { cwd: inner }), /工作区/);
 });

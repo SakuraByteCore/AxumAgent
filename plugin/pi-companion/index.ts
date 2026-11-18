@@ -9,7 +9,8 @@ import { capKiloMaxTokens, ensureKiloProviderLocal, KILO_PROVIDER_ID, refreshKil
 import { createZenStreamSimple, ZEN_V2_API } from "./zen-v2-wire.ts";
 import { registerAgentUi } from "./agentui.ts";
 import { enrichModelThinkingLevels } from "./thinking-levels.ts";
-import { registerVisionFallback } from "./vision-fallback.ts";
+import { registerCommandHooks } from "./hooks.ts";
+import { registerModelInputRefresh } from "./model-input.ts";
 import { appendRegressionGuard } from "./regression-guard.ts";
 import { registerProviderOutputTokens } from "./provider-output-tokens.ts";
 import { registerLiveModelThinking } from "./model-thinking-live.ts";
@@ -1279,6 +1280,8 @@ function buildClaudePrompt(requirement: string, skill: string): string {
 // ── /clear ─────────────────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI): void {
+	registerModelInputRefresh(pi);
+	registerCommandHooks(pi);
 	registerProviderOutputTokens(pi);
 	registerLiveModelThinking(pi);
 	registerLoop(pi);
@@ -1492,7 +1495,7 @@ UAT 必须对应用户可观察的行为，不能只粘贴测试命令。对纯�
 registerCustomPromptCommands(pi);
 
 	// ── 独立视觉提供商回退（当前模型不支持图片时）─────────────────────────────
-	registerVisionFallback(pi);
+
 
 pi.registerCommand("claude", {
   description: "Delegate the requirement to the Claude Code CLI via the claude-driver skill: /claude <requirement>",

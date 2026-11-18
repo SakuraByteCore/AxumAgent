@@ -11,6 +11,7 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import { streamSimple as streamChat } from "@earendil-works/pi-ai/api/openai-completions";
 import { streamSimple as streamAnthropic } from "@earendil-works/pi-ai/api/anthropic-messages";
 import { streamSimple as streamResponses } from "@earendil-works/pi-ai/api/openai-responses";
+import { createExtensionRuntime } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/loader.js";
 import { ExtensionRunner } from "../node_modules/@earendil-works/pi-coding-agent/dist/core/extensions/runner.js";
 import { registerLiveModelThinking } from "../plugin/pi-companion/model-thinking-live.ts";
 import { registerProviderOutputTokens } from "../plugin/pi-companion/provider-output-tokens.ts";
@@ -36,6 +37,8 @@ function fixture(t, model = makeModel(), options = {}) {
   const handlers = new Map();
   const events = new EventEmitter();
   const notifications = [];
+  const keepAlive = setInterval(() => {}, 1000);
+  t.after(() => clearInterval(keepAlive));
   registerProviderOutputTokens({
     on: (event, handler) => handlers.set(event, [handler]),
     setThinkingLevel: (level) => { agent.state.thinkingLevel = clampThinkingLevel(agent.state.model, level); },
@@ -53,9 +56,7 @@ function fixture(t, model = makeModel(), options = {}) {
   const budgets = [];
   let beforeRespond = async () => {};
   let payloadCalls = 0;
-  const runner = new ExtensionRunner([{ path: "provider-output-tokens", handlers }], {
-    pendingProviderRegistrations: [], pendingNativeProviderRegistrations: [],
-  }, dir, {}, {});
+  const runner = new ExtensionRunner([{ path: "provider-output-tokens", handlers }], createExtensionRuntime(), dir, {}, {});
   const agent = new Agent({
     initialState: { model, thinkingLevel: "high", systemPrompt: "Keep this context." },
     getApiKey: () => "test-key",
@@ -105,7 +106,12 @@ function fixture(t, model = makeModel(), options = {}) {
       await agent.prompt(text);
     },
     enableTurnRefresh: () => {
-      AgentSession.prototype._installAgentNextTurnRefresh.call({ agent, _baseSystemPrompt: agent.state.systemPrompt });
+      AgentSession.prototype._installAgentNextTurnRefresh.call({
+        agent, _baseSystemPromptOptions: { cwd: dir, customPrompt: agent.state.systemPrompt },
+        _compactBeforeNextAssistantResponse: async (context) => context,
+        getActiveToolNames: () => agent.state.tools.map(tool => tool.name),
+        _preparePromptAndToolLoadout: () => undefined,
+      });
       agent.subscribe(event => event.type === "turn_end" ? handlers.get("turn_end")[0](event, ctx) : undefined);
     },
     save: (config) => fs.writeFileSync(file, JSON.stringify(config)),

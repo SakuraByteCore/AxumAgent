@@ -39,6 +39,8 @@ if (!globalThis[hookFlag]) {
   registerHooks({
     load(url, context, nextLoad) {
       const result = nextLoad(url, context);
+      // Keep Node 22 CommonJS require/cache semantics for untouched modules.
+      if (result.format === "commonjs") return { ...result, format: "commonjs-sync" };
       if (url.includes("/@earendil-works/pi-coding-agent/dist/core/sdk.js") && result.format === "module") {
         const source = instrumentWebSdk(String(result.source));
         fastControl.sdkDecorated = true;

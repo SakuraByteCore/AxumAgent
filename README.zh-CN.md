@@ -22,6 +22,8 @@
 - **MCP 开箱即用** —— `axum mcp add` 添加即生效；配置格式与 Cursor、Claude Code、Codex 通用。
 - **Web 配置 + 安全模式** —— Provider、重试与系统提示词设置均在本地 Web UI 完成；任何损坏的扩展都可被跳过，仅启动 Pi 本体。
 
+- **命令 Hook** —— 在 `~/.pi/agent/hooks.json`、`.pi/hooks.json` 或 `.pi/hooks.local.json` 配置 `hooks`。支持会话、输入、工具、停止及压缩事件的同步命令；项目配置要求项目信任。设置 `disableAllHooks: true` 可关闭。
+
 ## 目录
 
 - [打包运行时](#打包运行时)
@@ -43,7 +45,7 @@
 - `@earendil-works/pi-coding-agent`
 - `pi-bar`（AxumAgent 打包分支，已并入原 pi-header）
 - `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 /plan /clear /ralph /loop /rules /claude /plugin-create-mode + 响应守卫 + 建议旁观者 + 内置 claude-driver skill）
-- `@narumitw/pi-goal`
+- `@narumitw/pi-goal`（所有 `/goal` 提示词——启动、目标更新、恢复、自动续跑及活动目标系统提示——共用代码修改的禁止回归条款：保留现有功能，执行受影响的既有测试，禁止删除或弱化断言，失败先修复再交付，报告风险、验证与恢复方案）
 - `pi-web-access`（Web 搜索、提取与内容整理工具：/websearch、/curator、/google-account、/search）
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（结构化 todo 追踪：todo 工具维护计划清单并以实时 HUD 显示在编辑器上方，另含 /todo 与 /todos-configure 命令）
@@ -270,32 +272,7 @@ axum code
 每一项以 `provider/model` 显示，默认模型带 `  (default)` 标记。任选一个模型即可立即切换。
 切换仅作用于当前会话，不会修改 `~/.pi/agent/settings.json` 中的 `defaultProvider`/`defaultModel`，因此不会影响其他正在运行的会话或之后新开的会话。
 
-## 独立视觉提供商（`/vision`）
-
-当前模型不支持图片输入时，可单独指定一个视觉模型：执行 `/vision` 打开选择器挑一个（与 `/usemodel` 同一交互风格），图片先发给该视觉模型，再把文字描述注入当前会话；`read` 工具读到的图片同样适用。
-
-```text
-/vision                         # 打开列表选择视觉模型（与 `/usemodel` 同风格）
-/vision list                    # 以纯文本列出支持图片输入的模型
-/vision on | off                # 启停回退
-/vision status                  # 查看当前状态
-```
-
-配置写在 `~/.pi/agent/axum.json`：
-
-```json
-{
-  "vision": {
-    "enabled": true,
-    "provider": "kilo",
-    "model": "nvidia/nemotron-3.5-super-vl:free",
-    "prompt": "可选，覆盖默认描述提示词",
-    "maxTokens": 1024
-  }
-}
-```
-
-视觉模型本身仍按常规方式配置在 `~/.pi/agent/models.json` 的 `providers` 中，模型条目需声明 `"input": ["text", "image"]`。当前模型原生支持图片时不触发回退，也不会产生额外请求。
+支持图像的模型需在 `models.json` 声明 `"input": ["text", "image"]`。编辑提供商会保留该字段；伴随扩展会在输入与工具调用前刷新能力。图片直接交给当前模型，移除 `/vision` 备用视觉路由。
 
 ## Doctor
 

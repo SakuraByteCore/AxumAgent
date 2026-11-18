@@ -1,3 +1,4 @@
+import "./helpers/isolated-home.js";
 // agentui-panel.test.js — end-to-end behavior of the /agentui web panel
 // (command registration, HTTP server, save round-trip, session rebinding, XSS escaping).
 process.env.PI_COMPANION_ZEN_SYNC_DISABLE = "1";

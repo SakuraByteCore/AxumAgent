@@ -190,6 +190,12 @@ export function buildModelConfig(spec, providerReasoningEffort) {
     maxTokens: positiveNumber(spec.maxTokens, DEFAULT_MODEL_MAX_TOKENS, "Max output tokens"),
   };
   if (reasoningEnabled) modelConfig.thinkingLevelMap = thinkingLevelMap();
+  if (spec.input !== undefined) {
+    if (!Array.isArray(spec.input) || !spec.input.length || spec.input.some((value) => value !== "text" && value !== "image")) {
+      throw new Error("Model input must be a non-empty array of text/image");
+    }
+    modelConfig.input = [...new Set(spec.input)];
+  }
   if (spec.default) modelConfig.default = true;
   return modelConfig;
 }
@@ -201,6 +207,7 @@ export function buildModelConfigs(options, providerReasoningEffort) {
   return [buildModelConfig({
     id: options.model,
     name: options.modelName,
+    input: options.input,
     contextWindow: options.contextWindow,
     maxTokens: options.maxTokens,
     reasoning: options.reasoning,
@@ -262,6 +269,7 @@ export function upsertProvider(options, file = getModelsPath()) {
   const name = options.name || providerNameFromBaseUrl(provider.baseUrl);
   const config = loadModelsConfig(file);
   const originalName = String(options.originalName || "").trim();
+  const previousModels = config.providers[originalName || name]?.models ?? [];
   const renaming = Boolean(originalName) && originalName !== name;
   if (renaming) {
     if (config.providers[name] !== undefined) throw new Error(`Provider "${name}" already exists`);
@@ -269,6 +277,10 @@ export function upsertProvider(options, file = getModelsPath()) {
   } else if (!originalName && config.providers[name] !== undefined) {
     // No originalName means creation, not update: refuse to clobber an existing provider.
     throw new Error(`Provider "${name}" already exists`);
+  }
+  for (const model of provider.models) {
+    const previous = previousModels.find((item) => item.id === model.id);
+    if (model.input === undefined && previous?.input !== undefined) model.input = [...previous.input];
   }
   config.providers[name] = provider;
   saveModelsConfig(config, file);
@@ -354,6 +366,7 @@ export function listProviders(file = getModelsPath(), options = {}) {
       models: models.map((model) => model.id),
       modelConfigs: models.map((model) => ({
         id: model.id,
+        ...(model.input === undefined ? {} : { input: [...model.input] }),
         contextWindow: model.contextWindow,
         maxTokens: model.maxTokens,
         reasoning: Boolean(model.reasoning),
