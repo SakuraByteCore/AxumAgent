@@ -105,6 +105,8 @@ The distribution ships these packages, all in one install:
 - `pi-remote-control`（显式 `/remote on` 绑定当前会话，配合腾讯 OpenClaw 微信插件远程执行；[配置说明](docs/features/wechat-openclaw-control.md)）
 - `@ff-labs/pi-fff` (desktop only: FFF-powered file search with frecency ranking; excluded on Android and Windows)
 
+The desktop pet is hidden by default. Run `/pet` in the interactive terminal to show it. It stays closed after a reload or session switch until you run `/pet` again. Set `AXUM_DESKTOP_PET=0` to disable the command.
+
 ## Install Additional Extensions
 
 ```bash

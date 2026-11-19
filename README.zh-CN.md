@@ -125,6 +125,8 @@ axum --version
 axum doctor
 ```
 
+桌宠默认不显示。在交互终端输入 `/pet` 打开。重载或切换会话后，需再次输入 `/pet` 才会显示。设置 `AXUM_DESKTOP_PET=0` 可禁用该命令。
+
 ## 安装额外扩展
 
 ```bash

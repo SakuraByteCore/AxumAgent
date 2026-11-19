@@ -31,7 +31,7 @@ export function petLaunchCommand(options: {
 	};
 }
 
-function launchPet(notify: (message: string) => void) {
+function launchPet(notify: (message: string) => void, onExit: () => void) {
 	const directory = mkdtempSync(join(tmpdir(), "axum-pet-"));
 	const statePath = join(directory, "state.json");
 	let child: ChildProcess;
@@ -52,10 +52,11 @@ function launchPet(notify: (message: string) => void) {
 	});
 	let errorText = "";
 	child.stderr?.on("data", (chunk) => { errorText = (errorText + chunk.toString()).slice(-2000); });
-	child.once("error", (error) => { notify(`桌面宠物启动失败：${error.message}${process.platform === "win32" ? "" : "；请安装 Python 3 与 PySide6，或设置 AXUM_DESKTOP_PET_PYTHON"}`); dispose(); });
+	child.once("error", (error) => { if (closed) return; notify(`桌面宠物启动失败：${error.message}${process.platform === "win32" ? "" : "；请安装 Python 3 与 PySide6，或设置 AXUM_DESKTOP_PET_PYTHON"}`); onExit(); });
 	child.once("exit", (code, signal) => {
-		if (!closed && (code || signal)) notify(`桌面宠物退出（${signal || code}）：${errorText}`);
-		dispose();
+		if (closed) return;
+		if (code || signal) notify(`桌面宠物退出（${signal || code}）：${errorText}`);
+		onExit();
 	});
 	return { update, dispose };
 }
@@ -95,16 +96,22 @@ export function registerDesktopPet(pi: ExtensionAPI): void {
 			(ctx.ui as any)[key] = wrapper;
 		}
 	};
-	pi.on("session_start", (_event, ctx) => {
+	const reset = () => {
 		generation++; restore(); pet?.dispose(); pet = undefined;
 		running = false; waiting = 0; failed = false; phase = "working";
-		if (!ctx.hasUI) return;
-		if (process.platform === "linux" && !process.env.DISPLAY) {
-			if (process.env.WAYLAND_DISPLAY) ctx.ui.notify("桌面宠物需要 XWayland（DISPLAY）；暂不支持纯 Wayland 定位与置顶。", "warning");
-			return;
-		}
-		pet = launchPet((message) => ctx.ui.notify(message, "warning"));
-		bindDialogs(ctx);
+	};
+	pi.on("session_start", reset);
+	pi.registerCommand("pet", {
+		description: "Show the desktop pet for this session",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI || pet) return;
+			if (process.platform === "linux" && !process.env.DISPLAY) {
+				ctx.ui.notify("桌面宠物需要 X11 或 XWayland（DISPLAY）。", "warning");
+				return;
+			}
+			pet = launchPet((message) => ctx.ui.notify(message, "warning"), reset);
+			bindDialogs(ctx);
+		},
 	});
 	pi.on("agent_start", (_event, ctx) => {
 		if (!pet) return;
@@ -129,8 +136,5 @@ export function registerDesktopPet(pi: ExtensionAPI): void {
 		publish();
 	});
 	pi.on("agent_settled", () => { running = false; publish(); });
-	pi.on("session_shutdown", () => {
-		generation++; restore(); pet?.dispose(); pet = undefined;
-		running = false; waiting = 0; failed = false;
-	});
+	pi.on("session_shutdown", reset);
 }

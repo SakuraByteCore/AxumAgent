@@ -13,13 +13,16 @@ test('desktop pet reflects lifecycle, confirmation and failure without launching
  delete process.env.AXUM_DESKTOP_PET;
  t.after(() => { Object.defineProperty(process,'platform',platform); if(disabled === undefined) delete process.env.AXUM_DESKTOP_PET; else process.env.AXUM_DESKTOP_PET=disabled; });
  const child = new EventEmitter(); child.stderr = new EventEmitter(); child.kill = () => {};
- let args;
+ let args, show;
  const spawnMock=t.mock.method(childProcess,'spawn', (_command, argv) => {args=argv; return child;});
  syncBuiltinESMExports(); t.after(()=>{spawnMock.mock.restore(); syncBuiltinESMExports();});
- const handlers = new Map(); registerDesktopPet({on:(name,fn)=>handlers.set(name,fn)});
+ const handlers = new Map(); registerDesktopPet({on:(name,fn)=>handlers.set(name,fn),registerCommand:(name, command)=>{assert.equal(name,'pet'); show=command.handler;}});
  let answer;
  const ctx = {hasUI:true,ui:{notify:()=>{}, confirm:()=>new Promise(resolve=>{answer=resolve;}),select:async()=>'',input:async()=>''}};
  handlers.get('session_start')({},ctx);
+ assert.equal(spawnMock.mock.callCount(),0);
+ await show('',{hasUI:false}); assert.equal(spawnMock.mock.callCount(),0);
+ await show('',ctx); await show('',ctx); assert.equal(spawnMock.mock.callCount(),1);
  const path=args[args.indexOf('-StatePath')+1];
  t.after(()=>handlers.get('session_shutdown')());
  const state=()=>JSON.parse(fs.readFileSync(path)).state;
@@ -32,7 +35,10 @@ test('desktop pet reflects lifecycle, confirmation and failure without launching
  handlers.get('agent_start')({},ctx); assert.equal(state(),'working');
  handlers.get('agent_settled')(); assert.equal(state(),'idle');
  handlers.get('message_end')({message:{role:'assistant',stopReason:'error'}}); assert.equal(state(),'failed');
- handlers.get('session_shutdown')(); assert.equal(fs.existsSync(path),false);
+ child.emit('exit',0); assert.equal(fs.existsSync(path),false);
+ await show('',ctx); assert.equal(spawnMock.mock.callCount(),2);
+ const reopened=args[args.indexOf('-StatePath')+1];
+ handlers.get('session_shutdown')(); assert.equal(fs.existsSync(reopened),false);
 });
 
 test('desktop pet state priority and unsupported-platform guard', () => {

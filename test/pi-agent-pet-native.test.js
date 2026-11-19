@@ -12,13 +12,13 @@ test('native desktop pet session reentry isolates late dialogs and removes state
  skip: process.platform !== 'win32' || process.env.AXUM_DESKTOP_PET === '0', timeout: 20000,
 }, async () => {
  const before = new Set(fs.readdirSync(os.tmpdir()));
- const handlers = new Map();
+ const handlers = new Map(); let show;
  const warnings = [];
  const answers = [];
  const original = () => new Promise(resolve => answers.push(resolve));
  const ctx = { hasUI: true, ui: { notify: message => warnings.push(message),
   confirm: original, select: async () => '', input: async () => '' } };
- registerDesktopPet({ on: (name, fn) => handlers.set(name, fn) });
+ registerDesktopPet({ on: (name, fn) => handlers.set(name, fn), registerCommand: (_name, command) => { show = command.handler; } });
  const emit = (name, event = {}) => handlers.get(name)(event, ctx);
  const statePath = () => {
   const dirs = fs.readdirSync(os.tmpdir()).filter(name => name.startsWith('axum-pet-') && !before.has(name));
@@ -28,11 +28,13 @@ test('native desktop pet session reentry isolates late dialogs and removes state
  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
  try {
   emit('session_start');
+  await show('', ctx);
   const oldPath = statePath();
   const oldAnswer = ctx.ui.confirm();
   assert.equal(JSON.parse(fs.readFileSync(oldPath)).state, 'waiting');
   emit('session_start');
   assert.equal(fs.existsSync(oldPath), false);
+  await show('', ctx);
   const file = statePath();
   const state = () => JSON.parse(fs.readFileSync(file)).state;
   emit('agent_start');
@@ -61,7 +63,7 @@ test('native desktop pet session reentry isolates late dialogs and removes state
   assert.equal(ctx.ui.confirm, original);
   await wait(200);
   assert.deepEqual(warnings, []);
-  emit('session_start'); const replaced = statePath();
+  emit('session_start'); await show('', ctx); const replaced = statePath();
   handlers.get('session_start')({}, { hasUI: false });
   assert.equal(fs.existsSync(replaced), false);
   assert.equal(ctx.ui.confirm, original);
