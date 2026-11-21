@@ -175,6 +175,22 @@ axum code
 
 为兼容性考虑，`openai-completions` 形态的 provider 默认 `supportsDeveloperRole=false` / `supportsReasoningEffort=false`（`anthropic-messages` 形态的兼容性交给 pi-ai 处理）。
 
+**Codex Responses 网关兼容。** `axum code` 和 `axum chat` 的所有 `openai-responses` / `openai-codex-responses` 适配器入口都发送非空的顶层 `prompt_cache_key`，优先级：`axum.json` 根字段 > SDK `sessionId` > 临时 UUID v4。保留 SDK 会话 ID 及其 UUID 版本：多轮、重试、恢复会话复用键；new/reset 新会话换键，配置固定覆盖值时除外。`cacheRetention: "none"` 仍保留此路由粘性键。这是网关兼容修复，公共 OpenAI Responses API 并非通用必填此字段。尚未执行真实线上网关验证。
+
+将可选根字段合入 `${PI_CODING_AGENT_DIR}/axum.json`（默认 `~/.pi/agent/axum.json`），重启 `axum code` / `axum chat` 加载。省略 `prompt_cache_key` 即自动使用会话键；示例显式固定路由：
+
+```json
+{
+  "prompt_cache_key": "my-gateway-route",
+  "userAgent": "my-client/1.0",
+  "codexHeaders": {
+    "originator": "codex_cli_rs"
+  }
+}
+```
+
+请求头优先级：请求 `options.headers` > `model.headers` > 根字段 `codexHeaders` > 默认值。User-Agent 选择顺序：`AXUM_USER_AGENT` > 根字段 `userAgent` > `codex_cli_rs/0.125.0 (OS version; arch) TERM`，默认值使用真实系统版本、架构和终端标识；默认 `originator` 为 `codex_cli_rs`。`codexHeaders` 也支持 `OpenAI-Beta`：HTTP 默认不强加旧值 `responses=experimental`；WebSocket 保留 SDK 协议 Beta，可由配置或更高优先级请求头覆盖。
+
 ## 重试设置
 
 在 `axum web` 的重试标签页配置 API 请求失败时的自动重试策略（启动方式见「快速开始」）。

@@ -46,7 +46,7 @@ test("a second loader copy does not register a second hook", async () => {
       fs.readFileSync(new URL("../src/pi-web-fast-loader.js", import.meta.url), "utf8").replaceAll(
         '"./fast-service-tier.js"',
         JSON.stringify(helperUrl),
-      ),
+      ).replaceAll('"./codex-responses.js"', JSON.stringify(new URL("../src/codex-responses.js", import.meta.url).href)),
     );
 
     await import(pathToFileURL(copy).href);

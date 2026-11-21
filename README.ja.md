@@ -143,6 +143,22 @@ axum code
 
 互換性のため、`openai-completions` 形式の provider は `supportsDeveloperRole=false` / `supportsReasoningEffort=false` を既定にします（`anthropic-messages` 形式の互換性は pi-ai に委ねます）。
 
+**Codex Responses のゲートウェイ互換性。** `axum code` と `axum chat` のすべての `openai-responses` / `openai-codex-responses` アダプタ入口で、空でないトップレベルの `prompt_cache_key` を送信します。優先順位は `axum.json` のルート設定 > SDK `sessionId` > 一時 UUID v4 です。SDK のセッション ID と UUID バージョンを維持し、複数ターン・リトライ・セッション再開ではキーを再利用します。new/reset の新規セッションではキーが変わりますが、固定値の設定時は例外です。`cacheRetention: "none"` でもルーティングを固定するキーを保持します。これはゲートウェイ互換性の修正であり、公開 OpenAI Responses API 全般の必須項目ではありません。実際のオンラインゲートウェイでは未検証です。
+
+任意のルート項目を `${PI_CODING_AGENT_DIR}/axum.json`（既定 `~/.pi/agent/axum.json`）へマージし、`axum code` / `axum chat` を再起動して読み込みます。`prompt_cache_key` を省略すると自動でセッションキーを使用します。例ではルートを明示的に固定します：
+
+```json
+{
+  "prompt_cache_key": "my-gateway-route",
+  "userAgent": "my-client/1.0",
+  "codexHeaders": {
+    "originator": "codex_cli_rs"
+  }
+}
+```
+
+ヘッダーの優先順位はリクエストの `options.headers` > `model.headers` > ルートの `codexHeaders` > 既定値です。User-Agent の選択順は `AXUM_USER_AGENT` > ルートの `userAgent` > `codex_cli_rs/0.125.0 (OS version; arch) TERM` で、既定値には実際の OS バージョン・アーキテクチャ・端末識別子を使います。既定の `originator` は `codex_cli_rs` です。`codexHeaders` は `OpenAI-Beta` にも対応します。HTTP は旧値 `responses=experimental` を既定で強制せず、WebSocket は SDK のプロトコル Beta を保持します。設定または優先順位の高いヘッダーで上書きできます。
+
 ## リトライ設定
 
 `axum web` のリトライ tab で、API リクエスト失敗時の自動リトライ戦略を設定します（起動方法は「クイックスタート」参照）。

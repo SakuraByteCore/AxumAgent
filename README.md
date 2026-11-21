@@ -155,6 +155,22 @@ axum code
 
 Providers on the `openai-completions` form default to `supportsDeveloperRole=false` / `supportsReasoningEffort=false`; the `anthropic-messages` form carries no compat block and defers to pi-ai.
 
+**Codex Responses gateway compatibility.** In both `axum code` and `axum chat`, all `openai-responses` / `openai-codex-responses` adapter entry points send a nonempty top-level `prompt_cache_key`: root `axum.json` override > SDK `sessionId` > temporary UUID v4. The SDK session ID and its UUID version stay intact: turns, retries and resumed sessions reuse the key; new/reset sessions get a new key unless a fixed override is configured. `cacheRetention: "none"` keeps this routing stickiness key. This fixes gateway compatibility; the public OpenAI Responses API does not universally require this field. Live gateway validation has not been performed.
+
+Merge optional root fields into `${PI_CODING_AGENT_DIR}/axum.json` (default `~/.pi/agent/axum.json`), then restart `axum code` / `axum chat` to load them. Omit `prompt_cache_key` to use automatic session keys; the example pins a route explicitly:
+
+```json
+{
+  "prompt_cache_key": "my-gateway-route",
+  "userAgent": "my-client/1.0",
+  "codexHeaders": {
+    "originator": "codex_cli_rs"
+  }
+}
+```
+
+Header precedence is request `options.headers` > `model.headers` > root `codexHeaders` > defaults. User-Agent selection is `AXUM_USER_AGENT` > root `userAgent` > `codex_cli_rs/0.125.0 (OS version; arch) TERM`, with the real OS version, architecture and terminal identifier; default `originator` is `codex_cli_rs`. `codexHeaders` also accepts `OpenAI-Beta`: HTTP does not force the old `responses=experimental` value; WebSocket keeps the SDK protocol Beta unless overridden by configuration or higher-priority headers.
+
 ## Retry Settings
 
 In the retry tab of `axum web`, configure the automatic retry strategy for failed API requests (see [Quick Start](#quick-start) for how to launch).
