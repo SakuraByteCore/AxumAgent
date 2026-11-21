@@ -160,6 +160,7 @@ axum mcp remove <name>
 - **Base URL**，例如 `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**，没有 `/models` 端点的 provider 可手动输入。
+- **上下文窗口**按模型确定：已保存值（含 `/ctx` 设置）> `/models` 元数据 > 内置目录精确匹配值 > 所选预设 > 128000 token 回退值。未知模型未提供元数据时仍使用 128000；在 `axum code` 中用 `/ctx <tokens>` 设置实际上限。不会自动迁移已有提供商。
 - **参考预设**（可选）。Anthropic（`https://api.anthropic.com`，原生协议）与 OpenAI Chat（`https://api.openai.com/v1`）一键模板，按厂商默认值填好 API 协议、base URL、提供商名、token 上限与模型候选，补上 API Key 并选择模型即可保存。
 
 保存位置:

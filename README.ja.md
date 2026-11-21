@@ -128,6 +128,7 @@ axum uninstall pi-foo
 - **Base URL**。例: `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**。`/models` がない provider は手入力できます。
+- **コンテキスト長**はモデルごとに決まります：保存済みの値（`/ctx` の設定を含む）> `/models` のメタデータ > 内蔵カタログの完全一致 > 選択したプリセット > 128000 トークンの代替値。メタデータのない未知のモデルは 128000 を使います。`axum code` の `/ctx <tokens>` で実際の上限を設定できます。既存プロバイダーは自動移行しません。
 - **プリセット**（任意）。Anthropic（`https://api.anthropic.com`、ネイティブ形式）と OpenAI Chat（`https://api.openai.com/v1`）のワンクリック テンプレート。API 形式・base URL・provider 名・トークン上限・モデル候補をベンダー既定値で埋めます。API キーを入力し、モデルを選択すれば保存できます。
 
 保存先:

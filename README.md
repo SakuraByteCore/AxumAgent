@@ -140,6 +140,7 @@ Fields:
 - **Base URL**, e.g. `https://api.moonshot.cn/v1`
 - **API Key**
 - **Model**. Providers without `/models` can be entered manually.
+- **Context window** is resolved per model: saved values (including `/ctx` overrides) > `/models` metadata > exact built-in model catalog entry > selected preset > 128000-token fallback. Unknown models without metadata still use 128000; set the actual limit with `/ctx <tokens>` in `axum code`. Existing providers are not migrated automatically.
 - **Presets** (optional). One-click templates for Anthropic (`https://api.anthropic.com`, native form) and OpenAI Chat (`https://api.openai.com/v1`) that fill API form, base URL, provider name, token defaults and model candidates. Add your API key and pick a model to save.
 
 Saved to:

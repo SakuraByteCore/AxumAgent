@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { modelContextFromMetadata } from "./provider-model-context.js";
 
 export function getAgentDir(env = process.env) {
   if (env.PI_CODING_AGENT_DIR) return expandTilde(env.PI_CODING_AGENT_DIR);
@@ -565,23 +566,21 @@ export function importProviders({ config = {}, overwrite = false } = {}, file = 
   return { added, skipped, replaced, rejected, total: Object.keys(current.providers).length, defaultRestored };
 }
 
-function extractModelIds(json) {
-  if (!json || typeof json !== "object") return [];
-  let arr = null;
-  if (Array.isArray(json.data)) arr = json.data;
-  else if (Array.isArray(json.models)) arr = json.models;
-  if (!arr) return [];
-  const ids = [];
-  for (const item of arr) {
-    if (item == null) continue;
-    if (typeof item === "string") { ids.push(item); continue; }
-    const id = item.id ?? item.name ?? item.model;
-    if (id) ids.push(String(id));
+function extractModelConfigs(json) {
+  const rows = Array.isArray(json?.data) ? json.data : Array.isArray(json?.models) ? json.models : [];
+  const models = new Map();
+  for (const row of rows) {
+    const id = String(typeof row === "string" ? row : row?.id ?? row?.name ?? row?.model ?? "").trim();
+    if (!id) continue;
+    const contextWindow = modelContextFromMetadata(row);
+    if (!models.has(id) || contextWindow !== undefined) {
+      models.set(id, { id, ...(contextWindow === undefined ? {} : { contextWindow }) });
+    }
   }
-  return ids;
+  return [...models.keys()].sort().map(id => models.get(id));
 }
 
-export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs = 15000 }) {
+export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs = 15000, includeMetadata = false }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -604,9 +603,10 @@ export async function fetchOpenAICompatibleModels({ baseUrl, apiKey, timeoutMs =
     if (!response.ok) throw new Error(`GET /models failed: HTTP ${response.status} ${text.slice(0, 240)}`);
     let json;
     try { json = JSON.parse(text); } catch (error) { throw new Error(`GET /models returned invalid JSON: ${error.message}`); }
-    const models = extractModelIds(json);
-    if (!models.length) throw new Error("GET /models returned no model ids");
-    return [...new Set(models)].sort();
+    const modelConfigs = extractModelConfigs(json);
+    if (!modelConfigs.length) throw new Error("GET /models returned no model ids");
+    const models = modelConfigs.map(model => model.id);
+    return includeMetadata ? { models, modelConfigs } : models;
   } finally {
     clearTimeout(timeout);
   }
