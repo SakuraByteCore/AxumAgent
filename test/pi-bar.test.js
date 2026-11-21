@@ -30,7 +30,7 @@ test("context usage renders a coralline threshold gauge and a separate token-cou
   assert.match(contextBlock, /suffix:\s*`\$\{pct\}%`/);
   assert.match(contextBlock, /bar:\s*pct,/);
   assert.match(contextBlock, /color:\s*thresholdColor\(pct\)/);
-  assert.match(contextBlock, /id: "context-tokens", text: `\$\{fmtTokens\(u\.tokens\)\}\/\$\{windowText\}`/);
+  assert.match(contextBlock, /id: "context-tokens", text: `\$\{fmtTokens\(tokens\)\}\/\$\{windowText\}`/);
   assert.match(statuslineSource, /left: \["git-branch", "thinking", "context-tokens", "context-usage"\]/);
   assert.match(statuslineSource, /"context-tokens":\s*\[146, 146, 69\]/);
   // gauge fill glyph and thresholds are defined; no empty-trailing glyph.
@@ -44,9 +44,9 @@ test("context-tokens shows used/window with no 0k placeholder", () => {
   const contextBlock = statuslineSource.match(/function emitContext[\s\S]*?\n\t}/)?.[0] ?? "";
   // Dual value: used tokens over the live contextWindow (e.g. "12k/200k").
   assert.match(contextBlock, /const windowText = fmtTokens\(u\.contextWindow\);/);
-  assert.match(contextBlock, /text: `\$\{fmtTokens\(u\.tokens\)\}\/\$\{windowText\}`/);
+  assert.match(contextBlock, /text: `\$\{fmtTokens\(tokens\)\}\/\$\{windowText\}`/);
   // Before the first request the pill carries the Context length alone.
-  assert.match(contextBlock, /if \(u\.tokens == null\) \{[\s\S]*?text: windowText/);
+  assert.match(contextBlock, /if \(tokens == null\) \{[\s\S]*?text: windowText/);
   assert.doesNotMatch(contextBlock, /fmtTokens\(0\)/);
   // No model -> no window either: the pill is cleared, not a fake 0.0k.
   assert.match(contextBlock, /if \(!u\) \{[\s\S]*?id: "context-tokens", text: undefined/);
@@ -337,7 +337,7 @@ test("user agent embeds into the editor bottom-right border", () => {
   // is re-checked via an mtime-keyed cache that keeps render() allocation-
   // free in the steady state.
   assert.match(statuslineSource, /VERSION: PI_VERSION = "0\.0\.0"/);
-  assert.match(statuslineSource, /const UA_TRUNCATE_WIDTH = 40;/);
+  assert.doesNotMatch(statuslineSource, /UA_TRUNCATE_WIDTH|CODEX_UA_MAX_WIDTH/);
   assert.match(statuslineSource, /const userAgentConfigPath = join\(agentDir, "axum\.json"\);/);
   assert.match(statuslineSource, /mtime = statSync\(userAgentConfigPath\)\.mtimeMs;/);
   assert.match(statuslineSource, /if \(cachedUserAgent === undefined \|\| mtime !== cachedUserAgentMtime\) \{/);
@@ -362,9 +362,9 @@ test("user agent embeds into the editor bottom-right border", () => {
   assert.match(statuslineSource, /override render\(width: number\): string\[\] \{/);
   assert.match(statuslineSource, /const lines = super\.render\(width\);/);
   assert.match(statuslineSource, /function uaShortLabel\(ua: string\): string \{/);
-  assert.match(statuslineSource, /const comment = ua\.indexOf\(" \("\);/);
-  assert.match(statuslineSource, /return comment > 0 \? ua\.slice\(0, comment\) : ua;/);
-  assert.match(statuslineSource, /const ua = truncateToWidth\(uaShortLabel\(getUserAgent\(\)\), UA_TRUNCATE_WIDTH, "…"\);/);
+  assert.match(statuslineSource, /const slash = ua\.indexOf\("\/"\);/);
+  assert.match(statuslineSource, /return slash >= 0 \? ua\.slice\(0, slash\) : ua;/);
+  assert.match(statuslineSource, /const ua = uaShortLabel\(getUserAgent\(\)\);/);
   assert.match(statuslineSource, /if \(width <= 2 \|\| lines\.length < 2\) return lines;/);
   assert.match(statuslineSource, /if \(!ua\) return lines;/);
   assert.match(statuslineSource, /function stripSgr\(text: string\): string \{/);
@@ -574,6 +574,13 @@ test("/balance reports unavailable probes and marks a retained balance", async (
 	assert.equal(notifications.length, 1);
 	assert.match(notifications[0].message, /余额不可用/);
 	assert.match(notifications[0].message, /provider=demo/);
+	ctx.model = { provider: "newapi", baseUrl: "https://example.com/v1" };
+	t.mock.method(globalThis, "fetch", async (url) => url.endsWith("/v1/usage")
+		? new Response("", { status: 404 })
+		: new Response(JSON.stringify({ code: true, data: { object: "token_usage", total_available: 1750000 } })));
+	await commands.get("balance").handler("", ctx);
+	assert.match(notifications.pop().message, /余额 \$3\.50（newapi）/);
+
 });
 
 
@@ -786,4 +793,52 @@ test("stream bursts bound context work, coalesce widgets and keep boundary updat
   ctx.hasUI = false;
   await handlers.get("session_shutdown")({}, ctx);
   assert.equal(widgets, before + 1, "pending flush cannot redraw a closed session");
+});
+
+
+test("context percentage follows every streaming delta without rescanning history", async (t) => {
+  const { default: install } = await import("../plugin/pi-bar/index.ts");
+  const handlers = new Map(), updates = [];
+  install({ on: (name, fn) => handlers.set(name, fn), registerCommand() {},
+    events: { on() {}, emit: (_name, value) => updates.push(value) } });
+  let now = 1000, reads = 0, tokens = 20;
+  t.mock.method(Date, "now", () => now);
+  const ctx = { hasUI: false, getContextUsage: () => { reads++; return { tokens, contextWindow: 100 }; } };
+  const call = (name, message = {}) => handlers.get(name)({ message }, ctx);
+  const pct = () => updates.filter((value) => value.id === "context-usage").at(-1).suffix;
+  const update = (type, usage = {}) => handlers.get("message_update")({ message: { role: "assistant", usage }, assistantMessageEvent: { type, delta: "abcd" } }, ctx);
+  await call("message_start", { role: "assistant" });
+  for (const [type, expected] of [["text_delta", "21%"], ["thinking_delta", "22%"], ["toolcall_delta", "23%"]]) {
+    await update(type); assert.equal(pct(), expected); now++;
+  }
+  assert.equal(reads, 1, "each delta updates the percentage while history reads stay throttled");
+  await update("text_delta", { input: 30, cacheRead: 10, cacheWrite: 5, output: 5, totalTokens: 50 });
+  assert.equal(pct(), "50%", "provider totals replace the estimate without counting history twice");
+  await update("text_delta", { output: 10 });
+  assert.equal(pct(), "30%", "output-only usage keeps the history baseline");
+  tokens = 50;
+  await call("message_end", { role: "assistant", timestamp: now, usage: { output: 10 } });
+  assert.equal(pct(), "50%", "final SDK usage replaces streaming estimates");
+  await call("message_start", { role: "assistant" });
+  await update("text_delta"); assert.equal(pct(), "51%", "new requests cannot reuse old streamed text");
+});
+
+
+test("UA labels stop at the first slash and otherwise retain full text within terminal bounds", async () => {
+  const { displayWidth, truncateDisplayToWidth } = await import("../plugin/pi-bar/display-width.ts");
+  const shortSource = statuslineSource.match(/function uaShortLabel[\s\S]*?\n}/)?.[0];
+  const renderSource = statuslineSource.match(/function renderCodexBar[\s\S]*?\n}/)?.[0];
+  assert.ok(shortSource && renderSource);
+  let ua = "";
+  const sandbox = { getUserAgent: () => ua, visibleWidth: displayWidth,
+    truncateToWidth: truncateDisplayToWidth, truncateDisplayToWidth };
+  const render = vm.runInNewContext(stripTypeScriptTypes(`${shortSource}\n${renderSource}\nrenderCodexBar;`), sandbox);
+  for (const [value, label] of [["codex_cli_rs/0.125.0 (Linux)", "codex_cli_rs"], ["agent/v1/extra", "agent"], ["custom-client-with-long-name (Linux x64)", "custom-client-with-long-name (Linux x64)"], ["模型🚀", "模型🚀"], ["", ""]]) {
+    ua = value;
+    const rows = render(new Map(), { left: [], right: [] }, 100);
+    assert.ok(rows[0].endsWith(`${label} `));
+    assert.equal(displayWidth(rows[0]), 100);
+    assert.ok(!rows[0].includes("/0.125.0"));
+    assert.ok(render(new Map(), { left: [], right: [] }, 20).every((row) => displayWidth(row) <= 20));
+  }
 });

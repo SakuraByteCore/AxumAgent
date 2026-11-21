@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { DISPATCH_AGENT_GUARD_CLAUSE } from '../plugin/pi-agent/regression-guard.ts';
 import { registerAutonomousPolicy } from '../plugin/pi-agent/autonomous.ts';
 import { parseQuickArgs, registerQuick, buildOrchestrationPrompt } from '../plugin/pi-agent/orchestrate.ts';
 
@@ -11,6 +12,7 @@ test('before_agent_start injects default goal delivery and follows live tool ava
  const event = { prompt: 'implement login and billing', systemPrompt: 'original system instructions' };
  const result = await start(event, {});
  assert.ok(result.systemPrompt.startsWith(event.systemPrompt));
+ assert.ok(result.systemPrompt.includes(DISPATCH_AGENT_GUARD_CLAUSE));
  assert.match(result.systemPrompt, /currently available: actively use it/);
  assert.match(result.systemPrompt, /trivial or indivisible task stays inline/);
  assert.match(result.systemPrompt, /pass writeScope.*dependency input.output interfaces/s);
@@ -27,6 +29,7 @@ test('before_agent_start injects default goal delivery and follows live tool ava
  assert.match(result.systemPrompt, /critical dependency path.*Integrate each completed lane promptly/s);
  active = ['read'];
  const restricted = await start(event, {});
+ assert.ok(restricted.systemPrompt.includes(DISPATCH_AGENT_GUARD_CLAUSE));
  assert.match(restricted.systemPrompt, /not currently available: perform the work inline/);
  assert.doesNotMatch(restricted.systemPrompt, /currently available: actively use it/);
  assert.match(restricted.systemPrompt, /host does not automatically schedule/);

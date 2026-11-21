@@ -5,6 +5,8 @@ import {
 	BalanceCache,
 	fetchSub2ApiBalance,
 	isSub2ApiPayload,
+	newApiUsageUrl,
+	parseNewApiUsagePayload,
 	parseUsagePayload,
 	probeSub2ApiBalance,
 	usageUrl,
@@ -31,7 +33,7 @@ test("parseUsagePayload renders wallet, quota and unlimited remainders", () => {
 		remaining: 8.2,
 		quota: { limit: 10, used: 1.8, remaining: 8.2, unit: "USD" },
 	});
-	assert.equal(quota.label, "$8.20 quota");
+	assert.equal(quota.label, "$8.20");
 
 	const unlimited = parseUsagePayload({ mode: "unrestricted", unit: "USD", remaining: -1 });
 	assert.equal(unlimited.label, "∞");
@@ -215,4 +217,64 @@ test("BalanceCache retains a marked recent balance only for transient failures",
 	await cache.get("k", success, { retryFailed: true });
 	cache.invalidate();
 	assert.equal((await cache.get("k", async () => { throw new Error("offline"); })).snapshot, undefined);
+});
+
+
+test("New API URL preserves proxy prefixes and removes queries", () => {
+	for (const base of ["https://example.com", "https://example.com/v1/", "https://example.com/v1?secret=x#frag"]) {
+		assert.equal(newApiUsageUrl(base), "https://example.com/api/usage/token/");
+	}
+	assert.equal(newApiUsageUrl("https://example.com/proxy/v1"), "https://example.com/proxy/api/usage/token/");
+	assert.equal(newApiUsageUrl("not a url"), "");
+});
+
+test("New API distinguishes token quota, unlimited quota and permitted account balance", () => {
+	const payload = (data) => ({ code: true, data: { object: "token_usage", ...data } });
+	assert.equal(parseNewApiUsagePayload(payload({ total_available: 1750000 })).label, "$3.50");
+	assert.equal(parseNewApiUsagePayload(payload({ total_available: 0 })).label, "$0.00");
+	assert.equal(parseNewApiUsagePayload(payload({ total_available: -250000 })).value, -0.5);
+	const unlimited = parseNewApiUsagePayload(payload({ unlimited_quota: true, total_available: 0 }));
+	assert.equal(unlimited.label, "∞");
+	assert.equal(unlimited.value, null);
+	const account = parseNewApiUsagePayload(payload({ unlimited_quota: true, user_quota: { total_available: 3500000 } }));
+	assert.equal(account.label, "$7.00");
+	assert.equal(account.mode, "newapi-account");
+	for (const bad of [null, { code: false, data: { object: "token_usage", total_available: 5 } }, payload({}), payload({ total_available: "5" }), payload({ total_available: Infinity })]) {
+		assert.equal(parseNewApiUsagePayload(bad), undefined);
+	}
+});
+
+test("New API fallback accepts unsupported routes and SPA pages without leaking credentials", async () => {
+	for (const [body, status] of [["", 404], ["", 405], ["<html>app</html>", 200], ["{}", 200]]) {
+		const calls = [];
+		const probe = await probeSub2ApiBalance({ baseUrl: "https://example.com/proxy/v1", apiKey: "sk-test", fetchImpl: async (url, init) => {
+			calls.push({ url, init });
+			return calls.length === 1 ? new Response(body, { status })
+				: new Response(JSON.stringify({ code: true, data: { object: "token_usage", total_available: 1750000 } }));
+		} });
+		assert.equal(probe.snapshot.label, "$3.50");
+		assert.equal(calls.length, 2);
+		assert.equal(calls[1].url, "https://example.com/proxy/api/usage/token/");
+		for (const call of calls) {
+			assert.equal(call.init.headers.Authorization, "Bearer sk-test");
+			assert.equal(call.init.redirect, "error");
+			assert.ok(!call.url.includes("sk-test"));
+		}
+		assert.equal(calls[0].init.signal, calls[1].init.signal);
+	}
+});
+
+test("New API fallback does not mask auth or transient failures and never invents balance", async () => {
+	for (const status of [401, 403, 429, 500]) {
+		let calls = 0;
+		const probe = await probeSub2ApiBalance({ baseUrl: "https://example.com/v1", apiKey: "sk-test", fetchImpl: async () => { calls++; return new Response("{}", { status }); } });
+		assert.equal(calls, 1);
+		assert.equal(probe.status, status);
+		assert.equal(probe.snapshot, undefined);
+	}
+	for (const [body, status, reason] of [["{}", 403, "http-error"], ["<html>app</html>", 200, "not-sub2api"], [JSON.stringify({ code: true, data: { object: "token_usage" } }), 200, "no-balance"]]) {
+		const probe = await probeSub2ApiBalance({ baseUrl: "https://example.com/v1", apiKey: "sk-test", fetchImpl: async (url) => url.endsWith("/v1/usage") ? new Response("", { status: 404 }) : new Response(body, { status }) });
+		assert.equal(probe.reason, reason);
+		assert.equal(probe.snapshot, undefined);
+	}
 });

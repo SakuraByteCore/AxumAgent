@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { REGRESSION_GUARD_CLAUSE } from "../plugin/pi-companion/regression-guard.ts";
+import { REGRESSION_GUARD_CLAUSE, DISPATCH_AGENT_GUARD_CLAUSE } from "../plugin/pi-companion/regression-guard.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const AXUM_ENTRY = path.join(REPO_ROOT, "bin", "axum.js");
@@ -420,7 +420,7 @@ test("e2e: pi-companion /plan loads a user template from the isolated home", asy
 
 		await pi.commands.get("plan").handler("add user login", ctx);
 		assert.equal(pi.messages.length, 1);
-		assert.equal(pi.messages[0].message, "before add user login after\n\n\n" + REGRESSION_GUARD_CLAUSE);
+		assert.equal(pi.messages[0].message, "before add user login after\n\n\n" + REGRESSION_GUARD_CLAUSE + "\n\n" + DISPATCH_AGENT_GUARD_CLAUSE);
 		assert.equal(pi.messages[0].options?.deliverAs, "followUp");
 	});
 });

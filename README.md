@@ -92,9 +92,10 @@ axum doctor
 The distribution ships these packages, all in one install:
 
 - `@earendil-works/pi-coding-agent`
-- `pi-bar` (AxumAgent bundled fork, absorbs the former pi-header)
+- `pi-bar` (AxumAgent bundled fork, absorbs the former pi-header). The Codex status bar automatically queries Sub2API or New API; `/balance` refreshes it manually. New API shows the current API token’s remaining quota (`∞` for unlimited quota), or the account balance when the site allows `user_quota` queries. No provider-name configuration is needed; unsupported endpoints or denied requests hide the balance.
+  - Context percentages refresh on every streaming delta; values use an estimate until provider usage arrives. UA labels show only the text before the first `/`; without `/`, they keep the full text unless terminal width requires clipping.
 - `pi-companion` (merged pi-shortcuts + pi-guard: slash shortcuts /plan /clear /ralph /loop /rules /claude /plugin-create-mode, response guard, advisory watcher, bundled claude-driver skill)
-- `@narumitw/pi-goal` (all `/goal` prompts—start, goal updates, resume, automatic continuation, and active-goal system prompts—share non-regression rules for code changes: preserve existing functionality, run affected existing tests, never delete or weaken assertions, fix failures before delivery, and report risks, validation, and recovery plans)
+- `@narumitw/pi-goal` (all `/goal` prompts—start, goal updates, resume, automatic continuation, and active-goal system prompts—share non-regression rules for code changes: preserve existing functionality, run affected existing tests, never delete or weaken assertions, fix failures before delivery, and report risks, validation, and recovery plans); the same entry points also inject a prompt rule forbidding model calls to `dispatch_agent backend="controlled-pi"`, including calls that omit `backend`. Work stays on the main thread; bypasses through other tools, aliases or external processes are forbidden. This prompt rule does not remove tool registration or change explicit user commands
 - `pi-web-access` (web search, extraction, and curation tools: /websearch, /curator, /google-account, /search)
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool` (structured todo tracking: the `todo` tool maintains a plan checklist rendered as a live HUD above the editor, plus the `/todo` and `/todos-configure` commands)

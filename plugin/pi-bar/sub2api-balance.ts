@@ -1,5 +1,5 @@
 /**
- * Sub2API balance lookup for the pi-bar Codex row.
+ * Sub2API / New API balance lookup for the pi-bar Codex row.
  *
  * Upstream contract (Wei-Shaw/sub2api, backend/internal/server/routes/gateway.go):
  *   GET {base}/usage      when base already ends with /v1
@@ -14,18 +14,20 @@
  *   quota: { limit, used, remaining, unit }
  *   subscription: { ... }
  *
- * `mode` is the Sub2API fingerprint: an endpoint that does not answer with it
- * is not a Sub2API deployment, so the bar stays silent instead of showing a
- * foreign provider's number.
+ * `mode` identifies Sub2API. Unsupported usage endpoints fall back to New API
+ * GET {base without /v1}/api/usage/token/ (QuantumNous/new-api). Only its
+ * successful `data.object: "token_usage"` envelope is accepted. Internal quota
+ * uses 500,000 units per USD; user_quota is available only with permission.
+ * Keep token/account scope in snapshot.mode; display only the amount.
  *
  * The API key is only ever used as a request header: it is never logged,
  * persisted or embedded in a URL.
  */
 
 export interface BalanceSnapshot {
-	/** Display text, e.g. "$12.34", "$8.20 quota", "∞". */
+	/** Display text, e.g. "$12.34", "$8.20", "∞". */
 	label: string;
-	/** Upstream mode field ("quota_limited" | "unrestricted"). */
+	/** Sub2API mode or New API balance scope. */
 	mode: string;
 	/** Numeric remainder, or null when the account is unlimited. */
 	value: number | null;
@@ -47,6 +49,48 @@ export interface BalanceProbe {
 const DEFAULT_TIMEOUT_MS = 8000;
 const USAGE_MODES = new Set(["quota_limited", "unrestricted"]);
 
+const NEW_API_QUOTA_PER_USD = 500_000;
+const UNSUPPORTED_USAGE_STATUSES = new Set([404, 405]);
+
+/** Preserve a reverse-proxy prefix while replacing the OpenAI /v1 suffix. */
+export function newApiUsageUrl(baseUrl: string): string {
+	const usage = usageUrl(baseUrl);
+	if (!usage) return "";
+	const url = new URL(usage);
+	url.pathname = url.pathname.replace(/\/v1\/usage$/, "/api/usage/token/");
+	return url.toString();
+}
+
+/** New API's read-only /api/usage/token/ contract, not its login-only API. */
+function newApiUsageData(payload: unknown): Record<string, unknown> | undefined {
+	if (!payload || typeof payload !== "object") return undefined;
+	const body = payload as Record<string, unknown>;
+	if (body.code !== true && body.success !== true) return undefined;
+	if (!body.data || typeof body.data !== "object") return undefined;
+	const data = body.data as Record<string, unknown>;
+	return data.object === "token_usage" ? data : undefined;
+}
+
+export function parseNewApiUsagePayload(payload: unknown): BalanceSnapshot | undefined {
+	const data = newApiUsageData(payload);
+	if (!data) return undefined;
+	const userQuota = data.user_quota && typeof data.user_quota === "object"
+		? (data.user_quota as Record<string, unknown>).total_available : undefined;
+	const hasUserQuota = typeof userQuota === "number" && Number.isFinite(userQuota);
+	if (!hasUserQuota && data.unlimited_quota === true) {
+		return { label: "∞", mode: "newapi-token", value: null, unit: "USD" };
+	}
+	const quota = hasUserQuota ? userQuota : data.total_available;
+	if (typeof quota !== "number" || !Number.isFinite(quota)) return undefined;
+	// Upstream common.QuotaPerUnit uses 500,000 internal units per USD.
+	const value = quota / NEW_API_QUOTA_PER_USD;
+	return {
+		label: formatAmount(value, "USD"),
+		mode: hasUserQuota ? "newapi-account" : "newapi-token",
+		value,
+		unit: "USD",
+	};
+}
 function isLoopback(hostname: string): boolean {
 	return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname.endsWith(".localhost");
 }
@@ -111,7 +155,7 @@ export function parseUsagePayload(payload: unknown): BalanceSnapshot | undefined
 	if (balance !== undefined) return { label: formatAmount(balance, unit), mode, value: balance, unit };
 	if (quotaRemaining !== undefined) {
 		if (quotaRemaining < 0) return { label: "∞", mode, value: null, unit };
-		return { label: `${formatAmount(quotaRemaining, unit)} quota`, mode, value: quotaRemaining, unit };
+		return { label: formatAmount(quotaRemaining, unit), mode, value: quotaRemaining, unit };
 	}
 	if (remaining !== undefined) {
 		if (remaining < 0) return { label: "∞", mode, value: null, unit };
@@ -121,9 +165,9 @@ export function parseUsagePayload(payload: unknown): BalanceSnapshot | undefined
 }
 
 /**
- * Probe the Sub2API usage endpoint. Every transport, status or schema problem
- * is reported as a reason instead of throwing, so the caller can hide the
- * segment and still log why nothing was shown.
+ * Probe Sub2API, falling back to New API on unsupported routes or schemas.
+ * Transport, status and schema failures return reasons without throwing.
+ * Keep the exported name for callers of the original Sub2API helper.
  */
 export async function probeSub2ApiBalance(options: {
 	baseUrl: string;
@@ -134,28 +178,39 @@ export async function probeSub2ApiBalance(options: {
 	const url = usageUrl(options.baseUrl);
 	if (!url || !options.apiKey) return { status: 0, reason: "invalid-url" };
 	const parsed = new URL(url);
-	// The key only ever travels to the provider's own origin, over TLS.
+	// Never send credentials over plaintext remotes or follow redirects.
 	if (parsed.protocol !== "https:" && !isLoopback(parsed.hostname)) return { status: 0, reason: "invalid-url" };
 	const doFetch = options.fetchImpl ?? fetch;
+	const init = {
+		headers: { Authorization: `Bearer ${options.apiKey}`, Accept: "application/json" },
+		signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+		redirect: "error" as const,
+	};
 	try {
-		const response = await doFetch(url, {
-			headers: { Authorization: `Bearer ${options.apiKey}`, Accept: "application/json" },
-			signal: AbortSignal.timeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
-		});
-		if (!response.ok) return { status: response.status, reason: "http-error" };
-		const payload = await response.json();
-		if (!isSub2ApiPayload(payload)) return { status: response.status, reason: "not-sub2api" };
-		const snapshot = parseUsagePayload(payload);
-		return snapshot
-			? { snapshot, status: response.status, reason: "ok" }
-			: { status: response.status, reason: "no-balance" };
+		const response = await doFetch(url, init);
+		if (response.ok) {
+			// Some New API sites return their HTML app for an unknown /v1 route.
+			const payload = await response.json().catch(() => undefined);
+			if (isSub2ApiPayload(payload)) {
+				const snapshot = parseUsagePayload(payload);
+				return { snapshot, status: response.status, reason: snapshot ? "ok" : "no-balance" };
+			}
+		} else if (!UNSUPPORTED_USAGE_STATUSES.has(response.status)) {
+			return { status: response.status, reason: "http-error" };
+		}
+		const fallback = await doFetch(newApiUsageUrl(options.baseUrl), init);
+		if (!fallback.ok) return { status: fallback.status, reason: "http-error" };
+		const payload = await fallback.json().catch(() => undefined);
+		if (!newApiUsageData(payload)) return { status: fallback.status, reason: "not-sub2api" };
+		const snapshot = parseNewApiUsagePayload(payload);
+		return { snapshot, status: fallback.status, reason: snapshot ? "ok" : "no-balance" };
 	} catch {
 		return { status: 0, reason: "network-error" };
 	}
 }
 
 /**
- * Query the Sub2API usage endpoint. Any transport, status or schema problem
+ * Query a supported provider. Any transport, status or schema problem
  * resolves to undefined so the caller can hide the segment.
  */
 export async function fetchSub2ApiBalance(options: {
@@ -176,7 +231,7 @@ interface CacheEntry {
 
 /**
  * TTL cache for the balance probe: one in-flight request per key, a short
- * success TTL and a longer negative TTL so a broken or non-Sub2API endpoint is
+ * success TTL and a longer negative TTL so a broken or unsupported endpoint is
  * not hammered on every turn.
  */
 function isTransientProbe(probe: BalanceProbe): boolean {

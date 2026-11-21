@@ -37,6 +37,9 @@
  *    only write, and render reads live state directly.
  */
 
+import type { ContextUsage } from "@earendil-works/pi-coding-agent";
+import type { Usage } from "@earendil-works/pi-ai";
+
 type ExtensionAPI = any;
 type ExtensionContext = any;
 type KeybindingsManager = any;
@@ -73,7 +76,6 @@ import { createStaleSafeEmit, isStaleRuntimeError } from "./runtime-safety.ts";
 // live source of truth; AXUM_USER_AGENT is only its spawn-time snapshot. The
 // file is re-checked per call via an mtime-keyed cache, so render() stays
 // allocation-free in the steady state while /ua switches sync immediately.
-const UA_TRUNCATE_WIDTH = 40;
 const agentDir = process.env.PI_CODING_AGENT_DIR
 	? process.env.PI_CODING_AGENT_DIR.replace(/^~/, homedir())
 	: join(homedir(), ".pi", "agent");
@@ -108,12 +110,11 @@ function getUserAgent(): string {
 	return cachedUserAgent;
 }
 
-// Display rule: UA strings follow the "product/version (details)"
-// convention (codex_cli_rs/0.125.0 (Ubuntu 22.4.0; x86_64) ...), and the
-// border tag only shows the leading product/version token.
+// Display only the prefix before the first slash; otherwise keep all text.
+// The actual request header continues to use the full configured UA.
 function uaShortLabel(ua: string): string {
-	const comment = ua.indexOf(" (");
-	return comment > 0 ? ua.slice(0, comment) : ua;
+	const slash = ua.indexOf("/");
+	return slash >= 0 ? ua.slice(0, slash) : ua;
 }
 
 // ---------------------------------------------------------------------------
@@ -539,6 +540,8 @@ let tpsBorderLabel = "";
 const TPS_SAMPLE_WINDOW_MS = 10_000;
 const TPS_SAMPLE_INTERVAL_MS = 1_000;
 const CONTEXT_SAMPLE_INTERVAL_MS = 250;
+// Match the SDK context estimator without rescanning accumulated content.
+const CONTEXT_CHARS_PER_TOKEN = 4;
 
 interface TpsSample {
 	at: number;
@@ -670,7 +673,7 @@ export class DashedBorderEditor extends RuntimeCustomEditor {
     if (tpsBorderLabel && stripSgr(lines[0]) === rule) {
       lines[0] = fitTpsBorder(border(` ${tpsBorderLabel} `), width, border);
     }
-    const ua = truncateToWidth(uaShortLabel(getUserAgent()), UA_TRUNCATE_WIDTH, "…");
+    const ua = uaShortLabel(getUserAgent());
     if (!ua) return lines;
     let index = -1;
     for (let i = lines.length - 1; i >= 0; i--) {
@@ -1316,10 +1319,6 @@ function shrinkWidest(arr: RSeg[], overflow: number): void {
 	s.width = tgt;
 }
 
-// The Codex row 1 shares its line with the t/s readout and the balance, so the
-// user-agent label is capped to keep the center segment usable.
-const CODEX_UA_MAX_WIDTH = 14;
-
 function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: number): string[] {
 	const configured = new Set([...settings.left, ...settings.right]);
 	const priority = ["model", "context-usage", ...configured];
@@ -1348,7 +1347,7 @@ function renderCodexBar(segs: Map<string, Segment>, settings: Settings, width: n
 	const contentWidth = Math.max(0, width - margin * 2);
 	const tps = truncateDisplayToWidth(segs.get("tps")?.text || "— t/s", contentWidth, "…");
 	const tpsWidth = visibleWidth(tps);
-	const uaRoom = Math.min(CODEX_UA_MAX_WIDTH, Math.max(0, contentWidth - tpsWidth - 2));
+	const uaRoom = Math.max(0, contentWidth - tpsWidth - 2);
 	const ua = uaShortLabel(getUserAgent());
 	const uaText = uaRoom > 0 ? truncateDisplayToWidth(ua, uaRoom, "…") : "";
 	const uaWidth = visibleWidth(uaText);
@@ -1711,6 +1710,8 @@ export default function (pi: ExtensionAPI): void {
 	let currentCtx: ExtensionContext | undefined;
 	let dirty = false;
 	let lastContextSampleAt = Number.NEGATIVE_INFINITY;
+	let cachedContextUsage: ContextUsage | undefined;
+	let streamingContextChars = 0;
 
 	// --- /history: overlay picker for deleting up-arrow prompt history ---
 	pi.registerCommand("history", {
@@ -1950,12 +1951,14 @@ export default function (pi: ExtensionAPI): void {
 		// 避免把上一请求的速度当成当前速度。
 		resetTpsSamples();
 		lastContextSampleAt = Number.NEGATIVE_INFINITY;
+		streamingContextChars = 0;
 		emitTpsIdle(ctx);
 	});
 
 	pi.on("message_end", async (event, ctx) => {
 		const message = event.message;
 		if (message.role !== "assistant") return;
+		streamingContextChars = 0;
 		emitContext(ctx);
 		// 请求已结束：实时采样窗口随之作废，读数改由权威平均速度给出。
 		resetTpsSamples();
@@ -1972,8 +1975,9 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 
-	function emitContext(ctx: ExtensionContext): void {
-		const u = ctx.getContextUsage();
+	function emitContext(ctx: ExtensionContext, stream?: { chars: number; usage?: Partial<Usage>; sample: boolean }): void {
+		if (!stream || stream.sample) cachedContextUsage = ctx.getContextUsage();
+		const u = cachedContextUsage;
 		if (!u) {
 			emitBarUpdate({ id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
 			emitBarUpdate({ id: "context-tokens", text: undefined });
@@ -1983,12 +1987,25 @@ export default function (pi: ExtensionAPI): void {
 		// request tokens are unknown, so the pill shows the Context length
 		// alone instead of the old "0.0k" placeholder.
 		const windowText = fmtTokens(u.contextWindow);
-		if (u.tokens == null) {
+		let tokens = u.tokens;
+		if (stream) {
+			const usage = stream.usage;
+			const output = usage?.output || Math.ceil(stream.chars / CONTEXT_CHARS_PER_TOKEN);
+			const input = (usage?.input ?? 0) + (usage?.cacheRead ?? 0) + (usage?.cacheWrite ?? 0);
+			// The SDK history excludes streamingMessage. Count this output once,
+			// preferring provider usage; a missing input keeps the cached baseline.
+			if (input > 0 || (usage?.totalTokens ?? 0) > 0) {
+				tokens = Math.max(usage?.totalTokens ?? 0, input + output);
+			} else if (tokens != null) {
+				tokens += output;
+			}
+		}
+		if (tokens == null) {
 			emitBarUpdate({ id: "context-usage", text: "", suffix: "0%", color: "syntaxString" });
 			emitBarUpdate({ id: "context-tokens", text: windowText });
 			return;
 		}
-		const pct = Math.round((u.tokens / u.contextWindow) * 100);
+		const pct = Math.round((tokens / u.contextWindow) * 100);
 		emitBarUpdate({
 			id: "context-usage",
 			text: "",
@@ -1996,7 +2013,7 @@ export default function (pi: ExtensionAPI): void {
 			bar: pct,
 			color: thresholdColor(pct),
 		});
-		emitBarUpdate({ id: "context-tokens", text: `${fmtTokens(u.tokens)}/${windowText}` });
+		emitBarUpdate({ id: "context-tokens", text: `${fmtTokens(tokens)}/${windowText}` });
 	}
 
 	function emitModel(ctx: ExtensionContext): void {
@@ -2022,10 +2039,9 @@ export default function (pi: ExtensionAPI): void {
 		},
 	);
 
-	// --- Sub2API balance (Codex row 1, right side) ---
-	// Any provider may point at a Sub2API deployment, so the bar probes the
-	// usage endpoint and trusts only the Sub2API response schema: no provider
-	// id has to be configured and non-Sub2API providers stay silent.
+	// --- Provider balance (Codex row 1, center) ---
+	// Probe Sub2API, then New API's read-only token usage endpoint.
+	// Trust only recognized schemas; provider IDs need no special configuration.
 	const balanceCache = new BalanceCache();
 	const BALANCE_DEBUG = process.env.AXUM_BALANCE_DEBUG === "1";
 	function debugBalance(message: string): void {
@@ -2127,7 +2143,7 @@ export default function (pi: ExtensionAPI): void {
 	// /balance re-probes the current provider on demand and reports why the
 	// segment is empty, so a missing balance is diagnosable without a restart.
 	pi.registerCommand("balance", {
-		description: "手动刷新 Sub2API 余额并报告不可用原因",
+		description: "手动刷新 Sub2API / New API 余额并报告不可用原因",
 		async handler(_args: string, ctx: ExtensionContext) {
 			const outcome = await emitBalance(ctx, { force: true, retryFailed: true });
 			if (outcome.shown) {
@@ -2170,6 +2186,7 @@ export default function (pi: ExtensionAPI): void {
 		settings = loadSettings();
 		currentCtx = ctx;
 		lastContextSampleAt = Number.NEGATIVE_INFINITY;
+		streamingContextChars = 0;
 		if (promptHistoryError) {
 			ctx.ui.notify(`pi-bar: prompt history persistence failed: ${promptHistoryError}`, "warning");
 			promptHistoryError = undefined;
@@ -2203,6 +2220,8 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.setEditorComponent(undefined);
 		}
 		currentCtx = undefined;
+		cachedContextUsage = undefined;
+		streamingContextChars = 0;
 		segs.clear();
 		lastGitCwd = undefined;
 		tokenCache = undefined;
@@ -2210,6 +2229,8 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("model_select", async (_event, ctx) => {
+		streamingContextChars = 0;
+		lastContextSampleAt = Number.NEGATIVE_INFINITY;
 		emitModel(ctx);
 		emitThinking(ctx);
 		emitContext(ctx);
@@ -2237,6 +2258,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
+		streamingContextChars = 0;
 		emitContext(ctx);
 		stopWorkingTimer();
 		stopBalancePolling();
@@ -2247,10 +2269,11 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("message_update", async (event, ctx) => {
 		const now = Date.now();
-		if (now - lastContextSampleAt >= CONTEXT_SAMPLE_INTERVAL_MS) {
-			lastContextSampleAt = now;
-			emitContext(ctx);
-		}
+		const delta = event.assistantMessageEvent?.delta;
+		if (typeof delta === "string") streamingContextChars += delta.length;
+		const sample = now - lastContextSampleAt >= CONTEXT_SAMPLE_INTERVAL_MS;
+		if (sample) lastContextSampleAt = now;
+		emitContext(ctx, { chars: streamingContextChars, usage: event.message?.usage, sample });
 		const message = event.message;
 		if (!message || message.role !== "assistant") return;
 		const output = message.usage?.output;

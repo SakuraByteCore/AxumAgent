@@ -26,7 +26,7 @@ import {
   registerQuick,
 } from "../plugin/pi-agent/orchestrate.ts";
 import { buildPlanPrompt } from "../plugin/pi-agent/plan-prompt.ts";
-import { REGRESSION_GUARD_CLAUSE as AGENT_CLAUSE } from "../plugin/pi-agent/regression-guard.ts";
+import { REGRESSION_GUARD_CLAUSE as AGENT_CLAUSE, DISPATCH_AGENT_GUARD_CLAUSE } from "../plugin/pi-agent/regression-guard.ts";
 import { REGRESSION_GUARD_CLAUSE as COMPANION_CLAUSE } from "../plugin/pi-companion/regression-guard.ts";
 import {
 	assistantText,
@@ -144,18 +144,21 @@ test("buildDispatchArgs: defaults to squash on, independent context", () => {
   const args = buildDispatchArgs({ task: "fix the flaky test" });
   assert.ok(args.startsWith("-i -s fix the flaky test"));
   assert.ok(args.includes(AGENT_CLAUSE));
+  assert.ok(args.includes(DISPATCH_AGENT_GUARD_CLAUSE));
 });
 
 test("buildDispatchArgs: maps flags and quotes spaced values", () => {
   const args = buildDispatchArgs({ task: "summarize", isolate: true, squash: false, model: "gpt 5", thinking: "high" });
   assert.ok(args.startsWith('-i -m "gpt 5" --thinking high summarize'));
   assert.ok(args.includes(AGENT_CLAUSE));
+  assert.ok(args.includes(DISPATCH_AGENT_GUARD_CLAUSE));
 });
 
 test("buildDispatchArgs: empty model and thinking are dropped", () => {
   const args = buildDispatchArgs({ task: "x", model: "", thinking: "" });
   assert.ok(args.startsWith("-i -s x"));
   assert.ok(args.includes(AGENT_CLAUSE));
+  assert.ok(args.includes(DISPATCH_AGENT_GUARD_CLAUSE));
 });
 
 test("dispatch_agent execute starts an agent and reports its id", async () => {
@@ -172,6 +175,7 @@ test("dispatch_agent execute starts an agent and reports its id", async () => {
   assert.equal(calls.length, 1);
   assert.ok(calls[0].args.startsWith("-i -s -m gpt-5 fix the flaky test"));
   assert.ok(calls[0].args.includes(AGENT_CLAUSE));
+  assert.ok(calls[0].args.includes(DISPATCH_AGENT_GUARD_CLAUSE));
   assert.equal(calls[0].invocation, "dispatch_agent: fix the flaky test");
   assert.deepEqual(result.details, { agentId: "user-1", task: "task" });
   assert.match(result.content[0].text, /user-1/);
@@ -294,6 +298,7 @@ test("buildPlanPrompt falls back to the built-in skeleton when no template exist
     assert.ok(prompt.includes("角色：首席规划官"));
     assert.ok(prompt.includes("【模式铁律】"));
     assert.ok(prompt.includes(AGENT_CLAUSE));
+    assert.ok(prompt.includes(DISPATCH_AGENT_GUARD_CLAUSE));
     assert.match(prompt, /代码修改类方案禁止写“无”/);
     assert.ok(prompt.includes("【终稿契约】"));
     assert.ok(prompt.includes("<proposed_plan>"));
@@ -305,6 +310,7 @@ test("buildPlanPrompt substitutes {{requirement}} in the template file", async (
     const prompt = await buildPlanPrompt("add dark mode", templatePath);
     assert.ok(prompt.startsWith("Header\nadd dark mode\nFooter"));
     assert.ok(prompt.includes(AGENT_CLAUSE));
+    assert.ok(prompt.includes(DISPATCH_AGENT_GUARD_CLAUSE));
     assert.equal(AGENT_CLAUSE, COMPANION_CLAUSE);
   });
 });

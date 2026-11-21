@@ -5,7 +5,9 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { stripTypeScriptTypes } from "node:module";
-import { applyBundledPiPatches, patchPiGoalRegressionGuard, PI_GOAL_REGRESSION_GUARD_CLAUSE } from "../src/bundled-pi-patches.js";
+import { applyBundledPiPatches, patchPiGoalRegressionGuard, PI_GOAL_REGRESSION_GUARD_CLAUSE, PI_GOAL_DISPATCH_AGENT_GUARD_CLAUSE } from "../src/bundled-pi-patches.js";
+import { appendRegressionGuard as appendCompanionGuard, DISPATCH_AGENT_GUARD_CLAUSE as companionDispatchGuard } from "../plugin/pi-companion/regression-guard.ts";
+import { appendRegressionGuard as appendAgentGuard, DISPATCH_AGENT_GUARD_CLAUSE as agentDispatchGuard } from "../plugin/pi-agent/regression-guard.ts";
 import { compileExtensionPackage } from "../src/compile-bundled-extensions.js";
 
 const source = `function goalModeRules(goalLabel: string) {
@@ -27,11 +29,12 @@ test("goal prompt patch preserves existing rules and is idempotent for TS and JS
     const patched = patchPiGoalRegressionGuard(input);
     assert.notEqual(patched, input);
     assert.equal(patchPiGoalRegressionGuard(patched), patched);
-    assert.equal(patched.replace(`\n        ${JSON.stringify(PI_GOAL_REGRESSION_GUARD_CLAUSE)},`, ""), input);
+    assert.equal(patched.replace(`\n        ${JSON.stringify(PI_GOAL_REGRESSION_GUARD_CLAUSE)},`, "").replace(`\n        ${JSON.stringify(PI_GOAL_DISPATCH_AGENT_GUARD_CLAUSE)},`, ""), input);
     const module = await import(`data:text/javascript,${encodeURIComponent(stripTypeScriptTypes(patched, { mode: "transform" }))}`);
     for (const buildPrompt of Object.values(module)) {
       const prompt = buildPrompt("original goal");
       assert.equal(prompt.split(PI_GOAL_REGRESSION_GUARD_CLAUSE).length - 1, 1);
+      assert.equal(prompt.split(PI_GOAL_DISPATCH_AGENT_GUARD_CLAUSE).length - 1, 1);
       assert.ok(prompt.includes("Preserve the full objective across turns."));
       assert.ok(prompt.includes("original goal"));
     }
@@ -48,7 +51,7 @@ test("bundled patches update goal sources and warm JS caches without duplicate i
     ["@earendil-works/pi-tui/dist/stdin-buffer.js", "// looksLikeUnbracketedPaste"],
     ["@earendil-works/pi-coding-agent/dist/utils/pi-user-agent.js", "// AXUM_PI_USER_AGENT_CUSTOM"],
     ["@narumitw/pi-goal/package.json", '{"type":"module"}'],
-    ["@narumitw/pi-goal/src/prompts.ts", source],
+    ["@narumitw/pi-goal/src/prompts.ts", source.replace('"Goal-mode rules:",', `"Goal-mode rules:",\n        ${JSON.stringify(PI_GOAL_REGRESSION_GUARD_CLAUSE)},`)],
   ]) {
     const target = path.join(modules, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -61,9 +64,32 @@ test("bundled patches update goal sources and warm JS caches without duplicate i
     const file = path.join(goalRoot, "src", `prompts.${extension}`);
     assert.ok(results.some((result) => result.file === file && result.patched));
     assert.ok(fs.readFileSync(file, "utf8").includes(PI_GOAL_REGRESSION_GUARD_CLAUSE));
+    assert.ok(fs.readFileSync(file, "utf8").includes(JSON.stringify(PI_GOAL_DISPATCH_AGENT_GUARD_CLAUSE)));
   }
   assert.ok(applyBundledPiPatches(options).every((result) => !result.patched));
   compileExtensionPackage({ packageRoot: goalRoot });
   const module = await import(pathToFileURL(path.join(goalRoot, "src", "prompts.js")).href);
   assert.ok(module.buildContinuePrompt("goal").includes(PI_GOAL_REGRESSION_GUARD_CLAUSE));
+  for (const buildPrompt of Object.values(module)) {
+    const prompt = buildPrompt("warm goal");
+    assert.equal(prompt.split(PI_GOAL_REGRESSION_GUARD_CLAUSE).length - 1, 1);
+    assert.equal(prompt.split(PI_GOAL_DISPATCH_AGENT_GUARD_CLAUSE).length - 1, 1);
+  }
+});
+
+
+test("shared prompt guards preserve existing clauses and forbid explicit or default controlled-pi", () => {
+  assert.equal(companionDispatchGuard, agentDispatchGuard);
+  assert.equal(companionDispatchGuard, PI_GOAL_DISPATCH_AGENT_GUARD_CLAUSE);
+  assert.match(companionDispatchGuard, /backend="controlled-pi"/);
+  assert.match(companionDispatchGuard, /省略 backend.*禁止调用/);
+  for (const append of [appendCompanionGuard, appendAgentGuard]) {
+    for (const existing of ["original", `original\n${PI_GOAL_REGRESSION_GUARD_CLAUSE}`, `original\n${companionDispatchGuard}`, `original\n${PI_GOAL_REGRESSION_GUARD_CLAUSE}\n${companionDispatchGuard}`]) {
+      const result = append(existing);
+      assert.ok(result.startsWith(existing));
+      assert.equal(result.split(PI_GOAL_REGRESSION_GUARD_CLAUSE).length - 1, 1);
+      assert.equal(result.split(companionDispatchGuard).length - 1, 1);
+      assert.equal(append(result), result);
+    }
+  }
 });

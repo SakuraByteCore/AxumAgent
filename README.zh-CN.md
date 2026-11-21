@@ -43,9 +43,10 @@
 本分发包含以下包，一次安装全部就位:
 
 - `@earendil-works/pi-coding-agent`
-- `pi-bar`（AxumAgent 打包分支，已并入原 pi-header）
+- `pi-bar`（AxumAgent 打包分支，已并入原 pi-header）。Codex 样式状态栏自动查询 Sub2API 或 New API；`/balance` 手动刷新。New API 默认显示当前 API 令牌剩余额度，无限额度显示 `∞`；站点允许返回 `user_quota` 时显示账户余额。无需配置 provider 名称；接口不支持或权限拒绝时隐藏余额。
+  - 上下文百分比随每个流式增量刷新；提供商尚未上报用量时采用估算。UA 标签仅显示首个 `/` 前的内容；不含 `/` 时保留完整内容，终端宽度不足时裁剪。
 - `pi-companion`（合并自 pi-shortcuts + pi-guard：快捷指令 /plan /clear /ralph /loop /rules /claude /plugin-create-mode + 响应守卫 + 建议旁观者 + 内置 claude-driver skill）
-- `@narumitw/pi-goal`（所有 `/goal` 提示词——启动、目标更新、恢复、自动续跑及活动目标系统提示——共用代码修改的禁止回归条款：保留现有功能，执行受影响的既有测试，禁止删除或弱化断言，失败先修复再交付，报告风险、验证与恢复方案）
+- `@narumitw/pi-goal`（所有 `/goal` 提示词——启动、目标更新、恢复、自动续跑及活动目标系统提示——共用代码修改的禁止回归条款：保留现有功能，执行受影响的既有测试，禁止删除或弱化断言，失败先修复再交付，报告风险、验证与恢复方案）；同一入口追加禁止模型调用 `dispatch_agent backend="controlled-pi"` 的提示词规则，省略 `backend` 也禁止调用。任务由主线程完成，禁止通过其他工具、别名或外部进程绕过。该规则不移除工具注册，不改变用户显式命令
 - `pi-web-access`（Web 搜索、提取与内容整理工具：/websearch、/curator、/google-account、/search）
 - `pi-hashline-edit-pro`
 - `@gamaraan/todos-tool`（结构化 todo 追踪：todo 工具维护计划清单并以实时 HUD 显示在编辑器上方，另含 /todo 与 /todos-configure 命令）
