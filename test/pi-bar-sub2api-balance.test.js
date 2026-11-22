@@ -7,6 +7,7 @@ import {
 	isSub2ApiPayload,
 	newApiUsageUrl,
 	parseNewApiUsagePayload,
+	parseLegacyBillingPayload,
 	parseUsagePayload,
 	probeSub2ApiBalance,
 	usageUrl,
@@ -277,4 +278,55 @@ test("New API fallback does not mask auth or transient failures and never invent
 		assert.equal(probe.reason, reason);
 		assert.equal(probe.snapshot, undefined);
 	}
+});
+
+test("legacy billing subtracts cents and recognizes the One API unlimited sentinel", () => {
+	const subscription = { object: "billing_subscription", hard_limit_usd: 10 };
+	const usage = { object: "list", total_usage: 650 };
+	assert.equal(parseLegacyBillingPayload(subscription, usage).label, "$3.50");
+	assert.equal(parseLegacyBillingPayload(subscription, { ...usage, total_usage: 1000 }).label, "$0.00");
+	assert.equal(parseLegacyBillingPayload(subscription, { ...usage, total_usage: 1100 }).value, -1);
+	const unlimited = { ...subscription, hard_limit_usd: 100000000, soft_limit_usd: 100000000, system_hard_limit_usd: 100000000 };
+	assert.deepEqual(parseLegacyBillingPayload(unlimited), { label: "∞", mode: "legacy-token", value: null, unit: "USD" });
+	for (const invalid of [null, {}, { ...subscription, hard_limit_usd: "10" }, { ...subscription, hard_limit_usd: Infinity }, { ...subscription, hard_limit_usd: -1 }]) assert.equal(parseLegacyBillingPayload(invalid, usage), undefined);
+	for (const invalid of [null, {}, { ...usage, total_usage: "650" }, { ...usage, total_usage: Infinity }, { ...usage, total_usage: -1 }]) assert.equal(parseLegacyBillingPayload(subscription, invalid), undefined);
+});
+
+test("legacy billing follows unsupported New API routes, keeps prefixes and shares secure headers", async () => {
+	for (const status of [200, 404, 405]) {
+		const calls = [];
+		const probe = await probeSub2ApiBalance({ baseUrl: "https://example.com/proxy/v1?secret=x", apiKey: "sk-test", fetchImpl: async (url, init) => {
+			calls.push({ url, init });
+			if (url.endsWith("/v1/usage")) return new Response("", { status: 404 });
+			if (url.endsWith("/api/usage/token/")) return new Response("<html>app</html>", { status });
+			return new Response(JSON.stringify(url.endsWith("/subscription")
+				? { object: "billing_subscription", hard_limit_usd: 10 }
+				: { object: "list", total_usage: 650 }));
+		} });
+		assert.equal(probe.snapshot.label, "$3.50");
+		assert.deepEqual(calls.map(c => c.url), ["https://example.com/proxy/v1/usage", "https://example.com/proxy/api/usage/token/", "https://example.com/proxy/v1/dashboard/billing/subscription", "https://example.com/proxy/v1/dashboard/billing/usage"]);
+		for (const call of calls) {
+			assert.equal(call.init.headers.Authorization, "Bearer sk-test");
+			assert.equal(call.init.redirect, "error");
+			assert.equal(call.init.signal, calls[0].init.signal);
+		}
+	}
+});
+
+test("legacy billing rejects denied or malformed responses without inventing a balance", async () => {
+	for (const status of [401, 403, 429, 500]) {
+		const calls = [];
+		const probe = await probeSub2ApiBalance({ baseUrl: "https://example.com/v1", apiKey: "sk-test", fetchImpl: async (url) => {
+			calls.push(url);
+			return url.endsWith("/v1/usage") ? new Response("", { status: 404 }) : new Response("{}", { status });
+		} });
+		assert.equal(calls.length, 2);
+		assert.equal(probe.status, status);
+		assert.equal(probe.reason, "http-error");
+		assert.equal(probe.snapshot, undefined);
+	}
+	const unlimited = await probeSub2ApiBalance({ baseUrl: "https://example.com/v1", apiKey: "sk-test", fetchImpl: async (url) => new Response(JSON.stringify(url.endsWith("/subscription")
+		? { object: "billing_subscription", hard_limit_usd: 100000000, soft_limit_usd: 100000000, system_hard_limit_usd: 100000000 } : {})) });
+	assert.equal(unlimited.snapshot.label, "∞");
+	assert.equal(unlimited.snapshot.mode, "legacy-token");
 });

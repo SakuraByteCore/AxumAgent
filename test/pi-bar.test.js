@@ -580,6 +580,10 @@ test("/balance reports unavailable probes and marks a retained balance", async (
 		: new Response(JSON.stringify({ code: true, data: { object: "token_usage", total_available: 1750000 } })));
 	await commands.get("balance").handler("", ctx);
 	assert.match(notifications.pop().message, /余额 \$3\.50（newapi）/);
+	t.mock.method(globalThis, "fetch", async (url) => new Response(JSON.stringify(url.endsWith("/subscription")
+		? { object: "billing_subscription", hard_limit_usd: 100000000, soft_limit_usd: 100000000, system_hard_limit_usd: 100000000 } : {})));
+	await commands.get("balance").handler("", ctx);
+	assert.match(notifications.pop().message, /令牌额度 ∞（newapi）/);
 
 });
 

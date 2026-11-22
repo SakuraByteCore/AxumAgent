@@ -18,6 +18,9 @@
  * GET {base without /v1}/api/usage/token/ (QuantumNous/new-api). Only its
  * successful `data.object: "token_usage"` envelope is accepted. Internal quota
  * uses 500,000 units per USD; user_quota is available only with permission.
+ * Older One API forks fall back to /v1/dashboard/billing/{subscription,usage}.
+ * Limits are USD; usage is cents. The 100,000,000 USD sentinel means an unlimited
+ * token, not an account balance (songquanpeng/one-api controller/billing.go).
  * Keep token/account scope in snapshot.mode; display only the amount.
  *
  * The API key is only ever used as a request header: it is never logged,
@@ -51,6 +54,26 @@ const USAGE_MODES = new Set(["quota_limited", "unrestricted"]);
 
 const NEW_API_QUOTA_PER_USD = 500_000;
 const UNSUPPORTED_USAGE_STATUSES = new Set([404, 405]);
+
+const LEGACY_UNLIMITED_USD = 100_000_000;
+const CENTS_PER_USD = 100;
+
+/** One API's legacy billing contract; the sentinel is a token limit, not cash. */
+export function parseLegacyBillingPayload(subscription: unknown, usage?: unknown): BalanceSnapshot | undefined {
+	if (!subscription || typeof subscription !== "object") return undefined;
+	const billing = subscription as Record<string, unknown>;
+	const limit = billing.hard_limit_usd;
+	if (billing.object !== "billing_subscription" || typeof limit !== "number" || !Number.isFinite(limit) || limit < 0) return undefined;
+	if (limit === LEGACY_UNLIMITED_USD && billing.soft_limit_usd === limit && billing.system_hard_limit_usd === limit) {
+		return { label: "∞", mode: "legacy-token", value: null, unit: "USD" };
+	}
+	if (!usage || typeof usage !== "object") return undefined;
+	const consumed = usage as Record<string, unknown>;
+	const cents = consumed.total_usage;
+	if (consumed.object !== "list" || typeof cents !== "number" || !Number.isFinite(cents) || cents < 0) return undefined;
+	const value = limit - cents / CENTS_PER_USD;
+	return { label: formatAmount(value, "USD"), mode: "legacy-billing", value, unit: "USD" };
+}
 
 /** Preserve a reverse-proxy prefix while replacing the OpenAI /v1 suffix. */
 export function newApiUsageUrl(baseUrl: string): string {
@@ -165,7 +188,7 @@ export function parseUsagePayload(payload: unknown): BalanceSnapshot | undefined
 }
 
 /**
- * Probe Sub2API, falling back to New API on unsupported routes or schemas.
+ * Probe Sub2API, New API, then legacy billing on unsupported routes or schemas.
  * Transport, status and schema failures return reasons without throwing.
  * Keep the exported name for callers of the original Sub2API helper.
  */
@@ -199,11 +222,24 @@ export async function probeSub2ApiBalance(options: {
 			return { status: response.status, reason: "http-error" };
 		}
 		const fallback = await doFetch(newApiUsageUrl(options.baseUrl), init);
-		if (!fallback.ok) return { status: fallback.status, reason: "http-error" };
-		const payload = await fallback.json().catch(() => undefined);
-		if (!newApiUsageData(payload)) return { status: fallback.status, reason: "not-sub2api" };
-		const snapshot = parseNewApiUsagePayload(payload);
-		return { snapshot, status: fallback.status, reason: snapshot ? "ok" : "no-balance" };
+		if (!fallback.ok && !UNSUPPORTED_USAGE_STATUSES.has(fallback.status)) return { status: fallback.status, reason: "http-error" };
+		const payload = fallback.ok ? await fallback.json().catch(() => undefined) : undefined;
+		if (newApiUsageData(payload)) {
+			const snapshot = parseNewApiUsagePayload(payload);
+			return { snapshot, status: fallback.status, reason: snapshot ? "ok" : "no-balance" };
+		}
+		// Older One API forks expose only the OpenAI dashboard billing routes.
+		const billingUrl = url.replace(/\/usage$/, "/dashboard/billing/");
+		const subscription = await doFetch(`${billingUrl}subscription`, init);
+		if (!subscription.ok) return { status: subscription.status, reason: "http-error" };
+		const billing = await subscription.json().catch(() => undefined);
+		if (billing?.object !== "billing_subscription") return { status: subscription.status, reason: "not-sub2api" };
+		const unlimited = parseLegacyBillingPayload(billing);
+		if (unlimited) return { snapshot: unlimited, status: subscription.status, reason: "ok" };
+		const consumed = await doFetch(`${billingUrl}usage`, init);
+		if (!consumed.ok) return { status: consumed.status, reason: "http-error" };
+		const snapshot = parseLegacyBillingPayload(billing, await consumed.json().catch(() => undefined));
+		return { snapshot, status: consumed.status, reason: snapshot ? "ok" : "no-balance" };
 	} catch {
 		return { status: 0, reason: "network-error" };
 	}

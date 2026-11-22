@@ -2040,7 +2040,7 @@ export default function (pi: ExtensionAPI): void {
 	);
 
 	// --- Provider balance (Codex row 1, center) ---
-	// Probe Sub2API, then New API's read-only token usage endpoint.
+	// Probe Sub2API, New API token usage, then legacy One API billing.
 	// Trust only recognized schemas; provider IDs need no special configuration.
 	const balanceCache = new BalanceCache();
 	const BALANCE_DEBUG = process.env.AXUM_BALANCE_DEBUG === "1";
@@ -2060,6 +2060,7 @@ export default function (pi: ExtensionAPI): void {
 	interface BalanceOutcome {
 		shown: boolean;
 		label?: string;
+		scope?: string;
 		provider?: string;
 		reason?: string;
 	}
@@ -2108,7 +2109,7 @@ export default function (pi: ExtensionAPI): void {
 			const label = probe.snapshot ? `${probe.stale ? "~" : ""}${probe.snapshot.label}` : undefined;
 			emitBarUpdate({ id: "balance", text: label, color: "text" });
 			return probe.snapshot
-				? { shown: true, label, provider: providerId, reason: probe.reason }
+				? { shown: true, label, scope: probe.snapshot.mode, provider: providerId, reason: probe.reason }
 				: { shown: false, provider: providerId, reason: probe.reason };
 		} catch (error) {
 			const reason = error instanceof Error ? error.message : String(error);
@@ -2143,12 +2144,12 @@ export default function (pi: ExtensionAPI): void {
 	// /balance re-probes the current provider on demand and reports why the
 	// segment is empty, so a missing balance is diagnosable without a restart.
 	pi.registerCommand("balance", {
-		description: "手动刷新 Sub2API / New API 余额并报告不可用原因",
+		description: "手动刷新 Sub2API / New API / 旧版计费额度并报告不可用原因",
 		async handler(_args: string, ctx: ExtensionContext) {
 			const outcome = await emitBalance(ctx, { force: true, retryFailed: true });
 			if (outcome.shown) {
 				const stale = outcome.reason !== "ok";
-				ctx.ui.notify(`余额 ${outcome.label}（${outcome.provider}）${stale ? "，未刷新：" + outcome.reason : ""}`, stale ? "warning" : "info");
+				ctx.ui.notify(`${outcome.scope === "legacy-token" ? "令牌额度" : "余额"} ${outcome.label}（${outcome.provider}）${stale ? "，未刷新：" + outcome.reason : ""}`, stale ? "warning" : "info");
 			} else {
 				ctx.ui.notify(`余额不可用：${outcome.reason ?? "unknown"}（provider=${outcome.provider ?? "-"}）`, "warning");
 			}
