@@ -55,6 +55,8 @@ Configure your Provider and System Prompt on the Web UI:
 axum web
 ```
 
+Click **Export** on a saved provider to download only that provider as JSON, including its API key and model settings. **Import providers** accepts this file and overwrites the complete record when the name already exists; unrelated providers stay unchanged. Single-provider exports omit sessions and prompt history. If the exported provider is the current default, its default selection is restored on import. **Export all providers** keeps the existing bulk migration behavior. Keep exported files private; export the old record before importing to restore it later.
+
 Chat in the browser with the bundled pi-web UI (shares providers and sessions with `axum code`):
 
 ```bash
