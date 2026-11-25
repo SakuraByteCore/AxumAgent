@@ -49,7 +49,10 @@ test("compiled /loop runs through real SDK commands, scheduled turns and wakeup 
     let content = [{ type: "text", text: "checked" }];
     if (prompt.includes("ScheduleWakeup") && !called) {
       dynamicTurns++;
-      content = [{ type: "toolCall", id: `wakeup-${dynamicTurns}`, name: "ScheduleWakeup", arguments: dynamicTurns === 1 ? { delaySeconds: 60, reason: "等待下一轮 CI" } : { stop: true } }];
+      assert.match(prompt, /^检查 CI\n\n/);
+      if (dynamicTurns === 1 || dynamicTurns === 4) {
+        content = [{ type: "toolCall", id: `wakeup-${dynamicTurns}`, name: "ScheduleWakeup", arguments: dynamicTurns === 1 ? { delaySeconds: 60, reason: "等待下一轮 CI" } : { stop: true } }];
+      }
     }
     const message = { role: "assistant", content, api: model.api, provider: model.provider, model: model.id,
       stopReason: content[0].type === "toolCall" ? "toolUse" : "stop", timestamp: Date.now(),
@@ -66,13 +69,20 @@ test("compiled /loop runs through real SDK commands, scheduled turns and wakeup 
   assert.equal(session.agent.state.messages.find(message => message.role === "user").content[0].text, "/clear", "scheduled slash text must reach the model, not run /clear");
   assert.ok(session.agent.state.messages.some(message => message.role === "assistant"));
   await session.prompt("/loop cancel all"); assert.equal(latest().tasks.length, 0);
-  await session.prompt("/loop 检查 CI"); await tick(1000);
+  await session.prompt("/loop 检查 CI");
+  await new Promise(resolve => setImmediate(resolve)); await session.waitForIdle();
+  assert.equal(dynamicTurns, 1, "the first dynamic round starts without ticking the interval");
   const first = session.agent.state.messages.find(message => message.role === "toolResult" && message.toolName === "ScheduleWakeup");
   assert.ok(first && !first.isError, JSON.stringify(session.agent.state.messages)); assert.match(first.content[0].text, /动态单次/);
-  await tick(60000); assert.equal(dynamicTurns, 2);
+  await tick(59999); assert.equal(dynamicTurns, 1, "explicit wakeup cannot run early");
+  await tick(1);
+  for (let i = 0; i < 4 && dynamicTurns < 4; i++) {
+    await new Promise(resolve => setImmediate(resolve)); await session.waitForIdle();
+  }
+  assert.equal(dynamicTurns, 4, "two omitted delays must immediately rerun the prompt without advancing timers");
   const results = session.agent.state.messages.filter(message => message.role === "toolResult" && message.toolName === "ScheduleWakeup");
   assert.equal(results.length, 2); assert.equal(results[1].isError, false); assert.match(results[1].content[0].text, /停止/);
-  await tick(3600000); assert.equal(dynamicTurns, 2, "stop prevents further real model turns");
+  await tick(3600000); assert.equal(dynamicTurns, 4, "stop prevents further real model turns");
   assert.deepEqual(errors, []);
   await session.prompt("/loop 1m disposed");
   const stopped = []; t.mock.method(console, "error", message => stopped.push(message));

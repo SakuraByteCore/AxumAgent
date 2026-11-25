@@ -69,7 +69,7 @@
 /loop cancel all
 ```
 
-指定间隔时按 cron 运行；省略间隔时由模型在每轮结束选择下一次等待时间（1 分钟至 1 小时）。省略提示词时读取项目 `.pi/loop.md` 或用户 `~/.pi/agent/loop.md`，兼容 `.claude/loop.md`；没有文件则继续未完成工作、维护当前 PR、检查缺陷。
+指定间隔时按 cron 运行；`/loop <提示词>` 在会话空闲时开始反复执行该提示词，确认验收通过后停止。未通过时，模型可指定下轮等待时间（1 分钟至 1 小时）；未指定则本轮结束、会话空闲后立即续跑。省略提示词时读取项目 `.pi/loop.md` 或用户 `~/.pi/agent/loop.md`，兼容 `.claude/loop.md`；没有文件则继续未完成工作、维护当前 PR、检查缺陷。
 
 任务仅在会话运行且空闲时触发，忙时合并错过的周期。固定任务支持恢复原会话，动态循环需重新启动；循环七天后过期。提供 `CronCreate`、`CronList`、`CronDelete`、`ScheduleWakeup` 工具，支持自然语言创建、查看、取消或单次提醒。动态等待时空输入按 `Esc` 或 `Ctrl+C` 可停止，固定任务通过取消命令停止。设置 `AXUM_DISABLE_CRON=1` 关闭调度。实现见[循环调度源码](plugin/pi-companion/loop.ts)。
 

@@ -88,16 +88,22 @@ test("scheduler coalesces missed intervals and deletes one-shot and final expire
   advance(one.nextRun); s.begin(one.id); assert.equal(s.list().length, 0); s.settle();
 });
 
-test("dynamic loops rearm, report delay, stop, retain seven-day origin and get only one fallback", () => {
+test("dynamic loops rearm, report delay, stop and keep falling back until expiry", () => {
   const { scheduler: s, advance } = schedulerFixture();
   const task = s.create({ prompt: "watch" }); s.begin(task.id);
   for (const delaySeconds of [0, 59, 3601, 60.5]) assert.throws(() => s.wakeup({ delaySeconds, reason: "waiting" }));
   assert.throws(() => s.wakeup({ delaySeconds: 60, reason: " " }));
   const next = s.wakeup({ delaySeconds: 120, reason: "CI active" });
   assert.equal(next.createdAt, task.createdAt); assert.equal(next.recurring, false); s.settle();
-  advance(next.nextRun); s.begin(task.id); s.settle();
-  assert.equal(s.list()[0].fallbackUsed, true);
-  advance(s.list()[0].nextRun); s.begin(task.id); s.settle(); assert.equal(s.list().length, 0);
+  assert.equal(s.list()[0].nextRun, next.nextRun);
+  advance(next.nextRun);
+  for (let round = 0; round < 2; round++) {
+    assert.ok(s.begin(task.id)); s.settle();
+    assert.equal(s.list()[0].nextRun, s.now());
+    advance(s.list()[0].nextRun);
+  }
+  advance(task.createdAt + LOOP_TTL); s.begin(task.id); s.settle();
+  assert.equal(s.list().length, 0, "fallback cannot extend the lifetime");
   const final = s.create({ prompt: "watch" }); s.begin(final.id);
   s.wakeup({ delaySeconds: 60, reason: "wait" }); s.settle(); advance(final.createdAt + LOOP_TTL);
   s.begin(final.id); assert.equal(s.wakeup({ delaySeconds: 60, reason: "wait" }), undefined); s.settle();

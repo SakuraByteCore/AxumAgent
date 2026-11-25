@@ -4,12 +4,12 @@ import { open } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { parseLoopArguments } from "./loop-cron.ts";
-import { isLoopSnapshot, LOOP_ENTRY, LoopScheduler, type LoopTask, type SchedulerOptions } from "./loop-scheduler.ts";
+import { isLoopSnapshot, LOOP_ENTRY, LOOP_RUNNING, LoopScheduler, type LoopTask, type SchedulerOptions } from "./loop-scheduler.ts";
 
 const TICK_MS = 1000;
 const DEFAULT_PROMPT_BYTES = 25_000;
 export const MAINTENANCE_PROMPT = `继续本会话尚未完成的工作；完成后维护当前分支的 PR：处理审查评论、失败 CI 和合并冲突；没有待办时检查缺陷或简化代码。沿用本会话权限与用户授权，推送、删除或发布仍须具备对应授权。`;
-const HELP = "/loop [30s|5m|2h|1d] [提示词]；/loop <提示词> every 2 hours；/loop list；/loop cancel <id|all>。无间隔时由模型每轮选择 1 分钟至 1 小时；无提示词时使用 loop.md 或维护任务。";
+const HELP = "/loop [30s|5m|2h|1d] [提示词]；/loop <提示词> every 2 hours；/loop list；/loop cancel <id|all>。无间隔时重复执行，验收通过才自动停止；可选 1 分钟至 1 小时的下轮延迟，未指定则本轮结束后立即续跑。无提示词时使用 loop.md 或维护任务。";
 
 export async function readLoopPrompt(cwd: string, home: string = homedir()): Promise<string> {
   const paths = [join(cwd, ".pi", "loop.md"), join(cwd, ".claude", "loop.md"), join(home, ".pi", "agent", "loop.md"), join(home, ".claude", "loop.md")];
@@ -35,7 +35,7 @@ function disabled(): boolean {
 }
 function describe(task: LoopTask): string {
   const schedule = task.dynamic ? "动态单次唤醒" : `${task.schedule}${task.recurring ? "（循环）" : "（单次）"}`;
-  const next = task.nextRun === Number.MAX_SAFE_INTEGER ? "本轮执行中" : `下次 ${new Date(task.nextRun).toLocaleString()}`;
+  const next = task.nextRun === LOOP_RUNNING ? "本轮执行中" : `下次 ${new Date(task.nextRun).toLocaleString()}`;
   return `${task.id} · ${schedule} · ${next} · ${task.useDefault ? "loop.md / 维护任务" : task.prompt}`;
 }
 function result(text: string) { return { content: [{ type: "text" as const, text }], details: {} }; }
@@ -46,6 +46,7 @@ export function registerLoop(pi: ExtensionAPI, options: SchedulerOptions = {}): 
   let context: ExtensionContext | undefined;
   let sessionId: string | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let immediate: ReturnType<typeof setImmediate> | undefined;
   let removeKeys: (() => void) | undefined;
   let generation = 0;
   let dispatching = false;
@@ -54,16 +55,27 @@ export function registerLoop(pi: ExtensionAPI, options: SchedulerOptions = {}): 
     if (context && identity(context) === sessionId) pi.appendEntry?.(LOOP_ENTRY, scheduler.snapshot(context.cwd));
     context?.ui.setStatus?.("loop", scheduler.list().length ? `↻ ${scheduler.list().length} 个调度任务` : undefined);
   };
-  const stopTimer = () => { if (timer) clearInterval(timer); timer = undefined; };
+  const stopTimer = () => {
+    if (timer) clearInterval(timer);
+    if (immediate) clearImmediate(immediate);
+    timer = immediate = undefined;
+  };
+  const dispatch = () => {
+    void tick().catch(error => {
+      stopTimer(); scheduler.clear(); context = undefined;
+      console.error(`/loop 调度已停止：${errorText(error)}`);
+    });
+  };
+  const dispatchReadyDynamic = () => {
+    if (immediate || disabled() || !scheduler.due()?.dynamic) return;
+    // Yield past Pi's settled hooks before checking idle and pending user input.
+    immediate = setImmediate(() => { immediate = undefined; dispatch(); });
+    immediate.unref?.();
+  };
   const arm = () => {
     if (disabled() || !scheduler.list().length) { stopTimer(); return; }
     if (!timer) {
-      timer = setInterval(() => {
-        void tick().catch(error => {
-          stopTimer(); scheduler.clear(); context = undefined;
-          console.error(`/loop 调度已停止：${errorText(error)}`);
-        });
-      }, TICK_MS);
+      timer = setInterval(dispatch, TICK_MS);
       timer.unref?.();
     }
   };
@@ -87,7 +99,7 @@ export function registerLoop(pi: ExtensionAPI, options: SchedulerOptions = {}): 
       if (generation !== currentGeneration || identity(ctx) !== sessionId || disabled() || !ctx.isIdle() || ctx.hasPendingMessages()) return;
       if (!scheduler.begin(task.id)) return;
       const instruction = task.dynamic
-        ? `\n\n[动态 /loop ${task.id}] 完成本轮后调用 ScheduleWakeup，提供 delaySeconds（60–3600）与 reason，说明下次延迟及依据；任务完成时调用 stop: true。不得同时创建其他计时任务来维持本循环。`
+        ? `\n\n[动态 /loop ${task.id}] 每轮执行上面的提示词，并核对其验收条件。只有确认全部通过才调用 ScheduleWakeup({ stop: true })；有失败、阻塞或缺少证据时不得标记通过。未通过时可调用 ScheduleWakeup 指定下轮延迟 delaySeconds（60–3600）及原因 reason；不调用则本轮结束后立即续跑。不要另建计时任务。`
         : "";
       // Plain text preserves skill visibility/permission checks and cannot execute /clear etc.
       await pi.sendUserMessage(prompt + instruction, { deliverAs: "followUp", expandPromptTemplates: false });
@@ -123,7 +135,7 @@ export function registerLoop(pi: ExtensionAPI, options: SchedulerOptions = {}): 
         changed();
         const rounded = parsed.actualMinutes !== parsed.requestedMinutes ? `间隔已取整为 ${parsed.actualMinutes} 分钟。\n` : "";
         ctx.ui.notify(`${rounded}${describe(task)}\n循环任务七天后过期；仅在当前会话运行时触发。`, "info");
-        // Fixed schedules wait for their first due time; dynamic loops start on the next idle tick.
+        if (task.dynamic) dispatchReadyDynamic();
       } catch (error) { ctx.ui.notify(errorText(error), "error"); }
     },
   });
@@ -150,7 +162,7 @@ export function registerLoop(pi: ExtensionAPI, options: SchedulerOptions = {}): 
     },
   });
   pi.registerTool({
-    name: "ScheduleWakeup", label: "ScheduleWakeup", description: "在动态 /loop 每轮结束时选择下次延迟（60–3600 秒），提供 reason；完成时传 stop:true。默认操作当前动态任务，其他动态任务指定 id。仅允许当前会话。",
+    name: "ScheduleWakeup", label: "ScheduleWakeup", description: "为动态 /loop 指定下轮延迟（60–3600 秒）和 reason；不指定则本轮结束后立即续跑。验收通过时传 stop:true。默认操作当前动态任务，其他动态任务指定 id。仅允许当前会话。",
     parameters: Type.Object({ id: Type.Optional(Type.String()), delaySeconds: Type.Optional(Type.Integer({ minimum: 60, maximum: 3600 })), reason: Type.Optional(Type.String()), stop: Type.Optional(Type.Boolean()) }),
     async execute(_id, params, _signal, _update, ctx) {
       adopt(ctx);
@@ -185,7 +197,10 @@ export function registerLoop(pi: ExtensionAPI, options: SchedulerOptions = {}): 
     });
     save(); arm();
   });
-  pi.on("agent_settled", () => { if (scheduler.busy) { scheduler.settle(); changed(); } });
+  pi.on("agent_settled", () => {
+    if (scheduler.busy) { scheduler.settle(); changed(); }
+    dispatchReadyDynamic();
+  });
   pi.on("session_shutdown", () => {
     stopTimer(); removeKeys?.(); removeKeys = undefined;
     context?.ui.setStatus?.("loop", undefined);

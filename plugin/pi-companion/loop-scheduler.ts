@@ -3,7 +3,7 @@ import { cronFireTime, LOOP_TTL, parseCron } from "./loop-cron.ts";
 
 export const MAX_LOOP_TASKS = 50;
 const MINUTE = 60_000;
-const FALLBACK_DELAY = 20 * MINUTE;
+export const LOOP_RUNNING = Number.MAX_SAFE_INTEGER;
 export const LOOP_ENTRY = "axum-loop-tasks-v1";
 
 export interface LoopTask {
@@ -16,15 +16,13 @@ export interface LoopTask {
   createdAt: number;
   nextRun: number;
   jitter: number;
-  fallbackUsed: boolean;
 }
-export interface LoopSnapshot { version: 1; cwd: string; tasks: LoopTask[] }
+export interface LoopSnapshot { version: 1; cwd: string; tasks: (LoopTask & { fallbackUsed: boolean })[] }
 export interface SchedulerOptions { now?: () => number; random?: () => number; id?: () => string }
 
 export class LoopScheduler {
   private tasks = new Map<string, LoopTask>();
   private running?: LoopTask;
-  private rescheduled = false;
   private cancelled = false;
   readonly now: () => number;
   private readonly random: () => number;
@@ -52,7 +50,7 @@ export class LoopScheduler {
     let id = this.makeId();
     while (this.tasks.has(id)) id = this.makeId();
     const task: LoopTask = { id, prompt: options.prompt, useDefault: options.useDefault === true, schedule: options.schedule,
-      recurring, dynamic, createdAt, nextRun: recurring ? Math.min(nextRun, createdAt + LOOP_TTL) : nextRun, jitter, fallbackUsed: false };
+      recurring, dynamic, createdAt, nextRun: recurring ? Math.min(nextRun, createdAt + LOOP_TTL) : nextRun, jitter };
     this.tasks.set(id, task);
     return { ...task };
   }
@@ -63,7 +61,7 @@ export class LoopScheduler {
     return this.tasks.delete(id);
   }
 
-  clear(): void { this.tasks.clear(); this.running = undefined; this.rescheduled = false; this.cancelled = false; }
+  clear(): void { this.tasks.clear(); this.running = undefined; this.cancelled = false; }
 
   due(): LoopTask | undefined {
     if (this.running) return undefined;
@@ -74,14 +72,13 @@ export class LoopScheduler {
     const task = this.tasks.get(id);
     if (this.running || !task || task.nextRun > this.now()) return undefined;
     this.running = { ...task };
-    this.rescheduled = false;
     this.cancelled = false;
     if (!task.dynamic) {
       if (!task.recurring || this.now() >= task.createdAt + LOOP_TTL) this.tasks.delete(id);
       else task.nextRun = Math.min(task.createdAt + LOOP_TTL, cronFireTime({ schedule: task.schedule!, after: this.now(), recurring: true, jitter: task.jitter }));
     } else {
       // Keep the same ID and creation time throughout the self-paced loop.
-      task.nextRun = Number.MAX_SAFE_INTEGER;
+      task.nextRun = LOOP_RUNNING;
     }
     return { ...this.running };
   }
@@ -95,21 +92,18 @@ export class LoopScheduler {
   wakeup(options: { id?: string; delaySeconds?: number; reason?: string; stop?: boolean }): LoopTask | undefined {
     const task = options.id ? this.tasks.get(options.id) : this.running && this.tasks.get(this.running.id);
     if (!task?.dynamic) throw new Error("ScheduleWakeup 只能调度当前动态循环；其他循环须提供 id。");
-    if (options.stop) { this.delete(task.id); this.rescheduled = true; return undefined; }
+    if (options.stop) { this.delete(task.id); return undefined; }
     const seconds = options.delaySeconds;
     if (seconds === undefined || !Number.isInteger(seconds) || seconds < 60 || seconds > 3600 || !options.reason?.trim()) {
       throw new Error("提供 delaySeconds（60 至 3600 的整数）及 reason，或 stop: true。");
     }
     if (this.now() >= task.createdAt + LOOP_TTL) {
       this.tasks.delete(task.id);
-      this.rescheduled = true;
       return undefined;
     }
     const nominal = this.now() + seconds * 1000;
     const minute = new Date(nominal).getMinutes();
     task.nextRun = Math.min(task.createdAt + LOOP_TTL, Math.max(this.now() + MINUTE, nominal - (minute === 0 || minute === 30 ? task.jitter * 90_000 : 0)));
-    task.fallbackUsed = false;
-    if (this.running?.id === task.id) this.rescheduled = true;
     return { ...task };
   }
 
@@ -119,11 +113,10 @@ export class LoopScheduler {
     if (!running?.dynamic) return;
     const task = this.tasks.get(running.id);
     if (!task) return;
-    if (this.now() >= task.createdAt + LOOP_TTL || (!this.rescheduled && task.fallbackUsed)) {
+    if (this.now() >= task.createdAt + LOOP_TTL) {
       this.tasks.delete(task.id);
-    } else if (!this.rescheduled) {
-      task.nextRun = Math.min(task.createdAt + LOOP_TTL, this.now() + FALLBACK_DELAY);
-      task.fallbackUsed = true;
+    } else if (task.nextRun === LOOP_RUNNING) {
+      task.nextRun = this.now();
     }
   }
 
@@ -136,7 +129,9 @@ export class LoopScheduler {
   }
 
   snapshot(cwd: string): LoopSnapshot {
-    return { version: 1, cwd, tasks: this.list().filter(task => !task.dynamic) };
+    // Older releases require this field when reading v1 fixed-task snapshots.
+    const tasks = this.list().filter(task => !task.dynamic).map(task => ({ ...task, fallbackUsed: false }));
+    return { version: 1, cwd, tasks };
   }
 
   restore(data: LoopSnapshot, cwd: string): void {

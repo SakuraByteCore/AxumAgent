@@ -89,6 +89,8 @@ axum --version
 axum doctor
 ```
 
+`/loop <prompt>` runs the same prompt whenever the session is idle and the next round is due. It stops automatically only after the model confirms acceptance. The model can set the next delay (1 minute to 1 hour); otherwise the next round starts as soon as the session is idle. Use `/loop cancel <id|all>` to stop it early. Dynamic loops expire after seven days and do not resume after restart.
+
 ## Bundled Runtime
 
 The distribution ships these packages, all in one install:
